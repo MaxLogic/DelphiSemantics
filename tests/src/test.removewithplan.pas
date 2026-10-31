@@ -1449,7 +1449,8 @@ begin
   Assert.AreEqual('skipped', aStatement.RewriteRecipe.Status);
   Assert.AreEqual(aReason, aStatement.RewriteRecipe.Reason);
   Assert.AreEqual(aSafetyReason, aStatement.RewriteRecipe.SafetyReason);
-  Assert.AreEqual(aSafetyReason, aStatement.RewriteRecipe.RuleId);
+  // A-367: newly listed refusals have distinct reason and safety codes.
+  Assert.AreEqual(aReason, aStatement.RewriteRecipe.RuleId);
   Assert.AreEqual('semantic-remove-with-final-planner', aStatement.RewriteRecipe.Provenance);
   Assert.AreEqual('skip-final-statement', aStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', aStatement.RewriteRecipe.ReplacementText);
@@ -8924,7 +8925,7 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9794,7 +9795,7 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9862,7 +9863,7 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9930,7 +9931,7 @@ begin
   Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -10194,7 +10195,7 @@ begin
   AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -15322,7 +15323,7 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -15554,9 +15555,10 @@ begin
       if (lPlan.FinalStatements[i].FileName = lOwnerStatement.FileName) and
         (lPlan.FinalStatements[i].Edits[j].Kind = 'declare-temp') and
         (SourceRangeText(lPlan.FinalStatements[i].Edits[j].Range) =
-        SourceRangeText(lOwnerStatement.Edits[0].Range)) then
+        '315:1-315:1') then
         Inc(lDeclarationCount);
-  Assert.AreEqual(1, lDeclarationCount);
+  // A-367: both refused statements leave no declaration at the former shared site.
+  Assert.AreEqual(0, lDeclarationCount);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 316, 3, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
@@ -19295,7 +19297,7 @@ begin
   Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));

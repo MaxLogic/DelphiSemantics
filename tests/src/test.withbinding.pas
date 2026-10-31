@@ -484,6 +484,7 @@ var
   lRootPath: string;
   lSessionOptions: TDelphiSemanticOptions;
   lSessionPlan: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSessionReplacement: string;
   lSessionResult: TDelphiSemanticProjectSessionResult;
   lSource: string;
 begin
@@ -606,6 +607,7 @@ begin
   lSessionOptions.ProjectPath := TPath.Combine(lRootPath, 'LabelCache.dproj');
   lSessionOptions.SqliteCacheFileName := TPath.Combine(lRootPath, '.dak\label-cache.sqlite3');
   lSessionOptions.SkipWithBindingSemanticGraph := True;
+  lSessionReplacement := '';
   for i := 0 to 1 do
   begin
     lSessionResult := TDelphiSemanticProjectSession.Open(lSessionOptions);
@@ -614,6 +616,8 @@ begin
       lSessionPlan := lSessionResult.Session.PlanRemoveWithResult;
       Assert.AreEqual(i, lSessionPlan.SnapshotMetrics.SnapshotCacheHits);
       Assert.AreEqual(1, Integer(Length(lSessionPlan.Plan.FinalStatements)));
+      if i = 0 then
+        lSessionReplacement := lSessionPlan.Plan.FinalStatements[0].ReplacementText;
       // A-367: direct deserialized models refuse; both source-backed session routes keep their positive.
       Assert.IsTrue(((aCase in [0, 1, 6, 7, 8, 10, 11]) and
         (lSessionPlan.Plan.FinalStatements[0].Status = 'planned')) or
@@ -623,7 +627,14 @@ begin
       Assert.IsTrue(((aCase in [0, 1, 6, 7, 8, 10, 11]) and
         ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, 'goto ' + lLabelName + ';') and
         ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, lLabelName + ':') and
-        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, '.Value := 1;')) or
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, '.Value := 1;') and
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText, '.Value := 2;') and
+        (lSessionPlan.Plan.FinalStatements[0].ReplacementText = lSessionReplacement) and
+        ((aCase <> 10) or ((Length(lSessionPlan.Plan.FinalStatements[0].Temps) = 1) and
+        ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText,
+          '.&Goto := ' + lSessionPlan.Plan.FinalStatements[0].Temps[0].TempName + '^.Value;') and
+        not ContainsText(lSessionPlan.Plan.FinalStatements[0].ReplacementText,
+          '&' + lSessionPlan.Plan.FinalStatements[0].Temps[0].TempName)))) or
         ((not (aCase in [0, 1, 6, 7, 8, 10, 11])) and
         (lSessionPlan.Plan.FinalStatements[0].ReplacementText = lPlan.FinalStatements[0].ReplacementText) and
         (Length(lSessionPlan.Plan.FinalStatements[0].Edits) = 0) and

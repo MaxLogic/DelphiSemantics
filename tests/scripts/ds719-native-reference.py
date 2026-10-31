@@ -782,11 +782,13 @@ def generate(repo, root, full, only=""):
         prefixes = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
         assert prefixes, "Empty native selection"
         cases = [case for case in cases if case["name"].startswith(prefixes)]
-    # DS-719 A-367: these exact positives now require the declaration-site refusal.
+    # DS-719 A-367: these exact positives require the exact listed refusal.
     for case in cases:
         if case['name'] in ('r7-later-var-indexed-1', 'r7-later-field-indexed-1'):
             case.pop('expect_plan', None)
-            case['expect_refusal'] = 'TYPE_VISIBILITY_UNPROVED'
+            case['expect_refusal'] = ('selector-type-not-resolved'
+                                      if case['name'] == 'r7-later-var-indexed-1'
+                                      else 'property-selector')
     # Full dispatch includes all 546 cases; selection never changes this roster.
     assert cases and (len(cases) == 546 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
@@ -1255,6 +1257,7 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             if case.get('expect_refusal'):
                 for statement in plan['statements']:
                     if (statement['status'] != 'skipped' or statement['edits'] or
+                            statement.get('reason') != case['expect_refusal'] or
                             statement.get('safety') != case['expect_refusal']):
                         failure(case, route, 4, 'approved-refusal-contract',
                                 approval='A-367', expected=case['expect_refusal'], statement=statement)
