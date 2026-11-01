@@ -1440,7 +1440,8 @@ begin
 end;
 
 procedure AssertA4StrictRefusal(const aStatement: TDelphiSemanticRemoveWithFinalStatement;
-  const aReason, aSafetyReason: string);
+  const aReason, aSafetyReason: string;
+  const aReplacementRange: string = '');
 begin
   Assert.AreEqual('skipped', aStatement.Status);
   Assert.AreEqual(aReason, aStatement.Reason);
@@ -1456,11 +1457,30 @@ begin
   Assert.AreEqual('semantic-remove-with-final-planner', aStatement.RewriteRecipe.Provenance);
   Assert.AreEqual('skip-final-statement', aStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', aStatement.RewriteRecipe.ReplacementText);
-  Assert.AreEqual(SourceRangeText(aStatement.Range),
-    SourceRangeText(aStatement.RewriteRecipe.ReplacementRange));
+  // DS-719 A-369: preserve the source-range invariant unless the exact row has an empty recipe.
+  if aReplacementRange = '' then
+  begin
+    Assert.AreEqual(SourceRangeText(aStatement.Range),
+      SourceRangeText(aStatement.RewriteRecipe.ReplacementRange));
+  end else begin
+    Assert.AreEqual(aReplacementRange, SourceRangeText(aStatement.RewriteRecipe.ReplacementRange));
+  end;
   Assert.AreEqual<Integer>(0, Length(aStatement.RewriteRecipe.SelectorDecisions));
   Assert.AreEqual<Integer>(0, Length(aStatement.RewriteRecipe.TempDeclarations));
   Assert.AreEqual<Integer>(0, Length(aStatement.RewriteRecipe.TextEdits));
+end;
+
+procedure AssertSkippedStatementPresent(const aPlan: TDelphiSemanticRemoveWithPlan;
+  const aStatement: TDelphiSemanticRemoveWithStatement);
+var
+  lCount: Integer;
+begin
+  // DS-719 A-369: an exposed refused child belongs to the skipped roster exactly once.
+  lCount := 0;
+  for var lSkipped in aPlan.SkippedStatements do
+    if lSkipped.SemanticId = aStatement.SemanticId then
+      Inc(lCount);
+  Assert.AreEqual(1, lCount);
 end;
 
 procedure AssertFinalRecipe(const aStatement: TDelphiSemanticRemoveWithFinalStatement;
@@ -1894,6 +1914,7 @@ var
   lCandidateRoutine: TDelphiSemanticRoutine;
   lCandidateWith: TDelphiSemanticWithStatement;
   lContext: TDelphiSemanticContextResult;
+  lContextOptions: TDelphiSemanticOptions;
   lExpectedFile: string;
   lGraphRoutine: TDelphiSemanticGraphRoutine;
   lGraphRoutineCount: Integer;
@@ -1953,7 +1974,12 @@ begin
 
   if GMaxTdbGraph = nil then
   begin
-    lContext := TDelphiSemanticProject.Load(GMaxTdbProjectPath);
+    // DS-719 0.17: graph and binder use the same explicit compiler context.
+    lContextOptions := Default(TDelphiSemanticOptions);
+    lContextOptions.Configuration := 'Debug';
+    lContextOptions.Platform := 'Win64';
+    lContextOptions.DelphiVersion := '23.0';
+    lContext := TDelphiSemanticProject.Load(GMaxTdbProjectPath, lContextOptions);
     Assert.IsTrue(lContext.Success, 'Cannot load canonical project context.');
     GMaxTdbGraph := TDelphiSemanticSemanticGraphBuilder.Build(lContext.Project,
       GMaxTdbFacts.UnitModels);
@@ -2731,7 +2757,15 @@ begin
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-  Assert.IsTrue(Length(lPlan.Edits) > 0, 'Verified unit must retain safe edits.');
+  Assert.IsTrue(Length(lPlan.Edits) > 0, 'The safe-unit candidate remains visible; this does not prove a final rewrite.');
+  // DS-719 0.17: compatibility hints cannot publish changes for refused final statements.
+  for var lFinal in lPlan.FinalStatements do
+  begin
+    Assert.AreEqual('skipped', lFinal.Status);
+    Assert.AreEqual('', lFinal.ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lFinal.Edits));
+    Assert.AreEqual<Integer>(0, Length(lFinal.Temps));
+  end;
   for lEdit in lPlan.Edits do
     Assert.IsTrue(SameText(ExtractFileName(lEdit.FileName), 'SafeUnit.pas'),
       'Unsafe unit must have no edit: ' + lEdit.FileName);
@@ -2795,7 +2829,15 @@ begin
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'WITH_IN_INCLUDE_UNVERIFIED'),
     'Mixed project must retain an explicit include refusal.');
-  Assert.IsTrue(Length(lPlan.Edits) > 0, 'Verified unit must retain safe edits.');
+  Assert.IsTrue(Length(lPlan.Edits) > 0, 'The safe-unit candidate remains visible; this does not prove a final rewrite.');
+  // DS-719 0.17: compatibility hints cannot publish changes for refused final statements.
+  for var lFinal in lPlan.FinalStatements do
+  begin
+    Assert.AreEqual('skipped', lFinal.Status);
+    Assert.AreEqual('', lFinal.ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lFinal.Edits));
+    Assert.AreEqual<Integer>(0, Length(lFinal.Temps));
+  end;
   for lEdit in lPlan.Edits do
     Assert.IsTrue(SameText(ExtractFileName(lEdit.FileName), 'SafeUnit.pas'),
       'Include unit must have no edit: ' + lEdit.FileName);
@@ -7668,17 +7710,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'append.pas', 106, 5, lStatement),
     'Expected maxTdb append outer with statement.');
-  AssertHiddenReceiverSkip(lStatement, '106:5-156:8',
-    '27cd7666033adb8e482a430e579b8b4889c01206490e9624a795df15db744fd2');
+  AssertHiddenReceiverSkip(lStatement, '106:5-156:8', '27cd7666033adb8e482a430e579b8b4889c01206490e9624a795df15db744fd2', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'append.pas', 113, 7, lStatement),
     'Expected nested maxTdb append statement to remain visible after skipped outer.');
-  AssertHiddenReceiverSkip(lStatement, '113:7-121:10',
-    '27cd7666033adb8e482a430e579b8b4889c01206490e9624a795df15db744fd2');
+  AssertHiddenReceiverSkip(lStatement, '113:7-121:10', '27cd7666033adb8e482a430e579b8b4889c01206490e9624a795df15db744fd2', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'append.pas', 127, 11, lStatement),
     'Expected second nested maxTdb append statement to remain visible after skipped outer.');
@@ -7727,7 +7768,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[AktIndex]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c72d4f190e01a34214c362f554ea5de09a082eb15237570b9de0b59ad2d5083b',
+  Assert.AreEqual('aaa9241d4ee7581cdbdabef380d161606e51dd3b8a3c041eef79bdab96c8329e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7875,6 +7916,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -7889,23 +7931,13 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('  lWithBitArrayPtr := @BA;' + sLineBreak +
-    '  BEGIN' + sLineBreak +
-    '    m := Bit SHR 3;' + sLineBreak +
-    '    IF m < lWithBitArrayPtr^.MaxBytes THEN' + sLineBreak +
-    '    BEGIN' + sLineBreak +
-    '      b := addr(lWithBitArrayPtr^.Cont^[m]);' + sLineBreak +
-    '      TestBit := b^ AND (1 SHL (Bit AND 7)) <> 0' + sLineBreak +
-    '    END' + sLineBreak +
-    '    ELSE' + sLineBreak +
-    '      TestBit := FALSE' + sLineBreak +
-    '  END', lStatement.ReplacementText);
+  Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
 end;
 
@@ -8887,6 +8919,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -8900,16 +8933,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for TruncBitArray BA selector to use direct qualification.');
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('    BEGIN' + sLineBreak +
-    '      m := n SHR 3;' + sLineBreak +
-    '      v := 8 - (n AND 7);' + sLineBreak +
-    '      b := BA.Cont^[m];' + sLineBreak +
-    '      b := b SHL v;' + sLineBreak +
-    '      b := b SHR v;' + sLineBreak +
-    '      BA.Cont^[m] := b;' + sLineBreak +
-    '      FOR i := m + 1 TO BA.MaxBytes - 1 DO' + sLineBreak +
-    '        BA.Cont^[i] := 0' + sLineBreak +
-    '    END', lStatement.ReplacementText);
+  Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
@@ -8988,12 +9012,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDependentPointerSelectorQualification;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -9027,46 +9051,22 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('598cf318835729661fcd5d494509434bbe36925face74eef402920f14eb88ac5', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '94:3-98:17');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 96, 7, lCoveredFinal));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 96, 7, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '96:7-98:17');
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '019ad39be2146029b3531e464e97dd43180e56c1faca35794b3fdb90ecf689b1', lCoveredStatement));
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+    '5d589d9b9c42812769392652150f0cf1d0f5e554d1cccffdac3faf15f460bd83', lCoveredStatement));
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
   Assert.AreEqual('96:7-98:17', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedRecordSelectorDirectQualification;
@@ -9074,6 +9074,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -9087,20 +9088,7 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)),
     'Expected current DAK parity for DBF, Struktur selectors to use direct qualification.');
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('  BEGIN' + sLineBreak +
-    '    fillchar(DBF.Struktur, SizeOf(DBF.Struktur), 0);' + sLineBreak +
-    '    DBF.Struktur.Version := 3;' + sLineBreak +
-    '    IF DF[D]^.HatMemo THEN' + sLineBreak +
-    '      INC(DBF.Struktur.Version, $80);' + sLineBreak +
-    '    DBF.Struktur.Jahr := 90;' + sLineBreak +
-    '    DBF.Struktur.Monat := 6;' + sLineBreak +
-    '    DBF.Struktur.Tag := 26;' + sLineBreak +
-    '    DBF.Struktur.Anzahl := 0;' + sLineBreak +
-    '    DBF.Struktur.RecSize := 1;' + sLineBreak +
-    '    DBF.DBFRec := NormRec(D);' + sLineBreak +
-    '    DBF.Labels := NIL;' + sLineBreak +
-    '    DBF.Struktur.Offset := (1 + DBF.DBFRec) * 32 + 1;' + sLineBreak +
-    '  END;', lStatement.ReplacementText);
+  Assert.AreEqual('', lStatement.ReplacementText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedRecordSelectorSingleLineDirectQualification;
@@ -9141,12 +9129,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedInheritedSelectorCoveredCapture;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -9263,37 +9251,22 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('6b4102f89f50eec8d0f9185725bf63620f453160095922eea027df14f00bb58e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '450:5-537:8');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 467, 9, lCoveredFinal));
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 467, 9, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '467:9-481:12');
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '63598d016adf0cadadad8fc96206c6286f01c7f95c55ec5b9bc89763d2a68529', lCoveredStatement));
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+    'f31d67329b31a761771d256ac973717ede653073a3bf79eb8de3831fcacb697c', lCoveredStatement));
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
   Assert.AreEqual('467:9-481:12', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 424, 3, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
@@ -9321,6 +9294,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -9335,8 +9309,7 @@ begin
   Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
   Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('  lWithDBF_FilePtr := @DBF;' + sLineBreak +
-    '  ReadNBytes(lWithDBF_FilePtr^.m_f, Int32(lWithDBF_FilePtr^.Struktur.Offset) + (Nr - 1) * lWithDBF_FilePtr^.Struktur.RecSize, lWithDBF_FilePtr^.Struktur.RecSize, lWithDBF_FilePtr^.E^, 0);',
+  Assert.AreEqual('',
     lStatement.ReplacementText);
 end;
 
@@ -9361,12 +9334,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1173, 3, lStatement),
     'Expected maxTdb CopyRecToString Maske[Nr]^ with statement.');
   // DS-719 A4 class a: deklarat.pas:1173:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1173:3-1238:6');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbGetDataMaskIndexQualifier;
@@ -9374,25 +9348,21 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1369, 5, lStatement));
   // DS-719 A4 class a: deklarat.pas:1369:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1369:5-1374:8');
 
   Assert.AreEqual('GetData', lStatement.RoutineName);
   Assert.AreEqual('1369:5-1374:8', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1369:5-1374:8', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with Mask[Nr]^ do' + #13#10 +
-    '    begin' + #13#10 +
-    '      CheckUnDef := (Art and 128 = 128) and (lFieldType <> A_LONG);' + #13#10 +
-    '      UnDef := CheckUnDef and (s[l] = #0);' + #13#10 +
-    '      ll := l; {TODO -oPawel -cInvestigation : where does this `L` ccome from? seems to be a globl variable}' + #13#10 +
-    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('36c79f922f16a801b236e4e154ad4d9197c52d345691e90e98c457f62bd867da',
+  Assert.AreEqual('687b2d2da9b7cef750ab98d067393d79ea6c94cb7a3e5204cf8c3e4760c2420d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -9404,54 +9374,21 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1417, 3, lStatement),
     'Expected maxTdb deklarat.pas WITH at 1417.');
   // DS-719 A4 class a: deklarat.pas:1417:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1417:3-1451:6');
 
   Assert.AreEqual('PutData', lStatement.RoutineName);
-  Assert.AreEqual('3a19a0fd7acc79eaf9731ee934e6122d1fc29dd0c2a61146bff75c7f19fc269b', lStatement.SemanticId);
+  Assert.AreEqual('da17db17043fe3ef0c4f146d0bd8cd35cc128d95b26e9c138c777edd0e76f14b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1417:3-1451:6', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1417:3-1451:6', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb', lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with Mask[Nr]^ do' + #13#10 +
-    '  begin' + #13#10 +
-    '    case Art and 15 of' + #13#10 +
-    '      A_CHAR:' + #13#10 +
-    '        if R_S = '''' then' + #13#10 +
-    '          c := #0' + #13#10 +
-    '        else' + #13#10 +
-    '          c := R_S[1];' + #13#10 +
-    '      A_STRING:' + #13#10 +
-    '        begin' + #13#10 +
-    '          move(Rec, s, 1 + Mask[Nr].l);' + #13#10 +
-    '          if length(s) > Mask[Nr].l then' + #13#10 +
-    '            s := copy(s, 1, Mask[Nr].l)' + #13#10 +
-    '        end;' + #13#10 +
-    '      A_DATUM:' + #13#10 +
-    '        dt := TageInDatum(TZeroYearBasedDate.Create(RROUND(r_new))).Value;' + #13#10 +
-    '      A_REAL:' + #13#10 +
-    '        if l < 5 then' + #13#10 +
-    '          dt := RROUND(r_new)' + #13#10 +
-    '        else if l < 7 then' + #13#10 +
-    '          SetVeryOldReal(r_new, r_old)' + #13#10 +
-    '        else' + #13#10 +
-    '          r := r_new; { Typumwandlung }' + #13#10 +
-    '      A_BLOB,' + #13#10 +
-    '        A_MEMO:' + #13#10 +
-    '        dt := RROUND(r_new);' + #13#10 +
-    '    else' + #13#10 +
-    '      if Art and 15 <> A_AUTO then' + #13#10 +
-    '        dt := RROUND(r_new)' + #13#10 +
-    '      else' + #13#10 +
-    '        exit;' + #13#10 +
-    '    end; { CASE }' + #13#10 +
-    '    if (Art and 128 = 128) and (Art and 15 <> A_LONG) then' + #13#10 +
-    '      s[l] := AnsiChar(Ord(not UnDef));' + #13#10 +
-    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
 lDeclarationCount := 0;
   lReplacementCount := 0;
@@ -9738,29 +9675,22 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1614, 3, lStatement),
     'Expected maxTdb LabelString DF[d]^.Maske[Nr]^ with statement.');
   // DS-719 A4 class a: deklarat.pas:1614:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1614:3-1622:30');
 
   Assert.AreEqual('LabelString', lStatement.RoutineName);
   Assert.AreEqual('1614:3-1622:30', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1614:3-1622:30', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('8078c228cc3241793a5a607d9f0a16bbfa786a299e85e26e7a71f02fd73843eb',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with DF[d]^.Maske[Nr]^ do' + #13#10 +
-    '    if komplett and (Art and 15 = A_LONG) then' + #13#10 +
-    '    begin' + #13#10 +
-    '      lTmpStr := m;' + #13#10 +
-    '      while (lTmpStr <> '''') and (lTmpStr[length(lTmpStr)] <> '')'') do' + #13#10 +
-    '        delete(lTmpStr, length(lTmpStr), 1);' + #13#10 +
-    '    end' + #13#10 +
-    '    else' + #13#10 +
-    '      lTmpStr := LabString(m);', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('5e039ddc457634516dd88bb03d6e2171df645046baa7d876cf5161f079a12eef',
+  Assert.AreEqual('13755fc710a377acd84cca4becc9baa8f5fa0667cc948a80a987348e2bdf0442',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -9770,12 +9700,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1632, 3, lStatement),
     'Expected maxTdb FieldType DF[d]^.Maske[Nr]^ with statement.');
   // DS-719 A4 class a: deklarat.pas:1632:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1632:3-1639:6');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbDeleteMarkPropertyChainQualification;
@@ -10233,11 +10164,6 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSecurityTypeSourceSkip;
@@ -10325,11 +10251,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 220, 9, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual('220:9-237:12', SourceRangeText(lStatement.Range));
   Assert.AreEqual('220:9-237:12', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
@@ -10345,8 +10272,8 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('220:9-237:12', SourceRangeText(lStatement.RewriteRecipe.ReplacementRange));
   Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -10448,11 +10375,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 223, 13, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual('223:13-236:15', SourceRangeText(lStatement.Range));
   Assert.AreEqual('223:13-236:15', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb',
@@ -10468,8 +10396,8 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('223:13-236:15', SourceRangeText(lStatement.RewriteRecipe.ReplacementRange));
   Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -10729,17 +10657,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 446, 7, lStatement),
     'Expected maxTdb linkfile CheckIndirekt DF[D]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '446:7-493:12',
-    '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb');
+  AssertHiddenReceiverSkip(lStatement, '446:7-493:12', '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 450, 13, lStatement),
     'Expected maxTdb linkfile CheckIndirekt Maske[j]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '450:13-481:18',
-    '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb');
+  AssertHiddenReceiverSkip(lStatement, '450:13-481:18', '79ec4c1d2ffe1ddfd7a2718f21cd65a08f4bbaaa5b264097c2594d962a5772cb', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbLinkFileCheckStatLinksPointerSkip;
@@ -10767,6 +10694,7 @@ var
   lReplacementText: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 682, 9, lStatement));
@@ -10883,7 +10811,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
+  Assert.AreEqual('fe180e73f95b489bfab39a0fd680896c22f8fbdc7d11550e467af23ef5529491',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -10894,7 +10822,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('646:1-656:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
+  Assert.AreEqual('fe180e73f95b489bfab39a0fd680896c22f8fbdc7d11550e467af23ef5529491',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -10909,7 +10837,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('9bee43b46be06b0eea5f24bfab7fab34fa7baa6dfdbf0e2c9e4bf4b89a6597c7',
+  Assert.AreEqual('fe180e73f95b489bfab39a0fd680896c22f8fbdc7d11550e467af23ef5529491',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -11012,6 +10940,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 155, 3, lStatement),
@@ -11133,7 +11062,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11143,7 +11072,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('173:1-183:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11158,7 +11087,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11168,6 +11097,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 200, 5, lStatement),
@@ -11260,7 +11190,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
+  Assert.AreEqual('07656ce58feea50025c5ffda0770ebbb83ea7567ebe5c684397986c8061cc49e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11270,7 +11200,7 @@ begin
   Assert.AreEqual('235:1-239:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
   Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
+  Assert.AreEqual('07656ce58feea50025c5ffda0770ebbb83ea7567ebe5c684397986c8061cc49e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11285,7 +11215,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('aa53e479f97760660e57dc715b9782551c85e8b2e8d1f5ec228d3f6026005baf',
+  Assert.AreEqual('07656ce58feea50025c5ffda0770ebbb83ea7567ebe5c684397986c8061cc49e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11326,6 +11256,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 266, 5, lStatement),
@@ -11393,7 +11324,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('d06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('8ae20f5628d531556ba5751c2091d68f44ab1ce8964184d9eea8a1c84338b666', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('264:1-264:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11407,11 +11338,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 272, 9, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'd06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lCoveredStatement));
+    '8ae20f5628d531556ba5751c2091d68f44ab1ce8964184d9eea8a1c84338b666', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('d06246e555ef5fd0da36cd2db8f94daa45441e3d26d3d30d4139a6a69917458d', lCoveredStatement.SemanticId);
+  Assert.AreEqual('8ae20f5628d531556ba5751c2091d68f44ab1ce8964184d9eea8a1c84338b666', lCoveredStatement.SemanticId);
   Assert.AreEqual('272:9-273:33', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -11444,7 +11375,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ResetLowFile', lStatement.RoutineName);
-  Assert.AreEqual('70f3d6ea637336d468e49533923aaa7322bdd124a123c1dbce9676d3b3d62227', lStatement.SemanticId);
+  Assert.AreEqual('5c070d3ca2be98c551977ba701706778aff7a8c556f271860385ffddd74b829e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('315:5-345:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('315:5-345:8', SourceRangeText(lStatement.Verification.Range));
@@ -11520,7 +11451,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('70f3d6ea637336d468e49533923aaa7322bdd124a123c1dbce9676d3b3d62227', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('5c070d3ca2be98c551977ba701706778aff7a8c556f271860385ffddd74b829e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11529,7 +11460,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('acf320a79b103200a6fc8563fa36f6765535dfce927a3f40e05d986fa247beb3', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('311:1-311:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11543,11 +11474,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 330, 13, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lCoveredStatement));
+    'acf320a79b103200a6fc8563fa36f6765535dfce927a3f40e05d986fa247beb3', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('a6eef84d043cbc95c7f632b43b58406cf4a33a8d1855bbc87322956a73c260ab', lCoveredStatement.SemanticId);
+  Assert.AreEqual('acf320a79b103200a6fc8563fa36f6765535dfce927a3f40e05d986fa247beb3', lCoveredStatement.SemanticId);
   Assert.AreEqual('330:13-337:16', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -11586,7 +11517,7 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('ResetLowFile', lStatement.RoutineName);
-  Assert.AreEqual('70c1e9d46b322c4ce4210bd2cc6644bb8bbee6ecd38a5c50d668e109598377f6', lStatement.SemanticId);
+  Assert.AreEqual('c3f2b8345b408623fcf02f9d0a109042474c22347b44ab469ade1f0a4c152f52', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('351:7-364:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('351:7-364:10', SourceRangeText(lStatement.Verification.Range));
@@ -11626,7 +11557,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('RewriteLowFile', lStatement.RoutineName);
-  Assert.AreEqual('7e556090803aa8253963c4715fac4d6a1da31d8472447cca20dc7b1dd1ea629f', lStatement.SemanticId);
+  Assert.AreEqual('b071feb8190cc79a4567dd96793c2b00a6719eef40f64a06363c336a8a191a2b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('382:5-395:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('382:5-395:8', SourceRangeText(lStatement.Verification.Range));
@@ -11670,7 +11601,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7e556090803aa8253963c4715fac4d6a1da31d8472447cca20dc7b1dd1ea629f', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('b071feb8190cc79a4567dd96793c2b00a6719eef40f64a06363c336a8a191a2b', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11679,7 +11610,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('c0d0d988cf0767fa7c98c0468d47bb51d8e769588438b1f41555dc51e68c7a36', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('379:1-379:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -11693,11 +11624,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 386, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lCoveredStatement));
+    'c0d0d988cf0767fa7c98c0468d47bb51d8e769588438b1f41555dc51e68c7a36', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('b72c19c21bffdba540adcbcf2b22e492891426e7898dfbba8a7b559423f18c7c', lCoveredStatement.SemanticId);
+  Assert.AreEqual('c0d0d988cf0767fa7c98c0468d47bb51d8e769588438b1f41555dc51e68c7a36', lCoveredStatement.SemanticId);
   Assert.AreEqual('386:7-392:10', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -11742,7 +11673,7 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('RewriteLowFile', lStatement.RoutineName);
-  Assert.AreEqual('46380c25b44c85b4d66b29d272b066e2a379b94bd327037323c292b095bdfdee', lStatement.SemanticId);
+  Assert.AreEqual('4e40f0459ea0626c1ace6c7c2bf69c832dac2aa5d2ccc96b699556a4d0841ba1', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('398:5-425:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('398:5-425:8', SourceRangeText(lStatement.Verification.Range));
@@ -11799,6 +11730,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 434, 5, lStatement),
@@ -11880,7 +11812,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
+  Assert.AreEqual('6ee9d651cf5fe3d16940a377b63476bc612a9c785f3c26946e688b2ea9d12901',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11911,15 +11843,15 @@ begin
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(665, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 440, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '6ee9d651cf5fe3d16940a377b63476bc612a9c785f3c26946e688b2ea9d12901',
     lCoveredStatement));
-  Assert.AreEqual('with-49', lCoveredStatement.StatementId);
-  Assert.AreEqual('0f7d0f75e1f7fe99480e133d333dcb46787c3d9fbd2bf004b74c8e5fb6bb88f9',
+  Assert.AreEqual('with-50', lCoveredStatement.StatementId);
+  Assert.AreEqual('6ee9d651cf5fe3d16940a377b63476bc612a9c785f3c26946e688b2ea9d12901',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-48', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('with-49', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('440:9-452:12', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   for i := 0 to High(lPlan.SkippedStatements) do
@@ -11934,6 +11866,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 484, 5, lStatement),
@@ -12035,7 +11968,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
+  Assert.AreEqual('e86c3fbad4d8d5ab73bee04d5cf93667341e052a0e8173c4611e890b83e02ccd',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12066,15 +11999,15 @@ begin
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(1168, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 490, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'e86c3fbad4d8d5ab73bee04d5cf93667341e052a0e8173c4611e890b83e02ccd',
     lCoveredStatement));
-  Assert.AreEqual('with-51', lCoveredStatement.StatementId);
-  Assert.AreEqual('ac5288288ee1b9c7708935fba48cb0d2fa8d189b81192122a36d30e5ef1f4352',
+  Assert.AreEqual('with-52', lCoveredStatement.StatementId);
+  Assert.AreEqual('e86c3fbad4d8d5ab73bee04d5cf93667341e052a0e8173c4611e890b83e02ccd',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-50', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('with-51', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('490:9-512:12', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   for i := 0 to High(lPlan.SkippedStatements) do
@@ -12089,6 +12022,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 545, 5, lStatement),
@@ -12225,7 +12159,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
+  Assert.AreEqual('81b0016d2becb38fff650ca67f2a0a256dd5ace79c4ae600e7012a612143686d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12236,7 +12170,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
+  Assert.AreEqual('c07ffd8758f93a45489cc8d528d55be645e4694ab939628c1c50bd5671f48573',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12247,7 +12181,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('603:1-612:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
+  Assert.AreEqual('81b0016d2becb38fff650ca67f2a0a256dd5ace79c4ae600e7012a612143686d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12262,18 +12196,18 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5ff43a7ff63551887a27b8eae3b8c08140f4cf4cfd4a1bc8c1fa8bcce4bb3e00',
+  Assert.AreEqual('81b0016d2becb38fff650ca67f2a0a256dd5ace79c4ae600e7012a612143686d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 608, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'c07ffd8758f93a45489cc8d528d55be645e4694ab939628c1c50bd5671f48573',
     lCoveredStatement));
-  Assert.AreEqual('with-54', lCoveredStatement.StatementId);
-  Assert.AreEqual('71466505cd14f4e3a55cf662b818c807013167808c6f136fcfd5736a40a21ec5',
+  Assert.AreEqual('with-55', lCoveredStatement.StatementId);
+  Assert.AreEqual('c07ffd8758f93a45489cc8d528d55be645e4694ab939628c1c50bd5671f48573',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-53', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('with-54', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('608:9-610:26', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   for i := 0 to High(lPlan.SkippedStatements) do
@@ -12288,6 +12222,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 696, 5, lStatement),
@@ -12355,7 +12290,7 @@ begin
   Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
+  Assert.AreEqual('cf89bc52aad20af45d0da72dd6943cbae0c429da4350bed4381ef3344247786e',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12386,15 +12321,15 @@ begin
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(556, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 699, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cf89bc52aad20af45d0da72dd6943cbae0c429da4350bed4381ef3344247786e',
     lCoveredStatement));
-  Assert.AreEqual('with-56', lCoveredStatement.StatementId);
-  Assert.AreEqual('4cd5e6aff260594781b29c0090bab1d58e066c150e5d4a02c358bd44f23f57b9',
+  Assert.AreEqual('with-57', lCoveredStatement.StatementId);
+  Assert.AreEqual('cf89bc52aad20af45d0da72dd6943cbae0c429da4350bed4381ef3344247786e',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-55', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('with-56', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('699:9-709:11', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   for i := 0 to High(lPlan.SkippedStatements) do
@@ -13613,6 +13548,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ramfiles.pas', 704, 3, lStatement),
@@ -13693,7 +13629,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('RewriteRamFile', lStatement.RoutineName);
-  Assert.AreEqual('ffca7276f04a917ed3d36aee7d6c2267c35cf6a8d4971072c40ad508ee7c1dfe', lStatement.SemanticId);
+  Assert.AreEqual('1e4a622dcacf3959a8d5957e5b17668c6b76a9b284a406142923bec76f1c5c6c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('719:3-729:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('719:3-729:6', SourceRangeText(lStatement.Verification.Range));
@@ -13729,7 +13665,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ffca7276f04a917ed3d36aee7d6c2267c35cf6a8d4971072c40ad508ee7c1dfe', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('1e4a622dcacf3959a8d5957e5b17668c6b76a9b284a406142923bec76f1c5c6c', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('718:1-718:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -13763,7 +13699,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('CloseRamFile', lStatement.RoutineName);
-  Assert.AreEqual('6765b1e86a623a63e3ed3214aec919ab56c778cb3068fd8fe71a978b3e38d430', lStatement.SemanticId);
+  Assert.AreEqual('a483ddbda1083164617eec97e926fcf87240495c1765d4d30bacfaf37fcacd07', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('737:5-752:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('737:5-752:8', SourceRangeText(lStatement.Verification.Range));
@@ -13811,7 +13747,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6765b1e86a623a63e3ed3214aec919ab56c778cb3068fd8fe71a978b3e38d430', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('a483ddbda1083164617eec97e926fcf87240495c1765d4d30bacfaf37fcacd07', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('735:1-735:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -13844,7 +13780,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SeekRamFile', lStatement.RoutineName);
-  Assert.AreEqual('9a30bf8421cf2fe01b6834ed0a33a6c30405b7114efef57b98a6f5fed3a63c51', lStatement.SemanticId);
+  Assert.AreEqual('6c49af5aa1f402f097a30c450e77e8ee21a9d94662c1a8ceb0f096774d0d2425', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('757:3-764:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('757:3-764:6', SourceRangeText(lStatement.Verification.Range));
@@ -13874,7 +13810,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('9a30bf8421cf2fe01b6834ed0a33a6c30405b7114efef57b98a6f5fed3a63c51', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('6c49af5aa1f402f097a30c450e77e8ee21a9d94662c1a8ceb0f096774d0d2425', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('756:1-756:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -13908,7 +13844,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('WriteRamFile', lStatement.RoutineName);
-  Assert.AreEqual('e98868c0b6a1dd2b571e85fa84a2d482d1994817db351288ed681e99878f1b04', lStatement.SemanticId);
+  Assert.AreEqual('beb262ddebe75fb140e1bbe47d64f538bf5fa9db5bdfcb0e5c479a75afb9e349', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('774:3-784:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('774:3-784:6', SourceRangeText(lStatement.Verification.Range));
@@ -13944,7 +13880,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e98868c0b6a1dd2b571e85fa84a2d482d1994817db351288ed681e99878f1b04', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('beb262ddebe75fb140e1bbe47d64f538bf5fa9db5bdfcb0e5c479a75afb9e349', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('773:1-773:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -14469,12 +14405,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 806, 5, lStatement),
     'Expected maxTdb strfuncs Maske[1]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '806:5-808:29',
-    'f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689');
+  AssertHiddenReceiverSkip(lStatement, '806:5-808:29', 'f30b4af544f722d0d558b70afcc6c89bba04c4432ff1e296901d83cc25415689', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbStrFuncsAutoEntryCaptures;
@@ -14537,6 +14473,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1495, 3, lStatement));
@@ -14618,7 +14555,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -14630,7 +14567,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -14645,7 +14582,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -14669,6 +14606,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1501, 3, lStatement));
@@ -14754,7 +14692,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -14766,7 +14704,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('1232:1-1233:66', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -14781,7 +14719,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('33edd5a02ff06871b11576d994f2d0b04139da0cd437625b477ef03bb564015b',
+  Assert.AreEqual('1f96471ecada65f82a2b71ecf5ad4c94ec5623570dee2088a145c280de35d72b',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -14888,6 +14826,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2794, 3, lStatement),
@@ -14948,7 +14887,7 @@ begin
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithArrayVarRecPtr := @p^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('74d2b0ef5f9fcb7047cb4bcc37a838c3393f24a7a793b141972b752166fe413d', lStatement.Temps[1].SemanticId);
   Assert.AreEqual('ArrayVar', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithArrayRecPtr^', lStatement.Temps[2].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
@@ -14957,7 +14896,7 @@ begin
   Assert.AreEqual('lWithArrayRecPtr: ^ArrayRec;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lStatement.Temps[2].SemanticId);
+  Assert.AreEqual('74d2b0ef5f9fcb7047cb4bcc37a838c3393f24a7a793b141972b752166fe413d', lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('2786:1-2786:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -14986,11 +14925,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'strfuncs.pas', 2799, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'd0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lCoveredStatement));
+    '74d2b0ef5f9fcb7047cb4bcc37a838c3393f24a7a793b141972b752166fe413d', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('d0786a615bd605363db8b022a82c80376fca83df21bc764a320c25703328efa3', lCoveredStatement.SemanticId);
+  Assert.AreEqual('74d2b0ef5f9fcb7047cb4bcc37a838c3393f24a7a793b141972b752166fe413d', lCoveredStatement.SemanticId);
   Assert.AreEqual('2799:7-2802:9', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -15011,6 +14950,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 107, 3, lStatement));
@@ -15088,7 +15028,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
+  Assert.AreEqual('3df9ae1a8acd35c2e98403dc54e5795684a9b0c644dd5fb751d1a33cf6d1515b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15098,7 +15038,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('113:1-114:39', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
+  Assert.AreEqual('3df9ae1a8acd35c2e98403dc54e5795684a9b0c644dd5fb751d1a33cf6d1515b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -15113,7 +15053,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('488484e1c5975b68a46a26e5cd9c5e3cb2018a41d75249816aa1bd506c8ea70e',
+  Assert.AreEqual('3df9ae1a8acd35c2e98403dc54e5795684a9b0c644dd5fb751d1a33cf6d1515b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -15124,6 +15064,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   // T-209: The imported Allocate call permits the complete captured parent.
@@ -15195,7 +15136,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('f71d69c4cd3f012331902ab7e858ccaf98bc8db2e55d8e0d265989143ea8fc53', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('194:1-194:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15227,6 +15168,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   // T-209: The complete parent owns the nested capture and final edits.
@@ -15298,7 +15240,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('f71d69c4cd3f012331902ab7e858ccaf98bc8db2e55d8e0d265989143ea8fc53', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('194:1-194:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -15313,11 +15255,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 208, 5, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lCoveredStatement));
+    'f71d69c4cd3f012331902ab7e858ccaf98bc8db2e55d8e0d265989143ea8fc53', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('e54326eb1e269a2ade24e5cc9b02ea3e6c7a08dee26801734eb1b05f469d1070', lCoveredStatement.SemanticId);
+  Assert.AreEqual('f71d69c4cd3f012331902ab7e858ccaf98bc8db2e55d8e0d265989143ea8fc53', lCoveredStatement.SemanticId);
   Assert.AreEqual('208:5-212:8', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -15414,12 +15356,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIvOkayReplacement;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -15470,50 +15412,26 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('65efa148fefde87a851eef885efa0d3910d6be9c65fbcc5e14235f9a4d30bd34', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'OWNER_INHERITED_MEMBERS_UNVERIFIED');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'OWNER_INHERITED_MEMBERS_UNVERIFIED', '255:3-277:5');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 260, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'ed88d36c4c38c4e0fe5e55c2160b7afcf80ac994634d721e86339241e51d060a',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 260, 7, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '260:7-274:10');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '67816232813e726e487c523155487eb8c68c3781ef5d866d76018ea969c4c107',
     lCoveredStatement));
-  Assert.AreEqual('with-66', lCoveredStatement.StatementId);
-  Assert.AreEqual('ed88d36c4c38c4e0fe5e55c2160b7afcf80ac994634d721e86339241e51d060a',
+  Assert.AreEqual('with-67', lCoveredStatement.StatementId);
+  Assert.AreEqual('67816232813e726e487c523155487eb8c68c3781ef5d866d76018ea969c4c107',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-65', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('260:7-274:10', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsRemoveIndexCapture;
@@ -15720,6 +15638,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 422, 7, lStatement));
@@ -15856,7 +15775,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lOwnerStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
-  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
+  Assert.AreEqual('80ed08fcd8d8b188539c8d44871cb39fd092b843570ee39753a5b18981b06f32',
     lOwnerStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('declare-temp', lOwnerStatement.Edits[0].Kind);
@@ -15866,7 +15785,7 @@ begin
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[1].Kind);
   Assert.AreEqual('388:1-410:12', SourceRangeText(lOwnerStatement.Edits[1].Range));
   Assert.AreEqual(lOwnerStatement.ReplacementText, lOwnerStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
+  Assert.AreEqual('80ed08fcd8d8b188539c8d44871cb39fd092b843570ee39753a5b18981b06f32',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lOwnerStatement, 'record-pointer-temp');
@@ -15881,7 +15800,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a048220084cc56e2719d9fb894dc7b9eee168c2e4ce98d7343e082dc0b5b6633',
+  Assert.AreEqual('80ed08fcd8d8b188539c8d44871cb39fd092b843570ee39753a5b18981b06f32',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(lOwnerStatement.FileName, lStatement.FileName);
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
@@ -16001,12 +15920,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsGetTreeParamReplacement;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -16053,68 +15972,26 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('4f85359188c1de9842074ad9a51657a36ef412fe884a0f853712aaeffdaf605b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '679:3-697:19');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 682, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'd7eac6b12519351eb18c3329b5bf72724644887e7831e59462bddccfd443f4c0',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 682, 7, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '682:7-694:9');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cad73aa6a9e5db204b9e47f1f96661e433a06e51297f5d44d32ac6ff340c0f02',
     lCoveredStatement));
-  Assert.AreEqual('with-77', lCoveredStatement.StatementId);
-  Assert.AreEqual('d7eac6b12519351eb18c3329b5bf72724644887e7831e59462bddccfd443f4c0',
+  Assert.AreEqual('with-78', lCoveredStatement.StatementId);
+  Assert.AreEqual('cad73aa6a9e5db204b9e47f1f96661e433a06e51297f5d44d32ac6ff340c0f02',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-76', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('682:7-694:9', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNewTreeUniqueReplacement;
@@ -16182,6 +16059,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -16201,27 +16079,12 @@ begin
   Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual('    begin' + sLineBreak +
-    '      lWithIndexVektorItemPtr := @IV[I];' + sLineBreak +
-    '      BEGIN' + sLineBreak +
-    '      IF lWithIndexVektorItemPtr^.Feld = 0 THEN' + sLineBreak +
-    '        GOTO Fertig;' + sLineBreak +
-    '      IF IstGleich(A, B, lWithIndexVektorItemPtr^.Anzahl, lWithIndexVektorItemPtr^.IV_Art) = 0' + sLineBreak +
-    '      THEN' + sLineBreak +
-    '      BEGIN' + sLineBreak +
-    '        INC(pByte(A), lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
-    '        INC(pByte(B), lWithIndexVektorItemPtr^.Anzahl);' + sLineBreak +
-    '      end else begin' + sLineBreak +
-    '        Exit(False);' + sLineBreak +
-    '      END;' + sLineBreak +
-    '    END;' + sLineBreak +
-    '    end;', lStatement.ReplacementText);
-  Assert.AreEqual('SELECTOR_TYPE_NOT_RESOLVED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual('selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsNormIndFilesSkipCluster;
@@ -16232,18 +16095,17 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1063, 3, lStatement),
     'Expected maxTdb indexUtils NormIndFiles D with statement.');
-  AssertHiddenReceiverSkip(lStatement, '1063:3-1109:5',
-    '0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a');
+  AssertHiddenReceiverSkip(lStatement, '1063:3-1109:5', '0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1067, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles Maske[i]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '1067:7-1085:14',
-    '0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a');
+  AssertHiddenReceiverSkip(lStatement, '1067:7-1085:14', '0fcd0e3663b62167938bd503b78842dcf4fb2509989844054dcb8798d98aab0a', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1073, 13, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[Ind0]^ with statement.');
@@ -16282,35 +16144,20 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1073:13-1084:15');
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1078, 15, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, lStatement.Temps[1].SemanticId,
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1078, 15, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1078:15-1083:18');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '70c1ae6db361d606870ee416210100317c5e213a5e6dc221ebf2c125bfee52d5',
     lCoveredStatement));
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
   Assert.AreEqual('1078:15-1083:18', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1090, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[0]^ with statement.');
@@ -16348,32 +16195,19 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1090:7-1100:10');
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1094, 9, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, lStatement.Temps[1].SemanticId,
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1094, 9, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1094:9-1099:12');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '47255939305e56d8a37a304e8f22a73a8128e56a17daef0447d9b3bab835c6ef',
     lCoveredStatement));
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
   Assert.AreEqual('1094:9-1099:12', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
+  AssertSkippedStatementPresent(lPlan, lCoveredStatement);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1101, 7, lStatement),
     'Expected maxTdb indexUtils NormIndFiles IndFiles[1]^ with statement.');
@@ -16402,7 +16236,11 @@ begin
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1050:1-1050:1', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
+  // DS-719 A-369: declaration and replacement retain their distinct edit slots.
+  Assert.AreEqual('var'#13''#10'  lWithIndexFilePtr: ^IndexFile;'#13''#10'', lStatement.Edits[0].ReplacementText);
+  Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
+  Assert.AreEqual('1101:1-1102:19', SourceRangeText(lStatement.Edits[1].Range));
+  Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
   AssertCapturedRecipe(lStatement);
 end;
 
@@ -16531,12 +16369,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsIndFormelCapturedParentAndChild;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -16578,68 +16416,26 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('da58d6f1f4b3bc691de0c584d6ea3b37db6d16200dfa8116a1139f77fd600e05', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1420:3-1433:7');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '85a4f9368a56d37a10967926ba71a85f44a03f3da56cb19d2fed0d9470057a47',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1423, 7, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1423:7-1432:9');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '17eda63e8e818845cbb005658e7864e7bdce68334f5b3204f66bece694a9cddf',
     lCoveredStatement));
-  Assert.AreEqual('with-108', lCoveredStatement.StatementId);
-  Assert.AreEqual('85a4f9368a56d37a10967926ba71a85f44a03f3da56cb19d2fed0d9470057a47',
+  Assert.AreEqual('with-109', lCoveredStatement.StatementId);
+  Assert.AreEqual('17eda63e8e818845cbb005658e7864e7bdce68334f5b3204f66bece694a9cddf',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-107', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('1423:7-1432:9', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexUtilsCountRecsIvReplacement;
@@ -16711,6 +16507,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2061, 3, lStatement));
@@ -16820,7 +16617,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
+  Assert.AreEqual('08725e4b972a4ff57af288cf65287619564a378a27f1a60278336bd141252a26',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16830,7 +16627,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2077:1-2086:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
+  Assert.AreEqual('08725e4b972a4ff57af288cf65287619564a378a27f1a60278336bd141252a26',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16845,7 +16642,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('696107b9e04838df9758fd3c41a01add56cf6df8814f68b106063875e4518b0b',
+  Assert.AreEqual('08725e4b972a4ff57af288cf65287619564a378a27f1a60278336bd141252a26',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -17129,12 +16926,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 343, 3, lStatement),
     'Expected maxTdb tdb01 OpenDB outer DF[d]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
@@ -17150,6 +16948,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -17229,62 +17028,28 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('016dab8c964a69c147178f936178af4be5266d46af58bb1ec71b7ff83bb6bd2d', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '419:7-469:10');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 449, 15, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 449, 15, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'symbol-not-found', 'symbol-not-found', '449:15-457:18');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'd83075625a471da88d810d988fc490609e38f578ea08e4bbc5bb69010ab55e1f',
     lCoveredStatement));
-  Assert.AreEqual('with-146', lCoveredStatement.StatementId);
-  Assert.AreEqual('cdefe9a705a86d305414663f1fd7dcd3014d8b754a4b90e6036a17a45346464d',
+  Assert.AreEqual('with-147', lCoveredStatement.StatementId);
+  Assert.AreEqual('d83075625a471da88d810d988fc490609e38f578ea08e4bbc5bb69010ab55e1f',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-145', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('449:15-457:18', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 333, 9, lOwnerStatement));
   Assert.AreEqual('planned', lOwnerStatement.Status);
@@ -17381,6 +17146,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -17430,60 +17196,30 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('5d41c4d510e37e401ed0688b4f1e78f03b8ba2082a05cf21c6a35d913804c15e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '473:7-493:12');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
 
 
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 477, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 477, 11, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'symbol-not-found', 'symbol-not-found', '477:11-483:14');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '58136d75ad27ac783bdd4c17423673842e2c9061d1258ea421fd9449f8819399',
     lCoveredStatement));
-  Assert.AreEqual('with-148', lCoveredStatement.StatementId);
-  Assert.AreEqual('aa6b8bb4a18f8d895449088cc98e89b98aedac03fce550c228b5939902de08cd',
+  Assert.AreEqual('with-149', lCoveredStatement.StatementId);
+  Assert.AreEqual('58136d75ad27ac783bdd4c17423673842e2c9061d1258ea421fd9449f8819399',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-147', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('477:11-483:14', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 496, 7, lStatement),
     'Expected maxTdb tdb01 OpenDB range-list Maske[i]^ with statement.');
@@ -17531,58 +17267,27 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('0afda76852c5e1241589e8220cfb52a667a42278640dc0f36176093fcf47b1bf', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '496:7-516:12');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 500, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, '6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 500, 11, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'symbol-not-found', 'symbol-not-found', '500:11-506:14');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '81bb76920018927a1b226e75d039747681cf634da84af52d2b944722b13f609d',
     lCoveredStatement));
-  Assert.AreEqual('with-150', lCoveredStatement.StatementId);
-  Assert.AreEqual('6f8310f41fef8cc5cae91a28dd7f6f17894dd184cb9ed15251e4c2351d0f00b5',
+  Assert.AreEqual('with-151', lCoveredStatement.StatementId);
+  Assert.AreEqual('81bb76920018927a1b226e75d039747681cf634da84af52d2b944722b13f609d',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-149', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.Reason);
+  Assert.AreEqual('symbol-not-found', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('500:11-506:14', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  AssertSkippedStatementPresent(lPlan, lCoveredStatement);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 333, 9, lOwnerStatement));
   Assert.AreEqual('planned', lOwnerStatement.Status);
@@ -17676,6 +17381,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 656, 3, lStatement),
@@ -17737,7 +17443,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
+  Assert.AreEqual('feb092d7ae967bf1da769ba6c94e82438c8251edfe39589f9fdf336b9a4c5078',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -17767,15 +17473,15 @@ begin
   Assert.AreEqual('fe8219b40c4d107a957c175081b5857eecec461ab9e2e140608e6ba30b806df3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 662, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'feb092d7ae967bf1da769ba6c94e82438c8251edfe39589f9fdf336b9a4c5078',
     lCoveredStatement));
-  Assert.AreEqual('with-154', lCoveredStatement.StatementId);
-  Assert.AreEqual('e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
+  Assert.AreEqual('with-155', lCoveredStatement.StatementId);
+  Assert.AreEqual('feb092d7ae967bf1da769ba6c94e82438c8251edfe39589f9fdf336b9a4c5078',
     lCoveredStatement.SemanticId);
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-153', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('with-154', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('662:11-663:78', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   for i := 0 to High(lPlan.SkippedStatements) do
@@ -17978,7 +17684,7 @@ begin
 end;
 
 procedure AssertMaxTdbRoutineDeclarationOwner(const aPlan: TDelphiSemanticRemoveWithPlan;
-  const aOwner: TDelphiSemanticRemoveWithFinalStatement);
+  const aOwner: TDelphiSemanticRemoveWithFinalStatement; const aExpectedCount: Integer = 1);
 var
   lCount: Integer;
   lEdit: TDelphiSemanticRemoveWithFinalTextEdit;
@@ -17988,10 +17694,17 @@ begin
   for lFinal in aPlan.FinalStatements do
     if SameText(lFinal.FileName, aOwner.FileName) and
       (lFinal.RoutineName = aOwner.RoutineName) then
+    begin
+      if aExpectedCount = 0 then
+      begin
+        Assert.AreEqual<Integer>(0, Length(lFinal.Temps));
+        Assert.AreEqual<Integer>(0, Length(lFinal.RewriteRecipe.TempDeclarations));
+      end;
       for lEdit in lFinal.Edits do
         if lEdit.Kind = 'declare-temp' then
           Inc(lCount);
-  Assert.AreEqual(1, lCount, 'One declaration group must own every capture in the routine.');
+    end;
+  Assert.AreEqual(aExpectedCount, lCount, 'Declaration groups must match the surviving captures.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01RelRecNestedSelectorPointerTemp;
@@ -18067,7 +17780,7 @@ begin
   AssertMaxTdbRoutineDeclarationOwner(lPlan, lStatement);
   // fix-packet-22.md: base d308bc5 refuses inactive lock@23037 and lock@23096 in parent 929:7; this child renders independently.
   AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB01.pas', '934:11-955:13',
-    'e568ff0fe90915b58eac1fc689cf0ed658167a8ece086ef5b7396f2e9afaf55c', 'with RelRec, w[n] do' + #13#10 +
+    '5e7ecb4e519ff5ba73772a32339aec74a286f8103673a483e7ff03d6340f9500', 'with RelRec, w[n] do' + #13#10 +
     '          begin' + #13#10 +
     '            lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18201,6 +17914,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 986, 5, lStatement));
@@ -18335,13 +18049,13 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
+  Assert.AreEqual('00065b50b0e437205f488b9678499eb50622016a21eff34f7f566c64cd9f6e45',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('994:1-1004:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
+  Assert.AreEqual('00065b50b0e437205f488b9678499eb50622016a21eff34f7f566c64cd9f6e45',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18356,7 +18070,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ad360bd283ea49898051f7d392287eb0c599bfb8120c836499c7ee429843c27d',
+  Assert.AreEqual('00065b50b0e437205f488b9678499eb50622016a21eff34f7f566c64cd9f6e45',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1 := @RelRec.w[i];',
@@ -18386,6 +18100,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 0.15: pins match dde6340 in the same explicit Debug/Win64/23.0 context.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -18524,7 +18239,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('c504817ce523f8aa9e405a0365f6785ffb94acfd2bdafe05d1ba5d112b875274', lStatement.Temps[1].SemanticId);
   Assert.AreEqual('DF[lf]^', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[2].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
@@ -18533,7 +18248,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[2].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
-  Assert.AreEqual('efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lStatement.Temps[2].SemanticId);
+  Assert.AreEqual('b7454dcdd8f9a8fc302f5e015ace9fc784c4dca41d23e6872e3399ce375f2a00', lStatement.Temps[2].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('984:1-984:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18548,11 +18263,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 1017, 7, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lCoveredStatement));
+    'c504817ce523f8aa9e405a0365f6785ffb94acfd2bdafe05d1ba5d112b875274', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('fb232aecdb27940b790e9dc84406a6b5541a4b4f56db0bfd25d45351e55bbb13', lCoveredStatement.SemanticId);
+  Assert.AreEqual('c504817ce523f8aa9e405a0365f6785ffb94acfd2bdafe05d1ba5d112b875274', lCoveredStatement.SemanticId);
   Assert.AreEqual('1017:7-1064:10', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -18611,11 +18326,11 @@ begin
 
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 1022, 11, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    'efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lCoveredStatement));
+    'b7454dcdd8f9a8fc302f5e015ace9fc784c4dca41d23e6872e3399ce375f2a00', lCoveredStatement));
   Assert.AreEqual('planned', lCoveredStatement.Status);
   Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
   Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('efad578a8244f9c55631fe2ea8979bf9a6e8cf792b8e39fae2e9218b5e9feaac', lCoveredStatement.SemanticId);
+  Assert.AreEqual('b7454dcdd8f9a8fc302f5e015ace9fc784c4dca41d23e6872e3399ce375f2a00', lCoveredStatement.SemanticId);
   Assert.AreEqual('1022:11-1063:14', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
   Assert.AreEqual(lStatement.StatementId, lCoveredStatement.CoveredByStatementId);
@@ -18689,36 +18404,28 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: the listed parent retains the exact current refusal.
   // DS-719 A-367: only the listed child DTO changes; retain all metadata assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
   // fix-packet-22.md: base d308bc5 refuses inactive goto@26999 in parent 1123:3; this child renders independently.
-  AssertMaxTdbBaseUncoveredStatement(lPlan,
-    'TDB01.pas',
-    '1158:9-1160:119',
-    '34d68738bcb7bd791b4bf3a18fa2eb1ef971031eb267544bd9cc3f0bd597bb0a',
-    'with Maske[i]^ do' + #13#10 +
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB01.pas', '1158:9-1160:119', '34d68738bcb7bd791b4bf3a18fa2eb1ef971031eb267544bd9cc3f0bd597bb0a', 'with Maske[i]^ do' + #13#10 +
     '          if Art and 15 = A_REL then' + #13#10 +
-    '            done := done and ((Base = 0) or IsRel(Base, m) or LoescheDatei(RelFileName(Pfad, m), S_Leer, 0, 0, False));',
-    0,
-    0,
-    '',
-    lOwnerStatement,
-    'dependent-selector-type-not-resolved');
+    '            done := done and ((Base = 0) or IsRel(Base, m) or LoescheDatei(RelFileName(Pfad, m), S_Leer, 0, 0, False));', 0, 0, '', lOwnerStatement, 'dependent-selector-type-not-resolved');
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB01.pas', 1123, 3, lOwnerStatement));
   // fix-packet-22.md: base d308bc5 refuses inactive goto@26999.
   lStatement := lOwnerStatement;
   Assert.AreEqual('skipped', lStatement.Status);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('symbol-not-found', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
 
-  Assert.AreEqual('symbol-not-found', lStatement.Reason);
-  Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual('LoescheDatei', lStatement.RoutineName);
   Assert.AreEqual('1123:3-1163:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1123:3-1163:6', SourceRangeText(lStatement.Verification.Range));
@@ -18767,7 +18474,8 @@ begin
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  AssertMaxTdbRoutineDeclarationOwner(lPlan, lStatement);
+  // DS-719 A-369: all three LoescheDatei rows refuse with zero surviving captures.
+  AssertMaxTdbRoutineDeclarationOwner(lPlan, lStatement, 0);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01NextRecordSkip;
@@ -18992,6 +18700,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1859, 3, lStatement),
@@ -19086,7 +18795,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetChain', lStatement.RoutineName);
-  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.SemanticId);
+  Assert.AreEqual('f2359111d3a5fbe2bfac80b81d43f87d325ab12b53516c95893dc71a0e833bc1', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1862:5-1896:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1862:5-1896:7', SourceRangeText(lStatement.Verification.Range));
@@ -19173,7 +18882,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('f2359111d3a5fbe2bfac80b81d43f87d325ab12b53516c95893dc71a0e833bc1', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr1^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -19182,7 +18891,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.Temps[1].SemanticId);
+  Assert.AreEqual('f2359111d3a5fbe2bfac80b81d43f87d325ab12b53516c95893dc71a0e833bc1', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1862:1-1896:7', SourceRangeText(lStatement.Edits[0].Range));
@@ -19197,7 +18906,7 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  Assert.AreEqual('f2359111d3a5fbe2bfac80b81d43f87d325ab12b53516c95893dc71a0e833bc1', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr1^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
@@ -19206,7 +18915,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  Assert.AreEqual('f2359111d3a5fbe2bfac80b81d43f87d325ab12b53516c95893dc71a0e833bc1', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1859, 3, lOwnerStatement));
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lOwnerStatement.SemanticId);
@@ -19241,7 +18950,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('FN_Max', lStatement.RoutineName);
-  Assert.AreEqual('a165e2a3b5dfa272a88c372952db75ac7cac3a20eaa0767a616066d496e8c95f', lStatement.SemanticId);
+  Assert.AreEqual('91577ab612791af4a2f1644408897967e58f19d2cb4c4af6c324a037ed3e5567', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1909:3-1919:9', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1909:3-1919:9', SourceRangeText(lStatement.Verification.Range));
@@ -19277,7 +18986,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a165e2a3b5dfa272a88c372952db75ac7cac3a20eaa0767a616066d496e8c95f', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('91577ab612791af4a2f1644408897967e58f19d2cb4c4af6c324a037ed3e5567', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1907:1-1907:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -19498,12 +19207,12 @@ end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb01CheckFilesCapturedParentAndChild;
 var
-  i: Integer;
   lCoveredFinal: TDelphiSemanticRemoveWithFinalStatement;
   lCoveredStatement: TDelphiSemanticRemoveWithStatement;
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
@@ -19564,49 +19273,25 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual('8a27014c284a93df8d78a39b34b9cc654ed8f50fecb56da55b46cb815f1d409a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '2320:7-2351:10');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 2323, 11, lCoveredFinal));
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'df02c73bd121e93640c8814eabade3e6f9f37dc0ba696620dbd170dc2905c102',
+  Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 2323, 11, lCoveredFinal));
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '2323:11-2350:16');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '8412c48d243e50ef0c07080f0fff4f6740c4ab506c8dcf336838bddc0c9b8383',
     lCoveredStatement));
-  Assert.AreEqual('with-208', lCoveredStatement.StatementId);
-  Assert.AreEqual('df02c73bd121e93640c8814eabade3e6f9f37dc0ba696620dbd170dc2905c102',
+  Assert.AreEqual('with-209', lCoveredStatement.StatementId);
+  Assert.AreEqual('8412c48d243e50ef0c07080f0fff4f6740c4ab506c8dcf336838bddc0c9b8383',
     lCoveredStatement.SemanticId);
-  Assert.AreEqual('planned', lCoveredStatement.Status);
-  Assert.AreEqual('covered-by-parent-rewrite', lCoveredStatement.Reason);
-  Assert.AreEqual('', lCoveredStatement.SafetyReason);
-  Assert.AreEqual('with-207', lCoveredStatement.CoveredByStatementId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
   Assert.AreEqual('2323:11-2350:16', SourceRangeText(lCoveredStatement.Range));
   Assert.AreEqual(lStatement.FileName, lCoveredStatement.FileName);
-  for i := 0 to High(lPlan.SkippedStatements) do
-    Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
+  Assert.AreEqual('skipped', lCoveredStatement.Status);
+  Assert.AreEqual('', lCoveredStatement.CoveredByStatementId);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02GetLinkInfoReplacement;
@@ -19614,12 +19299,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 1532, 3, lStatement),
     'Expected maxTdb TDB02 GetLinkInfo DF[DB]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:1532:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '1532:3-1539:5');
 
   Assert.AreEqual('GetLinkInfo', lStatement.RoutineName);
   Assert.AreEqual('1532:3-1539:5', SourceRangeText(lStatement.Range));
@@ -19635,7 +19321,7 @@ begin
     '    end' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('9c16fbc8153e07094cdabfa8e3751e14d11adc54abca4b9454fe246557131f88',
+  Assert.AreEqual('a995d8e7a5682c1af9c6d127a25c7fd671d976ddbd4c4d1f8d1dbccb7d90b9d6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -19706,12 +19392,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2313, 3, lStatement),
     'Expected maxTdb TDB02 InitDef SVR^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2313:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '2313:3-2335:6');
 
   Assert.AreEqual('InitDef', lStatement.RoutineName);
   Assert.AreEqual('2313:3-2335:6', SourceRangeText(lStatement.Range));
@@ -19742,15 +19429,15 @@ begin
     '    Error := SVfc1;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('03ba2b5d83e3f3c4e93c3c7ad6abd5a3bd0571e5da3df0ebed6c1f1a752ff7c8',
+  Assert.AreEqual('777dcd83635bc8e857b9a3b0ce805b83d9d7fd6fa0a0d6f0e926d9e1116f0072',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2318, 9, lCoveredFinal));
   // DS-719 A4 class b: TDB02.pas:2318:9; measured delta table.
-  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lCoveredFinal, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '2318:9-2328:12');
   Assert.IsTrue(FindStatementBySemanticId(lPlan,
-    '23bc2f50c9e8f13069655aadaf98807dd0eab44184c594ed4ab9b1d66264e6e4', lCoveredStatement));
+    '5af7733d1fa037a3ed06f3180bb80b999dbcef24bc7b005620dd64cd76da29fe', lCoveredStatement));
   Assert.AreEqual('skipped', lCoveredStatement.Status);
   Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.Reason);
   Assert.AreEqual('dependent-selector-type-not-resolved', lCoveredStatement.SafetyReason);
@@ -19765,15 +19452,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2352, 3, lStatement),
     'Expected maxTdb TDB02 GetVar VarList[X].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2352:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2352:3-2404:5');
 
   Assert.AreEqual('GetVar', lStatement.RoutineName);
-  Assert.AreEqual('642c2bd7399be1cd262bef2fb8427516836d0fbedf109232dad8e32ee65fb164', lStatement.SemanticId);
+  Assert.AreEqual('9c85267de677aa2763a80bc290970158ddc600dea36a73c28897e730c78adfe3', lStatement.SemanticId);
   Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2352:3-2404:5', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -19837,13 +19525,14 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   // fix-packet-22.md: base d308bc5 refuses inactive ProgressDefault@80258.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2430, 3, lStatement),
     'Expected maxTdb TDB02 ToDBF DF[c]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2430:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2430:3-2433:6');
 
   Assert.AreEqual('ToDBF', lStatement.RoutineName);
   Assert.AreEqual('2430:3-2433:6', SourceRangeText(lStatement.Range));
@@ -19855,7 +19544,7 @@ begin
     '    ToDBF := Dat2DBF02(DBName, fn, {$IFDEF DLL}ProgressDefault, {$ENDIF}r2, r3 <> 0);' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('ae2db9536dd4a6a60a0d7de6daa09c9f1f131c249de1c8afa1c1fa8a547b52e1',
+  Assert.AreEqual('5c9cfa406ff3f5e96570549fb2a7da6ec15a506329e9ba5105455ecbf223f9a0',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -19919,12 +19608,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2755, 3, lStatement),
     'Expected maxTdb TDB02 DoMarkBits ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:2755:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '2755:3-2766:8');
 
   Assert.AreEqual('DoMarkBits', lStatement.RoutineName);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -19948,10 +19638,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2771, 3, lStatement),
     'Expected maxTdb TDB02 GetBitArrayVar ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:2771:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '2771:3-2779:7');
 
   Assert.AreEqual('GetBitArrayVar', lStatement.RoutineName);
-  Assert.AreEqual('3232b20eb5a92c5217630cb40a7ca4d42ef0b3ced007f5f50a57faf257a506fe', lStatement.SemanticId);
+  Assert.AreEqual('064b4e6738b8d0ff3c9d058662d8aa3abb98e1e7b81170163ff2c731f59360d2', lStatement.SemanticId);
   Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2771:3-2779:7', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20015,12 +19705,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2839, 3, lStatement),
     'Expected maxTdb TDB02 ReverseMarks DF[d]^.MarkListe with statement.');
   // DS-719 A4 class a: TDB02.pas:2839:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2839:3-2860:6');
 
   Assert.AreEqual('ReverseMarks', lStatement.RoutineName);
   Assert.AreEqual('2839:3-2860:6', SourceRangeText(lStatement.Range));
@@ -20050,7 +19741,7 @@ begin
     '    ReverseMarks := AnzMarkiert' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('c41d93abeabec2b052dc0bc756009ecb92878f94ff4548c460e4244a9fe16391',
+  Assert.AreEqual('5213d8897c08fe69fa5ff09dffa768dafa4a49ae270c3e8bb35c0ad674225a39',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -20062,15 +19753,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2866, 5, lStatement),
     'Expected maxTdb TDB02 GetAuto DF[d]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2866:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '2866:5-2875:7');
 
   Assert.AreEqual('GetAuto', lStatement.RoutineName);
-  Assert.AreEqual('7a59cdd9f25a2b7a49d339c00c7b2aa7fb3d2deb81f34788d2703a1f7bcab996', lStatement.SemanticId);
+  Assert.AreEqual('3d3bffa02e2689905e449523c18e14a3e6235e3141fa481c477322d9b63bf94e', lStatement.SemanticId);
   Assert.AreEqual('2866:5-2875:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2866:5-2875:7', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20087,8 +19779,8 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2868, 7, lCoveredFinal));
   // DS-719 A4 class b: TDB02.pas:2868:7; measured delta table.
-  AssertA4StrictRefusal(lCoveredFinal, 'cast-selector', 'cast-selector');
-  Assert.IsTrue(FindStatementBySemanticId(lPlan, 'cb6dc4db831a6e024a43264187b06fb24a3b48424437bb5a672e5ecb48b693c3', lCoveredStatement));
+  AssertA4StrictRefusal(lCoveredFinal, 'cast-selector', 'cast-selector', '2868:7-2874:9');
+  Assert.IsTrue(FindStatementBySemanticId(lPlan, '3e9b46cd6885c5ffa3471768371ab0e359180f127772c84dd29b50c5359789db', lCoveredStatement));
   Assert.AreEqual('skipped', lCoveredStatement.Status);
   Assert.AreEqual('cast-selector', lCoveredStatement.Reason);
   Assert.AreEqual('cast-selector', lCoveredStatement.SafetyReason);
@@ -20101,15 +19793,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2883, 3, lStatement),
     'Expected maxTdb TDB02 PutAuto VarList[Nr].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2883:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2883:3-2900:6');
 
   Assert.AreEqual('nDat2Marks', lStatement.RoutineName);
-  Assert.AreEqual('7d864e16ca264ca7de4f4b0ca15b7f7debae85a375df122a2e28ceae8ab17828', lStatement.SemanticId);
+  Assert.AreEqual('80c835e525a300b93d3863d47394866a68cf72c2fc69e1b284bac9092b9e7545', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2883:3-2900:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2883:3-2900:6', SourceRangeText(lStatement.Verification.Range));
@@ -20136,10 +19829,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2906, 3, lStatement),
     'Expected maxTdb TDB02 GetAuto VarList[Nr].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2906:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2906:3-2923:6');
 
   Assert.AreEqual('nMarks2Dat', lStatement.RoutineName);
-  Assert.AreEqual('e1a6175075023c68a9698969dbf0b328da8604845273916ad93a4891eaac2344', lStatement.SemanticId);
+  Assert.AreEqual('deea6ffe4fa41b9d7afdf5a6f4cb705645684287de0c4a37e239281ecaf0c1a4', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2906:3-2923:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2906:3-2923:6', SourceRangeText(lStatement.Verification.Range));
@@ -20166,7 +19859,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3026, 3, lStatement),
     'Expected maxTdb TDB02 Marks2Auto ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:3026:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3026:3-3100:8');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02MarksAndCompareArrayVarParity;
@@ -20176,12 +19869,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3107, 3, lStatement),
     'Expected maxTdb Marks2Auto WITH at 3107.');
   // DS-719 A4 class a: TDB02.pas:3107:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3107:3-3119:21');
 
   Assert.AreEqual('Marks2Auto', lStatement.RoutineName);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -20223,10 +19917,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3128, 3, lStatement),
     'Expected maxTdb Dat2Var WITH at 3128.');
   // DS-719 A4 class a: TDB02.pas:3128:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3128:3-3150:8');
 
   Assert.AreEqual('Dat2Var', lStatement.RoutineName);
-  Assert.AreEqual('c23b45391b7faa04fa9527ecda27cddcc8581973a015e61cac51e982175918d6', lStatement.SemanticId);
+  Assert.AreEqual('dae0aba4fd61b5debf2ab6942295fcfca804c8ff0dfc62c31f0ac47eb6b102f4', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3128:3-3150:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3128:3-3150:8', SourceRangeText(lStatement.Verification.Range));
@@ -20274,10 +19968,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3168, 3, lStatement),
     'Expected maxTdb CompRec WITH at 3168.');
   // DS-719 A4 class a: TDB02.pas:3168:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3168:3-3181:8');
 
   Assert.AreEqual('CompRec', lStatement.RoutineName);
-  Assert.AreEqual('df5d85aa4a93ae0e5b1cf60b553d73e3cc7528485a3c37f5bcaf14421729d686', lStatement.SemanticId);
+  Assert.AreEqual('6980fcfb8f2111b16d140e59d2881a06ad2ce31672ce277bedc1e967ef1dfb5a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3168:3-3181:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3168:3-3181:8', SourceRangeText(lStatement.Verification.Range));
@@ -20320,12 +20014,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3342, 3, lStatement),
     'Expected maxTdb TDB02 InArray ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:3342:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3342:3-3370:8');
 
   Assert.AreEqual('InArray', lStatement.RoutineName);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -20366,10 +20061,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3380, 3, lStatement),
     'Expected maxTdb TDB02 InArrayPos ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:3380:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3380:3-3404:8');
 
   Assert.AreEqual('InArrayPos', lStatement.RoutineName);
-  Assert.AreEqual('e6aef4378051b654967e0147b845c77cac1f230e90a577113378c1adb080c5c4', lStatement.SemanticId);
+  Assert.AreEqual('9ca2c169af5d1ba77c9b87bc8b0e9d92469be398d833a07037337f4913379b42', lStatement.SemanticId);
   Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3380:3-3404:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20402,10 +20097,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3412, 3, lStatement),
     'Expected maxTdb TDB02 andmarks ArrayVarRecPtr with statement.');
   // DS-719 A4 class a: TDB02.pas:3412:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3412:3-3449:8');
 
   Assert.AreEqual('andmarks', lStatement.RoutineName);
-  Assert.AreEqual('6601b25e8bc2a8bdeef701c9b4805e4927ce6e31bd671dad024645e0e4ee06ab', lStatement.SemanticId);
+  Assert.AreEqual('a935d984a1e66f4e890137c7eb46e522f852f0f12975d9a085e55a100247ef37', lStatement.SemanticId);
   Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3412:3-3449:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20456,12 +20151,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3470, 7, lStatement),
     'Expected maxTdb TDB02 setfilter DF[d]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:3470:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '3470:7-3479:9');
 
   Assert.AreEqual('setfilter', lStatement.RoutineName);
   Assert.AreEqual('3470:7-3479:9', SourceRangeText(lStatement.Range));
@@ -20479,17 +20175,17 @@ begin
     '        setfilter := MarkListe.AnzMarkiert' + #13#10 +
     '      end', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('f347b5064b8730a50b5fcfe8c7448b57af28ed34a2bac73d7f1db34b3d92c332',
+  Assert.AreEqual('f6495d77aeb67536d050efc086ae7360a68c3ae575109091806ab2cb102ae708',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3491, 3, lStatement),
     'Expected maxTdb NotMarks WITH at 3491.');
   // DS-719 A4 class a: TDB02.pas:3491:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
+  AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector', '3491:3-3513:7');
 
   Assert.AreEqual('NotMarks', lStatement.RoutineName);
-  Assert.AreEqual('485d004dc0e42024506dfeb93ffd89ee070fdb39ebc3c0f032c0948c4b07b839', lStatement.SemanticId);
+  Assert.AreEqual('7aa6f7b2776079f9666f69ff73459638c5b446f88113591bd3714bcc417bc872', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3491:3-3513:7', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3491:3-3513:7', SourceRangeText(lStatement.Verification.Range));
@@ -20537,7 +20233,7 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3521, 3, lStatement),
     'Expected maxTdb TDB02 setmarks DF[d]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:3521:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '3521:3-3526:5');
 
   Assert.AreEqual('setmarks', lStatement.RoutineName);
   Assert.AreEqual('3521:3-3526:5', SourceRangeText(lStatement.Range));
@@ -20551,7 +20247,7 @@ lDeclarationCount := 0;
     '    setmarks := FileSize' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('cf5e4fc1c849f0a22ecc807526bb896b032c31349a4ae0213468868941c53e73',
+  Assert.AreEqual('c22ad908751f2b128c59215925d878fe4f6f42462e7717d441e472cfeda12daa',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -20562,12 +20258,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3751, 5, lStatement),
     'Expected maxTdb TDB02 GetArrayVar WorkArray^, ArrayVar with statement.');
   // DS-719 A4 class a: TDB02.pas:3751:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '3751:5-3770:8');
 
   Assert.AreEqual('GetArrayVar', lStatement.RoutineName);
   Assert.AreEqual('3751:5-3770:8', SourceRangeText(lStatement.Range));
@@ -20595,7 +20292,7 @@ begin
     '        end;' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('9bc0fd8c7797d9e251ff8ea0538e22964f2a2829636002de22a5c8dcc4c871a1',
+  Assert.AreEqual('687f3563d85bcdf054691a8e55b99569a8ffa164e4ae2a33b1132bc2f741842a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -20605,12 +20302,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 4122, 11, lStatement),
     'Expected maxTdb TDB02 JobListe[n]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:4122:11; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '4122:11-4170:16');
 
   Assert.AreEqual('DoJob', lStatement.RoutineName);
   Assert.AreEqual('4122:11-4170:16', SourceRangeText(lStatement.Range));
@@ -20667,7 +20365,7 @@ begin
     '              TestFC' + #13#10 +
     '            end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('ac4e07657458cf959726d8bafddd5f5809b253c07f8128cc0de91468bf2e8b64',
+  Assert.AreEqual('9ec8a0612512768d5dbb88626fdf5eb19e210b283c13ac9def82e84b1debb5af',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -20725,12 +20423,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7551, 21, lStatement),
     'Expected maxTdb TDB02 VarList[h1].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:7551:21; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '7551:21-7559:26');
 
   Assert.AreEqual('Faktor', lStatement.RoutineName);
   Assert.AreEqual('7551:21-7559:26', SourceRangeText(lStatement.Range));
@@ -20747,7 +20446,7 @@ begin
     '                        fc := 44' + #13#10 +
     '                      end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('b74ba4b523192231ce9fa7d8bd18ccac387b2312c49c37176c13c43f2eee103e',
+  Assert.AreEqual('9ed7a12519f731bc5aefb1080d18f11aab63291d6cc2b21c2f257ab57c9be65a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -20757,17 +20456,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7892, 5, lStatement),
     'Expected maxTdb TDB02 CheckSelStr DF[d]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '7892:5-7906:8',
-    '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
+  AssertHiddenReceiverSkip(lStatement, '7892:5-7906:8', '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 7897, 9, lStatement),
     'Expected maxTdb TDB02 CheckSelStr Maske[n]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '7897:9-7903:14',
-    '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce');
+  AssertHiddenReceiverSkip(lStatement, '7897:9-7903:14', '138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdb02SetByteStatements;
@@ -20967,6 +20665,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 942, 5, lStatement),
@@ -21028,7 +20727,7 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewDATFile', lStatement.RoutineName);
-  Assert.AreEqual('7b3dd9f87a9675e6ec038a9582ccfa4687149708c2accc448e782d46956f504c', lStatement.SemanticId);
+  Assert.AreEqual('adb1a712896d354ce6df26d88a0ac290ee21338290c1a6399597e72846af5efc', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('945:5-946:17', SourceRangeText(lStatement.Range));
   Assert.AreEqual('945:5-946:17', SourceRangeText(lStatement.Verification.Range));
@@ -21046,7 +20745,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @D^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7b3dd9f87a9675e6ec038a9582ccfa4687149708c2accc448e782d46956f504c', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('adb1a712896d354ce6df26d88a0ac290ee21338290c1a6399597e72846af5efc', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('945:1-946:17', SourceRangeText(lStatement.Edits[0].Range));
@@ -21082,10 +20781,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2411, 5, lStatement),
     'Expected maxTdb DirektAutoNum WITH at 2411.');
   // DS-719 A4 class a: TDB02.pas:2411:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2411:5-2425:10');
 
   Assert.AreEqual('DirektAutoNum', lStatement.RoutineName);
-  Assert.AreEqual('df0bf431ab9d936cc1a4424e1f424ee16d2afea61638c3c215c698529b88757e', lStatement.SemanticId);
+  Assert.AreEqual('43409e69f4679ed349b3e109a8bcad166c9b16c702ff6dff6431ca1d49667aa7', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2411:5-2425:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2411:5-2425:10', SourceRangeText(lStatement.Verification.Range));
@@ -21126,10 +20825,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 4347, 9, lStatement),
     'Expected maxTdb SetIndOp WITH at 4347.');
   // DS-719 A4 class a: TDB02.pas:4347:9; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '4347:9-4369:16');
 
   Assert.AreEqual('SetIndOp', lStatement.RoutineName);
-  Assert.AreEqual('e994416b900a148aa350c15d0dd39df7bf0ec06b3d68596ee013d3c63b49f35c', lStatement.SemanticId);
+  Assert.AreEqual('7837f9e38310708f536200053c55536748a27a0382a76c8ab8dac5a30716ce9a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('4347:9-4369:16', SourceRangeText(lStatement.Range));
   Assert.AreEqual('4347:9-4369:16', SourceRangeText(lStatement.Verification.Range));
@@ -21177,10 +20876,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8109, 11, lStatement),
     'Expected maxTdb FindVar WITH at 8109.');
   // DS-719 A4 class a: TDB02.pas:8109:11; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '8109:11-8114:13');
 
   Assert.AreEqual('FindVar', lStatement.RoutineName);
-  Assert.AreEqual('38d0c371fb57d6d18504982eb63afed261722bb11fce22466b07319a100b1481', lStatement.SemanticId);
+  Assert.AreEqual('03a78e21773e5c6cb5016da9c968b4581255f36f524a7553768506b99c02e72a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8109:11-8114:13', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8109:11-8114:13', SourceRangeText(lStatement.Verification.Range));
@@ -21211,7 +20910,7 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8101, 7, lOwnerStatement));
   Assert.AreEqual('skipped', lOwnerStatement.Status);
   Assert.AreEqual('call-selector', lOwnerStatement.Reason);
-  Assert.AreEqual('756fc0653b47ae1722ddf1d270b707ca4760b808c24a870d17fa85829843005a', lOwnerStatement.SemanticId);
+  Assert.AreEqual('f4fb96beef16f9ad593eabcee1dc22b161834a5ed4d4468e67700476ca91de83', lOwnerStatement.SemanticId);
   Assert.AreEqual(0, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lOwnerStatement.Temps)));
   Assert.IsTrue(lOwnerStatement.Range.StartLine < lStatement.Range.StartLine);
@@ -21220,10 +20919,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8312, 7, lStatement),
     'Expected maxTdb FindDirekt WITH at 8312.');
   // DS-719 A4 class a: TDB02.pas:8312:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8312:7-8316:10');
 
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lStatement.SemanticId);
+  Assert.AreEqual('7aa86b7ce5a3fb5ad380470eeac0ef3c57785d2c78a60581a59e710f0fd2ec50', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8312:7-8316:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8312:7-8316:10', SourceRangeText(lStatement.Verification.Range));
@@ -21253,10 +20952,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8332, 5, lStatement),
     'Expected maxTdb FindDirekt WITH at 8332.');
   // DS-719 A4 class a: TDB02.pas:8332:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8332:5-8336:8');
 
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('4d8767069a6e83d87def121c61877c9460a9892cb2c5dbe55e0a307cdc544dc9', lStatement.SemanticId);
+  Assert.AreEqual('407bf0b9a0f1a30545dffdc96662953564d55205cd86b5c069814ddb82a9bca1', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8332:5-8336:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8332:5-8336:8', SourceRangeText(lStatement.Verification.Range));
@@ -21269,8 +20968,8 @@ lDeclarationCount := 0;
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8312, 7, lOwnerStatement));
   // DS-719 A4 class a: TDB02.pas:8312:7; measured delta table.
-  AssertA4StrictRefusal(lOwnerStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
-  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lOwnerStatement.SemanticId);
+  AssertA4StrictRefusal(lOwnerStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8312:7-8316:10');
+  Assert.AreEqual('7aa86b7ce5a3fb5ad380470eeac0ef3c57785d2c78a60581a59e710f0fd2ec50', lOwnerStatement.SemanticId);
   Assert.AreEqual('FindDirekt', lOwnerStatement.RoutineName);
 
   Assert.IsTrue(lOwnerStatement.Range.StartLine < lStatement.Range.StartLine);
@@ -21293,10 +20992,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8339, 9, lStatement),
     'Expected maxTdb FindDirekt WITH at 8339.');
   // DS-719 A4 class a: TDB02.pas:8339:9; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8339:9-8340:22');
 
   Assert.AreEqual('FindDirekt', lStatement.RoutineName);
-  Assert.AreEqual('fbead08b7585956f3c5f7e89733bced36a4fe86b15b7921b5f7d60ed60c898c9', lStatement.SemanticId);
+  Assert.AreEqual('d9eb66e4a27f97bc7bb27420c91df2ef3a8eafbb0415e0b8eefb4899d7dc56bc', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('8339:9-8340:22', SourceRangeText(lStatement.Range));
   Assert.AreEqual('8339:9-8340:22', SourceRangeText(lStatement.Verification.Range));
@@ -21306,8 +21005,8 @@ lDeclarationCount := 0;
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8312, 7, lOwnerStatement));
   // DS-719 A4 class a: TDB02.pas:8312:7; measured delta table.
-  AssertA4StrictRefusal(lOwnerStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
-  Assert.AreEqual('d2f346d2c840993c4f7757bd3ca6a84562569a4eb6af0e7c3ab2c530d5eadb59', lOwnerStatement.SemanticId);
+  AssertA4StrictRefusal(lOwnerStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8312:7-8316:10');
+  Assert.AreEqual('7aa86b7ce5a3fb5ad380470eeac0ef3c57785d2c78a60581a59e710f0fd2ec50', lOwnerStatement.SemanticId);
   Assert.AreEqual('FindDirekt', lOwnerStatement.RoutineName);
 
   Assert.IsTrue(lOwnerStatement.Range.StartLine < lStatement.Range.StartLine);
@@ -21333,7 +21032,7 @@ lDeclarationCount := 0;
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ExitVars', lStatement.RoutineName);
-  Assert.AreEqual('173a35031f18a5732d2b41a50a9382519148671b5339a094904ae22c5a3d0736', lStatement.SemanticId);
+  Assert.AreEqual('c23dfb741deb8aa4117ef90d69150524946078c7538ba75fc7553e263491fc99', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('592:5-601:8', SourceRangeText(lStatement.Verification.Range));
@@ -21369,7 +21068,7 @@ lDeclarationCount := 0;
   Assert.AreEqual('lWithParamRecPtr: ^ParamRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithParamRecPtr := @pl^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('173a35031f18a5732d2b41a50a9382519148671b5339a094904ae22c5a3d0736', lStatement.Temps[0].SemanticId);
+  Assert.AreEqual('c23dfb741deb8aa4117ef90d69150524946078c7538ba75fc7553e263491fc99', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('590:1-590:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -21397,10 +21096,10 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 1587, 11, lStatement),
     'Expected maxTdb StringToIndex WITH at 1587.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual('StringToIndex', lStatement.RoutineName);
-  Assert.AreEqual('ac00c778161ee3ca02e4f41e1165fe3d68f8ef085d2107cbace02e782d1173d9', lStatement.SemanticId);
+  Assert.AreEqual('446e98a9b5d517e8eeef72d2074ffa3992eb9476cd4e70855be544652a601af3', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1587:11-1611:14', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1587:11-1611:14', SourceRangeText(lStatement.Verification.Range));
@@ -21434,9 +21133,9 @@ lDeclarationCount := 0;
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.SafetyReason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual('semantic-remove-with-final-planner', lStatement.RewriteRecipe.Provenance);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', lStatement.RewriteRecipe.ReplacementText);
@@ -21452,12 +21151,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8478, 21, lStatement),
     'Expected maxTdb TDB02 CheckExpression InitVar with statement.');
   // DS-719 A4 class a: TDB02.pas:8478:21; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8478:21-8488:24');
 
   Assert.AreEqual('CheckMinMax', lStatement.RoutineName);
   Assert.AreEqual('8478:21-8488:24', SourceRangeText(lStatement.Range));
@@ -21476,7 +21176,7 @@ begin
     '                      n := KonvertVarNr(NewVar);' + #13#10 +
     '                    end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('14af91eb8da1186c414e663be6eba850e4b453e2a0257ac4459bfb2e50c494c5',
+  Assert.AreEqual('475cdfcc993fc1aa5ed84d8b4f625d0d599ed24d3688caf9996a62157ca33bcc',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -21486,12 +21186,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8969, 7, lStatement),
     'Expected maxTdb TDB02 ClearSummen VarList[i].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:8969:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8969:7-8980:10');
 
   Assert.AreEqual('ClearSummen', lStatement.RoutineName);
   Assert.AreEqual('8969:7-8980:10', SourceRangeText(lStatement.Range));
@@ -21511,14 +21212,14 @@ begin
     '        end;' + #13#10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('1671a68960445d290c82c7eef84f66acc0eec39c54154a3aa1ef94105b4011d3',
+  Assert.AreEqual('532f33999a20d843246a81b5cb0fb14d6ff0cb8a693e46309142289af36b232c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 8996, 7, lStatement),
     'Expected maxTdb TDB02 CheckSummen VarList[i].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:8996:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '8996:7-9028:10');
 
   Assert.AreEqual('CheckSummen', lStatement.RoutineName);
   Assert.AreEqual('8996:7-9028:10', SourceRangeText(lStatement.Range));
@@ -21559,7 +21260,7 @@ begin
     '        end;' + #13#10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('0c13a278eea189b5a28fb29c56af5d519f46c0779b11c98f0ba2ccb1a31e61fa',
+  Assert.AreEqual('9503c81b3a0e411aef357c53e8a748c1ba72d954ff04fe061626bc1be2bbd9d6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -21569,12 +21270,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9267, 17, lStatement),
     'Expected maxTdb TDB02 BERECHNE LastMBRec memo with statement.');
   // DS-719 A4 class a: TDB02.pas:9267:17; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '9267:17-9268:38');
 
   Assert.AreEqual('Atom', lStatement.RoutineName);
   Assert.AreEqual('9267:17-9268:38', SourceRangeText(lStatement.Range));
@@ -21584,14 +21286,14 @@ begin
   Assert.AreEqual('with LastMBRec do' + #13#10 +
     '                  Memo2TL(d, MNr, TL);', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('7033c421e036256134a88c66c4025d1b2fdde0b9c8eed75981f0e3b6dc59542c',
+  Assert.AreEqual('6d6889d3426c47e2ccb62fa425622511434ae3a06f33cf5ecb62669b62d1dd05',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9375, 15, lStatement),
     'Expected maxTdb TDB02 BERECHNE second LastMBRec memo with statement.');
   // DS-719 A4 class a: TDB02.pas:9375:15; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '9375:15-9376:36');
 
   Assert.AreEqual('Atom', lStatement.RoutineName);
   Assert.AreEqual('9375:15-9376:36', SourceRangeText(lStatement.Range));
@@ -21601,7 +21303,7 @@ begin
   Assert.AreEqual('with LastMBRec do' + #13#10 +
     '                Memo2TL(d, MNr, TL);', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('4c2624c06a836781ca158aa9355794f383472e8f10ee4be7a768db37bf6d276e',
+  Assert.AreEqual('d1964864e7060badb449d6e963753002fad3f37930f1d5ede449eca570e81027',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -21611,15 +21313,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 9659, 5, lStatement),
     'Expected maxTdb TDB02 KonvertVarNr VarList[VN].VarCont^ with statement.');
   // DS-719 A4 class a: TDB02.pas:9659:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '9659:5-9660:76');
 
   Assert.AreEqual('KonvertVarNr', lStatement.RoutineName);
-  Assert.AreEqual('1b3cec0c0829ac7671ea69648924dc1433b5ca32bce7c3d030b2c7a919fc9c2d', lStatement.SemanticId);
+  Assert.AreEqual('fe3e8f326c0fb8a6a5990eb85d49462f205ede5a6349e3ba3303ffb344b375bc', lStatement.SemanticId);
   Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Range));
   Assert.AreEqual('9659:5-9660:76', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -21691,20 +21394,21 @@ end;
 procedure TRemoveWithPlanTests.AssertMaxTdbNeueDateiParent(const aPlan: TDelphiSemanticRemoveWithPlan;
   out aStatement: TDelphiSemanticRemoveWithFinalStatement);
 begin
+  // DS-719 A-369: exact parent diagnostic used by the three listed TDB06 rows.
   // DS-719 0.15: pins match dde6340 in the same explicit Debug/Win64/23.0 context.
   Assert.IsTrue(FindFinalStatementAt(aPlan, 'TDB06.pas', 136, 3, aStatement));
   Assert.AreEqual('skipped', aStatement.Status);
   Assert.AreEqual('skipped', aStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', aStatement.RewriteRecipe.Reason);
-  Assert.AreEqual('receiver-member-not-found', aStatement.RewriteRecipe.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', aStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', aStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', aStatement.RewriteRecipe.RenderInstruction);
   Assert.AreEqual('', aStatement.RewriteRecipe.ReplacementText);
   Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(aStatement.RewriteRecipe.TextEdits)));
 
-  Assert.AreEqual('receiver-member-not-found', aStatement.Reason);
-  Assert.AreEqual('receiver-member-not-found', aStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', aStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', aStatement.SafetyReason);
   Assert.AreEqual('NeueDatei', aStatement.RoutineName);
   Assert.AreEqual('136:3-268:6', SourceRangeText(aStatement.Range));
   Assert.AreEqual('136:3-268:6', SourceRangeText(aStatement.Verification.Range));
@@ -21854,15 +21558,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: listed TDB06 223:9 metadata, with its plan unchanged.
   // DS-719 A-367: only the listed child DTO changes; retain all metadata assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
   AssertMaxTdbNeueDateiParent(lPlan, lStatement);
   // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
-  AssertMaxTdbBaseUncoveredStatement(lPlan,
-    'TDB06.pas',
-    '156:7-173:10',
-    'd1f54da85a03ea021619e941aa3792f6d3e45de237cfeed525e5c29cd8cdd92d',
-    'WITH Maske[i]^ DO' + #13#10 +
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '156:7-173:10', 'd1f54da85a03ea021619e941aa3792f6d3e45de237cfeed525e5c29cd8cdd92d', 'WITH Maske[i]^ DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        CASE Art AND 15 OF' + #13#10 +
     '          A_LONG:' + #13#10 +
@@ -21879,15 +21580,10 @@ begin
     '            IF sl <> 0 THEN' + #13#10 +
     '              A_Nr := i;' + #13#10 +
     '        END;' + #13#10 +
-    '      END;',
-    0,
-    0,
-    '',
-    lOwnerStatement,
-    'dependent-selector-type-not-resolved');
+    '      END;', 0, 0, '', lOwnerStatement, 'dependent-selector-type-not-resolved');
   // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
   AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '223:9-228:12',
-    'f3052484e21300db8e9c6ef5f8a86001c640d0dfdecec85b71e080a9029db365', 'WITH IndFiles[i]^ DO' + #13#10 +
+    '55f9401674486eff88892a05f35ff66b45e3a249ce59a1e84a65eacb9a07ce30', 'WITH IndFiles[i]^ DO' + #13#10 +
     '        BEGIN' + #13#10 +
     '          eindeutig := TRUE;' + #13#10 +
     '          CalcIndSize(IV, IndSize);' + #13#10 +
@@ -21982,15 +21678,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: listed TDB06 223:9 metadata, with its plan unchanged.
   // DS-719 A-367: only the listed child DTO changes; retain all metadata assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
   AssertMaxTdbNeueDateiParent(lPlan, lStatement);
   // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
-  AssertMaxTdbBaseUncoveredStatement(lPlan,
-    'TDB06.pas',
-    '256:9-267:13',
-    'a70ca152ae305ab7ca82fe5779c1023131d5cee2a0698dc7517f25caa8081018',
-    'WITH Maske[i]^ DO' + #13#10 +
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '256:9-267:13', 'a70ca152ae305ab7ca82fe5779c1023131d5cee2a0698dc7517f25caa8081018', 'WITH Maske[i]^ DO' + #13#10 +
     '          IF (Art AND 15 = A_REL) AND ((Base = 0) OR NOT IsRel(Base, m)) THEN' + #13#10 +
     '          BEGIN' + #13#10 +
     '            tfn := RelFileName(Pfad, m);' + #13#10 +
@@ -22001,18 +21694,9 @@ begin
     '              GenRel(fn, GetRelLabel(i)^, tfn, 0); ' + #13#10 +
     '            IF IO_Error <> 0 THEN' + #13#10 +
     '              GOTO EXCEPTION' + #13#10 +
-    '          END',
-    0,
-    0,
-    '',
-    lOwnerStatement,
-    'dependent-selector-type-not-resolved');
+    '          END', 0, 0, '', lOwnerStatement, 'dependent-selector-type-not-resolved');
   // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
-  AssertMaxTdbBaseUncoveredStatement(lPlan,
-    'TDB06.pas',
-    '156:7-173:10',
-    'd1f54da85a03ea021619e941aa3792f6d3e45de237cfeed525e5c29cd8cdd92d',
-    'WITH Maske[i]^ DO' + #13#10 +
+  AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '156:7-173:10', 'd1f54da85a03ea021619e941aa3792f6d3e45de237cfeed525e5c29cd8cdd92d', 'WITH Maske[i]^ DO' + #13#10 +
     '      BEGIN' + #13#10 +
     '        CASE Art AND 15 OF' + #13#10 +
     '          A_LONG:' + #13#10 +
@@ -22029,15 +21713,10 @@ begin
     '            IF sl <> 0 THEN' + #13#10 +
     '              A_Nr := i;' + #13#10 +
     '        END;' + #13#10 +
-    '      END;',
-    0,
-    0,
-    '',
-    lOwnerStatement,
-    'dependent-selector-type-not-resolved');
+    '      END;', 0, 0, '', lOwnerStatement, 'dependent-selector-type-not-resolved');
   // fix-packet-22.md: base d308bc5 refuses inactive NetDrive@2982 in parent 136:3; this child renders independently.
   AssertMaxTdbBaseUncoveredStatement(lPlan, 'TDB06.pas', '223:9-228:12',
-    'f3052484e21300db8e9c6ef5f8a86001c640d0dfdecec85b71e080a9029db365', 'WITH IndFiles[i]^ DO' + #13#10 +
+    '55f9401674486eff88892a05f35ff66b45e3a249ce59a1e84a65eacb9a07ce30', 'WITH IndFiles[i]^ DO' + #13#10 +
     '        BEGIN' + #13#10 +
     '          eindeutig := TRUE;' + #13#10 +
     '          CalcIndSize(IV, IndSize);' + #13#10 +
@@ -23125,12 +22804,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 252, 3, lStatement),
     'Expected maxTdb tdbutils reopendb DF[DB]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:252:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '252:3-257:6');
 
   Assert.AreEqual('reopendb', lStatement.RoutineName);
   Assert.AreEqual('252:3-257:6', SourceRangeText(lStatement.Range));
@@ -23150,17 +22830,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 295, 3, lStatement),
     'Expected maxTdb tdbutils DRel^.Maske[mm]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '295:3-305:6',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '295:3-305:6', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'receiver-type-not-visible');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 322, 3, lStatement),
     'Expected maxTdb tdbutils DRel^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '322:3-352:6',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '322:3-352:6', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenRelMaskReceiverTypeSkip;
@@ -23184,12 +22863,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 373, 3, lStatement),
     'Expected maxTdb tdbutils GenList DDat^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '373:3-440:6',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '373:3-440:6', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGlobalStatLineReplacement;
@@ -23197,12 +22876,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 870, 11, lStatement),
     'Expected maxTdb tdbutils SubstField TL^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:870:11; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'symbol-not-found', '870:11-882:14');
 
   Assert.AreEqual('SubstField', lStatement.RoutineName);
   Assert.AreEqual('870:11-882:14', SourceRangeText(lStatement.Range));
@@ -23229,24 +22909,20 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 919, 5, lStatement),
     'Expected maxTdb tdbutils SubstString TL^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:919:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible', '919:5-924:8');
 
   Assert.AreEqual('SubstString', lStatement.RoutineName);
   Assert.AreEqual('919:5-924:8', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('919:5-924:8', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with TL^ do' + #13#10 +
-    '    begin' + #13#10 +
-    '      mPrev := nil;' + #13#10 +
-    '      mLine := ADDR(NewStr);' + #13#10 +
-    '      mEndOfLine := e_none' + #13#10 +
-    '    end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsMarkListReplacements;
@@ -23254,96 +22930,54 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1059, 3, lStatement),
     'Expected maxTdb tdbutils ResetMark ml with statement.');
   // DS-719 A4 class a: tdbutils.pas:1059:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible', '1059:3-1080:6');
 
   Assert.AreEqual('ResetMark', lStatement.RoutineName);
   Assert.AreEqual('1059:3-1080:6', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1059:3-1080:6', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with ml do' + #13#10 +
-    '  begin' + #13#10 +
-    '    q := nil;' + #13#10 +
-    '    p := Anfang;' + #13#10 +
-    '    Aktuell := nil;' + #13#10 +
-    '    while (p <> nil) and (p^.DV <> n) do' + #13#10 +
-    '    begin' + #13#10 +
-    '      q := p;' + #13#10 +
-    '      p := p^.Rest' + #13#10 +
-    '    end;' + #13#10 +
-    '    if p <> nil then' + #13#10 +
-    '    begin' + #13#10 +
-    '      if q = nil then' + #13#10 +
-    '        Anfang := p^.Rest' + #13#10 +
-    '      else' + #13#10 +
-    '        q^.Rest := p^.Rest;' + #13#10 +
-    '      if Ende = p then' + #13#10 +
-    '        Ende := q;' + #13#10 +
-    '      dispose(p);' + #13#10 +
-    '      Dec(AnzMarkiert)' + #13#10 +
-    '    end;' + #13#10 +
-    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('38a353e5b0b26cf96d04acef3ace9486347631274d36134e3056ad532dbcca66',
+  Assert.AreEqual('8bc2fb48a842597d3471d72e8f2f337a334539be5d95424dc2240d76f0d11246',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1087, 3, lStatement),
     'Expected maxTdb tdbutils ReplaceMark ml with statement.');
   // DS-719 A4 class a: tdbutils.pas:1087:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible', '1087:3-1098:6');
 
   Assert.AreEqual('ReplaceMark', lStatement.RoutineName);
   Assert.AreEqual('1087:3-1098:6', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1087:3-1098:6', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with ml do' + #13#10 +
-    '  begin' + #13#10 +
-    '    if (Aktuell <> nil) and (Aktuell^.DV = v) then' + #13#10 +
-    '      Aktuell^.DV := n' + #13#10 +
-    '    else begin' + #13#10 +
-    '      p := Anfang;' + #13#10 +
-    '      while (p <> nil) and (p^.DV <> v) do' + #13#10 +
-    '        p := p^.Rest;' + #13#10 +
-    '      if p <> nil then' + #13#10 +
-    '        p^.DV := n' + #13#10 +
-    '    end' + #13#10 +
-    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('c81c0b91004e4fc2a914d08b6725ec57564a0790dc26d9874e5108462a110ce7',
+  Assert.AreEqual('8da77e034061780203c50f07b253a49abcf61a79a0fa72d99bf47c9d291414d0',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1105, 3, lStatement),
     'Expected maxTdb tdbutils DeleteMarks ml with statement.');
   // DS-719 A4 class a: tdbutils.pas:1105:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible', '1105:3-1116:5');
 
   Assert.AreEqual('DeleteMarks', lStatement.RoutineName);
   Assert.AreEqual('1105:3-1116:5', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1105:3-1116:5', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with ml do' + #13#10 +
-    '  begin' + #13#10 +
-    '    while Anfang <> nil do' + #13#10 +
-    '    begin' + #13#10 +
-    '      p := Anfang;' + #13#10 +
-    '      Anfang := Anfang^.Rest;' + #13#10 +
-    '      dispose(p);' + #13#10 +
-    '    end;' + #13#10 +
-    '    Ende := nil;' + #13#10 +
-    '    Aktuell := nil;' + #13#10 +
-    '    AnzMarkiert := 0;' + #13#10 +
-    '  end', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('af84c0a290209c201a752de143e26e1ceac9273fb99db81380f27869c80297b6',
+  Assert.AreEqual('04d6ff6cf2588bcb4f5cdaaeec3fd313ab83e6787eb8964a78963f7e8698404c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -23353,27 +22987,22 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1121, 3, lStatement),
     'Expected maxTdb tdbutils ClearMarks ml with statement.');
   // DS-719 A4 class a: tdbutils.pas:1121:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible', '1121:3-1127:6');
 
   Assert.AreEqual('ClearMarks', lStatement.RoutineName);
   Assert.AreEqual('1121:3-1127:6', SourceRangeText(lStatement.Range));
-  Assert.AreEqual('1121:3-1127:6', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
+  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('',
     lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('with ml do' + #13#10 +
-    '  begin' + #13#10 +
-    '    Anfang := nil;' + #13#10 +
-    '    Ende := nil;' + #13#10 +
-    '    Aktuell := nil;' + #13#10 +
-    '    AnzMarkiert := 0' + #13#10 +
-    '  end;', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('b16210601821206ec274518cd89ed90e86f49e6699c789192dd48fb8b7b8d03d',
+  Assert.AreEqual('b15a525ae0c95d86558c2b1c43f41411c6c404745c0eb897a61312026c2e35c5',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -23394,6 +23023,7 @@ var
   lSourceDir: string;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 0.17: restore the unchanged Win32 plan; the canonical context still refuses.
   // DS-719 0.15: pins match dde6340 in the same explicit Debug/Win64/23.0 context.
   lProjectDir := CopyDakFixtureToTemp('test-projects\maxTdb',
     'remove-with-maxtdb-flipmark');
@@ -23416,14 +23046,14 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1134, 3, lStatement),
     'Expected maxTdb tdbutils FlipMark ml with statement. Plan: ' +
     lPlan.Status + ' ' + lPlan.Diagnostic);
-  Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
+  Assert.AreEqual('planned', lStatement.Status);
+  Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('ml', lStatement.Temps[0].SelectorText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('MarkList', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithMarkListPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithMarkListPtr^', lStatement.Temps[0].QualifierText);
-  Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(1133, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(1, lStatement.Edits[0].Range.StartColumn);
@@ -23479,12 +23109,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1378, 5, lStatement),
     'Expected maxTdb tdbutils MakeSelekt p^.Sel with statement.');
   // DS-719 A4 class a: tdbutils.pas:1378:5; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'property-selector', 'property-selector', '1378:5-1384:8');
 
   Assert.AreEqual('MakeSelekt', lStatement.RoutineName);
   Assert.AreEqual('1378:5-1384:8', SourceRangeText(lStatement.Range));
@@ -23505,12 +23136,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1436, 7, lStatement),
     'Expected maxTdb tdbutils ImportFile DF[d1]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:1436:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '1436:7-1438:29');
 
   Assert.AreEqual('ImportFile', lStatement.RoutineName);
   Assert.AreEqual('1436:7-1438:29', SourceRangeText(lStatement.Range));
@@ -23527,12 +23159,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1485, 3, lStatement),
     'Expected maxTdb tdbutils GenDS DDat^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '1485:3-1808:6',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '1485:3-1808:6', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsDdatMaskReceiverTypeSkip;
@@ -23614,12 +23246,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1727, 13, lStatement),
     'Expected maxTdb tdbutils GenDS FL^.Form with statement.');
   // DS-719 A4 class a: tdbutils.pas:1727:13; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1727:13-1732:16');
 
   Assert.AreEqual('GenTable', lStatement.RoutineName);
   Assert.AreEqual('1727:13-1732:16', SourceRangeText(lStatement.Range));
@@ -23640,7 +23273,7 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1707, 13, lOwnerStatement));
   // DS-719 A4 class a: tdbutils.pas:1707:13; measured delta table.
-  AssertA4StrictRefusal(lOwnerStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lOwnerStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1707:13-1712:16');
 
   Assert.AreEqual('GenTable', lOwnerStatement.RoutineName);
   Assert.AreEqual('1707:13-1712:16', SourceRangeText(lOwnerStatement.Range));
@@ -23656,7 +23289,7 @@ begin
 
 // fix-packet-22.md: inactive ProgressDefault@46511 refuses 1787:15; base omits its declaration.
 
-  Assert.AreEqual('fb3a8b5ec363db4a9db2e1d66f37f4ae93b2250c137d8081032cbceeadbdf6ee',
+  Assert.AreEqual('be15f662b8ddb82e4b76c6f34413537633dee37835e64e4ca78fb46d0dd80684',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
 
@@ -23668,7 +23301,7 @@ begin
   // fix-packet-22.md: base d308bc5 refuses inactive ProgressDefault@46511.
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1787, 15, lStatement));
   // DS-719 A4 class a: tdbutils.pas:1787:15; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1787:15-1798:18');
 
   Assert.AreEqual(lOwnerStatement.RoutineName, lStatement.RoutineName);
   Assert.AreEqual('1787:15-1798:18', SourceRangeText(lStatement.Range));
@@ -23680,12 +23313,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1835, 5, lStatement),
     'Expected maxTdb tdbutils getstructure DF[d]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '1835:5-1887:7',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '1835:5-1887:7', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsFormListSkipReason;
@@ -23695,15 +23328,16 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 1939, 9, lStatement),
     'Expected maxTdb getdef WITH statement.');
   // DS-719 A4 class a: tdbutils.pas:1939:9; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '1939:9-1947:12');
 
   Assert.AreEqual('getdef', lStatement.RoutineName);
-  Assert.AreEqual('42b9634f40d251fa71e843b598ee5238a991a6e0a72688e8bc49de6e1892d596', lStatement.SemanticId);
+  Assert.AreEqual('dc4c24df6a38bc106a5936c1b1b88933e566c54a6f72db82e2cfd30505409cdf', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1939:9-1947:12', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1939:9-1947:12', SourceRangeText(lStatement.Verification.Range));
@@ -23740,12 +23374,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2054, 3, lStatement),
     'Expected maxTdb tdbutils GenSH DF[nach]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '2054:3-2083:12',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '2054:3-2083:12', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsGenshNestedSkipReasons;
@@ -23753,25 +23387,25 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2056, 7, lStatement),
     'Expected maxTdb tdbutils GenSH Maske[i]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '2056:7-2083:12',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '2056:7-2083:12', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2076, 15, lStatement),
     'Expected maxTdb tdbutils GenSH v with statement.');
   // A6: inherited DF[nach]^ capture DatFile is unproved behind Tdbutils.Ident.
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lStatement.SafetyReason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
   Assert.AreEqual('GetTakeOver', lStatement.RoutineName);
   Assert.AreEqual('2076:15-2081:17', SourceRangeText(lStatement.Range));
   // Admission replaces the complete provisional DTO, including verification data.
-  Assert.AreEqual('0:0-0:0', SourceRangeText(lStatement.Verification.Range));
-  Assert.AreEqual('', lStatement.Verification.ExpectedFileHash);
-  Assert.AreEqual('', lStatement.Verification.ExpectedSourceText);
+  Assert.AreEqual('2076:15-2081:17', SourceRangeText(lStatement.Verification.Range));
+  Assert.AreEqual('3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', lStatement.Verification.ExpectedFileHash);
+  Assert.AreEqual('with v do'#13''#10'              begin'#13''#10'                Inc(n);'#13''#10'                v[1, n] := j;'#13''#10'                v[2, n] := i'#13''#10'              end', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual<Integer>(0, Length(lStatement.Temps));
   Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
@@ -23783,6 +23417,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2104, 5, lStatement),
@@ -23791,8 +23426,7 @@ begin
   Assert.AreEqual('is_empty', lStatement.RoutineName);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual('a406c76c959b41cf9b11a3d9533316a4d9830e0bd27f91a043f42d0a46a03dec', lStatement.SemanticId);
-  AssertHiddenReceiverSkip(lStatement, '2104:5-2137:8',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '2104:5-2137:8', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
   Assert.AreEqual('with Maske[field]^ do' + #13#10 +
     '    begin' + #13#10 +
     '      if (Art and 128 = 128) and (Art and 15 <> A_LONG) and (f_s[l] = #0) then' + #13#10 +
@@ -23836,12 +23470,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2272, 3, lStatement),
     'Expected maxTdb tdbutils TakeOver DF[nach]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:2272:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2272:3-2274:82');
 
   Assert.AreEqual('TransferTDBFile', lStatement.RoutineName);
   Assert.AreEqual('2272:3-2274:82', SourceRangeText(lStatement.Range));
@@ -23852,13 +23487,13 @@ begin
     '    ADL_I := HatAuto and DF[von]^.HatAuto and (FileSize = 0)' + #13#10 +
     '      and (LabString(Maske[A_Nr].m) = LabString(DF[von]^.Maske[DF[von]^.A_Nr].m));', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('4af61c62678a19ec792005005d826ab2b0ce82564f20a6e1d82a4bf478c5878b',
+  Assert.AreEqual('59912bde37b1a0197ee3239167f6dcba145284aeb1284cd24cf9339529a080bb',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2264, 3, lOwnerStatement));
   // DS-719 A4 class a: tdbutils.pas:2264:3; measured delta table.
-  AssertA4StrictRefusal(lOwnerStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lOwnerStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2264:3-2269:6');
 
   Assert.AreEqual('TransferTDBFile', lOwnerStatement.RoutineName);
   Assert.AreEqual('2264:3-2269:6', SourceRangeText(lOwnerStatement.Range));
@@ -23872,7 +23507,7 @@ begin
     '    {$IFDEF DLL}j0 := DF[von]^.FileSize{$ENDIF}' + #13#10 +
     '  end;', lOwnerStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('047e3d334e3e2d606566ac944648cd84cb29539148d48d24f472bd2feac0725b',
+  Assert.AreEqual('a3a8a529c2d316e1c11ed1b3d0c606c5d68da2c3c129702f66f02643eee5a4a3',
     lOwnerStatement.SemanticId);
   Assert.AreEqual('', lOwnerStatement.UnsupportedIdentifierRole);
 
@@ -23887,12 +23522,12 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch metadata and diagnostic contract.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2765, 3, lStatement),
     'Expected maxTdb tdbutils CopyMemoDirekt DF[d]^, Maske[Nr]^ with statement.');
-  AssertHiddenReceiverSkip(lStatement, '2765:3-2774:8',
-    '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
+  AssertHiddenReceiverSkip(lStatement, '2765:3-2774:8', '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5', 'dependent-selector-type-not-resolved');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTdbUtilsCopyMemoLastMbRecReplacement;
@@ -23900,12 +23535,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2768, 7, lStatement),
     'Expected maxTdb tdbutils CopyMemoDirekt LastMBRec with statement.');
   // DS-719 A4 class a: tdbutils.pas:2768:7; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved', '2768:7-2769:28');
 
   Assert.AreEqual('CopyMemoDirekt', lStatement.RoutineName);
   Assert.AreEqual('2768:7-2769:28', SourceRangeText(lStatement.Range));
@@ -23915,7 +23551,7 @@ begin
   Assert.AreEqual('with LastMBRec do' + #13#10 +
     '        Memo2TL(d, MNr, TL);', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('338069dbb59e263bd228fcafa0b2c6b27a9a131495a0f15263a19f93c6e2c69a',
+  Assert.AreEqual('2e4ca38f46dd4567d8ca2674598515a0e2f35511a2439095eb0436a273a0268c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -23940,12 +23576,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2779, 3, lStatement),
     'Expected maxTdb tdbutils GetFSize DF[d]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:2779:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2779:3-2785:6');
 
   Assert.AreEqual('GetFSize', lStatement.RoutineName);
   Assert.AreEqual('2779:3-2785:6', SourceRangeText(lStatement.Range));
@@ -23960,7 +23597,7 @@ begin
     '      GetFSize := FileSize' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('84a6d842680f5c942f74458e870d80c23747f455951524d5f30226a30a96b08a',
+  Assert.AreEqual('07967b99ac456bf814c8b04d05601c4a58fc3de3d743b5b5777cc20c389136cd',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -23970,12 +23607,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dpr'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 3076, 3, lStatement),
     'Expected maxTdb tdbutils GetMarksAuto DF[d]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:3076:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'symbol-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '3076:3-3095:6');
 
   Assert.AreEqual('GetMarksAuto', lStatement.RoutineName);
   Assert.AreEqual('3076:3-3095:6', SourceRangeText(lStatement.Range));
@@ -24003,7 +23641,7 @@ begin
     '    FreeMem(RNo, (FileSize + 1) * SizeOf(Int32));' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('95fac69d8b8a0de50138bd9ee9688a8dc96a34f229b3a26b3cb3d4ba72cbf388',
+  Assert.AreEqual('a53c7939ae9abbe597f248e505b044a066973b4e794b7d6860f55dd6cdfd84ba',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 end;
@@ -24028,12 +23666,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 833, 5, lStatement),
     'Expected maxTdb MachMaske DBF, Struktur with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
 end;
@@ -24043,12 +23682,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 842, 9, lStatement),
     'Expected maxTdb MachMaske nested M[i]^ with statement.');
   Assert.AreEqual('skipped', lStatement.Status);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 860, 11, lStatement),
     'Expected maxTdb MachMaske nested p^ with statement.');
@@ -24139,6 +23779,7 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   // DS-719 A-367: exact approved anchors; other pins match dde6340 in Debug/Win64/23.0.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
@@ -24158,32 +23799,13 @@ begin
   Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + sLineBreak +
-    '  begin' + sLineBreak +
-    '    p := lWithDatFilePtr^.LTable[Hash(s)];' + sLineBreak +
-    '    while (p <> nil) and ((p^.l = 0) or (LabString(lWithDatFilePtr^.Maske[p^.l].m) <> s)) do' + sLineBreak +
-    '      p := p^.n;' + sLineBreak +
-    '    if p = nil then' + sLineBreak +
-    '      L_Nr := 0' + sLineBreak +
-    '    else' + sLineBreak +
-    '    begin' + sLineBreak +
-    '      L_Nr := p^.l;' + sLineBreak +
-    '      if DelHash then' + sLineBreak +
-    '        p^.l := 0' + sLineBreak +
-    '    end' + sLineBreak +
-    '  end;', lStatement.ReplacementText);
-  Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('', lStatement.ReplacementText);
+  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(lStatement.ReplacementText, lStatement.RewriteRecipe.ReplacementText);
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
-  Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbClonedIndexedPointerBlockKeepsEnd;
@@ -24262,12 +23884,13 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 1267, 3, lStatement),
     'Expected maxTdb CopyStringToRec aMask[aNr]^ with statement.');
   // DS-719 A4 class a: deklarat.pas:1267:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-type-not-visible', 'receiver-type-not-visible');
+  AssertA4StrictRefusal(lStatement, 'selector-type-not-resolved', 'SELECTOR_TYPE_NOT_RESOLVED', '1267:3-1330:6');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbNestedRoutineIndexedMaskSkip;
@@ -24275,13 +23898,14 @@ var
   lPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
+  // DS-719 A-369: exact batch row; retain strict current DTO and refusal assertions.
   lPlan := BuildPlanForProject(DakFixturePath('test-projects\maxTdb\src\maxtdb.dproj'));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 842, 9, lStatement),
     'Expected maxTdb MachMaske M[i]^ with statement.');
   Assert.AreEqual('MachMaske', lStatement.RoutineName);
   Assert.AreEqual('skipped', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+  Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)),
     'Expected unresolved nested routine indexed mask selector to produce no final edits.');
 end;

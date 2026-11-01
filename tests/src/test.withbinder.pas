@@ -18511,17 +18511,9 @@ begin
       end;
     end else begin
       Assert.AreEqual('ControlUnit.pas', ExtractFileName(lStatement.FileName));
-      // A-367: this exact warm row cannot reuse fresh observations for its cached control.
-      Assert.IsTrue(((aShape = 'anonymous-include-fields-only') and (aMode = 'warm') and
-        (lStatement.Status = 'skipped') and (lStatement.Reason = 'receiver-type-not-visible') and
-        (lStatement.SafetyReason = 'receiver-type-not-visible') and
-        (Length(lStatement.Edits) = 0) and (Length(lStatement.Temps) = 0)) or
-        (((aShape <> 'anonymous-include-fields-only') or (aMode <> 'warm')) and
-        (lStatement.Status = 'planned')), lStatement.Reason);
-      Assert.IsTrue(((aShape = 'anonymous-include-fields-only') and (aMode = 'warm') and
-        (lStatement.ReplacementText = '')) or
-        (((aShape <> 'anonymous-include-fields-only') or (aMode <> 'warm')) and
-        ContainsText(lStatement.ReplacementText, '.Value := 1;')));
+      // DS-719 0.17: co-produced observations restore the native-equal A-367 control.
+      Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '.Value := 1;'));
     end;
 end;
 

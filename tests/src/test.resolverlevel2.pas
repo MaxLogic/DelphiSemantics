@@ -218,6 +218,7 @@ var
   lConsumer: TDelphiSemanticUnitModel;
   lContext: TDelphiSemanticResolveContext;
   lOther: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
   lProvider: TDelphiSemanticUnitModel;
   lResult: TDelphiSemanticResolveResult;
 begin
@@ -352,16 +353,12 @@ begin
   lConsumer.Declarations[1].SectionKind := 'implementation';
   lContext.SectionKind := 'implementation';
 
-  lConsumer.ImplementationUses := ['Provider'];
-  SetLength(lConsumer.Declarations, 5);
-  lConsumer.Declarations[3] := lProvider.Declarations[0];
-  lConsumer.Declarations[3].TypeName := '^TLocal';
-  lConsumer.Declarations[4] := lProvider.Declarations[2];
-  lConsumer.Declarations[4].Name := 'TLocal';
-  SetLength(lConsumer.Members, 1);
-  lConsumer.Members[0] := lProvider.Members[0];
-  lConsumer.Members[0].OwnerName := 'TLocal';
-  lConsumer.Members[0].Name := 'LocalValue';
+  // DS-719 0.17: declaration-site visibility needs real fixture positions.
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.SourceFileName := FixturePath('Resolver', 'LocalSelectorAliasConsumer.pas');
+  lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lConsumer.Success);
   lResult := TDelphiSemanticResolver.ResolveName(lConsumer, lContext, 'X^.LocalValue');
   Assert.IsTrue(lResult.Found, 'The local alias should shadow the import.');
   Assert.AreEqual('TLocal', lResult.OwnerName);
