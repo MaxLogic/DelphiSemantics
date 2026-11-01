@@ -111,6 +111,13 @@ begin
       lStatement.AddPair('status', lItem.Status);
       lStatement.AddPair('reason', lItem.Reason);
       lStatement.AddPair('safety', lItem.SafetyReason);
+      // DS-719 A-369/A-371: export the full refusal publication boundary.
+      lStatement.AddPair('replacement', lItem.ReplacementText);
+      lStatement.AddPair('temp_count', TJSONNumber.Create(Length(lItem.Temps)));
+      lStatement.AddPair('recipe_status', lItem.RewriteRecipe.Status);
+      lStatement.AddPair('recipe_replacement', lItem.RewriteRecipe.ReplacementText);
+      lStatement.AddPair('recipe_edit_count', TJSONNumber.Create(Length(lItem.RewriteRecipe.TextEdits)));
+      lStatement.AddPair('recipe_temp_count', TJSONNumber.Create(Length(lItem.RewriteRecipe.TempDeclarations)));
       lEdits := TJSONArray.Create;
       lStatement.AddPair('edits', lEdits);
       for var lTextEdit in lItem.Edits do
@@ -395,6 +402,9 @@ begin
           try
             Assert.IsTrue(lSession.Success, lCaseRoot);
             lBuild := lSession.Session.PlanRemoveWithResult;
+            // Capture both session publications, including a failed warm-hit invariant.
+            WriteRoute(TPath.Combine(lCaseRoot, Format('route-%d-published.json', [i])),
+              lBuild.Plan, lFacts);
             if lPhase = 0 then
               Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits))
             else

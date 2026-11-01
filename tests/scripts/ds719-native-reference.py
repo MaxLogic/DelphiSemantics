@@ -1152,6 +1152,33 @@ def rewrite_must_stop(case, rewrite, original_output, stop_runtime):
     return mismatch and (bool(case.get('pair_role')) or stop_runtime)
 
 
+def approved_batch_observation(case, route, cause, plan, target=None):
+    """0.17 replaces only the listed obligation with its strict observed contract."""
+    rows = json.loads(Path(__file__).with_name('ds719-batch3-expectations.json').read_text(encoding='utf-8'))['rows']
+    matches = [r for r in rows if r['case'] == case['name'] and r['route'] == route
+               and r['target'] == target]
+    if not matches:
+        return None
+    assert len(matches) == 1, (case['name'], route, cause, target)
+    expected = matches[0]
+    statements = [s for s in plan['statements'] if target is None or
+                  [Path(s['file']).name.lower(), s['sl'], s['sc']] == target]
+    actual = [dict(file=Path(s['file']).name.lower(), sl=s['sl'], sc=s['sc'],
+                   el=s['el'], ec=s['ec'], status=s['status'], reason=s['reason'],
+                   safety=s['safety'], edit_count=len(s['edits'])) for s in statements]
+    # A refused final statement must have no publication through any payload.
+    for statement, observed in zip(statements, actual):
+        if statement['status'] == 'skipped':
+            observed['refusal_payload_empty'] = (
+                statement['replacement'] == '' and statement['temp_count'] == 0 and
+                statement['recipe_status'] == 'skipped' and
+                statement['recipe_replacement'] == '' and
+                statement['recipe_edit_count'] == 0 and statement['recipe_temp_count'] == 0)
+    return dict(result='pass' if actual == expected['statements'] else 'fail',
+                cause='approved-batch-contract', approval=expected['approval'],
+                expected=expected['statements'], statements=actual, observed_cause=cause)
+
+
 def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
     start = time.perf_counter(); failures = []; rows = []; losses = 0
     stopped = False
@@ -1249,6 +1276,9 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                        expected_statements=len(targets), expected_selectors=sum(len(t['context']) for t in targets))
             if case.get('pair_role'):
                 observation = pair_route_result(plan, case['pair_role'])
+                approved = approved_batch_observation(case, route, observation.get('cause', ''), plan)
+                if approved is not None:
+                    observation = approved
                 row['pair'] = case['pair']
                 row['pair_role'] = case['pair_role']
                 row['pair_result'] = observation
@@ -1263,7 +1293,12 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                                 approval='A-367', expected=case['expect_refusal'], statement=statement)
             if case.get('expect_plan'):
                 for statement in plan['statements']:
-                    if statement['status'] != 'planned':
+                    target = list(target_key(statement, folder))
+                    approved = approved_batch_observation(case, route, 'positive-control-refused', plan, target)
+                    if approved is not None:
+                        if approved['result'] != 'pass':
+                            failure(case, route, 4, approved['cause'], observation=approved)
+                    elif statement['status'] != 'planned':
                         failure(case, route, 4, 'positive-control-refused',
                                 reason=statement.get('reason'), target=target_key(statement, folder))
             # Target selection NEVER depends on the returned type/unit/name or
@@ -1364,13 +1399,15 @@ def challenge(root, bds):
     output = root/'comparator-challenges'; output.mkdir()
     for mutation in ('baseline', 'wrong-name', 'deleted-dto', 'missing-selector',
                      'alias-wrong-unit', 'wrong-unit', 'runtime', 'monotonicity', 'route-loss',
-                     'nested-context-loss', 'binding-flip', 'refuse-all'):
+                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused'):
         folder = output/mutation; folder.mkdir()
-        subject = (next(c for c in cases if c['name'] == 'generated-nested-none-after-intf')
+        subject = (next(c for c in cases if c['name'] == 'r8-helper-collision-p9-weak-alias')
+                   if mutation == 'approved-plan-refused' else
+                   next(c for c in cases if c['name'] == 'generated-nested-none-after-intf')
                    if mutation == 'nested-context-loss' else
                    next(c for c in cases if c['name'] == 'r8-member-homonym-field-own-global')
                    if mutation == 'binding-flip' else base)
-        row = json.loads(json.dumps(subject)); row['root'] = str(folder/'subject'); row['name']='subject'
+        row = json.loads(json.dumps(subject)); row['root'] = str(folder/'subject'); row['name']=subject['name'] if mutation == 'approved-plan-refused' else 'subject'
         row.pop('known_absent', None)
         shutil.copytree(subject['root'], row['root'], ignore=shutil.ignore_patterns('native', '*.sqlite*', '*-compile.json', '*-runtime.json'))
         for route in range(5):
@@ -1406,6 +1443,12 @@ def challenge(root, bds):
                         edit['text'], changed = re.subn(r'\b(?:\w+\^?\.)+Count\b', 'Count', edit['text'], flags=re.I)
                         count += changed
                 assert count, 'Binding mutation did not change an actual qualified member reference'
+            if mutation == 'approved-plan-refused':
+                for statement in plan['statements']:
+                    statement.update(status='skipped', reason='receiver-member-not-found',
+                                     safety='HELPER_COLLISION_UNVERIFIED', edits=[], replacement='',
+                                     temp_count=0, recipe_status='skipped', recipe_replacement='',
+                                     recipe_edit_count=0, recipe_temp_count=0)
             if mutation=='refuse-all':
                 row['expect_plan']=True
                 for statement in plan['statements']:
@@ -1433,7 +1476,8 @@ def challenge(root, bds):
             'alias-wrong-unit': 'compiler-identity', 'wrong-unit': 'compiler-identity',
             'runtime': 'runtime-output', 'monotonicity': 'monotonicity',
             'route-loss': 'route-invalid-or-missing', 'nested-context-loss': 'selector-coverage',
-            'binding-flip': 'runtime-output', 'refuse-all': 'positive-control-refused'}[mutation]
+            'binding-flip': 'runtime-output', 'refuse-all': 'positive-control-refused',
+            'approved-plan-refused': 'approved-batch-contract'}[mutation]
         detected = (process['exit']==0 and not result['failures']) if expected is None else (
             process['exit']==1 and any(f['cause']==expected for f in result['failures']))
         results.append(dict(mutation=mutation,exit=process['exit'],detected=detected,
