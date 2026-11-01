@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Resolve.TypeResolver;
+unit DelphiSemantics.Resolve.TypeResolver;
 
 interface
 
@@ -225,6 +225,7 @@ type
     fVisibilityRanges: TDictionary<string, TDelphiSemanticSourceRange>;
     fByQualifiedName: TDictionary<string, TDelphiSemanticTypeIdentity>;
     fHelpersByTargetName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
+    fHelpersByUnit: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fBySimpleName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fByLocalScopeName: TDictionary<string, TDelphiSemanticTypeIdentityList>;
     fUnsupportedLocalScopeName: TDictionary<string, Byte>;
@@ -1336,6 +1337,7 @@ var
   lTarget: TDelphiSemanticTypeIdentity;
   lIndirect: Boolean;
   lMatch: TDelphiSemanticNameOutcome;
+  lHelpers: TDelphiSemanticTypeIdentityList;
 begin
   if not HelperReceiverTerminal(aTarget, lTarget, lIndirect) then
     Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
@@ -1390,7 +1392,11 @@ begin
     end;
   end;
   lCandidates := nil;
-  for var lHelper in fByDeclaredId.Values do
+  // This is a declaration candidate index, not a cached visibility verdict.
+  // Keep target, import, scope, file and positional checks at the query site.
+  if not fHelpersByUnit.TryGetValue(aUnitName, lHelpers) then
+    Exit;
+  for var lHelper in lHelpers do
   begin
     if (lHelper.HelperTargetName = '') or not SameText(lHelper.UnitName, aUnitName) or
       ((not aOwn) and not SameText(lHelper.SectionKind, 'interface')) or
@@ -2171,6 +2177,8 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fHelpersByTargetName := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fHelpersByUnit := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   fBySimpleName := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fByLocalScopeName := TDictionary<string, TDelphiSemanticTypeIdentityList>.Create(
@@ -2345,6 +2353,11 @@ begin
     end;
   for lIdentity in lIdentities do
     AddHelperTargetKeys(lIdentity);
+  // Build after identity finalization, preserving the former dictionary walk
+  // order. The identities and this index are immutable for this instance.
+  for lIdentity in fByDeclaredId.Values do
+    if lIdentity.HelperTargetName <> '' then
+      AddToMap(fHelpersByUnit, lIdentity.UnitName, lIdentity);
 end;
 
 destructor TDelphiSemanticTypeIdentityIndexData.Destroy;
@@ -2376,6 +2389,9 @@ begin
   for lList in fHelpersByTargetName.Values do
     lList.Free;
   fHelpersByTargetName.Free;
+  for lList in fHelpersByUnit.Values do
+    lList.Free;
+  fHelpersByUnit.Free;
   fVisibilityRanges.Free;
   fByDeclaredId.Free;
   fByCanonicalId.Free;
