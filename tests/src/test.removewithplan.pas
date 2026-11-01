@@ -23097,8 +23097,8 @@ begin
     lCanonicalStatement), 'Expected canonical maxTdb FlipMark statement.');
   Assert.AreEqual('skipped', lCanonicalStatement.Status);
   // A-365: canonical range refusal precedes late admission; synthetic control stays planned.
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.SafetyReason);
+  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.Reason);
+  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Temps)));
   Assert.AreEqual('', lCanonicalStatement.ReplacementText);
