@@ -7790,7 +7790,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -7800,7 +7801,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('173:1-183:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -7815,7 +7817,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('72ee8674b1bb6ec76fa79dcd3bae5ebb8882035ae99635c5f10dbbf1268660a7',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5330f01d9a3b2e403b93f6627dedac3a7d30385ce23280868be81cf34a5a68f3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
@@ -10394,7 +10397,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c56c633324ee3cb8abe3f00d5f53be19c790d0278043ab87c106eea5cb8827a5',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10403,7 +10407,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('204:1-211:16', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c56c633324ee3cb8abe3f00d5f53be19c790d0278043ab87c106eea5cb8827a5',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10418,7 +10423,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('0bab8fd768832932f9857aca9861ec595a5ba737ab62383c527a7c8e8ce185d6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c56c633324ee3cb8abe3f00d5f53be19c790d0278043ab87c106eea5cb8827a5',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
@@ -10486,7 +10492,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('SetStatLink', lStatement.RoutineName);
-  Assert.AreEqual('e0e8820edec708efa0eed23eb196a9cdc01ddf3d79b0645ca730089efb89571d', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15e2004b536524c5937b4c282dec5e3c4346ad0ff4ca26337741ca903f55a98c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('322:5-330:19', SourceRangeText(lStatement.Range));
   Assert.AreEqual('322:5-330:19', SourceRangeText(lStatement.Verification.Range));
@@ -10518,7 +10525,8 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithStatLinkTypePtr := @p^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e0e8820edec708efa0eed23eb196a9cdc01ddf3d79b0645ca730089efb89571d', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15e2004b536524c5937b4c282dec5e3c4346ad0ff4ca26337741ca903f55a98c', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('316:1-316:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -10597,7 +10605,8 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a39333c6ccaca445721c4e08d2189ffaad8f70116691344afa6f91ab135b9b01',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10606,7 +10615,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('368:1-380:15', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a39333c6ccaca445721c4e08d2189ffaad8f70116691344afa6f91ab135b9b01',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10621,7 +10631,8 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('587dc8f74c850deb0ac78bc08ee6b25e7ca531555d792cc3d282fbaaeb8ee631',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a39333c6ccaca445721c4e08d2189ffaad8f70116691344afa6f91ab135b9b01',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -10670,7 +10681,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ad99f15b73ffb63403f0f241a512f7d870f4a3326e46b781d61e2858fdaead18',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10680,7 +10692,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('413:1-421:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ad99f15b73ffb63403f0f241a512f7d870f4a3326e46b781d61e2858fdaead18',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10695,7 +10708,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a6ed8695935ec6a41bf9a2f80b56638c53fd430d46d128b77ec332bce8174504',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ad99f15b73ffb63403f0f241a512f7d870f4a3326e46b781d61e2858fdaead18',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   lMatchCount := 0;
@@ -10787,13 +10801,15 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('67195b463055fb713e1ca136bf6c0c9c2befe24d066fd1a788058dc2a54f5472',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('682:1-687:14', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('67195b463055fb713e1ca136bf6c0c9c2befe24d066fd1a788058dc2a54f5472',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10808,7 +10824,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('79298bb68260ed7551cf3141434ed21e4288e995b64a3d3c38b2bf1a1c28329d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('67195b463055fb713e1ca136bf6c0c9c2befe24d066fd1a788058dc2a54f5472',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.AreEqual(250, Integer(Length(lStatement.ReplacementText)));
@@ -10959,7 +10976,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7c35728625811358bd68503815aff0fb175ef46f8a671d5894e08e69b45d3e57',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -10968,7 +10986,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('138:1-150:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7c35728625811358bd68503815aff0fb175ef46f8a671d5894e08e69b45d3e57',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -10983,7 +11002,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('245cbab25077b547bc0c3cc26614bc06a1b620956e7fa4c094a086e23eec025d',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7c35728625811358bd68503815aff0fb175ef46f8a671d5894e08e69b45d3e57',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -11041,7 +11061,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1496ef34813344604b02e2a75a38175ca5b3c4189328209c1c6eb3caa53b6ae4',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11051,7 +11072,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('155:1-168:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1496ef34813344604b02e2a75a38175ca5b3c4189328209c1c6eb3caa53b6ae4',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11066,7 +11088,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @fptr^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('84e843f81f14cdffa0a39503f8ee233954dcd84a1a313c2e44430883c46c92aa',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1496ef34813344604b02e2a75a38175ca5b3c4189328209c1c6eb3caa53b6ae4',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 173, 3, lStatement),
@@ -11176,7 +11199,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5ea7fc13c662c7bce620a4841f2fe7965ecc03ff86eef4790ba40b15c0ac071c',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -11187,7 +11211,8 @@ begin
   Assert.AreEqual('200:1-204:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
   Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
-  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5ea7fc13c662c7bce620a4841f2fe7965ecc03ff86eef4790ba40b15c0ac071c',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11202,7 +11227,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ea6634c93b9e0c835903d018154b210d9a3e3ca3093f60f20b17781df0d67da6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5ea7fc13c662c7bce620a4841f2fe7965ecc03ff86eef4790ba40b15c0ac071c',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 235, 5, lStatement),
@@ -11308,7 +11334,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('CloseLowFile', lStatement.RoutineName);
-  Assert.AreEqual('ced9908b0f8a1a3cd676ec6c0be418972e8b157eef0056baf074e39ff4aa827a', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('63cd4087db2ad4f398769f49291118f9f6c91cb41c8665669f51ef565b0fd963', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('266:5-281:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('266:5-281:8', SourceRangeText(lStatement.Verification.Range));
@@ -11356,7 +11383,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('ced9908b0f8a1a3cd676ec6c0be418972e8b157eef0056baf074e39ff4aa827a', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('63cd4087db2ad4f398769f49291118f9f6c91cb41c8665669f51ef565b0fd963', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -11840,7 +11868,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c23b94d32ccae978bc75465afd8eee054465af26d0c77b25c920d9926453a279',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -11861,7 +11890,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('434:1-455:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c23b94d32ccae978bc75465afd8eee054465af26d0c77b25c920d9926453a279',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -11876,7 +11906,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('add496492324851573235cf7f41d35709ebe8f4e6039c995cb5bcf67d621cf80',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c23b94d32ccae978bc75465afd8eee054465af26d0c77b25c920d9926453a279',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(665, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 440, 9, lCoveredFinal));
@@ -11992,7 +12023,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c5c8948e7356fe9e65a9a903c6e9f66c65caaf96c2b3e1e20dec533e8fdb262d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12013,7 +12045,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('484:1-515:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c5c8948e7356fe9e65a9a903c6e9f66c65caaf96c2b3e1e20dec533e8fdb262d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12028,7 +12061,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5904df15ecf131763bcc69a85d71355595b280bd68f4506e8d74aa0f4995bd5a',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c5c8948e7356fe9e65a9a903c6e9f66c65caaf96c2b3e1e20dec533e8fdb262d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(1168, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 490, 9, lCoveredFinal));
@@ -12117,7 +12151,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c8992f04b41784652cb74df63ddef77e12e9f34bdf29e29bdc761c084d3e1e6d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12127,7 +12162,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('545:1-554:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c8992f04b41784652cb74df63ddef77e12e9f34bdf29e29bdc761c084d3e1e6d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12142,7 +12178,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('c71031f4131d1379274c8cd79c0d205001241e068dde4a7c0111114ffd2c9673',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c8992f04b41784652cb74df63ddef77e12e9f34bdf29e29bdc761c084d3e1e6d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'lowFiles.pas', 603, 5, lStatement),
@@ -12306,7 +12343,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f7fc2641de6cccbb570a30698af2f51acfc82a3b3f5b1ac24340f656da19d58b',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('v_handle_ptr^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithVirtualFilePtr^', lStatement.Temps[1].QualifierText);
@@ -12327,7 +12365,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('696:1-710:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f7fc2641de6cccbb570a30698af2f51acfc82a3b3f5b1ac24340f656da19d58b',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12342,7 +12381,8 @@ begin
   Assert.AreEqual('lWithLowFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5a785591f6517a74689059285de5a5006e4efdece315978e9de0ac0bad003ec8',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f7fc2641de6cccbb570a30698af2f51acfc82a3b3f5b1ac24340f656da19d58b',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(556, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 699, 9, lCoveredFinal));
@@ -12419,7 +12459,8 @@ begin
   Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithMD5ContextPtr := @Context;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5f0a6c8c4c2898d98814c9cb8e764e6920553d92d44a7b951f087da7b203f7f3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12429,7 +12470,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('237:1-246:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5f0a6c8c4c2898d98814c9cb8e764e6920553d92d44a7b951f087da7b203f7f3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12444,7 +12486,8 @@ begin
   Assert.AreEqual('lWithMD5ContextPtr := @Context;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e62e70c124a8796594e5eb1169e80c35f6d7654fb89cf3ec5f78830730c18157',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5f0a6c8c4c2898d98814c9cb8e764e6920553d92d44a7b951f087da7b203f7f3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.AreEqual(380, Integer(Length(lStatement.ReplacementText)));
@@ -12503,7 +12546,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('147:1-162:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('b063dae0e9f73da5adeb704e47408c413ce9d4f3bfb8b7d8997d86f3e5a7e263',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7367f2f77411584896c914191021bce59c0e0051c29717ff7301ca0d34677242',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12517,7 +12561,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b063dae0e9f73da5adeb704e47408c413ce9d4f3bfb8b7d8997d86f3e5a7e263',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7367f2f77411584896c914191021bce59c0e0051c29717ff7301ca0d34677242',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12570,7 +12615,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('249:1-262:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('dea5baedfbf7685cd987afe4b6c31947f6edd3967934a47b018ebdca5408f357',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7a7ae7e2fdb2190755936686ca16d85787c70c371bce54a198c6b9b30c06707a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12584,7 +12630,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('dea5baedfbf7685cd987afe4b6c31947f6edd3967934a47b018ebdca5408f357',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7a7ae7e2fdb2190755936686ca16d85787c70c371bce54a198c6b9b30c06707a',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual(331, Integer(Length(lStatement.ReplacementText)));
 end;
@@ -12640,7 +12687,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('267:1-281:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('f39f98f460500da5aeaee7cd505baa5f243e599e38b38aa7df9a96fedf5e6d6f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('abbededec3f5ebc8818b4e37c7e9c68572d1e7c48472707d4390e51a6a758c68',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12654,7 +12702,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f39f98f460500da5aeaee7cd505baa5f243e599e38b38aa7df9a96fedf5e6d6f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('abbededec3f5ebc8818b4e37c7e9c68572d1e7c48472707d4390e51a6a758c68',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12700,7 +12749,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ef007ff9ecd121457f1d007111c848bcee0c4f700f7ce6c9549ac365b33bbfc8',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12710,7 +12760,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('295:1-302:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ef007ff9ecd121457f1d007111c848bcee0c4f700f7ce6c9549ac365b33bbfc8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12725,7 +12776,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('1bec5498e35c2fd4432d3f52892d885e19a38150a52e797b019203919f9d783c',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ef007ff9ecd121457f1d007111c848bcee0c4f700f7ce6c9549ac365b33bbfc8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12774,7 +12826,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('307:1-318:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('5ef2d5282fb3b0424c1127a3e0d65eac0bde362b035fdf9b7aeae52fc6417aa6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15d1f8b47007b008f092a25f1ceb02ce20f62d5472e2599e74e5454e970f84fa',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12788,7 +12841,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('5ef2d5282fb3b0424c1127a3e0d65eac0bde362b035fdf9b7aeae52fc6417aa6',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15d1f8b47007b008f092a25f1ceb02ce20f62d5472e2599e74e5454e970f84fa',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12839,7 +12893,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('323:1-335:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('ef1c9eedef65defb5e61064c6b0653d1494834fb2604a488f0931139de9ecd15',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('84eb80f2a8c24109eb2cce9563dc3c31298d8d3924558a9365784f2c06573057',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12853,7 +12908,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('ef1c9eedef65defb5e61064c6b0653d1494834fb2604a488f0931139de9ecd15',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('84eb80f2a8c24109eb2cce9563dc3c31298d8d3924558a9365784f2c06573057',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12899,7 +12955,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @rt^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('17422c3414e97d795af61b3deb3afee96e9a30bc343a10f1491b16c302b5c093',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -12908,7 +12965,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('434:1-440:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('17422c3414e97d795af61b3deb3afee96e9a30bc343a10f1491b16c302b5c093',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -12923,7 +12981,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @rt^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6b68394a8339ee1ef6b6d9d1d721fd2e01ed83e4bbcdd2ce6eeb419138f81484',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('17422c3414e97d795af61b3deb3afee96e9a30bc343a10f1491b16c302b5c093',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -12984,7 +13043,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('456:1-473:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('356e48cc603cd8082bb2efd1f154c8df8a753fda8ba74d04087cd08671c31971',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3193b5e411ac422ab81ee20beff08dfc5195c36ae7c53d3f75b15310a7aa61f4',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -12998,7 +13058,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('356e48cc603cd8082bb2efd1f154c8df8a753fda8ba74d04087cd08671c31971',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3193b5e411ac422ab81ee20beff08dfc5195c36ae7c53d3f75b15310a7aa61f4',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13060,7 +13121,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('4ac68b9f42ca80991fb9b61c72ae96dbf28e50464ebc7f1e74653b9dec053c7e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13070,7 +13132,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('478:1-493:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('4ac68b9f42ca80991fb9b61c72ae96dbf28e50464ebc7f1e74653b9dec053c7e',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13085,7 +13148,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('49cec3b9bd81782dab6fb50bffa4e69869a7c5355175e335acabf9c16fd6d00b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('4ac68b9f42ca80991fb9b61c72ae96dbf28e50464ebc7f1e74653b9dec053c7e',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13144,7 +13208,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('544:1-560:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('e32949c176ad057f49e98364c7686285b9f22bab30cb3b9d9222e3bbe89bf99b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6b67de5c9b649b496ad59b7ed76857443f4694b93783be0f6610400b2bbf4b64',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -13158,7 +13223,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e32949c176ad057f49e98364c7686285b9f22bab30cb3b9d9222e3bbe89bf99b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6b67de5c9b649b496ad59b7ed76857443f4694b93783be0f6610400b2bbf4b64',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13211,7 +13277,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('586:1-599:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('90e646b970c08e732a3f4edab3c1072ca3bc94f0dd7c12cb1366a579d788d22f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('483236e52e468e5eea59e1337c5884b537ed22cf125e36dbead124377ce91c33',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -13225,7 +13292,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('90e646b970c08e732a3f4edab3c1072ca3bc94f0dd7c12cb1366a579d788d22f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('483236e52e468e5eea59e1337c5884b537ed22cf125e36dbead124377ce91c33',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13344,7 +13412,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('608:1-654:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('e9af535677be62f7eee617de37578e66b4d59b1357bdb8b31286788725abf858',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cec7a02b454ebe65a07bb5b4afa0d7482a16dba73d35f345acc24745e8783c09',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -13358,7 +13427,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('e9af535677be62f7eee617de37578e66b4d59b1357bdb8b31286788725abf858',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cec7a02b454ebe65a07bb5b4afa0d7482a16dba73d35f345acc24745e8783c09',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13391,7 +13461,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('666:1-669:5', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('b710337a479db670487ca947bb2105030c77935c22698e13c18fd9ae40cf470b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('eae1282190702b1d774946e78544e94f42c59d2b9cd0e917c5a6e430ccc9b394',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -13405,7 +13476,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b710337a479db670487ca947bb2105030c77935c22698e13c18fd9ae40cf470b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('eae1282190702b1d774946e78544e94f42c59d2b9cd0e917c5a6e430ccc9b394',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13457,7 +13529,8 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cea77c5908fc35d10bf09a10df8472c71bf6f92b6f74159977a8ebb711ae235a',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -13466,7 +13539,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('688:1-698:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cea77c5908fc35d10bf09a10df8472c71bf6f92b6f74159977a8ebb711ae235a',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -13481,7 +13555,8 @@ begin
   Assert.AreEqual('lWithRamFilePtr := @f;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('165239e1fabd96c29e0eb6f99fc9e2c975b785cc9cbb7baa32cf6539130feb8f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cea77c5908fc35d10bf09a10df8472c71bf6f92b6f74159977a8ebb711ae235a',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -13546,7 +13621,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('ReadRamFile', lStatement.RoutineName);
-  Assert.AreEqual('388e63092ffe9dc50ca8b9be2c933d5218b7fbde024b580dee1517e85878b75b', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('344cb19cf9e64bdda33bbb2bd16587ff3e1167997f4c7f4b5e63c4e04ed87999', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('704:3-714:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('704:3-714:6', SourceRangeText(lStatement.Verification.Range));
@@ -13582,7 +13658,8 @@ begin
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('388e63092ffe9dc50ca8b9be2c933d5218b7fbde024b580dee1517e85878b75b', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('344cb19cf9e64bdda33bbb2bd16587ff3e1167997f4c7f4b5e63c4e04ed87999', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('703:1-703:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -14041,7 +14118,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1049:1-1055:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('7ec4733d9e9c053091737ff3fa5d184b4d78135ab8443a0007a68b43c556060b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('772caab54033cc9aa487e24b210a6dcacc603167c233a96917a6103f70974fc8',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -14055,7 +14133,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7ec4733d9e9c053091737ff3fa5d184b4d78135ab8443a0007a68b43c556060b',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('772caab54033cc9aa487e24b210a6dcacc603167c233a96917a6103f70974fc8',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -14098,7 +14177,8 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f8d102c9365e7a3ba05912543954363f44565d42f94d73d963adc2e4b132fdb2',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14108,7 +14188,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1116:1-1120:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f8d102c9365e7a3ba05912543954363f44565d42f94d73d963adc2e4b132fdb2',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14123,7 +14204,8 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7f304cc3f53a0c32821f89c3bc3445b15ce88e2c6ca96fdab86d11d628f86f07',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f8d102c9365e7a3ba05912543954363f44565d42f94d73d963adc2e4b132fdb2',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -14178,7 +14260,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1398:1-1412:8', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('39918586a7ef47ea4e9099745f7b106c7374cb01619fba71ce02fc623b2d7eee',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('83f2fdb1f3f684e9798eaf650d5f12852524328f0dad8d181128303b426b3e30',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -14192,7 +14275,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('39918586a7ef47ea4e9099745f7b106c7374cb01619fba71ce02fc623b2d7eee',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('83f2fdb1f3f684e9798eaf650d5f12852524328f0dad8d181128303b426b3e30',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -14243,7 +14327,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1421:1-1433:8', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('b69d55c6cad4d87efc42ad9f813db5630605c622bf4142e6e734793f7b3dcad5',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b7c6eb4f1daef9d139b1caa89e29dd563afa31e9c40a2b61d7a295e9274b6f64',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'direct-qualification');
@@ -14257,7 +14342,8 @@ begin
   Assert.AreEqual('', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-routine-member-direct-qualification',
     lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('b69d55c6cad4d87efc42ad9f813db5630605c622bf4142e6e734793f7b3dcad5',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b7c6eb4f1daef9d139b1caa89e29dd563afa31e9c40a2b61d7a295e9274b6f64',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -14292,7 +14378,8 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6693ec659126cffd064d26c22ba36095ab56a55d666143596a3c67073ca3f683',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('rt', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRamTextPtr^', lStatement.Temps[1].QualifierText);
@@ -14303,7 +14390,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6693ec659126cffd064d26c22ba36095ab56a55d666143596a3c67073ca3f683',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14314,7 +14402,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1602:1-1603:19', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6693ec659126cffd064d26c22ba36095ab56a55d666143596a3c67073ca3f683',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14329,7 +14418,8 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6693ec659126cffd064d26c22ba36095ab56a55d666143596a3c67073ca3f683',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('rt', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRamTextPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -14341,7 +14431,8 @@ begin
   Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('13e7705ecbcc19594c56ba31f5cef64b9b5fda7caa9712b89947bc285b73fd24',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6693ec659126cffd064d26c22ba36095ab56a55d666143596a3c67073ca3f683',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -14420,7 +14511,8 @@ begin
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('4c032fa9aa0b4a09bc1cf13f0ec5f95a5a978142f2dda25c40c166146ef8a5e9',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('dbb103a3205c48a0d0df46f30ec7cd178b0e63c6f00f11aa5a946b37f2f5e4d7',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
@@ -14477,13 +14569,15 @@ begin
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a0bf4a0cf4db7834f862c3064a2894da874456db193190eca854cb2f9581fd14',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1495:1-1500:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a0bf4a0cf4db7834f862c3064a2894da874456db193190eca854cb2f9581fd14',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14498,7 +14592,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('26cc3e752612accd73b09bab32fa29a9c64bcf9d8e859c4655ccb9b18f7f8a75',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a0bf4a0cf4db7834f862c3064a2894da874456db193190eca854cb2f9581fd14',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
@@ -14610,13 +14705,15 @@ begin
   Assert.AreEqual('lWithDatFilePtr2: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6b90384549cac3df2d6e01b37560ae2610e2508129021eae50087de6305387ca',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('1501:1-1508:6', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6b90384549cac3df2d6e01b37560ae2610e2508129021eae50087de6305387ca',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14631,7 +14728,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a6a8e63f07e3fd1ffdd547706a5b0c5d5967b0bd682e7347c540d1dc078d6d31',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6b90384549cac3df2d6e01b37560ae2610e2508129021eae50087de6305387ca',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'strfuncs.pas', 1232, 3, lOwnerStatement));
@@ -14750,7 +14848,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15eb7cfb452726bbf28af673614601e8556357a69ae11e43c98d4537cb1a7ddf',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14759,7 +14858,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2717:1-2722:6', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15eb7cfb452726bbf28af673614601e8556357a69ae11e43c98d4537cb1a7ddf',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14774,7 +14874,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('50217258890cbb06e7126c69a6896f4a6bddf6a18495fb8b6ac937a504077302',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('15eb7cfb452726bbf28af673614601e8556357a69ae11e43c98d4537cb1a7ddf',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -14795,7 +14896,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('build_str_array', lStatement.RoutineName);
-  Assert.AreEqual('81cc484ea9c3dfb1d9fb788a1d23e78c411c800caf93e36c10da9e6b73485fcc', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('61deb58e7d93af5676c8356f1d2241fc522acf97813470f0751cd2a5236fda3b', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2794:3-2806:6', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2794:3-2806:6', SourceRangeText(lStatement.Verification.Range));
@@ -14836,7 +14938,8 @@ begin
   Assert.AreEqual('lWithEasyVarPtr: ^EasyVar;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithEasyVarPtr := @VarList[Vnr];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('81cc484ea9c3dfb1d9fb788a1d23e78c411c800caf93e36c10da9e6b73485fcc', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('61deb58e7d93af5676c8356f1d2241fc522acf97813470f0751cd2a5236fda3b', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('p^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithArrayVarRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -14932,7 +15035,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a1a7a6d65290165a2d91fd0d23e46dbb8a4075b105fb52438b7e676c51012223',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -14942,7 +15046,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('107:1-108:38', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a1a7a6d65290165a2d91fd0d23e46dbb8a4075b105fb52438b7e676c51012223',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -14957,7 +15062,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('7c7a5d68480b0b4e75f394bc57666c707acd0dc42e38e4e4baf0cf0731b82c08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a1a7a6d65290165a2d91fd0d23e46dbb8a4075b105fb52438b7e676c51012223',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 113, 3, lStatement));
@@ -15026,7 +15132,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewInd', lStatement.RoutineName);
-  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b1c89ac27c204896cc121b40c9803c449c4536403c8b9b74f9b884090aab6502', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Verification.Range));
@@ -15078,7 +15185,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b1c89ac27c204896cc121b40c9803c449c4536403c8b9b74f9b884090aab6502', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -15127,7 +15235,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewInd', lStatement.RoutineName);
-  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b1c89ac27c204896cc121b40c9803c449c4536403c8b9b74f9b884090aab6502', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('195:3-213:5', SourceRangeText(lStatement.Verification.Range));
@@ -15179,7 +15288,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('b8228e84fbf24cff96b6e266e00089625ccfaade7bbd9840ce7521c1d846ad8d', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b1c89ac27c204896cc121b40c9803c449c4536403c8b9b74f9b884090aab6502', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -15256,7 +15366,8 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('GetIndPath', lStatement.RoutineName);
-  Assert.AreEqual('cfa1d6d78ee46805424b9f6990f264cbf8e03bad7982d4e64512dcb52256dd87', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('79c5a4ef54c4d15116d74564e63eeeee18ca6d4e9018b7538969e9145618bb97', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('223:3-241:5', SourceRangeText(lStatement.Range));
   Assert.AreEqual('223:3-241:5', SourceRangeText(lStatement.Verification.Range));
@@ -15446,7 +15557,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('0393f255c6c4ce87cb6550d3026c5582731071ee6768844cc1a9ea14bf8845be',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15455,7 +15567,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('298:1-305:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('0393f255c6c4ce87cb6550d3026c5582731071ee6768844cc1a9ea14bf8845be',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -15470,7 +15583,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('f8925365c1b165ff6b4e7116f1ea3bd3d0f1fcebe7bc21a4aab21bc57d1781eb',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('0393f255c6c4ce87cb6550d3026c5582731071ee6768844cc1a9ea14bf8845be',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -15649,13 +15763,15 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3954342833f57fac949c588c5cc1c48f06760ea21dd44b9b85f4199893c5c27d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('422:1-432:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
-  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3954342833f57fac949c588c5cc1c48f06760ea21dd44b9b85f4199893c5c27d',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -15670,7 +15786,8 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('071015492cf41e5a522c68acea6a6c231707e826481b1a85ed177311d72151ed',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3954342833f57fac949c588c5cc1c48f06760ea21dd44b9b85f4199893c5c27d',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 388, 7, lOwnerStatement));
@@ -15798,7 +15915,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('IndProc', lStatement.RoutineName);
-  Assert.AreEqual('5c655cb7703f995b05b3360f258ea9d9d42e54806147b65b7781483ab06fff9e', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('0ff2f8c9a0367617f631523124e2d9980ee7eae9dedc090eb869a03c9da70242', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('648:5-669:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('648:5-669:10', SourceRangeText(lStatement.Verification.Range));
@@ -15858,7 +15976,8 @@ begin
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithIndexFilePtr := @g^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('5c655cb7703f995b05b3360f258ea9d9d42e54806147b65b7781483ab06fff9e', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('0ff2f8c9a0367617f631523124e2d9980ee7eae9dedc090eb869a03c9da70242', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('635:1-635:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -16352,7 +16471,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('50ba110528cb917b80b10dcf2358023eeea76377ad07c172971f9a20acad9115',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[Nr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -16363,7 +16483,8 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('50ba110528cb917b80b10dcf2358023eeea76377ad07c172971f9a20acad9115',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16374,7 +16495,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1203:1-1214:7', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('50ba110528cb917b80b10dcf2358023eeea76377ad07c172971f9a20acad9115',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16389,7 +16511,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('50ba110528cb917b80b10dcf2358023eeea76377ad07c172971f9a20acad9115',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('IndFiles[Nr]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -16401,7 +16524,8 @@ begin
   Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('54785453bed0db34b65ac76909ea651f2228bda279d927e6edebda3ee8d90645',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('50ba110528cb917b80b10dcf2358023eeea76377ad07c172971f9a20acad9115',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 end;
 
@@ -16627,7 +16751,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('d336f9e151182adcc12304cd54bc2ccbce9550551184c83e67de8fb91373ecc3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16637,7 +16762,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2061:1-2070:5', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('d336f9e151182adcc12304cd54bc2ccbce9550551184c83e67de8fb91373ecc3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -16652,7 +16778,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('6c5351e3e91314f534e59aabcd5dafea9724f1745aa77749aa35ce74ea406cea',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('d336f9e151182adcc12304cd54bc2ccbce9550551184c83e67de8fb91373ecc3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 2077, 3, lStatement));
@@ -16768,7 +16895,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('6269110b87fdee3419d994f55f3595ca7a9cc55a53bd825dcd18888bfeb8630e',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c9d73541887b97d4c294fc3953beb74320b410d0cf00bcf5b993e8419b21b08d',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -16824,7 +16952,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('940df851bf658db37cb473c9f91bd02fb09e21974897fd8489258c98c21df7f2',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c11c5fff3423df9e153559f5b8dedacf664c42875d0b2f7d95bffad3675651a4',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -17596,7 +17725,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('fe8219b40c4d107a957c175081b5857eecec461ab9e2e140608e6ba30b806df3',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('IndFiles[i]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithIndexFilePtr^', lStatement.Temps[1].QualifierText);
@@ -17617,7 +17747,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('656:1-668:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('fe8219b40c4d107a957c175081b5857eecec461ab9e2e140608e6ba30b806df3',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -17632,7 +17763,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('701298e74e6df3e42db10fed72d4e89d6338c47e74ea09fa6af208ebe62f2d08',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('fe8219b40c4d107a957c175081b5857eecec461ab9e2e140608e6ba30b806df3',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'tdb01.pas', 662, 11, lCoveredFinal));
   Assert.IsTrue(FindStatementBySemanticId(lPlan, 'e1f97992dc449390da8ad8bfc15ac6afada30030c6c8e104231e14d2e4389b72',
@@ -18008,7 +18140,8 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('LiesSek', lStatement.RoutineName);
-  Assert.AreEqual('3aaba18c2ac845e798870de268aa70dbf28a521b2e0e9097040e0e6671be7c21', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('576e057edf676d7b2245c0c3e4b4922f47f7f53472653f33cb07673b4d6e8c64', lStatement.SemanticId);
   Assert.AreEqual('929:7-970:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('929:7-970:10', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118', lStatement.Verification.ExpectedFileHash);
@@ -18101,7 +18234,8 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('864e82730f9ec65947153bd5577eff7710f88eaca56281ea7ed1391d53f8d206',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[i]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
@@ -18111,7 +18245,8 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('864e82730f9ec65947153bd5577eff7710f88eaca56281ea7ed1391d53f8d206',
     lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18123,7 +18258,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('986:1-991:10', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('864e82730f9ec65947153bd5577eff7710f88eaca56281ea7ed1391d53f8d206',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -18138,7 +18274,8 @@ begin
   Assert.AreEqual('lWithRelRecPtr := @RelRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('864e82730f9ec65947153bd5577eff7710f88eaca56281ea7ed1391d53f8d206',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('w[i]', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
@@ -18150,7 +18287,8 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('116c4c15cc3599010e0876f61dc2c8a666bfff37a175b5ee423856dea214f0e4',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('864e82730f9ec65947153bd5577eff7710f88eaca56281ea7ed1391d53f8d206',
     lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
 
   lOwnerStatement := lStatement;
@@ -18257,7 +18395,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NextRec', lStatement.RoutineName);
-  Assert.AreEqual('4d97c731cad1d859804cf29f50d0022625f3fa573f791c16829c805bf7cb7b9f', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7fe92139b39df6f8de653ba373c1c7ba47e87fea1fe73c14eb6f4e9b55e0ad33', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1015:3-1064:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1015:3-1064:10', SourceRangeText(lStatement.Verification.Range));
@@ -18375,7 +18514,8 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4d97c731cad1d859804cf29f50d0022625f3fa573f791c16829c805bf7cb7b9f', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('7fe92139b39df6f8de653ba373c1c7ba47e87fea1fe73c14eb6f4e9b55e0ad33', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[h]', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithRelRecSubRecPtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -18645,7 +18785,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NaechsteRecNr', lStatement.RoutineName);
-  Assert.AreEqual('eef226e9763f937c1ef6e311158368ab0dec9741c1ea1667beffd70fed01440e', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1abc18cbf1144c12de1958ddb2385fcc14ffed40303ee771fe03242f6e88b883', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1515:3-1560:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1515:3-1560:8', SourceRangeText(lStatement.Verification.Range));
@@ -18751,7 +18892,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('eef226e9763f937c1ef6e311158368ab0dec9741c1ea1667beffd70fed01440e', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1abc18cbf1144c12de1958ddb2385fcc14ffed40303ee771fe03242f6e88b883', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1511:1-1511:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18829,7 +18971,8 @@ begin
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('3dc81f7cad19cd93114f2761b38299b018b8f50c489e2d15587dd42dab02a5e1',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a337c6f97997b742d97f303f3535ed7fc723075f73cd802b37efa485bf67e499',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18857,7 +19000,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('GetChain', lStatement.RoutineName);
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('1859:3-1860:37', SourceRangeText(lStatement.Range));
   Assert.AreEqual('1859:3-1860:37', SourceRangeText(lStatement.Verification.Range));
@@ -18876,7 +19020,8 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lStatement.Temps[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.Temps[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
@@ -18885,7 +19030,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.Temps[1].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('1856:1-1856:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -18906,7 +19052,8 @@ begin
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
   Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
   Assert.AreEqual('DF[fd]^', lStatement.RewriteRecipe.SelectorDecisions[1].SelectorText);
   Assert.AreEqual('lWithDatFilePtr^', lStatement.RewriteRecipe.SelectorDecisions[1].QualifierText);
   Assert.AreEqual('record-pointer-temp', lStatement.RewriteRecipe.SelectorDecisions[1].Strategy);
@@ -18915,7 +19062,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   lDeclarationCount := 0;
   lReplacementCount := 0;
   for i := 0 to High(lPlan.FinalStatements) do
@@ -19060,7 +19208,8 @@ begin
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   Assert.AreEqual('044670c2557ff29d923d91c891efebb1d165f1809c19c66af8bb3a47bbc0a106', lStatement.RewriteRecipe.SelectorDecisions[1].SemanticId);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdb01.pas', 1859, 3, lOwnerStatement));
-  Assert.AreEqual('a8f8a603a576aae1834f25ab302e9eac80c28f49d03faff4531370e22ae8a46c', lOwnerStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('3f3f2659eb0c6f4275c0310349c968697c238c674b778326c062d194f9fa1f65', lOwnerStatement.SemanticId);
   Assert.AreEqual('GetChain', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('  lWithDirektChainItemPtr: ^TDirektChainItem;' + #13#10 +
@@ -19207,7 +19356,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5317e4f8bd6b30fd8e088cd6a898915926fddf8454ca660bb7541b6627c2fb61',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19217,7 +19367,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2094:1-2106:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5317e4f8bd6b30fd8e088cd6a898915926fddf8454ca660bb7541b6627c2fb61',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -19232,7 +19383,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('41be53745ac45abade9dc33681fefc10137ca356c93ad46f460f3054b3d81038',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('5317e4f8bd6b30fd8e088cd6a898915926fddf8454ca660bb7541b6627c2fb61',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 end;
 
@@ -19288,7 +19440,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('8ce7c6181861ad2a16c096dc54fbcf71f05b821c5f074bcc55e62a014d42a3b9',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('8c0a9064877e746f6fec6a4da13bbed9d72a7d542d546e56d01a43698409be5e',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -19725,7 +19878,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('SortArrayVar_2', lStatement.RoutineName);
-  Assert.AreEqual('3c7066a9b99b6cb5ba206047ac9feeada9ab82fd638851584b16c7f1e64f0ebe', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('cb2720a233d51692eb6d21ed1ccdc4635eaedcddb866efd35addaa5110feb69a', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('2703:3-2730:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2703:3-2730:10', SourceRangeText(lStatement.Verification.Range));
@@ -19773,7 +19927,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('DoMarkBits', lStatement.RoutineName);
-  Assert.AreEqual('3efabce2865472b9f3728671cdaefc1e374eae577c9bfcc7095cb38f5c8564dd', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('f0598a596e3726076aeef6f9b087866df73a8bcdd0422a9f45a75589fbb59567', lStatement.SemanticId);
   Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2755:3-2766:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -19837,7 +19992,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('BitArrayOp', lStatement.RoutineName);
-  Assert.AreEqual('79a192cd9d0f187f09a164d99dd5379a735cbd138a1551dfe88cf452e73d9085', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('c9fda1694cf5b5162f615baf6f068108b68eb2e4a436826d0791cfcfb42342a6', lStatement.SemanticId);
   Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2811:3-2821:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20028,7 +20184,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('Marks2Auto', lStatement.RoutineName);
-  Assert.AreEqual('5c90a976c01cd2e54b0125ab32e69e4c448f5df79206ba12607bf939a709f926', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('344367f5dd3b46876e24c9ca3f57617a85c42f66a7005ce67735a21b08aac664', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('3107:3-3119:21', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3107:3-3119:21', SourceRangeText(lStatement.Verification.Range));
@@ -20171,7 +20328,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('InArray', lStatement.RoutineName);
-  Assert.AreEqual('d8046aa13b16b5172e76c6aaf40047131a64335ede47e8072edc99c113d562d2', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('ff394367851b3aae33ad04cf388fccdde32ade7ee45ab4c25a58ea07b8e01a99', lStatement.SemanticId);
   Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Range));
   Assert.AreEqual('3342:3-3370:8', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20527,7 +20685,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('DoMiscOp', lStatement.RoutineName);
-  Assert.AreEqual('a55c61dae0566b51ca7dcbdd8cd60ba931626590df041076d7712e6efc58e629', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('37a4cbc753cb8f0db2e00fd861594693caa27fc94032024cb4e152260cca422c', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('5902:19-5903:78', SourceRangeText(lStatement.Range));
   Assert.AreEqual('5902:19-5903:78', SourceRangeText(lStatement.Verification.Range));
@@ -20549,7 +20708,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'cast-selector', 'cast-selector');
 
   Assert.AreEqual('DoDataOp', lStatement.RoutineName);
-  Assert.AreEqual('90e5ef7b50bfb453cfebede4dbaf6fd74b783f447457499b918b8a82f4418198', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('eead2a33e90b1a7a4c016de820721656a34d4e619840c2c6401e13a8e6491ad8', lStatement.SemanticId);
   Assert.AreEqual('6022:23-6026:25', SourceRangeText(lStatement.Range));
   Assert.AreEqual('6022:23-6026:25', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('138c5d058a3ff78b45357023430e82af78351f3f2cd4143d225b2ea147a04cce', lStatement.Verification.ExpectedFileHash);
@@ -20815,7 +20975,8 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('NewDATFile', lStatement.RoutineName);
-  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('69d44f088cb139ee9a5cca3ddf6022d642629527ed47f004153584030176613e', lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   Assert.AreEqual('942:5-943:50', SourceRangeText(lStatement.Range));
   Assert.AreEqual('942:5-943:50', SourceRangeText(lStatement.Verification.Range));
@@ -20833,7 +20994,8 @@ begin
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithDatFilePtr := @D^;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lStatement.Temps[0].SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('69d44f088cb139ee9a5cca3ddf6022d642629527ed47f004153584030176613e', lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('940:1-940:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -20891,7 +21053,8 @@ begin
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[0].ReplacementText);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 942, 5, lOwnerStatement));
-  Assert.AreEqual('06c8b86c4d3596a473981a526668aff68e46154fc94b8438cec414e158a0a91e', lOwnerStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('69d44f088cb139ee9a5cca3ddf6022d642629527ed47f004153584030176613e', lOwnerStatement.SemanticId);
   Assert.AreEqual('NewDATFile', lOwnerStatement.RoutineName);
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('var' + #13#10 +
@@ -22259,7 +22422,8 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
-  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6c29fca426992e055e6f96ce34145059d45865a9c78ca5a5f2191183f192e6b6',
     lStatement.Temps[0].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -22268,7 +22432,8 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('1214:1-1224:18', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6c29fca426992e055e6f96ce34145059d45865a9c78ca5a5f2191183f192e6b6',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
@@ -22283,7 +22448,8 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr := @InitVar;',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
-  Assert.AreEqual('4c35c0f829896245e25f2a593d10161d64a402a160b7740491d3f14982586074',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('6c29fca426992e055e6f96ce34145059d45865a9c78ca5a5f2191183f192e6b6',
     lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDBJOBS.pas', 1204, 5, lStatement));
@@ -22808,7 +22974,8 @@ begin
   Assert.AreEqual('symbol-not-found', lStatement.Reason);
   Assert.AreEqual('symbol-not-found', lStatement.SafetyReason);
   Assert.AreEqual('SubReport', lStatement.RoutineName);
-  Assert.AreEqual('042cc0608d0fef3e8a91ff663e126c3fb3c463f0ac46db292d268a091e4ad812', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('db59085d777327674cbd069659bef7caa3554f1ad1316480c02bbf985ae85718', lStatement.SemanticId);
   Assert.AreEqual('2704:7-2784:10', SourceRangeText(lStatement.Range));
   Assert.AreEqual('2704:7-2784:10', SourceRangeText(lStatement.Verification.Range));
   Assert.AreEqual('521b495ea0cb7e845af8a185479bf39e09498d449a79d31edf03d97aabb2a35f', lStatement.Verification.ExpectedFileHash);
@@ -23397,7 +23564,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('GenTable', lStatement.RoutineName);
-  Assert.AreEqual('b5e51526227532435c3ebd66e4609fb9672bc117229f709d921673f53c421995', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('1f97aea5a0d67bfd84c886aeb5a09bc0efc5fec21209cdfc9fd591f09b23f039', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '1513:13-1525:16',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
     'dependent-selector-type-not-resolved');
@@ -23430,7 +23598,8 @@ begin
   AssertA4StrictRefusal(lStatement, 'dependent-selector-type-not-resolved', 'dependent-selector-type-not-resolved');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('GenTable', lStatement.RoutineName);
-  Assert.AreEqual('045ede6bdc0213d3d296daf06ef44864600a35b174c8ff75efa3900d8867d7db', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('b14db9716011ea7521786893c6debc0b4d3f104baa14f6da3de19384bd4caf41', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '1724:13-1725:31',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5',
     'dependent-selector-type-not-resolved');
@@ -23464,7 +23633,8 @@ begin
     '              ToOEM(Fml);' + #13#10 +
     '            end;', lStatement.Verification.ExpectedSourceText);
 
-  Assert.AreEqual('2b8a1468c42160d87ea4168706ddb2e4032ea5f5719b27f847f24c92f0d2381f',
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a115f47f2ca2b9f77c8a387176c952e2c7b10d90cd952f9313b7724d51449990',
     lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
 
@@ -23619,7 +23789,8 @@ begin
     'Expected maxTdb tdbutils is_empty Maske[field]^ with statement.');
   // T-209: The capture type is not visible through the transitive import.
   Assert.AreEqual('is_empty', lStatement.RoutineName);
-  Assert.AreEqual('77d516b0b74c7636b66d921519641906f35712521b90afaa5c91398ea7c31aea', lStatement.SemanticId);
+  // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
+  Assert.AreEqual('a406c76c959b41cf9b11a3d9533316a4d9830e0bd27f91a043f42d0a46a03dec', lStatement.SemanticId);
   AssertHiddenReceiverSkip(lStatement, '2104:5-2137:8',
     '3105a6a1948fdf991e7138419d505f9561a49bb6d754c13a193d0ad770e545b5');
   Assert.AreEqual('with Maske[field]^ do' + #13#10 +
