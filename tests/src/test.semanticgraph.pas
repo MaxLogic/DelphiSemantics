@@ -27,14 +27,18 @@ type
     procedure CanonicalImportsPreserveSpellingAmbiguityAndBuildContext;
     [Test]
     procedure ProjectSessionBuildMetricsReportGraphCounts;
+    [Category('Fast')]
+    [Test]
+    procedure CaptureProofReuseKeepsRawImportsAndInvalidatesChangedEvidence;
   end;
 
 implementation
 
 uses
   System.IOUtils, System.SysUtils,
-  maxLogic.IOUtils,
-  DelphiSemantics.ProjectSession,
+  AutoFree, maxLogic.IOUtils,
+  DelphiSemantics.Model.Extract, DelphiSemantics.ProjectSession, DelphiSemantics.Source,
+  DelphiSemantics.SourceConditionals,
   Test.Support;
 
 
@@ -192,6 +196,74 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TSemanticGraphTests.CaptureProofReuseKeepsRawImportsAndInvalidatesChangedEvidence;
+const
+  cSource = 'unit CaptureMemo;' + #13#10 +
+    'interface' + #13#10 + 'uses AliasUnit;' + #13#10 +
+    'type TFirst = record end;' + #13#10 + 'implementation' + #13#10 +
+    'procedure Work;' + #13#10 + 'begin end;' + #13#10 + 'end.';
+var
+  g: TGarbos;
+  lOriginal, lRelated: TDelphiSemanticSemanticGraph;
+  lProject: TDelphiSemanticProjectInfo;
+  lModel, lChanged, lAlpha: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lFileName: string;
+  lUnit: TDelphiSemanticGraphUnit;
+begin
+  lFileName := TPath.Combine(CreateTestTempRoot('graph-capture-memo-temp'), 'CaptureMemo.pas');
+  TFile.WriteAllText(lFileName, cSource);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFileName;
+  lOptions.ProjectContextApplied := True;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, 'extraction');
+  Assert.IsTrue(Length(lModel.Routines) > 0, 'routine extraction: ' + lModel.ScopeModelStatus);
+  lProject := ProjectInfo;
+  lProject.UnitAliases := ['AliasUnit=Alpha'];
+  lAlpha := SymbolModel('Alpha', 'Alpha.pas');
+  GC(lOriginal, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel, lAlpha]), g);
+  Assert.IsTrue(lOriginal.Units[0].CaptureScopeProof.Known, 'original: ' + lOriginal.Units[0].CaptureScopeProof.Cause);
+  Assert.AreEqual('Alpha', lOriginal.Units[0].CaptureScopeProof.Imports[0].InterfaceImports[0]);
+  lProject.UnitAliases := nil;
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel], lOriginal), g);
+  lUnit := lRelated.Units[0];
+  Assert.IsTrue(lUnit.CaptureScopeProof.Known, 'related: ' + lUnit.CaptureScopeProof.Cause);
+  Assert.AreEqual('AliasUnit', lUnit.CaptureScopeProof.Imports[0].InterfaceImports[0]);
+  // A caller's DTO edits cannot change the private raw proof.
+  lUnit.CaptureScopeProof.Imports[0].InterfaceImports[0] := 'Mutated';
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel], lOriginal), g);
+  Assert.AreEqual('AliasUnit', lRelated.Units[0].CaptureScopeProof.Imports[0].InterfaceImports[0]);
+  lChanged := lModel;
+  lChanged.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.UnavailableActivity;
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lChanged], lOriginal), g);
+  Assert.IsFalse(lRelated.Units[0].CaptureScopeProof.Known, 'activity refusal: ' + lRelated.Units[0].CaptureScopeProof.Cause);
+  Assert.AreEqual('capture-model-evidence-missing', lRelated.Units[0].CaptureScopeProof.Cause);
+  lChanged := lModel;
+  lChanged.SourceSections.ImplementationOffset := 0;
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lChanged], lOriginal), g);
+  Assert.IsFalse(lRelated.Units[0].CaptureExportProof.Known, 'export boundary, interface offset=' + IntToStr(lChanged.SourceSections.InterfaceOffset));
+  lChanged := lModel;
+  lChanged.SourceObservations := nil;
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lChanged], lOriginal), g);
+  Assert.IsFalse(lRelated.Units[0].CaptureScopeProof.Known, 'observation refusal: ' + lRelated.Units[0].CaptureScopeProof.Cause);
+  // Deliberately edit the shared routine array. The stored key snapshots values,
+  // so pointer identity alone must never certify the former scope proof.
+  for var lFact in lOriginal.Units[0].CaptureScopeProof.Names do
+    if SameText(lFact.Name, 'Work') then
+    begin
+      lModel.Routines[0].Line := lFact.Line;
+      lModel.Routines[0].Column := lFact.Column;
+      lModel.Routines[0].FileName := lFact.FileName;
+      lModel.Routines[0].SectionKind := lFact.SectionKind;
+    end;
+  lModel.Routines[0].ParentScopeId := 'changed-parent';
+  GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel], lOriginal), g);
+  Assert.IsFalse(lRelated.Units[0].CaptureScopeProof.Known, 'routine refusal: ' + lRelated.Units[0].CaptureScopeProof.Cause);
+  Assert.AreEqual('capture-scope-reparented', lRelated.Units[0].CaptureScopeProof.Cause);
 end;
 
 initialization

@@ -1,8 +1,9 @@
-﻿unit DelphiSemantics.SemanticGraph;
+unit DelphiSemantics.SemanticGraph;
 
 interface
 
 uses
+  System.Generics.Collections,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitNameWitness;
 
 type
@@ -192,7 +193,13 @@ type
   end;
 
   TDelphiSemanticSemanticGraph = class
+  private type
+    TCaptureProofPair = record
+      ScopeProof: TDelphiSemanticCaptureScopeProof;
+      ExportProof: TDelphiSemanticCaptureScopeProof;
+    end;
   private
+    fCaptureProofs: TDictionary<string, TCaptureProofPair>;
     fUnitNameWitness: IDelphiSemanticUnitNameWitness;
     fDeclarations: TArray<TDelphiSemanticGraphDeclaration>;
     fLocals: TArray<TDelphiSemanticGraphLocal>;
@@ -229,6 +236,7 @@ type
       const aReferences: TArray<TDelphiSemanticGraphReference>;
       const aWithStatements: TArray<TDelphiSemanticGraphWithStatement>;
       const aMetrics: TDelphiSemanticGraphBuildMetrics); overload;
+    destructor Destroy; override;
     function Declarations: TArray<TDelphiSemanticGraphDeclaration>;
     function FindRoutineByName(const aName: string; out aRoutine: TDelphiSemanticGraphRoutine):
       Boolean;
@@ -257,15 +265,18 @@ type
       const aModel: TDelphiSemanticUnitModel; const aModels: TArray<TDelphiSemanticUnitModel>;
       out aInterface, aImplementation: TArray<string>): Boolean; static;
     class function Build(const aProject: TDelphiSemanticProjectInfo;
-      const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
+      const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph; overload; static;
+    class function Build(const aProject: TDelphiSemanticProjectInfo;
+      const aUnitModels: TArray<TDelphiSemanticUnitModel>;
+      const aCaptureProofGraph: TDelphiSemanticSemanticGraph): TDelphiSemanticSemanticGraph; overload;
       static;
   end;
 
 implementation
 
 uses
-  System.Classes, System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  SimpleParser.Lexer, SimpleParser.Lexer.Types,
+  System.Classes, System.Diagnostics, System.Generics.Defaults, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  AutoFree, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model.Extract, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function StableHash(const aText: string): string;
@@ -706,10 +717,85 @@ function ProjectImportsPrepared(const aProject: TDelphiSemanticProjectInfo;
   const aCache: TDictionary<string, string>;
   out aInterface, aImplementation: TArray<string>): Boolean; forward;
 
+procedure AppendCaptureKeyText(const aBuilder: TStringBuilder; const aText: string);
+begin
+  aBuilder.Append(Length(aText)).Append(':').Append(aText);
+end;
+
+function CaptureProofKey(const aModel: TDelphiSemanticUnitModel): string;
+var
+  g: TGarbos;
+  lBuilder: TStringBuilder;
+  lFileName: string;
+  lObserved: TDelphiSemanticSourceText;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  GC(lBuilder, TStringBuilder.Create, g);
+  // Both proof modes consume only these inputs. The exact, length-prefixed
+  // key snapshots their values, including ordered routine scope mappings and
+  // every selectable observed include. It has no hash-only identity or path
+  // normalization. Project aliases/scopes are applied after raw proof reuse.
+  lBuilder.Append(Ord(aModel.Success)).Append(Ord(aModel.DefineEvidenceComplete));
+  // Relative include observations resolve against the process directory.
+  AppendCaptureKeyText(lBuilder, TDirectory.GetCurrentDirectory);
+  AppendCaptureKeyText(lBuilder, aModel.ScopeModelStatus);
+  AppendCaptureKeyText(lBuilder, aModel.FileName);
+  AppendCaptureKeyText(lBuilder, aModel.SourceText);
+  AppendCaptureKeyText(lBuilder, aModel.VerifiedActiveSourceText);
+  lBuilder.Append(aModel.SourceSections.InterfaceOffset).Append(':')
+    .Append(aModel.SourceSections.ImplementationOffset).Append(':');
+  lBuilder.Append(Length(aModel.IncludeFileNames)).Append(':');
+  for lFileName in aModel.IncludeFileNames do
+    AppendCaptureKeyText(lBuilder, lFileName);
+  lBuilder.Append(Length(aModel.SkippedIncludeFileNames)).Append(':');
+  for lFileName in aModel.SkippedIncludeFileNames do
+    AppendCaptureKeyText(lBuilder, lFileName);
+  lBuilder.Append(Ord(aModel.SourceObservations <> nil));
+  if aModel.SourceObservations <> nil then
+    for lFileName in [aModel.FileName] + aModel.IncludeFileNames + aModel.SkippedIncludeFileNames do
+    begin
+      lBuilder.Append(Ord(aModel.SourceObservations.TryFind(lFileName, lObserved)));
+      AppendCaptureKeyText(lBuilder, lObserved.FileName);
+      AppendCaptureKeyText(lBuilder, lObserved.Text);
+    end;
+  lBuilder.Append(Length(aModel.Routines)).Append(':');
+  for lRoutine in aModel.Routines do
+  begin
+    lBuilder.Append(lRoutine.Line).Append(':').Append(lRoutine.Column).Append(':');
+    AppendCaptureKeyText(lBuilder, lRoutine.SectionKind);
+    AppendCaptureKeyText(lBuilder, lRoutine.FileName);
+    AppendCaptureKeyText(lBuilder, lRoutine.ParentScopeId);
+    AppendCaptureKeyText(lBuilder, lRoutine.ScopeId);
+  end;
+  Result := lBuilder.ToString;
+end;
+
+function CopyCaptureProof(const aProof: TDelphiSemanticCaptureScopeProof): TDelphiSemanticCaptureScopeProof;
+var
+  i: Integer;
+begin
+  Result := aProof;
+  Result.Names := Copy(aProof.Names);
+  for i := 0 to High(Result.Names) do
+    Result.Names[i].IdentityDependencies := Copy(aProof.Names[i].IdentityDependencies);
+  Result.Imports := Copy(aProof.Imports);
+  for i := 0 to High(Result.Imports) do
+  begin
+    Result.Imports[i].InterfaceImports := Copy(aProof.Imports[i].InterfaceImports);
+    Result.Imports[i].ImplementationImports := Copy(aProof.Imports[i].ImplementationImports);
+    Result.Imports[i].RootImports := Copy(aProof.Imports[i].RootImports);
+  end;
+end;
+
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
   const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
   const aModels: TArray<TDelphiSemanticUnitModel>;
-  const aImportCache: TDictionary<string, string>): TDelphiSemanticGraphUnit;
+  const aImportCache: TDictionary<string, string>;
+  const aCaptureProofs, aPreviousProofs: TDictionary<string,
+    TDelphiSemanticSemanticGraph.TCaptureProofPair>): TDelphiSemanticGraphUnit;
+var
+  lKey: string;
+  lProofs: TDelphiSemanticSemanticGraph.TCaptureProofPair;
 begin
   Result := Default(TDelphiSemanticGraphUnit);
   Result.Id := MakeUnitId(aProjectId, aModel);
@@ -739,8 +825,19 @@ begin
     if MatchText(lDiagnostic.Code, ['UNVERIFIED_PREPROCESS_CONDITION',
       'UNSUPPORTED_PREPROCESS_DIRECTIVE', 'UNMATCHED_PREPROCESS_DIRECTIVE']) then
       Result.TypeNamesKnown := False;
-  Result.CaptureScopeProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, False);
-  Result.CaptureExportProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, True);
+  lKey := CaptureProofKey(aModel);
+  if not aCaptureProofs.TryGetValue(lKey, lProofs) then
+  begin
+    if (aPreviousProofs = nil) or not aPreviousProofs.TryGetValue(lKey, lProofs) then
+    begin
+      lProofs.ScopeProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, False);
+      lProofs.ExportProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(aModel, True);
+    end;
+    aCaptureProofs.Add(lKey, lProofs);
+  end;
+  // Canonicalization and public DTO arrays must not mutate the raw memo.
+  Result.CaptureScopeProof := CopyCaptureProof(lProofs.ScopeProof);
+  Result.CaptureExportProof := CopyCaptureProof(lProofs.ExportProof);
   for var i := 0 to High(Result.CaptureScopeProof.Imports) do
   begin
     var lImports := Result.CaptureScopeProof.Imports[i];
@@ -1181,6 +1278,12 @@ begin
   end;
 end;
 
+destructor TDelphiSemanticSemanticGraph.Destroy;
+begin
+  fCaptureProofs.Free;
+  inherited;
+end;
+
 constructor TDelphiSemanticSemanticGraph.Create(
   const aProjectId: TDelphiSemanticProjectGraphId;
   const aUnits: TArray<TDelphiSemanticGraphUnit>;
@@ -1393,8 +1496,17 @@ end;
 class function TDelphiSemanticSemanticGraphBuilder.Build(
   const aProject: TDelphiSemanticProjectInfo;
   const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
+begin
+  Result := Build(aProject, aUnitModels, nil);
+end;
+
+class function TDelphiSemanticSemanticGraphBuilder.Build(
+  const aProject: TDelphiSemanticProjectInfo;
+  const aUnitModels: TArray<TDelphiSemanticUnitModel>;
+  const aCaptureProofGraph: TDelphiSemanticSemanticGraph): TDelphiSemanticSemanticGraph;
 var
   lImportCache: TDictionary<string, string>;
+  lCaptureProofs, lPreviousProofs: TDictionary<string, TDelphiSemanticSemanticGraph.TCaptureProofPair>;
   lDeclarations: TList<TDelphiSemanticGraphDeclaration>;
   lLocals: TList<TDelphiSemanticGraphLocal>;
   lMembers: TList<TDelphiSemanticGraphMember>;
@@ -1413,6 +1525,10 @@ var
 begin
   lStopwatch := TStopwatch.StartNew;
   lImportCache := nil;
+  lCaptureProofs := nil;
+  lPreviousProofs := nil;
+  if aCaptureProofGraph <> nil then
+    lPreviousProofs := aCaptureProofGraph.fCaptureProofs;
   lDeclarations := nil;
   lTypes := nil;
   lMembers := nil;
@@ -1427,6 +1543,8 @@ begin
     // Exact import spelling is the only varying input here. Project aliases,
     // scopes and the ordered model snapshot are fixed for this Build call.
     // This cache never survives a graph build or caches a site-based answer.
+    lCaptureProofs := TDictionary<string, TDelphiSemanticSemanticGraph.TCaptureProofPair>.Create(
+      TStringComparer.Ordinal);
     lImportCache := TDictionary<string, string>.Create(TStringComparer.Ordinal);
     lDeclarations := TList<TDelphiSemanticGraphDeclaration>.Create;
     lTypes := TList<TDelphiSemanticGraphType>.Create;
@@ -1441,7 +1559,8 @@ begin
     for lModel in aUnitModels do
       if lModel.Success and (lModel.UnitName <> '') then
       begin
-        lUnit := BuildUnit(lProjectId, aProject, lModel, aUnitModels, lImportCache);
+        lUnit := BuildUnit(lProjectId, aProject, lModel, aUnitModels, lImportCache,
+          lCaptureProofs, lPreviousProofs);
         lUnits.Add(lUnit);
         AddDeclarationSymbols(lSymbols, lDeclarations, lTypes, lUnit, lModel);
         AddMemberSymbols(lSymbols, lMembers, lUnit, lModel);
@@ -1462,7 +1581,10 @@ begin
       lSymbols.ToArray, lDeclarations.ToArray, lTypes.ToArray, lMembers.ToArray,
       lRoutines.ToArray, lParameters.ToArray, lLocals.ToArray, lReferences.ToArray,
       lWithStatements.ToArray, lMetrics);
+    Result.fCaptureProofs := lCaptureProofs;
+    lCaptureProofs := nil;
   finally
+    lCaptureProofs.Free;
     lImportCache.Free;
     lSymbols.Free;
     lWithStatements.Free;

@@ -493,6 +493,7 @@ type
 
   TWithBindingProjectMemberIndex = class
   private
+    fCaptureProofGraph: TDelphiSemanticSemanticGraph;
     fRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
     fUnitNameWitness: IDelphiSemanticUnitNameWitness;
     fCompilerIntrinsics: TDictionary<string, TDelphiSemanticIntrinsicSymbol>;
@@ -1969,6 +1970,8 @@ begin
     fUnindexedAliases := TDictionary<string, Boolean>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fModels := aModels;
+    // BindProject's caller keeps this graph alive through evidence export.
+    fCaptureProofGraph := aGraph;
     fUnitNameWitness := aUnitNameWitness;
     if (fUnitNameWitness = nil) and (aGraph <> nil) then
       fUnitNameWitness := aGraph.UnitNameWitness;
@@ -6945,6 +6948,7 @@ begin
 end;
 
 procedure AppendAnonymousAbsenceEvidence(const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aCaptureProofGraph: TDelphiSemanticSemanticGraph;
   const aUnitNameWitness: IDelphiSemanticUnitNameWitness;
   const aOwners: TList<TDelphiSemanticValueEvidenceOwner>;
   const aQueries: TList<TDelphiSemanticValueEvidenceQuery>;
@@ -6974,7 +6978,7 @@ begin
       (Length(lParsed.Declarations) = 0) then
       Continue;
     GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(
-      BuildSyntheticWithBindingProjectInfo, [lParsed]), g);
+      BuildSyntheticWithBindingProjectInfo, [lParsed], aCaptureProofGraph), g);
     lGraph.UnitNameWitness := aUnitNameWitness;
     lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
     for lGraphType in lGraph.Types do
@@ -7137,7 +7141,7 @@ begin
   lNames.Clear;
   for lName in Result.ValueNames do
     lNames.Add(lName);
-  AppendAnonymousAbsenceEvidence(fModels, fUnitNameWitness, lOwners, lQueries, lNames);
+  AppendAnonymousAbsenceEvidence(fModels, fCaptureProofGraph, fUnitNameWitness, lOwners, lQueries, lNames);
   Result.ValueNames := lNames.ToArray;
   Result.Owners := lOwners.ToArray;
   Result.Queries := lQueries.ToArray;
