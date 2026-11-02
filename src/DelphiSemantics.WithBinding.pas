@@ -682,6 +682,15 @@ type
       const aCurrentTypeName, aName: string; const aSite: TReceiverLookupSite): TMemberVerdict;
   end;
 
+  // Prepared inputs belong to one immutable model in one BindProject call.
+  // We share text transformations, never scope/position-dependent answers.
+  TWithBindingSourceContext = record
+    LineStarts: TArray<Integer>;
+    Lines: TArray<string>;
+    SanitizedSourceText: string;
+    ReferenceScanText: string;
+  end;
+
   TWithSelectorBindingArray = TArray<TDelphiSemanticWithSelectorBinding>;
   TWithSelectorStackArray = TArray<TWithSelectorBindingArray>;
   TWithSelectorIdentityArray = TArray<TDelphiSemanticTypeIdentity>;
@@ -3623,6 +3632,20 @@ begin
     end;
 end;
 
+function PrepareWithBindingSource(const aModel: TDelphiSemanticUnitModel):
+  TWithBindingSourceContext;
+begin
+  Result.LineStarts := BuildBodyLineStarts(aModel.SourceText);
+  Result.Lines := aModel.SourceText.Split([#13#10, #10]);
+  Result.SanitizedSourceText := SanitizeCodeText(aModel.SourceText);
+  if aModel.ReferenceScanSourceText <> '' then
+    Result.ReferenceScanText := TDelphiSemanticSourceConditionals.SourceForScan(
+      aModel.SourceText, aModel.ReferenceScanSourceText)
+  else
+    Result.ReferenceScanText := TDelphiSemanticSourceConditionals.SourceForScan(
+      aModel.SourceText, aModel.VerifiedActiveSourceText);
+end;
+
 function BodyLineOfOffset(const aLineStarts: TArray<Integer>;
   const aOffset: Integer): Integer;
 var
@@ -4695,7 +4718,7 @@ begin
 end;
 
 procedure SeparateInactiveSpanVerification(const aModel: TDelphiSemanticUnitModel;
-  const aLineStarts: TArray<Integer>; const aStatement: TDelphiSemanticWithStatement;
+  const aSource: TWithBindingSourceContext; const aStatement: TDelphiSemanticWithStatement;
   var aBinding: TDelphiSemanticWithBinding);
 var
   lActiveCount: Integer;
@@ -4705,12 +4728,7 @@ var
   lScanText: string;
   lVerification: TDelphiSemanticWithBinding;
 begin
-  if aModel.ReferenceScanSourceText <> '' then
-    lScanText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
-      aModel.ReferenceScanSourceText)
-  else
-    lScanText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
-      aModel.VerifiedActiveSourceText);
+  lScanText := aSource.ReferenceScanText;
   lVerification := aBinding;
   FinalizeBinding(lVerification, aStatement);
   SetLength(aBinding.InactiveSpanReferences, Length(aBinding.References));
@@ -4718,7 +4736,7 @@ begin
   lInactiveCount := 0;
   for lReference in aBinding.References do
   begin
-    lOffset := ActivityOffset(aLineStarts, Length(aModel.SourceText),
+    lOffset := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
       lReference.Line, lReference.Column);
     if (lOffset > 0) and (lOffset <= Length(lScanText)) and
       (lScanText[lOffset] = ' ') and (aModel.SourceText[lOffset] <> ' ') then
@@ -4781,6 +4799,7 @@ begin
 end;
 
 function CaptureStatementIsInUnit(const aModel: TDelphiSemanticUnitModel;
+  const aSource: TWithBindingSourceContext;
   const aStatement: TDelphiSemanticWithStatement): Boolean;
 var
   lMatch: TMatch;
@@ -4790,13 +4809,13 @@ begin
   Result := False;
   if (aModel.SourceText = '') or (aStatement.Line <= 0) or (aStatement.Column <= 0) then
     Exit;
-  lOffset := ActivityOffset(BuildBodyLineStarts(aModel.SourceText), Length(aModel.SourceText),
+  lOffset := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
     aStatement.Line, aStatement.Column);
   if lOffset <= 0 then
     Exit;
   // An expanded include position is not a position in the physical unit.
   // Check the physical header before choosing either capture lookup site.
-  lSource := SanitizeCodeText(aModel.SourceText);
+  lSource := aSource.SanitizedSourceText;
   lMatch := TRegEx.Match(Copy(lSource, lOffset, MaxInt),
     '^with\b\s+(.*?)\s+(?<!&)\bdo\b', [roIgnoreCase, roSingleLine]);
   Result := lMatch.Success and SameText(
@@ -4841,6 +4860,7 @@ begin
 end;
 
 function BindSelectors(const aModel: TDelphiSemanticUnitModel;
+  const aSource: TWithBindingSourceContext;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
   const aParentSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
@@ -4868,10 +4888,10 @@ var
   lParts: TArray<string>;
 begin
   aIdentities := nil;
-  lPhysicalStatement := CaptureStatementIsInUnit(aModel, aStatement);
+  lPhysicalStatement := CaptureStatementIsInUnit(aModel, aSource, aStatement);
   lInsertionLine := 0;
   lHasInsertionSite := lPhysicalStatement and
-    TryFindTempInsertionLine(aModel.SourceText.Split([#13#10, #10]), aLine,
+    TryFindTempInsertionLine(aSource.Lines, aLine,
       aRoutineName, lInsertionLine, lHasVarSection);
   if not TrySplitTopLevelCommaList(aSelectorText, lParts) then
     Exit(nil);
@@ -5454,6 +5474,7 @@ begin
 end;
 
 function BuildSelectorStackCache(const aModel: TDelphiSemanticUnitModel;
+  const aSource: TWithBindingSourceContext;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>;
   const aStatements: TArray<TDelphiSemanticWithStatement>;
   const aScopeIndex: TDelphiSemanticRoutineScopeIndex;
@@ -5494,7 +5515,7 @@ begin
       lParentSelectors := Result[lParentIndex];
       lParentIdentities := aIdentityStacks[lParentIndex];
     end;
-    lDirectSelectors := BindSelectors(aModel, aProjectModels, lRoutineLookupName,
+    lDirectSelectors := BindSelectors(aModel, aSource, aProjectModels, lRoutineLookupName,
       lCurrentTypeName, aStatements[i].SelectorText, lParentRoutineNames,
       lParentSelectors, aStatements[i].Line, aStatements[i].Column, aStatements[i],
       aProjectMemberIndex, aMemberCache, lDirectIdentities);
@@ -5516,7 +5537,8 @@ begin
 end;
 
 function ContainsInactiveNestedWith(const aModel: TDelphiSemanticUnitModel;
-  const aStatement: TDelphiSemanticWithStatement; const aLineStarts: TArray<Integer>): Boolean;
+  const aStatement: TDelphiSemanticWithStatement;
+  const aSource: TWithBindingSourceContext): Boolean;
 var
   i: Integer;
   lBodyOffset: Integer;
@@ -5542,8 +5564,8 @@ begin
   lEvidence := aModel.ReferenceScanSourceText;
   if lEvidence = '' then
     lEvidence := aModel.VerifiedActiveSourceText;
-  lScanText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText, lEvidence);
-  lBodyOffset := ActivityOffset(aLineStarts, Length(aModel.SourceText),
+  lScanText := aSource.ReferenceScanText;
+  lBodyOffset := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
     aStatement.BodyLine, aStatement.BodyColumn);
   if lBodyOffset <= 0 then
     Exit;
@@ -7875,6 +7897,7 @@ var
   lRoutineName: string;
   lScopeIndexBuildMs: Int64;
   lSelectorBindingMs: Int64;
+  lSourceContext: TWithBindingSourceContext;
   lSelectorIdentityStacks: TWithSelectorIdentityStackArray;
   lSkipReason: string;
   lSelectorStacks: TWithSelectorStackArray;
@@ -7964,7 +7987,8 @@ begin
     begin
       if Length(lModel.WithStatements) = 0 then
         Continue;
-      lActivityLineStarts := BuildBodyLineStarts(lModel.SourceText);
+      lSourceContext := PrepareWithBindingSource(lModel);
+      lActivityLineStarts := lSourceContext.LineStarts;
       SetLength(lWithStatementLines, Length(lModel.WithStatements));
       for i := 0 to High(lModel.WithStatements) do
         lWithStatementLines[i] := lModel.WithStatements[i].Line;
@@ -7975,7 +7999,7 @@ begin
       Inc(lScopeIndexBuildMs, lStopwatch.ElapsedMilliseconds);
       lBindingStopwatch := TStopwatch.StartNew;
       lSubphaseStopwatch := TStopwatch.StartNew;
-      lSelectorStacks := BuildSelectorStackCache(lModel, aModels, lModel.WithStatements,
+      lSelectorStacks := BuildSelectorStackCache(lModel, lSourceContext, aModels, lModel.WithStatements,
         lScopeIndex, lProjectMemberIndex, lMemberCache, lSelectorIdentityStacks);
       lSubphaseStopwatch.Stop;
       Inc(lSelectorBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
@@ -8018,7 +8042,7 @@ begin
         lSubphaseStopwatch.Stop;
         Inc(lReferenceBindingMs, lSubphaseStopwatch.ElapsedMilliseconds);
         ApplyBindingReferenceIds(lBinding);
-        SeparateInactiveSpanVerification(lModel, lActivityLineStarts, lStatement, lBinding);
+        SeparateInactiveSpanVerification(lModel, lSourceContext, lStatement, lBinding);
         FinalizeBinding(lBinding, lStatement);
         if lBinding.InactiveSpanSkipReason <> '' then
         begin
@@ -8038,7 +8062,7 @@ begin
           lBinding.Status := 'skipped';
           lBinding.SkipReason := lSkipReason;
         end;
-        if ContainsInactiveNestedWith(lModel, lStatement, lActivityLineStarts) then
+        if ContainsInactiveNestedWith(lModel, lStatement, lSourceContext) then
           // The earlier inactive refusal has already been copied to SkipReason.
           // Replacing this persisted barrier cannot overwrite its precedence.
           // This late marker is independent of outer-owned references.
