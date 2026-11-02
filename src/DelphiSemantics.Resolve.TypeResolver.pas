@@ -1538,19 +1538,21 @@ end;
 function TDelphiSemanticTypeIdentityIndexData.FindHelperSiteUnit(
   const aSite: TDelphiSemanticNameSite; out aUnit: TDelphiSemanticGraphUnit): Boolean;
 var
-  lUnit: TDelphiSemanticGraphUnit;
+  lIndex: Integer;
 begin
   Result := False;
   aUnit := Default(TDelphiSemanticGraphUnit);
   // Unit names alone collapse independent source models with different imports.
   // Missing or duplicate exact sites cannot certify helper absence.
-  for lUnit in fSiteUnits do
-    if SameText(lUnit.UnitName, aSite.UnitName) and
-      SameText(lUnit.FileName, aSite.FileName) then
+  // Read candidate fields in place. Copying this managed record for every
+  // rejected unit needlessly retains/releases all its strings and proof arrays.
+  for lIndex := 0 to High(fSiteUnits) do
+    if SameText(fSiteUnits[lIndex].UnitName, aSite.UnitName) and
+      SameText(fSiteUnits[lIndex].FileName, aSite.FileName) then
     begin
       if Result then
         Exit(False);
-      aUnit := lUnit;
+      aUnit := fSiteUnits[lIndex];
       Result := True;
     end;
 end;
