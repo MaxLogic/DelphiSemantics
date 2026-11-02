@@ -264,7 +264,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  System.Classes, System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model.Extract, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
@@ -690,9 +690,26 @@ end;
 function CanonicalProjectImport(const aProject: TDelphiSemanticProjectInfo;
   const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string): string; forward;
 
+function CachedProjectImport(const aProject: TDelphiSemanticProjectInfo;
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string;
+  const aCache: TDictionary<string, string>): string;
+begin
+  if (aCache <> nil) and aCache.TryGetValue(aUnitName, Result) then
+    Exit;
+  Result := CanonicalProjectImport(aProject, aModels, aUnitName);
+  if aCache <> nil then
+    aCache.Add(aUnitName, Result);
+end;
+
+function ProjectImportsPrepared(const aProject: TDelphiSemanticProjectInfo;
+  const aModel: TDelphiSemanticUnitModel; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aCache: TDictionary<string, string>;
+  out aInterface, aImplementation: TArray<string>): Boolean; forward;
+
 function BuildUnit(const aProjectId: TDelphiSemanticProjectGraphId;
   const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
-  const aModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticGraphUnit;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aImportCache: TDictionary<string, string>): TDelphiSemanticGraphUnit;
 begin
   Result := Default(TDelphiSemanticGraphUnit);
   Result.Id := MakeUnitId(aProjectId, aModel);
@@ -728,11 +745,11 @@ begin
   begin
     var lImports := Result.CaptureScopeProof.Imports[i];
     for var j := 0 to High(lImports.InterfaceImports) do
-      lImports.InterfaceImports[j] := CanonicalProjectImport(aProject, aModels, lImports.InterfaceImports[j]);
+      lImports.InterfaceImports[j] := CachedProjectImport(aProject, aModels, lImports.InterfaceImports[j], aImportCache);
     for var j := 0 to High(lImports.ImplementationImports) do
-      lImports.ImplementationImports[j] := CanonicalProjectImport(aProject, aModels, lImports.ImplementationImports[j]);
+      lImports.ImplementationImports[j] := CachedProjectImport(aProject, aModels, lImports.ImplementationImports[j], aImportCache);
     for var j := 0 to High(lImports.RootImports) do
-      lImports.RootImports[j] := CanonicalProjectImport(aProject, aModels, lImports.RootImports[j]);
+      lImports.RootImports[j] := CachedProjectImport(aProject, aModels, lImports.RootImports[j], aImportCache);
     Result.CaptureScopeProof.Imports[i] := lImports;
   end;
   Result.HelperScopeKnown := HelperScopeIsKnown(aModel);
@@ -743,8 +760,8 @@ begin
       Inc(lHelperDiagnosticCount);
   Result.HelperFactsKnown := Length(Result.UnindexedHelpers) >= lHelperDiagnosticCount;
   Result.ScopeModelStatus := aModel.ScopeModelStatus;
-  Result.ImportsKnown := TDelphiSemanticSemanticGraphBuilder.ProjectImports(aProject,
-    aModel, aModels, Result.InterfaceImports, Result.ImplementationImports);
+  Result.ImportsKnown := ProjectImportsPrepared(aProject, aModel, aModels,
+    aImportCache, Result.InterfaceImports, Result.ImplementationImports);
   Result.SourceRange := UnitSourceRange(aModel);
 end;
 
@@ -1329,9 +1346,9 @@ begin
       end;
 end;
 
-class function TDelphiSemanticSemanticGraphBuilder.ProjectImports(
-  const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
-  const aModels: TArray<TDelphiSemanticUnitModel>;
+function ProjectImportsPrepared(const aProject: TDelphiSemanticProjectInfo;
+  const aModel: TDelphiSemanticUnitModel; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aCache: TDictionary<string, string>;
   out aInterface, aImplementation: TArray<string>): Boolean;
 var
   i: Integer;
@@ -1354,9 +1371,9 @@ begin
   // Keep the raw spelling independent of the canonicalization below.
   lRawImports := Copy(aInterface + aImplementation);
   for i := 0 to High(aInterface) do
-    aInterface[i] := CanonicalProjectImport(aProject, aModels, aInterface[i]);
+    aInterface[i] := CachedProjectImport(aProject, aModels, aInterface[i], aCache);
   for i := 0 to High(aImplementation) do
-    aImplementation[i] := CanonicalProjectImport(aProject, aModels, aImplementation[i]);
+    aImplementation[i] := CachedProjectImport(aProject, aModels, aImplementation[i], aCache);
   Result := aModel.DependencyFacts.Known and aModel.Success and
     (SameText(aModel.ScopeModelStatus, 'ast') or
      SameText(aModel.ScopeModelStatus, 'ast-interface-only')) and
@@ -1364,10 +1381,20 @@ begin
       aModel.VerifiedActiveSourceText, aModel.IncludeFileNames, lRawImports);
 end;
 
+class function TDelphiSemanticSemanticGraphBuilder.ProjectImports(
+  const aProject: TDelphiSemanticProjectInfo; const aModel: TDelphiSemanticUnitModel;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  out aInterface, aImplementation: TArray<string>): Boolean;
+begin
+  Result := ProjectImportsPrepared(aProject, aModel, aModels, nil,
+    aInterface, aImplementation);
+end;
+
 class function TDelphiSemanticSemanticGraphBuilder.Build(
   const aProject: TDelphiSemanticProjectInfo;
   const aUnitModels: TArray<TDelphiSemanticUnitModel>): TDelphiSemanticSemanticGraph;
 var
+  lImportCache: TDictionary<string, string>;
   lDeclarations: TList<TDelphiSemanticGraphDeclaration>;
   lLocals: TList<TDelphiSemanticGraphLocal>;
   lMembers: TList<TDelphiSemanticGraphMember>;
@@ -1385,6 +1412,7 @@ var
   lModel: TDelphiSemanticUnitModel;
 begin
   lStopwatch := TStopwatch.StartNew;
+  lImportCache := nil;
   lDeclarations := nil;
   lTypes := nil;
   lMembers := nil;
@@ -1396,6 +1424,10 @@ begin
   lSymbols := nil;
   lUnits := TList<TDelphiSemanticGraphUnit>.Create;
   try
+    // Exact import spelling is the only varying input here. Project aliases,
+    // scopes and the ordered model snapshot are fixed for this Build call.
+    // This cache never survives a graph build or caches a site-based answer.
+    lImportCache := TDictionary<string, string>.Create(TStringComparer.Ordinal);
     lDeclarations := TList<TDelphiSemanticGraphDeclaration>.Create;
     lTypes := TList<TDelphiSemanticGraphType>.Create;
     lMembers := TList<TDelphiSemanticGraphMember>.Create;
@@ -1409,7 +1441,7 @@ begin
     for lModel in aUnitModels do
       if lModel.Success and (lModel.UnitName <> '') then
       begin
-        lUnit := BuildUnit(lProjectId, aProject, lModel, aUnitModels);
+        lUnit := BuildUnit(lProjectId, aProject, lModel, aUnitModels, lImportCache);
         lUnits.Add(lUnit);
         AddDeclarationSymbols(lSymbols, lDeclarations, lTypes, lUnit, lModel);
         AddMemberSymbols(lSymbols, lMembers, lUnit, lModel);
@@ -1431,6 +1463,7 @@ begin
       lRoutines.ToArray, lParameters.ToArray, lLocals.ToArray, lReferences.ToArray,
       lWithStatements.ToArray, lMetrics);
   finally
+    lImportCache.Free;
     lSymbols.Free;
     lWithStatements.Free;
     lReferences.Free;

@@ -22,6 +22,9 @@ type
     [Category('Fast')]
     [Test]
     procedure UnitDtosAreReturnedAsCopies;
+    [Category('Fast')]
+    [Test]
+    procedure CanonicalImportsPreserveSpellingAmbiguityAndBuildContext;
     [Test]
     procedure ProjectSessionBuildMetricsReportGraphCounts;
   end;
@@ -124,6 +127,46 @@ begin
   finally
     lGraph.Free;
   end;
+end;
+
+procedure TSemanticGraphTests.CanonicalImportsPreserveSpellingAmbiguityAndBuildContext;
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lImporter, lAlpha, lBeta, lDuplicate: TDelphiSemanticUnitModel;
+  lProject: TDelphiSemanticProjectInfo;
+
+  procedure CheckImports(const aModels: TArray<TDelphiSemanticUnitModel>;
+    const aExpectedAlias: string);
+  var
+    lUnit: TDelphiSemanticGraphUnit;
+  begin
+    lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, aModels);
+    try
+      Assert.IsTrue(lGraph.FindUnitByName('Importer', lUnit));
+      Assert.AreEqual<Integer>(4, Length(lUnit.InterfaceImports));
+      Assert.AreEqual('Unindexed', lUnit.InterfaceImports[0]);
+      Assert.AreEqual('unindexed', lUnit.InterfaceImports[1]);
+      Assert.AreEqual(aExpectedAlias, lUnit.InterfaceImports[2]);
+      Assert.AreEqual(aExpectedAlias, lUnit.InterfaceImports[3]);
+    finally
+      lGraph.Free;
+    end;
+  end;
+
+begin
+  lProject := ProjectInfo;
+  lImporter := SymbolModel('Importer', 'Importer.pas');
+  lImporter.DependencyFacts.Known := True;
+  lImporter.DependencyFacts.InterfaceImports := ['Unindexed', 'unindexed', 'AliasUnit', 'AliasUnit'];
+  lAlpha := SymbolModel('Alpha', 'Alpha.pas');
+  lBeta := SymbolModel('Beta', 'Beta.pas');
+  lProject.UnitAliases := ['AliasUnit=Alpha'];
+  CheckImports([lImporter, lAlpha, lBeta], 'Alpha');
+  lProject.UnitAliases := ['AliasUnit=Beta'];
+  CheckImports([lImporter, lAlpha, lBeta], 'Beta');
+  lDuplicate := SymbolModel('Beta', 'OtherBeta.pas');
+  CheckImports([lImporter, lAlpha, lBeta, lDuplicate], 'AliasUnit');
+  CheckImports([lImporter, lAlpha, lBeta], 'Beta');
 end;
 
 procedure TSemanticGraphTests.ProjectSessionBuildMetricsReportGraphCounts;
