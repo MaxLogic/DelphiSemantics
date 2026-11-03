@@ -3268,11 +3268,14 @@ begin
       else if aShape = 'n-inc-ifdef-unicode' then
         // DS-719 A1a/A1b: included UNICODE activity is verified unknown; imports are unproved.
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if aShape = 'n-if-compilerversion' then
+        // DS-719 A-373, design 0.24: incomplete uses imports refuse before visibility.
+        Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'c-inc-ifdef-unicode' then
         // DS-719 A1a/A1b: included helper activity is verified unknown; imports are unproved.
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if MatchText(aShape, ['c-ifdef-unicode', 'n-ifdef-unicode',
-        'n-inc-define-unknown', 'n-if-compilerversion', 'site-unresolved',
+        'n-inc-define-unknown', 'site-unresolved',
         'n-unmatched', 'n-unterminated', 'n-unsupported']) then
         // DS-719 A1 rules 1/3 and failed-model guard; DS-756 predefined symbols.
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
