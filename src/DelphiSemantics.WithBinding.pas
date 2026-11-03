@@ -3150,6 +3150,68 @@ begin
     aDeclaringModel := Default(TDelphiSemanticUnitModel);
 end;
 
+function AnonymousLocalHasTypeNameCollision(const aModel: TDelphiSemanticUnitModel;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aResolved: TDelphiSemanticResolveResult): Boolean;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLexer: TmwBasePasLex;
+  lLocal: TDelphiSemanticLocal;
+  lModel: TDelphiSemanticUnitModel;
+  lRecord: Boolean;
+begin
+  Result := False;
+  if not aResolved.Found or not SameText(aResolved.Kind, 'local') then
+    Exit;
+  for lLocal in aModel.Locals do
+  begin
+    if not SameText(lLocal.Name, aResolved.Name) or
+      (lLocal.Line <> aResolved.Line) or (lLocal.Column <> aResolved.Column) or
+      not SameText(lLocal.TypeName, lLocal.RoutineName + '.' + lLocal.Name) or
+      ((lLocal.FileName <> '') and not SameText(lLocal.FileName, aModel.FileName)) or
+      (lLocal.Offset < 1) then
+      Continue;
+    // Synthetic text alone is not evidence: a named type can have this spelling.
+    // Verify the inline record at the exact local declaration before refusing.
+    lRecord := False;
+    lLexer := TmwBasePasLex.Create;
+    try
+      lLexer.UseDefines := False;
+      lLexer.Origin := Copy(aModel.SourceText, lLocal.Offset, MaxInt);
+      while not (lLexer.TokenID in [ptNull, ptSemiColon, ptColon]) do
+        lLexer.Next;
+      if lLexer.TokenID = ptColon then
+      begin
+        lLexer.Next;
+        while lLexer.TokenID in [ptSpace, ptCRLF, ptAnsiComment, ptBorComment, ptSlashesComment] do
+          lLexer.Next;
+        if lLexer.TokenID = ptPacked then
+        begin
+          lLexer.Next;
+          while lLexer.TokenID in [ptSpace, ptCRLF, ptAnsiComment, ptBorComment, ptSlashesComment] do
+            lLexer.Next;
+        end;
+        lRecord := lLexer.TokenID = ptRecord;
+      end;
+    finally
+      lLexer.Free;
+    end;
+    if not lRecord then
+      Continue;
+    for lModel in aProjectModels do
+      for lDeclaration in lModel.Declarations do
+        if MatchText(lDeclaration.Kind, ['type', 'type-alias']) and
+          (SameText(lDeclaration.Name, lLocal.TypeName) or
+          SameText(lDeclaration.Name, lLocal.Name) or
+          EndsText('.' + lLocal.Name, lDeclaration.Name)) and
+          not (SameText(lModel.FileName, aModel.FileName) and
+          (lDeclaration.Line = lLocal.Line) and
+          (lDeclaration.Column >= lLocal.Column) and
+          (lDeclaration.Column < lLocal.Column + Length(lLocal.Name))) then
+          Exit(True);
+  end;
+end;
+
 function MakeSelectorBinding(const aModel: TDelphiSemanticUnitModel;
   const aProjectModels: TArray<TDelphiSemanticUnitModel>; const aRoutineName,
   aCurrentTypeName, aSelectorText: string; const aParentRoutineNames: TArray<string>;
@@ -3365,6 +3427,18 @@ begin
           aRoutineName, aLine, aColumn,
           aParentSelectors), lBaseName, aProjectMemberIndex, aMemberCache,
           lBound);
+    end;
+  end;
+  if not lWithBase then
+  begin
+    lBaseResult := ResolveNameThroughWithBindingAuthority(aModel, lContext, lBaseName);
+    if AnonymousLocalHasTypeNameCollision(aModel, aProjectModels, lBaseResult) then
+    begin
+      Result.SelectorText := lSelectorText;
+      Result.Status := 'unsupported';
+      Result.ReasonCode := 'ANONYMOUS_SELECTOR_NAME_COLLISION';
+      Result.Cause := 'anonymous-selector-name-collision';
+      Exit;
     end;
   end;
   if lWithBase then

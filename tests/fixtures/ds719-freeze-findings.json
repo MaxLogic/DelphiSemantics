@@ -1404,5 +1404,87 @@
     ],
     "family": "r9-b1",
     "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-k2c-control-routine-other-name",
+    "files": {
+      "B.pas": "unit B;\ninterface\ntype\n  TOuter = record\n  public\n    type Sub = record\n      X, Padding: Integer;\n    end; end;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nprocedure Other;\nvar\n  Sub: record\n  Q: Integer;\nend;\nbegin\n  FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do X := 5;\n  Writeln('VALUE=', X, ' ', SizeOf(Sub));\nend;\nbegin\n  X := 0;\n  Other;\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-k2d-class-type",
+    "files": {
+      "B.pas": "unit B;\ninterface\ntype\n  TOuter = class\n  public\n    type Sub = record\n      X, Padding: Integer;\n    end; end;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nprocedure TOuter;\nvar\n  Sub: record\n  Q: Integer;\nend;\nbegin\n  FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do X := 5;\n  Writeln('VALUE=', X, ' ', SizeOf(Sub));\nend;\nbegin\n  X := 0;\n  TOuter;\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-k2e-read-context",
+    "files": {
+      "B.pas": "unit B;\ninterface\ntype\n  TOuter = record\n  public\n    type Sub = record\n      X, Padding: Integer;\n    end; end;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nprocedure TOuter;\nvar\n  Sub: record\n  Q: Integer;\nend;\nbegin\n  FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do Q := X + 1;\n  Writeln('VALUE=', X, ' ', SizeOf(Sub));\nend;\nbegin\n  X := 0;\n  TOuter;\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-k2g-two-level",
+    "files": {
+      "B.pas": "unit B;\ninterface\ntype\n  TOuter = record\n  public\n    type TMid = record\n      type Sub = record X, Padding: Integer; end;\n    end;\n  end;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nprocedure TOuter;\nprocedure TMid;\nvar\n  Sub: record\n  Q: Integer;\nend;\nbegin\n  FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do X := 5;\n  Writeln('VALUE=', X, ' ', SizeOf(Sub));\nend;\nbegin\n  TMid;\nend;\nbegin\n  X := 0;\n  TOuter;\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-n5-other-unit-nested",
+    "files": {
+      "C.pas": "unit C;\ninterface\ntype\n  TOuter = record\n  public\n    type Sub = record\n      Q, Padding: Integer;\n    end;\n  end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses C;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nvar\n  Sub: record X: Integer; end;\nbegin\n  X := 0; FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do X := 5;\n  Writeln('VALUE=', X, ' ', Sub.X);\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "C",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
+  },
+  {
+    "name": "r9-m1-n6-other-unit-nested-lacks",
+    "files": {
+      "C.pas": "unit C;\ninterface\ntype\n  TOuter = record\n  public\n    type Sub = record\n      X, Padding: Integer;\n    end;\n  end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses C;\nprocedure Run;\nimplementation\nvar\n  X: Integer;\nprocedure Run;\nvar\n  Sub: record Q: Integer; end;\nbegin\n  X := 0; FillChar(Sub, SizeOf(Sub), 0);\n  with Sub do X := 5;\n  Writeln('VALUE=', X);\nend;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "C",
+      "B"
+    ],
+    "family": "r9-m1",
+    "require_named_refusal": true
   }
 ]

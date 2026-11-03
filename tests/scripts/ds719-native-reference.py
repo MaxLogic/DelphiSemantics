@@ -799,7 +799,7 @@ def generate(repo, root, full, only=""):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 618 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 624 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1270,14 +1270,16 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             if plan is None:
                 continue
             if case.get('synthetic_collision'):
-                key = case['synthetic_collision'].lower()
-                matches = [d for m in plan.get('models', []) for d in m.get('declarations', [])
-                           if d['name'].lower() == key and d['kind'] == 'type']
-                # Independent declaration tokens, not equal text alone, prove
-                # that the legal nested type collides with an anonymous key.
-                positions = {(d['line'], d['column']) for d in matches}
-                if len(positions) < 2:
-                    failure(case, route, 'oracle', 'synthetic-collision-unproved', key=key, matches=matches)
+                # Recovery design 0.24: the two homonym subjects (ten routes)
+                # must strictly refuse; equal synthetic text is not an identity.
+                expected = (('selector-type-not-resolved', 'ANONYMOUS_SELECTOR_NAME_COLLISION')
+                            if case['name'].endswith('-1') else ('property-selector', 'property-selector'))
+                for statement in plan['statements']:
+                    if (statement['status'] != 'skipped' or statement['edits'] or
+                            statement.get('captures') or
+                            statement.get('reason') != expected[0] or
+                            statement.get('safety') != expected[1]):
+                        failure(case, route, 4, 'synthetic-collision-refusal-required', statement=statement)
             planned = any(s['status'] == 'planned' for s in plan['statements'])
             row = dict(case=case['name'], route=route, planned=planned,
                        family=case['family'], refused_statements=sum(s['status'] != 'planned' for s in plan['statements']),
