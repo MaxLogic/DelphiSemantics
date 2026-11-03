@@ -700,7 +700,12 @@ begin
     Exit(TFile.Exists(aFileName));
   end;
 
-  lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, aIncludeName));
+  // dcc64 resolves every nesting level from the original unit, not from
+  // the including .inc. Project and explicit -I directories follow in order.
+  if aOptions.SourceFileName <> '' then
+    lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), aIncludeName))
+  else
+    lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, aIncludeName));
   if TFile.Exists(lPath) then
   begin
     aFileName := lPath;

@@ -27,6 +27,10 @@ type
 
     [Category('Fast')]
     [Test]
+    procedure NestedIncludesUseUnitDirectoryBeforeSearchPaths;
+
+    [Category('Fast')]
+    [Test]
     procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
     [Category('Fast')]
     [Test]
@@ -195,6 +199,29 @@ begin
   Assert.IsTrue(lFacts.ImportsUnproved,
     'An unknown write must taint every later conditional on that symbol.');
   Assert.IsFalse(lFacts.UnitUnproved, 'The span is bounded; keep the precise import cause.');
+end;
+
+procedure TPreprocessTests.NestedIncludesUseUnitDirectoryBeforeSearchPaths;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lRoot: string;
+begin
+  lRoot := PreprocessTempRoot('nested-include-order');
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'sub'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'sub\c.inc'), '{$I d.inc}', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'sub\d.inc'), ' ', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'd.inc'), '{$IFOPT R-}, C{$ENDIF}', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Unit1.pas');
+  lOptions.SourceText := 'unit Unit1;'#13#10'interface'#13#10 +
+    'uses A {$I sub\c.inc};'#13#10'implementation'#13#10'end.';
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.IsTrue(lFacts.ImportsUnproved, 'The compiler reads the unit-directory d.inc.');
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.AreEqual(2, Integer(Length(lResult.Includes)));
+  Assert.AreEqual(TPath.Combine(lRoot, 'd.inc'), lResult.Includes[1].FileName);
 end;
 
 procedure TPreprocessTests.ActivityEvidenceCoversGapsAndInclusiveEnd;

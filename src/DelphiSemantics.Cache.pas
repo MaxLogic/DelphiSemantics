@@ -201,7 +201,7 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.73';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.74';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -488,7 +488,9 @@ begin
   lOptions.SourceFileName := aOptions.SourceFileName;
   lOptions.SourceText := aSource.Source.Text;
   lOptions.Defines := aOptions.Defines;
-  lOptions.SearchPaths := aOptions.IncludePaths + aOptions.SearchPaths;
+  lOptions.SearchPaths := aOptions.IncludePaths;
+  if not aOptions.ProjectContextApplied then
+    lOptions.SearchPaths := lOptions.SearchPaths + aOptions.SearchPaths;
   Result := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
 end;
 

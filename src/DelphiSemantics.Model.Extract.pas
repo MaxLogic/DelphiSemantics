@@ -6128,7 +6128,9 @@ begin
     lPreprocessOptions.SourceFileName := aOptions.SourceFileName;
     lPreprocessOptions.SourceText := lSourceResult.Source.Text;
     lPreprocessOptions.Defines := aOptions.Defines;
-    lPreprocessOptions.SearchPaths := aOptions.IncludePaths + aOptions.SearchPaths;
+    lPreprocessOptions.SearchPaths := aOptions.IncludePaths;
+    if not aOptions.ProjectContextApplied then
+      lPreprocessOptions.SearchPaths := lPreprocessOptions.SearchPaths + aOptions.SearchPaths;
     lPreprocessResult := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
     Result.Success := lPreprocessResult.Success;
     Result.DirectiveFacts := lPreprocessResult.DirectiveFacts;
