@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Snapshot and unit caches reuse equivalent Windows project paths while retaining ordered include-path identity.
 - Remove-with treats symbols defined or undefined inside unknown conditionals as unknown in every later test, including included source. Affected model and planning caches rebuild.
 - Include lookup follows the native compiler from the original unit directory through project and include search directories at every nesting level; unresolved include evidence remains unproved.
 - Delphi 12 multiline strings no longer hide following compiler directives from remove-with proof scans.

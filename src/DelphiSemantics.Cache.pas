@@ -317,7 +317,8 @@ end;
 function ExtractionOptionsIdentityText(const aOptions: TDelphiSemanticModelOptions): string;
 begin
   Result := 'defineEvidenceComplete=' + BoolToStr(aOptions.DefineEvidenceComplete, True) +
-    '|includePaths=' + String.Join(';', aOptions.IncludePaths) +
+    // Include order affects lookup; equivalent Windows path spellings do not.
+    '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
