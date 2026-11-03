@@ -1476,6 +1476,11 @@ begin
     lOriginList.Free;
   end;
   lExpandedLines := [1];
+  if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(lRaw) then
+  begin
+    Result.Cause := 'imports-directive-unproved';
+    Exit;
+  end;
   for var i := 1 to Length(lRaw) do
     if lRaw[i] = #10 then
       lExpandedLines := lExpandedLines + [i + 1];
@@ -6316,6 +6321,10 @@ begin
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
     Result.TypeValueMembers := lExtractionContext.TypeValueMembers.ToArray;
+    // AST success does not prove that its ordered imports include discarded
+    // compiler-option/constant-expression branches from the original source.
+    if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(Result.SourceText) then
+      Result.DependencyFacts.Known := False;
   finally
     GExtractionContext := lPreviousExtractionContext;
     lExtractionContext.Free;

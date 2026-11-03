@@ -138,7 +138,7 @@ uses
 const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
   // 14: expected identity row count for complete project planning facts.
-  cSnapshotCacheSchemaVersion = '21';
+  cSnapshotCacheSchemaVersion = '22';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

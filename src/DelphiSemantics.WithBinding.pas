@@ -3301,6 +3301,15 @@ begin
   // Lexical symbols are declared in the current unit; a bound member in its owner's unit.
   lSymbolModel := aModel;
   lSelectorText := aSelectorText.Trim;
+  if not aModel.DependencyFacts.Known and
+    TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aModel.SourceText) then
+  begin
+    Result.SelectorText := lSelectorText;
+    Result.Status := 'unsupported';
+    Result.ReasonCode := 'IMPORTS_DIRECTIVE_UNPROVED';
+    Result.Cause := 'imports-directive-unproved';
+    Exit;
+  end;
   lContext := Default(TDelphiSemanticResolveContext);
   lContext.RoutineName := aRoutineName;
   lContext.CurrentTypeName := aCurrentTypeName;

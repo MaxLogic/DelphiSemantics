@@ -76,6 +76,7 @@ type
 
   TDelphiSemanticPreprocessor = record
   public
+    class function ImportDirectiveIsModeled(const aDirective: string): Boolean; static;
     class function IncludeArgumentFromDirective(const aDirective: string): string; static;
     class function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
       const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean; static;
@@ -886,6 +887,46 @@ begin
     StartsText('WARNINGS ', lText) or StartsText('WEAKLINKRTTI ', lText) or
     StartsText('EXTERNALSYM ', lText) or StartsText('HPPEMIT ', lText) or
     StartsText('NODEFINE ', lText) or StartsText('OBJTYPENAME ', lText);
+end;
+
+function IsModeledImportExpression(const aExpression: string): Boolean;
+var
+  lLeft, lRight, lText: string;
+begin
+  lText := StripOuterParentheses(aExpression);
+  if TrySplitTopLevelExpression(lText, 'or', lLeft, lRight) or
+    TrySplitTopLevelExpression(lText, 'and', lLeft, lRight) then
+    Exit(IsModeledImportExpression(lLeft) and IsModeledImportExpression(lRight));
+  if StartsText('not ', lText) then
+    Exit(IsModeledImportExpression(Copy(lText, 5, MaxInt)));
+  if StartsText('Defined(', lText) and EndsText(')', lText) then
+    Exit(IsPlainConditionalIdentifier(Copy(lText, 9, Length(lText) - 9).Trim));
+  Result := MatchText(lText, ['True', 'False']);
+end;
+
+class function TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(
+  const aDirective: string): Boolean;
+var
+  i: Integer;
+  lArgument, lName, lText: string;
+begin
+  // Classify grammar only. Activity evidence must separately prove the symbol
+  // states; compiler option queries and Delphi constant expressions are unknown.
+  lText := aDirective.Trim;
+  i := 1;
+  while (i <= Length(lText)) and CharInSet(lText[i], ['A'..'Z', 'a'..'z']) do
+    Inc(i);
+  lName := Copy(lText, 1, i - 1);
+  lArgument := Copy(lText, i, MaxInt).Trim;
+  if MatchText(lName, ['IFDEF', 'IFNDEF', 'DEFINE', 'UNDEF']) then
+    Exit(IsPlainConditionalIdentifier(lArgument));
+  if MatchText(lName, ['IF', 'ELSEIF']) then
+    Exit(IsModeledImportExpression(lArgument));
+  if MatchText(lName, ['ELSE', 'ENDIF', 'IFEND']) then
+    Exit(True);
+  Result := IsCompilerSwitchDirective(lText) or
+    ((IncludeArgumentFromDirective(lText) <> '') and
+    (IncludeArgumentFromDirective(lText) <> '<include-unclassified>'));
 end;
 
 procedure PushConditionalFrame(const aStack: TList<TPreprocessFrame>;

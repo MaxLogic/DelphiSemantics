@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove-with refuses uses-clause names left unproved by compiler-option queries, unsupported constant expressions or unrecognized directives. Model and planning caches rebuild.
 - WITH helper lookup indexes declarations by unit to avoid repeated full type scans while preserving site visibility and refusal checks.
 - WITH rewrites retain declaration identity across receiver lineage, helper lookup and capture insertion. Unproved bindings refuse with no edits, and older model, snapshot and planning-fact caches rebuild.
 - Standalone remove-with snapshot caches written before the stricter binding rules rebuild instead of reusing older plans.

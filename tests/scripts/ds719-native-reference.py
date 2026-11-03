@@ -751,6 +751,15 @@ def generate(repo, root, full, only=""):
     cases.extend(helper_kind_cases(root))
     cases.extend(helper_evidence_cases(repo, root))
     cases.extend(multiline_var_cases(root))
+    # Recovery design 0.24: native regressions for B1, M1 and Fix D follow-ups.
+    for retained in json.loads((repo / 'tests/fixtures/ds719-freeze-findings.json').read_text()):
+        case = {key: value for key, value in retained.items() if key not in ('files', 'refs')}
+        folder = root / case['name']
+        for name, source in retained['files'].items():
+            write(folder / name, source)
+        project(folder, retained['refs'])
+        case['root'] = str(folder)
+        cases.append(case)
     if full:
         cases.extend(r8_cases(repo, root))
         # DS-719 recovery 3q: the paired-control obligation is separate from
@@ -789,8 +798,8 @@ def generate(repo, root, full, only=""):
             case['expect_refusal'] = ('selector-type-not-resolved'
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
-    # Full dispatch includes all 546 cases; selection never changes this roster.
-    assert cases and (len(cases) == 546 if full and not only else len(cases) <= 500), len(cases)
+    # Full dispatch includes retained Freeze regressions; selection never changes this roster.
+    assert cases and (len(cases) == 618 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1284,6 +1293,12 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                 row['pair_result'] = observation
                 if observation['result'] == 'fail':
                     failure(case, route, 4, observation['cause'], observation=observation)
+            if case.get('require_named_refusal'):
+                for statement in plan['statements']:
+                    if (statement['status'] != 'skipped' or statement['edits'] or
+                            statement.get('captures') or not statement.get('reason') or
+                            not statement.get('safety')):
+                        failure(case, route, 4, 'freeze-named-refusal-required', statement=statement)
             if case.get('expect_refusal'):
                 for statement in plan['statements']:
                     if (statement['status'] != 'skipped' or statement['edits'] or

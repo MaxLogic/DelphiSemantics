@@ -66,7 +66,7 @@ implementation
 
 uses
   System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Resolve.SelectorTypes;
+  DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.SourceConditionals;
 
 function IsImplementationLikeSection(const aSectionKind: string): Boolean;
 begin
@@ -993,6 +993,15 @@ begin
 
   if TryResolveUnitDeclaration(aModel, aContext, aName, Result) then
     Exit;
+
+  if not aModel.DependencyFacts.Known and
+    TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aModel.SourceText) then
+  begin
+    Result := UnresolvedResult(aName, 'IMPORTS_DIRECTIVE_UNPROVED',
+      'An unsupported directive leaves the uses-clause names unproved.');
+    Result.Status := 'unsupported';
+    Exit;
+  end;
 
   if TryResolveIndexedUnitDeclaration(aContext, aName, Result) then
     Exit;

@@ -28,7 +28,8 @@ function NormalizeTypeReference(const aTypeName: string): string;
 implementation
 
 uses
-  System.StrUtils, System.SysUtils;
+  System.StrUtils, System.SysUtils,
+  DelphiSemantics.SourceConditionals;
 
 type
   TSelectorAliasTrail = array[0..15] of string;
@@ -127,6 +128,9 @@ begin
   aDeclaringModel := aCurrentModel;
   if Result > 0 then
     Exit;
+
+  if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aCurrentModel.SourceText) then
+    Exit(-1);
 
   for lModel in aContext.IndexedUnitModels do
   begin
