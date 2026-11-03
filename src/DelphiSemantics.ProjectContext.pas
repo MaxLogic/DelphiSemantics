@@ -1562,6 +1562,9 @@ begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
         aDiagnostics, aLockPlatform, aObservations);
+      if SameText(TPath.GetFileName(lImportFileName), 'CodeGear.Delphi.Targets') and
+        TFile.Exists(lImportFileName) then
+        SetPropertyValue(aProperties, 'DSCompilerTargetsEvaluated', 'True');
     end else if (aObservations <> nil) and not lBounded then
       aObservations.MarkDefineEvidenceIncomplete;
   end;
@@ -2709,6 +2712,18 @@ begin
   try
     // Delphi's targets pass IncludePath=UnitSearchPath, not DCC_IncludePath.
     // Keep this active list separate from witness browsing/reference paths.
+    // A raw project property can be overwritten by the targets. Without the
+    // evaluated import we cannot know whether an override precedes/follows it.
+    if aProperties.ContainsKey(PropertyKey('IncludePath')) and
+      not SameText(GetPropertyValue(aProperties, 'DSCompilerTargetsEvaluated'), 'True') then
+    begin
+      SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'False');
+      SetPropertyValue(aProperties, 'DSCompilerIncludePaths', '');
+      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('COMPILER_INCLUDE_PATH_UNPROVED',
+        'IncludePath override is not backed by evaluated Delphi targets.',
+        GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
+      Exit;
+    end;
     if not TryGetPropertyValue(aProperties, 'IncludePath', lIncludePath) then
     begin
       if SameText(GetPropertyValue(aProperties, 'ImportEnvOptions'), 'false') then
