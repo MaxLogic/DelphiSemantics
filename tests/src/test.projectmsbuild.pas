@@ -240,6 +240,7 @@ end;
 
 procedure TProjectMsBuildTests.ContextIncludesIncludePathsCompilerProfileAndFingerprint;
 var
+  lEnvironment: TArray<TDelphiSemanticProperty>;
   lOptions: TDelphiSemanticOptions;
   lProjectDir: string;
   lResult: TDelphiSemanticContextResult;
@@ -250,12 +251,32 @@ begin
   lOptions.Platform := 'Win32';
   lOptions.DelphiVersion := '23.0';
 
+  // Resolve the fixture's deliberate missing macro and pin both library tiers.
+  SetLength(lEnvironment, 3);
+  lEnvironment[0].Name := 'MissingMacro';
+  lEnvironment[0].Value := TPath.Combine(lProjectDir, 'ResolvedMacro');
+  lEnvironment[1].Name := 'ImportEnvOptions';
+  lEnvironment[1].Value := 'false';
+  lEnvironment[2].Name := 'DelphiLibraryPath';
+  lEnvironment[2].Value := TPath.Combine(lProjectDir, 'LibraryOne') + ';' +
+    TPath.Combine(lProjectDir, 'LibraryTwo');
+  lOptions.EnvironmentVariables := lEnvironment;
+
   lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
     lOptions);
 
   Assert.IsTrue(lResult.Success);
-  Assert.IsTrue(ContainsPath(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Includes')));
-  Assert.IsTrue(ContainsPath(lResult.Project.IncludePaths,
+  // DS-719 A-374: targets use unit search paths, then the library path.
+  Assert.AreEqual(6, Integer(Length(lResult.Project.IncludePaths)));
+  Assert.AreEqual(3, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'OptsetUnits')));
+  Assert.AreEqual(0, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Source')));
+  Assert.AreEqual(1, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Generated')));
+  Assert.AreEqual(2, PathIndex(lResult.Project.IncludePaths,
+    TPath.Combine(lProjectDir, 'ResolvedMacro\Broken')));
+  Assert.AreEqual(4, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'LibraryOne')));
+  Assert.AreEqual(5, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'LibraryTwo')));
+  Assert.IsFalse(ContainsPath(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Includes')));
+  Assert.IsFalse(ContainsPath(lResult.Project.IncludePaths,
     TPath.Combine(lProjectDir, 'SharedIncludes')));
   Assert.AreEqual('Delphi-23.0-Win32-Debug', lResult.Project.CompilerProfileName);
   Assert.AreNotEqual('', lResult.Project.ContextFingerprint);
