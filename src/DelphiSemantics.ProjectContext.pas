@@ -2750,8 +2750,12 @@ begin
     SetPropertyValue(aProperties, 'DSCompilerIncludePaths', lPath);
     SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown',
       BoolToStr((lProblems.Count = 0) and (Pos('$(', lPath) = 0), True));
+    // Include-only uncertainty does not make unrelated source macros unknown.
+    // Keep the original problem visible under the include proof's diagnostic.
     for var lProblem in lProblems do
-      PublishProfileProblem(aDiagnostics, lProblem);
+      PublishProfileProblem(aDiagnostics, CreateWarningDiagnostic(
+        'COMPILER_INCLUDE_PATH_UNPROVED', lProblem.Code + ': ' + lProblem.Message,
+        lProblem.FileName));
   finally
     lProblems.Free;
   end;

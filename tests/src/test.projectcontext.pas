@@ -2339,6 +2339,11 @@ begin
   Assert.IsFalse(HasDiagnostic(lResult, 'UNRESOLVED_MSBUILD_MACRO'),
     'Unconsumed build-only macros in installed targets must not block source context.' +
     sLineBreak + DiagnosticSummary(lResult));
+  Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  Assert.IsTrue(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'),
+    'Include-only uncertainty must remain visible without changing source macro evidence.');
+  Assert.AreEqual<Integer>(1, Length(lResult.Project.IncludePaths));
+  Assert.AreEqual('<include-path-unproved>', lResult.Project.IncludePaths[0]);
 end;
 
 procedure TProjectContextTests.ExplicitSelfReferentialSearchPathRemainsEffective;
