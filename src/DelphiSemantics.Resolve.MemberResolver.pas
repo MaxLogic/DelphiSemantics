@@ -1,9 +1,9 @@
-﻿unit DelphiSemantics.Resolve.MemberResolver;
+unit DelphiSemantics.Resolve.MemberResolver;
 
 interface
 
 uses
-  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
+  DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticMemberIdentity = record
@@ -111,6 +111,8 @@ type
     fExpandedByOwnerType: TDictionary<string, TArray<TDelphiSemanticTypeIdentity>>;
     fTypeIndex: TDelphiSemanticTypeIdentityIndex;
     fUnitNamesById: TDictionary<string, string>;
+    fUnitFacts: TDictionary<string, TDelphiSemanticDirectiveFacts>;
+    function DirectiveCause(const aUnitName, aMemberName: string): string;
     class function AmbiguousResult(const aOwnerTypeName, aMemberName: string;
       const aCandidates: TArray<TDelphiSemanticMemberIdentity>):
       TDelphiSemanticMemberLookupResult; static;
@@ -270,8 +272,13 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitNamesById := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
 
+  fUnitFacts := TDictionary<string, TDelphiSemanticDirectiveFacts>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
   for lUnit in aGraph.Units do
+  begin
     fUnitNamesById.AddOrSetValue(lUnit.Id.Value, lUnit.UnitName);
+    fUnitFacts.AddOrSetValue(lUnit.UnitName, lUnit.DirectiveFacts);
+  end;
 
   for lGraphMember in aGraph.Members do
   begin
@@ -336,6 +343,7 @@ begin
   for lList in fByOwnerIdAndName.Values do
     lList.Free;
   fByOwnerIdAndName.Free;
+  fUnitFacts.Free;
   fUnitNamesById.Free;
   fExpandedByOwnerType.Free;
   fByOwnerAndName.Free;
@@ -399,12 +407,27 @@ begin
   lList.Add(aMember);
 end;
 
+function TDelphiSemanticMemberIdentityIndexData.DirectiveCause(
+  const aUnitName, aMemberName: string): string;
+var
+  lFacts: TDelphiSemanticDirectiveFacts;
+begin
+  Result := '';
+  if fUnitFacts.TryGetValue(aUnitName, lFacts) then
+    Result := lFacts.NameCause(aMemberName);
+end;
+
 function TDelphiSemanticMemberIdentityIndexData.ResolveDirectMemberByOwnerId(
   const aOwnerDeclaredId: TDelphiSemanticGraphTypeId;
   const aMemberName: string): TDelphiSemanticMemberLookupResult;
 var
   lList: TDelphiSemanticMemberIdentityList;
+  lOwner: TDelphiSemanticTypeIdentity;
 begin
+  if fTypeIndex.FindByDeclaredId(aOwnerDeclaredId, lOwner) and
+    (DirectiveCause(lOwner.UnitName, aMemberName) <> '') then
+    Exit(StatusResult('unsupported', DirectiveCause(lOwner.UnitName, aMemberName),
+      'An unsupported conditional can declare this member.', nil));
   if (aOwnerDeclaredId.Value = '') or not fByOwnerIdAndName.TryGetValue(
     aOwnerDeclaredId.Value + #31 + aMemberName, lList) then
     Exit(UnresolvedResult(aOwnerDeclaredId.Value, aMemberName));
@@ -734,7 +757,12 @@ function TDelphiSemanticMemberIdentityIndexData.ResolveDirectMember(
   const aOwnerTypeName, aMemberName: string): TDelphiSemanticMemberLookupResult;
 var
   lCandidates: TArray<TDelphiSemanticMemberIdentity>;
+  lOwner: TDelphiSemanticTypeIdentity;
 begin
+  if ResolveOwnerType(aOwnerTypeName, lOwner) and
+    (DirectiveCause(lOwner.UnitName, aMemberName) <> '') then
+    Exit(StatusResult('unsupported', DirectiveCause(lOwner.UnitName, aMemberName),
+      'An unsupported conditional can declare this member.', nil));
   lCandidates := LookupCandidates(aOwnerTypeName, aMemberName);
   if Length(lCandidates) = 0 then
     Exit(UnresolvedResult(aOwnerTypeName, aMemberName));
@@ -797,6 +825,9 @@ begin
     if not fTypeIndex.FindByDeclaredId(aContext.OwnerDeclaredId, lOwner) then
       Exit(StatusResult('unsupported', 'OWNER_IDENTITY_UNVERIFIED',
         'The held owner identity is not present in the type index.', nil));
+    if DirectiveCause(lOwner.UnitName, aMemberName) <> '' then
+      Exit(StatusResult('unsupported', DirectiveCause(lOwner.UnitName, aMemberName),
+        'An unsupported conditional can declare this member.', nil));
     if fByOwnerIdAndName.TryGetValue(lOwner.DeclaredId.Value + #31 + aMemberName, lMembers) then
       Exit(ResolveCandidates(aContext, aMemberName, '', lMembers.ToArray));
     // The binder walks ancestors and helpers itself, preserving unknown barriers.

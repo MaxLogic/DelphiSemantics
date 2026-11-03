@@ -1522,5 +1522,293 @@
     ],
     "family": "r9-m1",
     "require_named_refusal": true
+  },
+  {
+    "name": "r10-b1-caller-h14",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-caller-include",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$INCLUDE c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-caller-nested",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$I nested.inc}\n",
+      "nested.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-caller-xplus",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$IFOPT X+}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-caller-keyword",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A;\nprocedure Run;\nimplementation\n{$IFOPT R-}uses C;{$ENDIF}\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED",
+    "identity_probe_interface_import": true
+  },
+  {
+    "name": "r10-b1-caller-keyword-include",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A;\nprocedure Run;\nimplementation\n{$I c.inc}\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$IFOPT R-}uses C;{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED",
+    "identity_probe_interface_import": true
+  },
+  {
+    "name": "r10-b1-declaration-h14",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A {$I c.inc};\nprocedure Run;\nimplementation\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n",
+      "c.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-declaration-include",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A {$INCLUDE c.inc};\nprocedure Run;\nimplementation\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n",
+      "c.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-declaration-nested",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A {$I c.inc};\nprocedure Run;\nimplementation\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n",
+      "c.inc": "{$I nested.inc}\n",
+      "nested.inc": "{$IFOPT R-}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-declaration-xplus",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A {$I c.inc};\nprocedure Run;\nimplementation\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n",
+      "c.inc": "{$IFOPT X+}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-declaration-keyword",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nprocedure Run;\nimplementation\n{$IFOPT R-}uses C;{$ENDIF}\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED",
+    "identity_probe_interface_import": true
+  },
+  {
+    "name": "r10-b1-declaration-keyword-include",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nprocedure Run;\nimplementation\n{$I c.inc}\nvar\n  Item: TX;\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', SizeOf(Item));\nend;\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B;\nprocedure Run; begin B.Run; end;\nend.\n",
+      "c.inc": "{$IFOPT R-}uses C;{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "r10-b1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED",
+    "identity_probe_interface_import": true
+  },
+  {
+    "name": "r10-b1-hidden-local-type",
+    "family": "r10-b1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\nprocedure Run;\n{$IFOPT R-}type TX = record Q, X, Y: Integer; end;{$ENDIF}\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-hidden-field",
+    "family": "r10-b1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\ntype TRunner = class\n{$IFOPT R-}TX: Integer;{$ENDIF}\nprocedure Execute;\nend;\nprocedure TRunner.Execute;\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nprocedure Run;\nvar Runner: TRunner;\nbegin Runner := TRunner.Create; try Runner.Execute; finally Runner.Free; end; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-hidden-helper",
+    "family": "r10-b1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\n{$IFOPT R-}type TRunner = record helper for Integer\nprocedure Execute;\nfunction TX: Integer;\nend;{$ENDIF}\nfunction TRunner.TX: Integer; begin Result := 0; end;\nprocedure TRunner.Execute;\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nprocedure Run;\nvar Runner: Integer;\nbegin Runner := 0; Runner.Execute; end;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "r10-b1-hidden-global",
+    "family": "r10-b1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\n{$IFOPT R-}var TX: Integer;{$ENDIF}\nprocedure Run;\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
   }
 ]

@@ -4,7 +4,8 @@ interface
 
 uses
   System.Generics.Collections,
-  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitNameWitness;
+  DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitNameWitness,
+  DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticProjectGraphId = record
@@ -51,6 +52,7 @@ type
     InterfaceImports: TArray<string>;
     ImplementationImports: TArray<string>;
     ImportsKnown: Boolean;
+    DirectiveFacts: TDelphiSemanticDirectiveFacts;
     AliasConflictNames: TArray<string>;
     TypeNamesKnown: Boolean;
     CaptureScopeProof: TDelphiSemanticCaptureScopeProof;
@@ -277,7 +279,7 @@ implementation
 uses
   System.Classes, System.Diagnostics, System.Generics.Defaults, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils, System.SysUtils,
   AutoFree, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Model.Extract, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.Model.Extract, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver, DelphiSemantics.Source;
 
 function StableHash(const aText: string): string;
 begin
@@ -804,6 +806,7 @@ begin
   Result.FileName := aModel.FileName;
   Result.SourceKind := 'project';
   Result.SourceText := aModel.SourceText;
+  Result.DirectiveFacts := aModel.DirectiveFacts;
   // A conflicted alias cannot be canonicalized into a closed indexed import.
   for var lAlias in aProject.UnitAliases do
   begin
@@ -849,7 +852,8 @@ begin
       lImports.RootImports[j] := CachedProjectImport(aProject, aModels, lImports.RootImports[j], aImportCache);
     Result.CaptureScopeProof.Imports[i] := lImports;
   end;
-  Result.HelperScopeKnown := HelperScopeIsKnown(aModel);
+  Result.HelperScopeKnown := HelperScopeIsKnown(aModel) and
+    not aModel.DirectiveFacts.UnitUnproved and not aModel.DirectiveFacts.HelpersUnproved;
   Result.UnindexedHelpers := aModel.UnindexedHelpers;
   var lHelperDiagnosticCount := 0;
   for var lDiagnostic in aModel.Diagnostics do
@@ -1477,7 +1481,8 @@ begin
     aInterface[i] := CachedProjectImport(aProject, aModels, aInterface[i], aCache);
   for i := 0 to High(aImplementation) do
     aImplementation[i] := CachedProjectImport(aProject, aModels, aImplementation[i], aCache);
-  Result := aModel.DependencyFacts.Known and aModel.Success and
+  Result := (aModel.DirectiveFacts.ImportCause = '') and
+    aModel.DependencyFacts.Known and aModel.Success and
     (SameText(aModel.ScopeModelStatus, 'ast') or
      SameText(aModel.ScopeModelStatus, 'ast-interface-only')) and
     not TDelphiSemanticSourceConditionals.ImportOrderUnknown(aModel.SourceText,

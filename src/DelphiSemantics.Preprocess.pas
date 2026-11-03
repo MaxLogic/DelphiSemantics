@@ -71,11 +71,14 @@ type
     ActivitySpans: TArray<TDelphiSemanticActivitySpan>;
     HasUnknownActivity: Boolean;
     ActivityEvidenceAvailable: Boolean;
+    DirectiveFacts: TDelphiSemanticDirectiveFacts;
     Diagnostics: TArray<TDelphiSemanticPreprocessDiagnostic>;
   end;
 
   TDelphiSemanticPreprocessor = record
   public
+    class function ScanDirectiveFacts(const aOptions: TDelphiSemanticPreprocessOptions):
+      TDelphiSemanticDirectiveFacts; static;
     class function ImportDirectiveIsModeled(const aDirective: string): Boolean; static;
     class function IncludeArgumentFromDirective(const aDirective: string): string; static;
     class function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
@@ -929,6 +932,344 @@ begin
     (IncludeArgumentFromDirective(lText) <> '<include-unclassified>'));
 end;
 
+type
+  TDirectiveScanFrame = class
+    Span: TDelphiSemanticDirectiveSpan;
+    Unknown: Boolean;
+    TouchesUses: Boolean;
+    HasHelper: Boolean;
+    Names: TStringList;
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  // One traversal of the expanded source, before the AST can discard a branch.
+  TDirectiveScanner = class
+  private
+    fOptions: TDelphiSemanticPreprocessOptions;
+    fSources: TSourceTextCache;
+    fActivity: TArray<TDelphiSemanticActivitySpan>;
+    fFrames: TObjectList<TDirectiveScanFrame>;
+    fSpans: TList<TDelphiSemanticDirectiveSpan>;
+    fNames, fIncludes: TStringList;
+    fFacts: TDelphiSemanticDirectiveFacts;
+    fClause: Boolean;
+    fExpandedOffset: Integer;
+    function KnownInactive(const aFileName: string; const aOffset: Integer): Boolean;
+    procedure CloseFrame(const aFileName: string; const aOffset: Integer);
+    procedure Directive(const aBody, aFileName: string; const aFirst, aLast: Integer);
+    procedure Word(const aWord: string);
+    procedure Scan(const aText, aFileName: string);
+  public
+    constructor Create(const aOptions: TDelphiSemanticPreprocessOptions;
+      const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>);
+    destructor Destroy; override;
+    function Execute: TDelphiSemanticDirectiveFacts;
+  end;
+
+constructor TDirectiveScanFrame.Create;
+begin
+  inherited;
+  Names := TStringList.Create;
+  Names.CaseSensitive := False;
+  Names.Sorted := True;
+  Names.Duplicates := dupIgnore;
+end;
+
+destructor TDirectiveScanFrame.Destroy;
+begin
+  Names.Free;
+  inherited;
+end;
+
+constructor TDirectiveScanner.Create(const aOptions: TDelphiSemanticPreprocessOptions;
+  const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>);
+begin
+  inherited Create;
+  fOptions := aOptions;
+  if fOptions.SourceFileName <> '' then
+    fOptions.SourceFileName := TPath.GetFullPath(fOptions.SourceFileName);
+  fSources := aSources;
+  fActivity := aActivity;
+  fFrames := TObjectList<TDirectiveScanFrame>.Create;
+  fSpans := TList<TDelphiSemanticDirectiveSpan>.Create;
+  fNames := TStringList.Create;
+  fNames.CaseSensitive := False;
+  fNames.Sorted := True;
+  fNames.Duplicates := dupIgnore;
+  fIncludes := TStringList.Create;
+  fIncludes.CaseSensitive := False;
+  fExpandedOffset := 1;
+end;
+
+destructor TDirectiveScanner.Destroy;
+begin
+  fIncludes.Free;
+  fNames.Free;
+  fSpans.Free;
+  fFrames.Free;
+  inherited;
+end;
+
+function TDirectiveScanner.KnownInactive(const aFileName: string;
+  const aOffset: Integer): Boolean;
+begin
+  Result := False;
+  for var lSpan in fActivity do
+    if SameText(lSpan.FileName, aFileName) and (aOffset >= lSpan.StartOffset) and
+      (aOffset < lSpan.EndOffset) then
+    begin
+      if lSpan.Activity <> saInactive then
+        Exit(False);
+      Result := True;
+    end;
+end;
+
+procedure TDirectiveScanner.CloseFrame(const aFileName: string; const aOffset: Integer);
+var
+  lFrame: TDirectiveScanFrame;
+begin
+  if fFrames.Count = 0 then
+  begin
+    fFacts.UnitUnproved := True;
+    Exit;
+  end;
+  lFrame := fFrames.Last;
+  if lFrame.Unknown then
+  begin
+    lFrame.Span.EndFileName := aFileName;
+    lFrame.Span.EndOffset := aOffset;
+    lFrame.Span.ExpandedEndOffset := fExpandedOffset;
+    fSpans.Add(lFrame.Span);
+    fFacts.ImportsUnproved := fFacts.ImportsUnproved or lFrame.TouchesUses;
+    fFacts.HelpersUnproved := fFacts.HelpersUnproved or lFrame.HasHelper;
+    fNames.AddStrings(lFrame.Names);
+  end;
+  fFrames.Delete(fFrames.Count - 1);
+end;
+
+procedure TDirectiveScanner.Word(const aWord: string);
+begin
+  if SameText(aWord, 'uses') then
+    fClause := True;
+  for var lFrame in fFrames do
+  begin
+    // A lexical superset is deliberate: source in an unknown branch need not
+    // form a standalone declaration tree. Never prove absence from a partial parse.
+    lFrame.Names.Add(aWord);
+    lFrame.TouchesUses := lFrame.TouchesUses or fClause;
+    lFrame.HasHelper := lFrame.HasHelper or SameText(aWord, 'helper');
+  end;
+end;
+
+procedure TDirectiveScanner.Directive(const aBody, aFileName: string;
+  const aFirst, aLast: Integer);
+var
+  i: Integer;
+  lName, lArgument, lChildFile: string;
+  lFrame: TDirectiveScanFrame;
+  lSource: TDelphiSemanticSourceLoadResult;
+  lSpan: TDelphiSemanticDirectiveSpan;
+begin
+  i := 1;
+  while (i <= Length(aBody)) and CharInSet(aBody[i], ['A'..'Z', 'a'..'z']) do
+    Inc(i);
+  lName := Copy(aBody, 1, i - 1);
+  lArgument := IncludeArgumentFromDirective(aBody);
+  if lArgument <> '' then
+  begin
+    if KnownInactive(aFileName, aFirst) then
+      Exit;
+    if not ResolveIncludeFileName(lArgument, ExtractFilePath(aFileName), fOptions, lChildFile) or
+      (fIncludes.Count >= 64) or (fIncludes.IndexOf(lChildFile) >= 0) then
+    begin
+      fFacts.UnitUnproved := True;
+      Exit;
+    end;
+    if not fSources.TryGetValue(lChildFile, lSource) then
+    begin
+      try
+        lSource := TDelphiSemanticSourceLoader.LoadFile(lChildFile);
+      except
+        on E: EFOpenError do
+        begin
+          fFacts.UnitUnproved := True;
+          Exit;
+        end;
+        on E: EInOutError do
+        begin
+          fFacts.UnitUnproved := True;
+          Exit;
+        end;
+      end;
+      if lSource.Success then
+        fSources.Add(lChildFile, lSource);
+    end;
+    if not lSource.Success then
+    begin
+      fFacts.UnitUnproved := True;
+      Exit;
+    end;
+    Scan(lSource.Source.Text, lChildFile);
+    Exit;
+  end;
+  if MatchText(lName, ['IF', 'IFDEF', 'IFNDEF', 'IFOPT']) then
+  begin
+    lFrame := TDirectiveScanFrame.Create;
+    fFrames.Add(lFrame);
+    lFrame.Span.Directive := aBody;
+    lFrame.Span.StartFileName := aFileName;
+    lFrame.Span.StartOffset := aFirst;
+    lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
+    lFrame.Unknown := not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody);
+    lFrame.TouchesUses := fClause;
+  end else if MatchText(lName, ['ELSE', 'ELSEIF']) then
+  begin
+    if fFrames.Count = 0 then
+      fFacts.UnitUnproved := True
+    else if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
+    begin
+      fFrames.Last.Unknown := True;
+      fFrames.Last.Span.Directive := fFrames.Last.Span.Directive + ' / ' + aBody;
+    end;
+  end else if MatchText(lName, ['ENDIF', 'IFEND']) then
+    CloseFrame(aFileName, aLast)
+  else if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
+  begin
+    // Retain the existing refusal for an unclassified directive in USES.
+    // It does not create a fictitious conditional span elsewhere in the unit.
+    if fClause then
+    begin
+      fFacts.ImportsUnproved := True;
+      lSpan := Default(TDelphiSemanticDirectiveSpan);
+      lSpan.Directive := aBody;
+      lSpan.StartFileName := aFileName;
+      lSpan.EndFileName := aFileName;
+      lSpan.StartOffset := aFirst;
+      lSpan.EndOffset := aLast;
+      lSpan.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
+      lSpan.ExpandedEndOffset := fExpandedOffset;
+      fSpans.Add(lSpan);
+    end;
+    if MatchText(lName, ['DEFINE', 'UNDEF']) then
+      fFacts.UnitUnproved := True;
+  end;
+end;
+
+procedure TDirectiveScanner.Scan(const aText, aFileName: string);
+var
+  i, j, lFirst, lBodyFirst, lBodyLast: Integer;
+  lDirective, lBrace, lClosed: Boolean;
+begin
+  fIncludes.Add(aFileName);
+  try
+    Inc(fFacts.CharactersScanned, Length(aText));
+    i := 1;
+    while i <= Length(aText) do
+    begin
+      lFirst := i;
+      if aText[i] = #39 then
+      begin
+        Inc(i);
+        while i <= Length(aText) do
+        begin
+          if aText[i] = #39 then
+          begin
+            Inc(i);
+            if (i > Length(aText)) or (aText[i] <> #39) then
+              Break;
+          end;
+          Inc(i);
+        end;
+      end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
+      begin
+        while (i <= Length(aText)) and not CharInSet(aText[i], [#10, #13]) do
+          Inc(i);
+      end else if (aText[i] = '{') or ((aText[i] = '(') and
+        (i < Length(aText)) and (aText[i + 1] = '*')) then
+      begin
+        lBrace := aText[i] = '{';
+        if lBrace then
+          Inc(i)
+        else
+          Inc(i, 2);
+        lDirective := (i <= Length(aText)) and (aText[i] = '$');
+        if lDirective then
+          Inc(i);
+        lBodyFirst := i;
+        lClosed := False;
+        while i <= Length(aText) do
+        begin
+          if (lBrace and (aText[i] = '}')) or (not lBrace and (i < Length(aText)) and
+            (aText[i] = '*') and (aText[i + 1] = ')')) then
+          begin
+            lClosed := True;
+            Break;
+          end;
+          Inc(i);
+        end;
+        lBodyLast := i;
+        if lClosed then
+        begin
+          if lBrace then
+            Inc(i)
+          else
+            Inc(i, 2);
+        end;
+        Inc(fExpandedOffset, i - lFirst);
+        if lDirective then
+        begin
+          if not lClosed then
+            fFacts.UnitUnproved := True
+          else
+            Directive(Trim(Copy(aText, lBodyFirst, lBodyLast - lBodyFirst)),
+              aFileName, lFirst, i);
+        end;
+        Continue;
+      end else if CharInSet(aText[i], ['A'..'Z', 'a'..'z', '_']) then
+      begin
+        j := i + 1;
+        while (j <= Length(aText)) and
+          CharInSet(aText[j], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+          Inc(j);
+        Word(Copy(aText, i, j - i));
+        i := j;
+      end else begin
+        if aText[i] = ';' then
+          fClause := False;
+        Inc(i);
+      end;
+      Inc(fExpandedOffset, i - lFirst);
+    end;
+  finally
+    fIncludes.Delete(fIncludes.Count - 1);
+  end;
+end;
+
+function TDirectiveScanner.Execute: TDelphiSemanticDirectiveFacts;
+var
+  lSource: TDelphiSemanticSourceLoadResult;
+begin
+  fFacts.Scanned := True;
+  fFacts.ScanCount := 1;
+  if (fOptions.SourceText = '') and
+    fSources.TryGetValue(fOptions.SourceFileName, lSource) then
+    fOptions.SourceText := lSource.Source.Text;
+  Scan(fOptions.SourceText, fOptions.SourceFileName);
+  if fFrames.Count > 0 then
+  begin
+    fFacts.UnitUnproved := True;
+    while fFrames.Count > 0 do
+    begin
+      fFrames.Last.Unknown := True;
+      CloseFrame(fOptions.SourceFileName, Length(fOptions.SourceText) + 1);
+    end;
+  end;
+  fFacts.Spans := fSpans.ToArray;
+  fFacts.UnprovedNames := fNames.ToStringArray;
+  Result := fFacts;
+end;
+
 procedure PushConditionalFrame(const aStack: TList<TPreprocessFrame>;
   const aActive: Boolean; const aKnown: Boolean = True);
 var
@@ -1613,6 +1954,23 @@ begin
   Result := CalculateTextHash(lText);
 end;
 
+class function TDelphiSemanticPreprocessor.ScanDirectiveFacts(
+  const aOptions: TDelphiSemanticPreprocessOptions): TDelphiSemanticDirectiveFacts;
+var
+  lSources: TSourceTextCache;
+  lScanner: TDirectiveScanner;
+begin
+  lSources := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lScanner := nil;
+  try
+    lScanner := TDirectiveScanner.Create(aOptions, lSources, nil);
+    Result := lScanner.Execute;
+  finally
+    lScanner.Free;
+    lSources.Free;
+  end;
+end;
+
 class function TDelphiSemanticPreprocessor.PreprocessFile(
   const aOptions: TDelphiSemanticPreprocessOptions): TDelphiSemanticPreprocessResult;
 var
@@ -1632,7 +1990,8 @@ var
   lSources: IDelphiSemanticSourceObservations;
   lInclude: TDelphiSemanticIncludeFile;
   lStack: TList<TPreprocessFrame>;
-  lSuccess: Boolean;
+  lSuccess, lIncluded: Boolean;
+  lScanner: TDirectiveScanner;
 begin
   Result := Default(TDelphiSemanticPreprocessResult);
   lCapture := nil;
@@ -1672,6 +2031,23 @@ begin
         'Unterminated conditional directive stack.', aOptions.SourceFileName, 0);
       lSuccess := False;
     end;
+    lScanner := TDirectiveScanner.Create(aOptions, lSourceCache, lCapture.ActivitySpans.ToArray);
+    try
+      Result.DirectiveFacts := lScanner.Execute;
+    finally
+      lScanner.Free;
+    end;
+    for lSourceLoad in lSourceCache.Values do
+      if not SameText(lSourceLoad.Source.FileName, TPath.GetFullPath(aOptions.SourceFileName)) then
+      begin
+        lIncluded := False;
+        for lInclude in lIncludes do
+          if SameText(lInclude.FileName, lSourceLoad.Source.FileName) then
+            lIncluded := True;
+        if not lIncluded and
+          not MatchText(lSourceLoad.Source.FileName, lCapture.SkippedIncludes.ToArray) then
+          lCapture.SkippedIncludes.Add(lSourceLoad.Source.FileName);
+      end;
     lSkippedHash := '';
     for lSourceLoad in lSourceCache.Values do
     begin

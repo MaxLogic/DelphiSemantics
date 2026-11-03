@@ -165,6 +165,10 @@ begin
       lModels.AddElement(lModelJson);
       lModelJson.AddPair('unit', lModel.UnitName);
       lModelJson.AddPair('success', TJSONBool.Create(lModel.Success));
+      lModelJson.AddPair('directive_scan_count', TJSONNumber.Create(lModel.DirectiveFacts.ScanCount));
+      lModelJson.AddPair('directive_scan_characters', TJSONNumber.Create(lModel.DirectiveFacts.CharactersScanned));
+      lModelJson.AddPair('directive_span_count', TJSONNumber.Create(Length(lModel.DirectiveFacts.Spans)));
+      lModelJson.AddPair('directive_import_cause', lModel.DirectiveFacts.ImportCause);
       lDeclarations := TJSONArray.Create;
       lModelJson.AddPair('declarations', lDeclarations);
       for var lDeclaration in TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel).Declarations do
@@ -199,6 +203,7 @@ begin
           lSelector.AddPair('name', aSnapshot.ExactTextOf(lItem.TypeIdentity.NameId));
           lSelector.AddPair('unit', aSnapshot.ExactTextOf(lItem.TypeIdentity.UnitNameId));
           lSelector.AddPair('status', aSnapshot.ExactTextOf(lItem.StatusId));
+          lSelector.AddPair('code', aSnapshot.ExactTextOf(lItem.ReasonCodeId));
           lSelector.AddPair('capture', aSnapshot.ExactTextOf(lItem.CaptureTypeStatusId));
         end;
       end;
@@ -219,6 +224,7 @@ begin
         lSelector.AddPair('name', lItem.TypeIdentity.Name);
         lSelector.AddPair('unit', lItem.TypeIdentity.UnitName);
         lSelector.AddPair('status', lItem.Status);
+        lSelector.AddPair('code', lItem.ReasonCode);
         lSelector.AddPair('capture', lItem.CaptureTypeStatus);
       end;
     end;

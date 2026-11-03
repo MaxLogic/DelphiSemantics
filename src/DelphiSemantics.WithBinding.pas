@@ -3229,6 +3229,7 @@ var
   lCastResult: TDelphiSemanticResolveResult;
   lCastType: string;
   lCaptureTypeName, lCaptureTypeStatus: string;
+  lTypeLookup: TDelphiSemanticTypeLookupResult;
   lComplex: Boolean;
   lContext: TDelphiSemanticResolveContext;
   lDereferenced: Boolean;
@@ -3363,13 +3364,12 @@ begin
   // Lexical symbols are declared in the current unit; a bound member in its owner's unit.
   lSymbolModel := aModel;
   lSelectorText := aSelectorText.Trim;
-  if not aModel.DependencyFacts.Known and
-    TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aModel.SourceText) then
+  if (aModel.DirectiveFacts.ImportCause <> '') then
   begin
     Result.SelectorText := lSelectorText;
     Result.Status := 'unsupported';
-    Result.ReasonCode := 'IMPORTS_DIRECTIVE_UNPROVED';
-    Result.Cause := 'imports-directive-unproved';
+    Result.ReasonCode := aModel.DirectiveFacts.ImportCause;
+    Result.Cause := LowerCase(Result.ReasonCode).Replace('_', '-');
     Exit;
   end;
   lContext := Default(TDelphiSemanticResolveContext);
@@ -3540,6 +3540,17 @@ begin
     lOriginModel := aModel;
     lOriginSection := lContext.SectionKind;
   end;
+  if (aModel.DirectiveFacts.NameCause(lResult.TypeName) <> '') or
+    aModel.DirectiveFacts.HelpersUnproved then
+  begin
+    Result.SelectorText := lSelectorText;
+    Result.Status := 'unsupported';
+    Result.ReasonCode := aModel.DirectiveFacts.NameCause(lResult.TypeName);
+    if Result.ReasonCode = '' then
+      Result.ReasonCode := 'DECLARATIONS_DIRECTIVE_UNPROVED';
+    Result.Cause := LowerCase(Result.ReasonCode).Replace('_', '-');
+    Exit;
+  end;
   if lResult.Found and SelectorUsesUnsafeProperty(aModel, lContext, lSelectorText) then
     MarkPropertySelectorUnsupported(lSelectorText, lResult);
   if lResult.Found and SameText(lResult.Status, 'resolved') then
@@ -3556,11 +3567,14 @@ begin
       if not aProjectMemberIndex.TryResolveSelectorIdentity(lOriginModel, lOriginSection,
         lOriginScopeId, lResult.TypeName, aIdentity) then
       begin
-        if SameText(aProjectMemberIndex.SelectorTypeLookup(lOriginModel, lOriginSection,
-          lOriginScopeId, lResult.TypeName).ReasonCode, 'TYPE_VISIBILITY_UNPROVED') then
+        lTypeLookup := aProjectMemberIndex.SelectorTypeLookup(lOriginModel, lOriginSection,
+          lOriginScopeId, lResult.TypeName);
+        if MatchText(lTypeLookup.ReasonCode, ['TYPE_VISIBILITY_UNPROVED',
+          'IMPORTS_DIRECTIVE_UNPROVED', 'DECLARATIONS_DIRECTIVE_UNPROVED',
+          'UNIT_DIRECTIVE_UNPROVED']) then
         begin
           lResult.Status := 'unsupported';
-          lResult.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+          lResult.ReasonCode := lTypeLookup.ReasonCode;
           lResult.Reason := 'The receiver type is not proved at its declaration.';
         end else if (lOriginScopeId <> '') and
           aProjectMemberIndex.IsUnsupportedRoutineLocalType(lOriginModel, lOriginSection,
@@ -4163,6 +4177,12 @@ begin
     RoutineScopeAtLine(aModel, aSite.Line), lCaller.DeclaredId);
   lNameSite.FileName := aSite.FileName;
   lHelpers := fTypeIndex.ResolveHelpersAt(lLineage, lNameSite);
+  for i := 0 to High(lHelpers.Levels) do
+    if MatchText(lHelpers.Levels[i].Cause, ['imports-directive-unproved',
+      'declarations-directive-unproved', 'unit-directive-unproved']) then
+      Exit(TMemberVerdict.Barrier(noUnproved,
+        UpperCase(lHelpers.Levels[i].Cause).Replace('-', '_'),
+        'An unsupported conditional leaves helper scope unproved.', lHelpers.Levels[i].Cause));
   lDirect := aDirect;
   lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '');
   lHelper := TMemberVerdict.NotPresent;

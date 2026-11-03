@@ -3269,8 +3269,11 @@ begin
         // DS-719 A1a/A1b: included UNICODE activity is verified unknown; imports are unproved.
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'n-if-compilerversion' then
-        // DS-719 A-373, design 0.24: incomplete uses imports refuse before visibility.
-        Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[0].SafetyReason, aShape)
+        // DS-719 design 0.25: retain the import-completeness cause.
+        Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if MatchText(aShape, ['site-unresolved', 'n-unmatched', 'n-unterminated']) then
+        // An expansion or conditional without a bounded source span taints the unit.
+        Assert.AreEqual('UNIT_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'c-inc-ifdef-unicode' then
         // DS-719 A1a/A1b: included helper activity is verified unknown; imports are unproved.
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
@@ -5505,7 +5508,11 @@ begin
           Assert.IsTrue(Length(lStatement.Edits) > 0);
         end else begin
           Assert.AreEqual('skipped', lStatement.Status, 'Unknown declaration/activity cannot authorize apply.');
-          if MatchText(aShape, ['mixed', 'missing', 'activity-nested']) then
+          if aShape = 'missing' then
+          begin
+            Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+            Assert.AreEqual('UNIT_DIRECTIVE_UNPROVED', lStatement.SafetyReason);
+          end else if MatchText(aShape, ['mixed', 'activity-nested']) then
             Assert.AreEqual('activity-unverified', lStatement.Reason)
           else if aShape = 'directive' then
             Assert.AreEqual('receiver-type-not-visible', lStatement.Reason)
@@ -5562,7 +5569,7 @@ var
   lOptions: TDelphiSemanticApiOptions;
   lPlan, lSnapshotPlan: TDelphiSemanticRemoveWithPlan;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lExpectedReason: string;
+  lExpectedReason, lExpectedSafety: string;
   lRoot, lField, lBody: string;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lPass, lAffectedCount: Integer;
@@ -5572,6 +5579,17 @@ begin
   TDirectory.CreateDirectory(lRoot);
   lField := 'Count: Integer;';
   lExpectedReason := 'activity-unverified';
+  lExpectedSafety := '';
+  // DS-719 0.25: source completeness can refuse before statement activity.
+  if MatchText(aShape, ['hidden-if', 'hidden-declared', 'hidden-malformed']) then
+  begin
+    lExpectedReason := 'selector-type-not-resolved';
+    lExpectedSafety := 'DECLARATIONS_DIRECTIVE_UNPROVED';
+  end else if MatchText(aShape, ['hidden-missing', 'taint']) then
+  begin
+    lExpectedReason := 'selector-type-not-resolved';
+    lExpectedSafety := 'UNIT_DIRECTIVE_UNPROVED';
+  end;
   lBody := 'with Rec do begin Count := 1;'#13#10;
   if aShape = 'hidden-if' then
     lBody := lBody + '{$IF UseFast}{$ELSE} with Rec do Count := 5; {$IFEND}'
@@ -5681,6 +5699,8 @@ begin
         begin
           Assert.AreEqual('skipped', lStatement.Status, 'Unknown declaration/activity cannot authorize apply.');
           Assert.AreEqual(lExpectedReason, lStatement.Reason);
+          if lExpectedSafety <> '' then
+            Assert.AreEqual(lExpectedSafety, lStatement.SafetyReason);
           Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
           Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
           Assert.AreEqual('', lStatement.ReplacementText);

@@ -16,6 +16,32 @@ type
     ExpansionId: string;
   end;
 
+  // Persisted source completeness, independent of the parser's chosen branches.
+  TDelphiSemanticDirectiveSpan = record
+    Directive: string;
+    StartFileName: string;
+    EndFileName: string;
+    StartOffset: Integer;
+    EndOffset: Integer;
+    ExpandedStartOffset: Integer;
+    ExpandedEndOffset: Integer;
+  end;
+
+  TDelphiSemanticDirectiveFacts = record
+    Scanned: Boolean;
+    UnitUnproved: Boolean;
+    ImportsUnproved: Boolean;
+    HelpersUnproved: Boolean;
+    ScanCount: Integer;
+    CharactersScanned: Integer;
+    Spans: TArray<TDelphiSemanticDirectiveSpan>;
+    // Conservative identifier inventory within unknown spans, including declarations
+    // the selected AST never sees. A reference may also withhold an absence proof.
+    UnprovedNames: TArray<string>;
+    function NameCause(const aName: string): string;
+    function ImportCause: string;
+  end;
+
   TDelphiSemanticSourceConditionals = record
   public
     class function UsesDirectiveUnproved(const aSource: string): Boolean; static;
@@ -42,51 +68,40 @@ implementation
 
 uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
-  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Preprocess;
 
 const
   // Stored in the existing exact-text pool. Plain evidence retains its original bytes.
   cActivityPrefix = #1'DS-ACTIVITY-1:';
 
+function TDelphiSemanticDirectiveFacts.NameCause(const aName: string): string;
+begin
+  if UnitUnproved then
+    Exit('UNIT_DIRECTIVE_UNPROVED');
+  for var lName in UnprovedNames do
+    if SameText(lName, aName) then
+      Exit('DECLARATIONS_DIRECTIVE_UNPROVED');
+  Result := '';
+end;
+
+function TDelphiSemanticDirectiveFacts.ImportCause: string;
+begin
+  if UnitUnproved then
+    Exit('UNIT_DIRECTIVE_UNPROVED');
+  if ImportsUnproved then
+    Exit('IMPORTS_DIRECTIVE_UNPROVED');
+  Result := '';
+end;
+
 class function TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(
   const aSource: string): Boolean;
 var
-  lBody: string;
-  lClause: Boolean;
-  lLexer: TmwBasePasLex;
+  lOptions: TDelphiSemanticPreprocessOptions;
 begin
-  Result := False;
-  if Pos('$', aSource) = 0 then
-    Exit;
-  lClause := False;
-  lLexer := TmwBasePasLex.Create;
-  try
-    // Read the source tokens, including branches DelphiAST would discard.
-    lLexer.UseDefines := False;
-    lLexer.Origin := aSource;
-    while lLexer.TokenID <> ptNull do
-    begin
-      if lLexer.TokenID = ptUses then
-        lClause := True
-      else if lLexer.TokenID = ptSemiColon then
-        lClause := False
-      else if lClause and (lLexer.IsCompilerDirective or
-        (lLexer.TokenID in [ptIfDirect, ptElseIfDirect, ptIfEndDirect])) then
-      begin
-        lBody := Copy(aSource, lLexer.TokenPos + 1, lLexer.TokenLen);
-        if StartsStr('{$', lBody) then
-          lBody := Copy(lBody, 3, Length(lBody) - 3)
-        else if StartsStr('(*$', lBody) then
-          lBody := Copy(lBody, 4, Length(lBody) - 5);
-        if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(lBody) then
-          Exit(True);
-      end;
-      lLexer.Next;
-    end;
-  finally
-    lLexer.Free;
-  end;
+  // Compatibility entry point. Semantic consumers use their persisted facts.
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceText := aSource;
+  Result := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions).ImportCause <> '';
 end;
 
 class function TDelphiSemanticSourceConditionals.ImportOrderUnknown(
@@ -391,7 +406,6 @@ begin
     lExpandedIncludes.CaseSensitive := False;
     lStack.CaseSensitive := False;
     if not Expand(aSource, aEvidence, '', False, lExpanded, lStates, lKnown) or
-      UsesDirectiveUnproved(lExpanded) or
       Scan(lExpanded, cActivityPrefix + lStates, lClauses, lHasUses) then
       Exit(True);
     for lFileName in aIncludeFileNames do

@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Resolve.SelectorTypes;
+unit DelphiSemantics.Resolve.SelectorTypes;
 
 interface
 
@@ -28,8 +28,7 @@ function NormalizeTypeReference(const aTypeName: string): string;
 implementation
 
 uses
-  System.StrUtils, System.SysUtils,
-  DelphiSemantics.SourceConditionals;
+  System.StrUtils, System.SysUtils;
 
 type
   TSelectorAliasTrail = array[0..15] of string;
@@ -124,12 +123,16 @@ var
   lIndexed: Boolean;
   i: Integer;
 begin
+  aDeclaration := Default(TDelphiSemanticDeclaration);
+  aDeclaringModel := aCurrentModel;
+  if aCurrentModel.DirectiveFacts.NameCause(aName) <> '' then
+    Exit(-1);
   Result := FindSelectorTypeInModel(aCurrentModel, aSectionKind, aName, aDeclaration);
   aDeclaringModel := aCurrentModel;
   if Result > 0 then
     Exit;
 
-  if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aCurrentModel.SourceText) then
+  if (aCurrentModel.DirectiveFacts.ImportCause <> '') then
     Exit(-1);
 
   for lModel in aContext.IndexedUnitModels do
@@ -137,6 +140,8 @@ begin
     if SameText(lModel.UnitName, aCurrentModel.UnitName) or
       not UsesSelectorUnit(aCurrentModel, aSectionKind, lModel.UnitName) then
       Continue;
+    if lModel.DirectiveFacts.NameCause(aName) <> '' then
+      Exit(-1);
     lCount := FindSelectorTypeInModel(lModel, 'interface', aName, lCandidate);
     if lCount > 0 then
     begin

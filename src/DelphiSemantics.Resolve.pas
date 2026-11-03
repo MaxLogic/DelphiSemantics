@@ -66,7 +66,7 @@ implementation
 
 uses
   System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.Resolve.SelectorTypes;
 
 function IsImplementationLikeSection(const aSectionKind: string): Boolean;
 begin
@@ -972,6 +972,13 @@ var
   lFinalModel: TDelphiSemanticUnitModel;
   lFinalSectionKind: string;
 begin
+  if aModel.DirectiveFacts.NameCause(aName) <> '' then
+  begin
+    Result := UnresolvedResult(aName, aModel.DirectiveFacts.NameCause(aName),
+      'An unsupported conditional can declare this name.');
+    Result.Status := 'unsupported';
+    Exit;
+  end;
   if TryResolveLevel2Selector(aModel, aContext, aName, Result, lFinalModel,
     lFinalSectionKind) then
     Exit;
@@ -994,10 +1001,9 @@ begin
   if TryResolveUnitDeclaration(aModel, aContext, aName, Result) then
     Exit;
 
-  if not aModel.DependencyFacts.Known and
-    TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(aModel.SourceText) then
+  if (aModel.DirectiveFacts.ImportCause <> '') then
   begin
-    Result := UnresolvedResult(aName, 'IMPORTS_DIRECTIVE_UNPROVED',
+    Result := UnresolvedResult(aName, aModel.DirectiveFacts.ImportCause,
       'An unsupported directive leaves the uses-clause names unproved.');
     Result.Status := 'unsupported';
     Exit;

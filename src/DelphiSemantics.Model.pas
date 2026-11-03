@@ -3,7 +3,7 @@ unit DelphiSemantics.Model;
 interface
 
 uses
-  DelphiSemantics.Source;
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticModelOptions = record
@@ -284,6 +284,7 @@ type
     LineBreak: string;
     SourceSections: TDelphiSemanticSourceSections;
     DependencyFacts: TDelphiSemanticUnitDependencyFacts;
+    DirectiveFacts: TDelphiSemanticDirectiveFacts;
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;
     Declarations: TArray<TDelphiSemanticDeclaration>;

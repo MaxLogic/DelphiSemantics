@@ -433,7 +433,12 @@ begin
   Result.Reason := aCause + ': ' + aName + ' in ' + aScope;
   case aOutcome of
     noResolved: Result.ReasonCode := '';
-    noUnproved: Result.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+    noUnproved:
+      if MatchText(aCause, ['imports-directive-unproved', 'declarations-directive-unproved',
+        'unit-directive-unproved']) then
+        Result.ReasonCode := UpperCase(aCause).Replace('-', '_')
+      else
+        Result.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
     noAmbiguous: Result.ReasonCode := 'TYPE_AMBIGUOUS';
     noAbsent: Result.ReasonCode := 'TYPE_NOT_VISIBLE';
   end;
@@ -596,8 +601,13 @@ var
   lList: TDelphiSemanticTypeIdentityList;
   lScope: string;
   lVisible: Integer;
+  lUnit: TDelphiSemanticGraphUnit;
 begin
   lScope := aScopeKind + ':' + aScopeId;
+  if fUnits.TryGetValue(aUnitName, lUnit) and
+    (lUnit.DirectiveFacts.NameCause(aName) <> '') then
+    Exit(NameResolution(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.NameCause(aName)).Replace('_', '-'), lScope, aName));
   Result := NameResolution(noAbsent, '', lScope, aName);
   if not CaptureNamesAgree(aSite, aName, aScopeKind, aScopeId, aUnitName, aPositional) then
     Exit(NameResolution(noUnproved, 'capture-name-shadow-unproved', lScope, aName));
@@ -653,7 +663,6 @@ begin
     begin
       if aSite.CaptureVisibility then
       begin
-        var lUnit: TDelphiSemanticGraphUnit;
         if not fUnits.TryGetValue(aUnitName, lUnit) then
           Exit(NameResolution(noUnproved, 'capture-model-evidence-missing', lScope, aName));
         var lProof := lUnit.CaptureExportProof;
@@ -744,6 +753,9 @@ begin
     begin
       lUnknown := lUnitName;
       lCause := 'imports-unproved';
+      if fUnits.TryGetValue(aSite.UnitName, lUnit) and
+        (lUnit.DirectiveFacts.ImportCause <> '') then
+        lCause := LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-');
       Continue;
     end;
     if IsAliasConflict(aSite.UnitName, lUnitName) then
@@ -774,6 +786,13 @@ begin
         lUnknown := lUnitName;
         lCause := 'witness-unknown';
       end;
+      Continue;
+    end;
+    if fUnits.TryGetValue(lUnitName, lUnit) and
+      (lUnit.DirectiveFacts.NameCause(aName) <> '') then
+    begin
+      lUnknown := lUnitName;
+      lCause := LowerCase(lUnit.DirectiveFacts.NameCause(aName)).Replace('_', '-');
       Continue;
     end;
     if fUnits.TryGetValue(lUnitName, lUnit) and not CaptureScopeClosed(lUnit, aSite, False) then
@@ -1014,6 +1033,14 @@ begin
     Delete(lName, 1, 1);
   if (lName = '') or not fUnits.TryGetValue(aSite.UnitName, lUnit) then
     Exit(NameResolution(noUnproved, 'caller-scope-invalid', 'unit:' + aSite.UnitName, lName));
+  if lUnit.DirectiveFacts.NameCause(lName) <> '' then
+    Exit(NameResolution(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.NameCause(lName)).Replace('_', '-'),
+      'unit:' + aSite.UnitName, lName));
+  if lUnit.DirectiveFacts.ImportCause <> '' then
+    Exit(NameResolution(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-'),
+      'unit:' + aSite.UnitName, lName));
   if aSite.CaptureVisibility and not lUnit.CaptureScopeProof.Known then
     Exit(NameResolution(noUnproved, lUnit.CaptureScopeProof.Cause,
       'unit:' + aSite.UnitName, lName));
@@ -1045,6 +1072,10 @@ begin
     end;
     if not fUnits.TryGetValue(lQualifiedUnit, lUnit) then
       Exit(NameResolution(noUnproved, 'external-unindexed', 'uses:' + lQualifiedUnit, lName));
+    if lUnit.DirectiveFacts.NameCause(lTail.Split(['.'])[0]) <> '' then
+      Exit(NameResolution(noUnproved,
+        LowerCase(lUnit.DirectiveFacts.NameCause(lTail.Split(['.'])[0])).Replace('_', '-'),
+        'uses:' + lQualifiedUnit, lName));
     if not CaptureScopeClosed(lUnit, aSite, SameText(lUnit.UnitName, aSite.UnitName)) then
       Exit(NameResolution(noUnproved, 'type-names-unknown', 'uses:' + lQualifiedUnit, lName));
     lDot := Pos('.', lTail);
@@ -1338,10 +1369,21 @@ var
   lIndirect: Boolean;
   lMatch: TDelphiSemanticNameOutcome;
   lHelpers: TDelphiSemanticTypeIdentityList;
+  lUnit: TDelphiSemanticGraphUnit;
 begin
   if not HelperReceiverTerminal(aTarget, lTarget, lIndirect) then
     Exit(NameResolution(noUnproved, 'helper-unknown', 'helper:' + aUnitName, aTarget.Name));
   Result := NameResolution(noAbsent, '', 'helper:' + aUnitName, lTarget.Name);
+  if fUnits.TryGetValue(aUnitName, lUnit) then
+  begin
+    if lUnit.DirectiveFacts.ImportCause <> '' then
+      Exit(NameResolution(noUnproved,
+        LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-'),
+        'helper:' + aUnitName, aTarget.Name));
+    if lUnit.DirectiveFacts.HelpersUnproved then
+      Exit(NameResolution(noUnproved, 'declarations-directive-unproved',
+        'helper:' + aUnitName, aTarget.Name));
+  end;
   var lHelperUnit: TDelphiSemanticGraphUnit;
   if aOwn and aExactSite then
   begin
@@ -1609,6 +1651,20 @@ begin
   end;
   if not lLineage.Complete then
     OpenLevel(Length(Result.Levels));
+  if FindHelperSiteUnit(aSite, lUnit) and
+    (lUnit.DirectiveFacts.UnitUnproved or lUnit.DirectiveFacts.HelpersUnproved or
+    lUnit.DirectiveFacts.ImportsUnproved) then
+  begin
+    for j := 0 to High(Result.Levels) do
+    begin
+      Result.Levels[j].Outcome := noUnproved;
+      Result.Levels[j].Cause := 'declarations-directive-unproved';
+      if lUnit.DirectiveFacts.ImportCause <> '' then
+        Result.Levels[j].Cause := LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-');
+    end;
+    OpenLevel(0);
+    Exit;
+  end;
   if not FindHelperSiteUnit(aSite, lUnit) or
     not lUnit.HelperScopeKnown then
   begin
@@ -1652,6 +1708,15 @@ begin
           Continue;
         OpenLevel(i);
         Continue;
+      end;
+      if lUnit.DirectiveFacts.UnitUnproved or lUnit.DirectiveFacts.HelpersUnproved then
+      begin
+        Result.Levels[i].Outcome := noUnproved;
+        Result.Levels[i].Cause := 'declarations-directive-unproved';
+        if lUnit.DirectiveFacts.UnitUnproved then
+          Result.Levels[i].Cause := 'unit-directive-unproved';
+        OpenLevel(i);
+        Break;
       end;
       lLookup := ResolveHelperInUnit(Result.Levels[i].Identity, aSite, lUnitName,
         SameText(lUnitName, aSite.UnitName), True);
@@ -1782,6 +1847,14 @@ begin
   Result := Decision(noAbsent, '', 'system');
   if not fUnits.TryGetValue(aSite.UnitName, lUnit) then
     Exit(Decision(noUnproved, 'caller-scope-invalid', 'unit:' + aSite.UnitName));
+  if lUnit.DirectiveFacts.NameCause(aName) <> '' then
+    Exit(Decision(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.NameCause(aName)).Replace('_', '-'),
+      'unit:' + aSite.UnitName));
+  if lUnit.DirectiveFacts.ImportCause <> '' then
+    Exit(Decision(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-'),
+      'unit:' + aSite.UnitName));
   if not RoutineScopePath(aSite, lPath) then
     Exit(Decision(noUnproved, 'caller-scope-invalid', 'routine:' + aSite.RoutineScopeId));
   lVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -2800,6 +2873,22 @@ var
   lUnit: TDelphiSemanticGraphUnit;
   lUnitName, lUnknownUnit: string;
 begin
+  if fUnits.TryGetValue(aCurrentUnitName, lUnit) and
+    (lUnit.DirectiveFacts.NameCause(aName) <> '') then
+    Exit(NameResolution(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.NameCause(aName)).Replace('_', '-'),
+      'unit:' + aCurrentUnitName, aName).AsLookupResult);
+  for lUnitName in aVisibleUnitNames do
+    if fUnits.TryGetValue(lUnitName, lUnit) and
+      (lUnit.DirectiveFacts.NameCause(aName) <> '') then
+      Exit(NameResolution(noUnproved,
+        LowerCase(lUnit.DirectiveFacts.NameCause(aName)).Replace('_', '-'),
+        'uses:' + lUnitName, aName).AsLookupResult);
+  if fUnits.TryGetValue(aCurrentUnitName, lUnit) and
+    (lUnit.DirectiveFacts.ImportCause <> '') then
+    Exit(NameResolution(noUnproved,
+      LowerCase(lUnit.DirectiveFacts.ImportCause).Replace('_', '-'),
+      'unit:' + aCurrentUnitName, aName).AsLookupResult);
   if not fBySimpleName.TryGetValue(aName, lList) then
     Exit(UnresolvedResult(aName, 'TYPE_NOT_FOUND',
       'No visible type declaration named "' + aName + '" was found.'));

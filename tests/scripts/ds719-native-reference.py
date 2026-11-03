@@ -799,7 +799,7 @@ def generate(repo, root, full, only=""):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 624 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 640 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1081,7 +1081,12 @@ def native_identity(case, bds, targets):
             text = originals[path].decode('utf-8-sig')
             for offset, insertion in sorted(inserts, reverse=True):
                 text = text[:offset] + insertion + text[offset:]
-            match = re.search(r'\bimplementation\b', text, re.I)
+            # A conditional implementation USES must remain the first declaration.
+            # These native rows add the observer to the interface instead.
+            if case.get('identity_probe_interface_import'):
+                match = re.search(r'\binterface\b', text, re.I)
+            else:
+                match = re.search(r'\bimplementation\b', text, re.I)
             if match is None and path.suffix.lower() == '.dpr':
                 match = re.search(r'\bprogram\s+[A-Za-z_][A-Za-z_0-9]*\s*;', text, re.I)
             assert match, path
@@ -1295,6 +1300,13 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                 row['pair_result'] = observation
                 if observation['result'] == 'fail':
                     failure(case, route, 4, observation['cause'], observation=observation)
+            if case.get('expect_directive_cause'):
+                for statement in plan['statements']:
+                    if (statement['status'] != 'skipped' or statement['edits'] or
+                            statement.get('captures') or
+                            case['expect_directive_cause'] not in statement_causes(statement).values()):
+                        failure(case, route, 4, 'directive-cause-required',
+                                expected=case['expect_directive_cause'], statement=statement)
             if case.get('require_named_refusal'):
                 for statement in plan['statements']:
                     if (statement['status'] != 'skipped' or statement['edits'] or

@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.RemoveWithPlan;
+unit DelphiSemantics.RemoveWithPlan;
 
 interface
 
@@ -7357,6 +7357,9 @@ begin
       Result.Status := 'skipped';
       Result.Reason := lReason;
       Result.SafetyReason := Result.Reason;
+      if MatchText(lSelector.ReasonCode, ['IMPORTS_DIRECTIVE_UNPROVED',
+        'DECLARATIONS_DIRECTIVE_UNPROVED', 'UNIT_DIRECTIVE_UNPROVED']) then
+        Result.SafetyReason := lSelector.ReasonCode;
       aBodyFacts.CaptureDenied := lDecision.CaptureDenied;
       Exit;
     end;

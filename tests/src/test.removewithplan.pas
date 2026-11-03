@@ -4100,9 +4100,27 @@ begin
       Assert.AreEqual('skipped', lStatement.Status, 'P1 base refusal must never authorize edits');
       if lShape.Name = 'b1-missing' then
       begin
-        // A-364: activity-cleared auxiliary facts do not replace the public base label.
+        // DS-719: an unresolved include leaves the whole unit unproved, before activity.
+        Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
+        Assert.AreEqual('UNIT_DIRECTIVE_UNPROVED', lStatement.SafetyReason);
+        Assert.AreEqual(lStatement.Reason, lOrdinaryStatement.Reason);
+        Assert.AreEqual(lStatement.SafetyReason, lOrdinaryStatement.SafetyReason);
+      end else if lShape.Name = 'ki-elseif-unknown' then
+      begin
+        // DS-719 replaces the old NAME_NOT_FOUND for Inner with unproved declarations.
+        // Activity still precedes the independent inactive-nested-with barrier.
+        Assert.IsTrue(lUnknown, 'The unsupported ELSEIF retains unknown activity.');
         Assert.AreEqual('activity-unverified', lStatement.Reason);
         Assert.AreEqual('ACTIVITY_UNVERIFIED', lStatement.SafetyReason);
+        Assert.AreEqual('skipped', lOrdinaryStatement.Status);
+        Assert.AreEqual('inactive-nested-with-shadowing', lOrdinaryStatement.Reason);
+        Assert.AreEqual('INACTIVE_NESTED_WITH_SHADOW', lOrdinaryStatement.SafetyReason);
+        Assert.AreEqual(0, Integer(Length(lOrdinaryStatement.Edits)));
+        Assert.AreEqual(0, Integer(Length(lOrdinaryStatement.Temps)));
+        Assert.AreEqual('', lOrdinaryStatement.ReplacementText);
+        for var lModel in lFacts.UnitModels do
+          if SameText(lModel.UnitName, 'Unit1') then
+            Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lModel.DirectiveFacts.NameCause('Inner'));
       end else if lOrdinaryStatement.Reason = lBaseReason then
         Assert.AreEqual(lBaseReason, lStatement.Reason)
       else if lOrdinaryStatement.Status = 'planned' then

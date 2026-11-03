@@ -1476,7 +1476,7 @@ begin
     lOriginList.Free;
   end;
   lExpandedLines := [1];
-  if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(lRaw) then
+  if (aModel.DirectiveFacts.ImportCause <> '') then
   begin
     Result.Cause := 'imports-directive-unproved';
     Exit;
@@ -6131,6 +6131,7 @@ begin
     lPreprocessOptions.SearchPaths := aOptions.IncludePaths + aOptions.SearchPaths;
     lPreprocessResult := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
     Result.Success := lPreprocessResult.Success;
+    Result.DirectiveFacts := lPreprocessResult.DirectiveFacts;
     Result.SkippedIncludeFileNames := Copy(lPreprocessResult.SkippedIncludeFileNames);
     SetLength(Result.IncludeFileNames, Length(lPreprocessResult.Includes));
     for i := 0 to High(lPreprocessResult.Includes) do
@@ -6323,7 +6324,7 @@ begin
     Result.TypeValueMembers := lExtractionContext.TypeValueMembers.ToArray;
     // AST success does not prove that its ordered imports include discarded
     // compiler-option/constant-expression branches from the original source.
-    if TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(Result.SourceText) then
+    if (Result.DirectiveFacts.ImportCause <> '') then
       Result.DependencyFacts.Known := False;
   finally
     GExtractionContext := lPreviousExtractionContext;

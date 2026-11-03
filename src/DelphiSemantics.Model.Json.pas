@@ -14,7 +14,7 @@ implementation
 
 uses
   System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Source;
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -95,6 +95,36 @@ begin
   SetLength(Result, aArray.Count);
   for i := 0 to Pred(aArray.Count) do
     Result[i] := aArray.Items[i].Value;
+end;
+
+function DirectiveFactsToJson(const aFacts: TDelphiSemanticDirectiveFacts): TJSONValue;
+var
+  lSerializer: TJsonSerializer;
+begin
+  lSerializer := TJsonSerializer.Create;
+  try
+    Result := TJSONObject.ParseJSONValue(lSerializer.Serialize<TDelphiSemanticDirectiveFacts>(aFacts));
+  finally
+    lSerializer.Free;
+  end;
+end;
+
+function JsonToDirectiveFacts(const aValue: TJSONValue): TDelphiSemanticDirectiveFacts;
+var
+  lSerializer: TJsonSerializer;
+begin
+  Result := Default(TDelphiSemanticDirectiveFacts);
+  Result.UnitUnproved := True;
+  if not (aValue is TJSONObject) then
+    Exit;
+  lSerializer := TJsonSerializer.Create;
+  try
+    Result := lSerializer.Deserialize<TDelphiSemanticDirectiveFacts>(aValue.ToJSON);
+    if not Result.Scanned then
+      Result.UnitUnproved := True;
+  finally
+    lSerializer.Free;
+  end;
 end;
 
 function DependencyFactsToJson(const aFacts: TDelphiSemanticUnitDependencyFacts): TJSONObject;
@@ -899,6 +929,7 @@ begin
     lObject.AddPair('ReferenceScanSourceText', aModel.ReferenceScanSourceText);
     lObject.AddPair('SourceSections', SourceSectionsToJson(aModel.SourceSections));
     lObject.AddPair('DependencyFacts', DependencyFactsToJson(aModel.DependencyFacts));
+    lObject.AddPair('DirectiveFacts', DirectiveFactsToJson(aModel.DirectiveFacts));
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
     lObject.AddPair('ImplementationUses', StringArrayToJson(aModel.ImplementationUses));
     lObject.AddPair('Declarations', DeclarationsToJson(aModel.Declarations));
@@ -953,6 +984,7 @@ begin
     Result.ReferenceScanSourceText := JsonString(lObject, 'ReferenceScanSourceText');
     Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
     Result.DependencyFacts := JsonToDependencyFacts(lObject.GetValue('DependencyFacts'));
+    Result.DirectiveFacts := JsonToDirectiveFacts(lObject.GetValue('DirectiveFacts'));
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
     Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
     Result.Declarations := JsonToDeclarations(lObject.GetValue('Declarations') as TJSONArray);
