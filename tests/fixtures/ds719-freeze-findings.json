@@ -2044,5 +2044,47 @@
     "family": "rx2",
     "expect_plan": true,
     "require_identity": true
+  },
+  {
+    "name": "rf2-multiline-3",
+    "family": "rf2",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar Item: TX;\nconst S = '''\n  it's\n  ''';\nimplementation\nuses C {$IFOPT R-}, System.Types{$ENDIF};\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A ;\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_fact": {
+      "unit": "B",
+      "cause": "IMPORTS_DIRECTIVE_UNPROVED"
+    }
+  },
+  {
+    "name": "rf2-multiline-5",
+    "family": "rf2",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar Item: TX;\nconst S = '''''\n  it's\n  ''''';\nimplementation\nuses C {$IFOPT R-}, System.Types{$ENDIF};\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A ;\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_fact": {
+      "unit": "B",
+      "cause": "IMPORTS_DIRECTIVE_UNPROVED"
+    }
   }
 ]

@@ -799,7 +799,7 @@ def generate(repo, root, full, only=""):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 653 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 655 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -897,7 +897,7 @@ def apply_edits(root, plan):
 
 
 # Independent lexical inventory. It never reads DS exports or resolves names.
-_TOKEN = re.compile(r"//[^\r\n]*|\{[^}]*\}|\(\*.*?\*\)|'(?:''|[^'])*'|[A-Za-z_][A-Za-z_0-9]*|[^\s]", re.S)
+_TOKEN = re.compile(r"(?P<multiline_quotes>'{3}(?:'{2})*)(?:\r\n|\r|\n).*?(?P=multiline_quotes)(?!')|//[^\r\n]*|\{[^}]*\}|\(\*.*?\*\)|'(?:''|[^'])*'|[A-Za-z_][A-Za-z_0-9]*|[^\s]", re.S)
 
 
 def source_targets(folder):
@@ -1300,6 +1300,11 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                 row['pair_result'] = observation
                 if observation['result'] == 'fail':
                     failure(case, route, 4, observation['cause'], observation=observation)
+            if case.get('expect_directive_fact'):
+                expected = case['expect_directive_fact']
+                models = [m for m in plan.get('models', []) if m['unit'] == expected['unit']]
+                if (len(models) != 1 or models[0].get('directive_import_cause') != expected['cause']):
+                    failure(case, route, 4, 'directive-fact-required', expected=expected, models=models)
             if case.get('expect_directive_cause'):
                 for statement in plan['statements']:
                     if (statement['status'] != 'skipped' or statement['edits'] or

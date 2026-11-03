@@ -30,6 +30,11 @@ type
     procedure NestedIncludesUseUnitDirectoryBeforeSearchPaths;
 
     [Category('Fast')]
+    [TestCase('Triple quoted with apostrophe', '3')]
+    [TestCase('Five quoted with shorter quote run', '5')]
+    procedure MultilineStringsCannotHideFollowingDirectives(const aQuotes: Integer);
+
+    [Category('Fast')]
     [Test]
     procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
     [Category('Fast')]
@@ -222,6 +227,27 @@ begin
   lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
   Assert.AreEqual(2, Integer(Length(lResult.Includes)));
   Assert.AreEqual(TPath.Combine(lRoot, 'd.inc'), lResult.Includes[1].FileName);
+end;
+
+procedure TPreprocessTests.MultilineStringsCannotHideFollowingDirectives(const aQuotes: Integer);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lDelimiter: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('multiline-directive'), 'Unit1.pas');
+  lDelimiter := StringOfChar(#39, aQuotes);
+  lOptions.SourceText := 'unit Unit1;'#13#10'interface'#13#10'const S = ' +
+    lDelimiter + #13#10'  it' + #39 + 's'#13#10 +
+    '  ' + lDelimiter + ';'#13#10'implementation'#13#10 +
+    'uses A {$IFOPT R-}, C{$ENDIF};'#13#10'end.';
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.IsTrue(lFacts.ImportsUnproved, 'Apostrophes inside multiline strings do not close them.');
+  Assert.AreEqual(Pos('{$IFOPT R-}, C', lOptions.SourceText), lFacts.Spans[0].StartOffset,
+    'Only the directive after the literal may supply import proof.');
+  Assert.AreEqual(1, Integer(Length(lFacts.Spans)), 'The conditional following the closing delimiter is recorded.');
+  Assert.IsFalse(lFacts.UnitUnproved);
 end;
 
 procedure TPreprocessTests.ActivityEvidenceCoversGapsAndInclusiveEnd;

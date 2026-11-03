@@ -1204,7 +1204,7 @@ end;
 
 procedure TDirectiveScanner.Scan(const aText, aFileName: string);
 var
-  i, j, lFirst, lBodyFirst, lBodyLast: Integer;
+  i, j, lFirst, lBodyFirst, lBodyLast, lQuotes: Integer;
   lDirective, lBrace, lClosed: Boolean;
 begin
   fIncludes.Add(aFileName);
@@ -1216,16 +1216,48 @@ begin
       lFirst := i;
       if aText[i] = #39 then
       begin
-        Inc(i);
-        while i <= Length(aText) do
+        j := i;
+        while (j <= Length(aText)) and (aText[j] = #39) do
+          Inc(j);
+        lQuotes := j - i;
+        if (lQuotes >= 3) and Odd(lQuotes) and (j <= Length(aText)) and
+          CharInSet(aText[j], [#10, #13]) then
         begin
-          if aText[i] = #39 then
+          // Delphi 12 multiline literals use the opening odd quote count as
+          // their delimiter. Apostrophes and shorter runs are literal content.
+          i := j;
+          lClosed := False;
+          while i <= Length(aText) do
           begin
-            Inc(i);
-            if (i > Length(aText)) or (aText[i] <> #39) then
-              Break;
+            if aText[i] = #39 then
+            begin
+              j := i;
+              while (j <= Length(aText)) and (aText[j] = #39) do
+                Inc(j);
+              if j - i = lQuotes then
+              begin
+                i := j;
+                lClosed := True;
+                Break;
+              end;
+              i := j;
+            end else
+              Inc(i);
           end;
+          if not lClosed then
+            fFacts.UnitUnproved := True;
+        end else begin
           Inc(i);
+          while i <= Length(aText) do
+          begin
+            if aText[i] = #39 then
+            begin
+              Inc(i);
+              if (i > Length(aText)) or (aText[i] <> #39) then
+                Break;
+            end;
+            Inc(i);
+          end;
         end;
       end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
       begin
