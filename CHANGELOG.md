@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove-with treats symbols defined or undefined inside unknown conditionals as unknown in every later test, including included source. Affected model and planning caches rebuild.
 - WITH rewrites refuse anonymous local record selectors whose synthetic name can collide with a declared type name.
 - Remove-with scans each unit's include-expanded source once and persists unknown conditional spans. Imports, declarations, helpers and members affected by those spans refuse with a named cause; unbounded spans leave the unit unproved. Model and planning caches rebuild.
 - WITH helper lookup indexes declarations by unit to avoid repeated full type scans while preserving site visibility and refusal checks.

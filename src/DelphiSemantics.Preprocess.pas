@@ -951,10 +951,11 @@ type
     fActivity: TArray<TDelphiSemanticActivitySpan>;
     fFrames: TObjectList<TDirectiveScanFrame>;
     fSpans: TList<TDelphiSemanticDirectiveSpan>;
-    fNames, fIncludes: TStringList;
+    fNames, fIncludes, fUnknownSymbols: TStringList;
     fFacts: TDelphiSemanticDirectiveFacts;
     fClause: Boolean;
     fExpandedOffset: Integer;
+    function TestsUnknownSymbol(const aBody: string): Boolean;
     function KnownInactive(const aFileName: string; const aOffset: Integer): Boolean;
     procedure CloseFrame(const aFileName: string; const aOffset: Integer);
     procedure Directive(const aBody, aFileName: string; const aFirst, aLast: Integer);
@@ -997,6 +998,10 @@ begin
   fNames.CaseSensitive := False;
   fNames.Sorted := True;
   fNames.Duplicates := dupIgnore;
+  fUnknownSymbols := TStringList.Create;
+  fUnknownSymbols.CaseSensitive := False;
+  fUnknownSymbols.Sorted := True;
+  fUnknownSymbols.Duplicates := dupIgnore;
   fIncludes := TStringList.Create;
   fIncludes.CaseSensitive := False;
   fExpandedOffset := 1;
@@ -1004,11 +1009,36 @@ end;
 
 destructor TDirectiveScanner.Destroy;
 begin
+  fUnknownSymbols.Free;
   fIncludes.Free;
   fNames.Free;
   fSpans.Free;
   fFrames.Free;
   inherited;
+end;
+
+function TDirectiveScanner.TestsUnknownSymbol(const aBody: string): Boolean;
+var
+  i, j: Integer;
+begin
+  // Grammar classification alone does not prove a symbol's state. A write in
+  // any unknown enclosing frame can affect all later tests, including includes.
+  Result := False;
+  i := 1;
+  while i <= Length(aBody) do
+  begin
+    if CharInSet(aBody[i], ['A'..'Z', 'a'..'z', '_']) then
+    begin
+      j := i + 1;
+      while (j <= Length(aBody)) and
+        CharInSet(aBody[j], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+        Inc(j);
+      if fUnknownSymbols.IndexOf(Copy(aBody, i, j - i)) >= 0 then
+        Exit(True);
+      i := j;
+    end else
+      Inc(i);
+  end;
 end;
 
 function TDirectiveScanner.KnownInactive(const aFileName: string;
@@ -1121,20 +1151,31 @@ begin
     lFrame.Span.StartFileName := aFileName;
     lFrame.Span.StartOffset := aFirst;
     lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
-    lFrame.Unknown := not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody);
+    lFrame.Unknown := (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
+      TestsUnknownSymbol(Copy(aBody, i, MaxInt));
     lFrame.TouchesUses := fClause;
   end else if MatchText(lName, ['ELSE', 'ELSEIF']) then
   begin
     if fFrames.Count = 0 then
       fFacts.UnitUnproved := True
-    else if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
+    else if (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
+      (SameText(lName, 'ELSEIF') and TestsUnknownSymbol(Copy(aBody, i, MaxInt))) then
     begin
       fFrames.Last.Unknown := True;
       fFrames.Last.Span.Directive := fFrames.Last.Span.Directive + ' / ' + aBody;
     end;
   end else if MatchText(lName, ['ENDIF', 'IFEND']) then
     CloseFrame(aFileName, aLast)
-  else if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
+  else if MatchText(lName, ['DEFINE', 'UNDEF']) and
+    TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
+  begin
+    for lFrame in fFrames do
+      if lFrame.Unknown then
+      begin
+        fUnknownSymbols.Add(Trim(Copy(aBody, i, MaxInt)));
+        Break;
+      end;
+  end else if not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
   begin
     // Retain the existing refusal for an unclassified directive in USES.
     // It does not create a fictitious conditional span elsewhere in the unit.

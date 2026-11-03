@@ -1810,5 +1810,198 @@
     ],
     "require_named_refusal": true,
     "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-ifdef",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$DEFINE USEC}{$ENDIF}\nuses B, A {$IFDEF USEC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-defined",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$DEFINE USEC}{$ENDIF}\nuses B, A {$IF Defined(USEC)}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-ifndef",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$DEFINE NOC}{$IFOPT R-}{$UNDEF NOC}{$ENDIF}\nuses B, A {$IFNDEF NOC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-include-define",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$I d.inc}\nuses B, A {$IFDEF USEC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "d.inc": "{$IFOPT R-}{$DEFINE USEC}{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-include-condition",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$DEFINE USEC}{$ENDIF}\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "c.inc": "{$IFDEF USEC}, C{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-nested",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$IFDEF WIN64}{$DEFINE USEC}{$ENDIF}{$ENDIF}\nuses B, A {$IFDEF USEC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-elseif",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$DEFINE USEC}{$ENDIF}\nuses B, A {$IF False}{$ELSEIF Defined(USEC)}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-after-else",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R+}{$ELSE}{$DEFINE USEC}{$ENDIF}\nuses B, A {$IFDEF USEC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-import-case-insensitive",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\n{$IFOPT R-}{$DEFINE uSeC}{$ENDIF}\nuses B, A {$IFDEF USEC}, C{$ENDIF};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rx1",
+    "require_named_refusal": true,
+    "expect_directive_cause": "IMPORTS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-declaration-local-type",
+    "family": "rx1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\nprocedure Run;\n{$IFOPT R-}{$DEFINE LOCALTX}{$ENDIF}\n{$IFDEF LOCALTX}type TX = record Q, X, Y: Integer; end;{$ENDIF}\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
+  },
+  {
+    "name": "rx1-declaration-include-local-type",
+    "family": "rx1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nvar Item: TX;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses A;\nprocedure Run;\n{$I d.inc}\n{$IFDEF LOCALTX}type TX = record Q, X, Y: Integer; end;{$ENDIF}\nbegin\n  FillChar(Item, SizeOf(Item), 0);\n  with Item do begin X := 7; Y := 9; end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "d.inc": "{$IFOPT R-}{$DEFINE LOCALTX}{$ENDIF}\n"
+    },
+    "refs": [
+      "Unit1",
+      "A"
+    ],
+    "require_named_refusal": true,
+    "expect_directive_cause": "DECLARATIONS_DIRECTIVE_UNPROVED"
   }
 ]

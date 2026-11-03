@@ -16,6 +16,16 @@ type
       const aActive: Boolean): Boolean;
   public
     [Category('Fast')]
+    [TestCase('IFDEF after unknown DEFINE', 'ifdef')]
+    [TestCase('IF Defined after unknown DEFINE', 'defined')]
+    [TestCase('IFNDEF after unknown UNDEF', 'ifndef')]
+    [TestCase('ELSEIF after unknown DEFINE', 'elseif')]
+    [TestCase('Nested DEFINE', 'nested')]
+    [TestCase('DEFINE from include', 'include-define')]
+    [TestCase('Conditional in include', 'include-condition')]
+    procedure UnknownDirectiveSymbolTaintsLaterImports(const aShape: string);
+
+    [Category('Fast')]
     [Test]
     procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
     [Category('Fast')]
@@ -147,6 +157,45 @@ begin
   TDirectory.CreateDirectory(Result);
 end;
 
+
+procedure TPreprocessTests.UnknownDirectiveSymbolTaintsLaterImports(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lPrefix, lCondition, lRoot: string;
+begin
+  lRoot := PreprocessTempRoot('symbol-taint-' + aShape);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Unit1.pas');
+  lPrefix := '{$IFOPT R-}{$DEFINE USEC}{$ENDIF}';
+  lCondition := '{$IFDEF USEC}, C{$ENDIF}';
+  if aShape = 'defined' then
+    lCondition := '{$IF Defined(USEC)}, C{$IFEND}'
+  else if aShape = 'ifndef' then
+  begin
+    lPrefix := '{$DEFINE NOC}{$IFOPT R-}{$UNDEF NOC}{$ENDIF}';
+    lCondition := '{$IFNDEF NOC}, C{$ENDIF}';
+  end else if aShape = 'elseif' then
+    lCondition := '{$IF False}{$ELSEIF Defined(USEC)}, C{$IFEND}'
+  else if aShape = 'nested' then
+    lPrefix := '{$IFOPT R-}{$IFDEF WIN64}{$DEFINE USEC}{$ENDIF}{$ENDIF}'
+  else if aShape = 'include-define' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'd.inc'), lPrefix, TEncoding.ASCII);
+    lPrefix := '{$I d.inc}';
+  end else if aShape = 'include-condition' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'c.inc'), lCondition, TEncoding.ASCII);
+    lCondition := '{$I c.inc}';
+  end;
+  lOptions.SourceText := 'unit Unit1;'#13#10'interface'#13#10 + lPrefix +
+    #13#10'uses A ' + lCondition + ';'#13#10'implementation'#13#10'end.';
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.IsTrue(lFacts.Scanned);
+  Assert.IsTrue(lFacts.ImportsUnproved,
+    'An unknown write must taint every later conditional on that symbol.');
+  Assert.IsFalse(lFacts.UnitUnproved, 'The span is bounded; keep the precise import cause.');
+end;
 
 procedure TPreprocessTests.ActivityEvidenceCoversGapsAndInclusiveEnd;
 var
