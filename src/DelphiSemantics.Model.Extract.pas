@@ -1089,7 +1089,8 @@ var
             lDirective.Trim(['{', '}', '(', ')', '*', '$', ' ']));
           if lArgument <> '' then
           begin
-            lArgument := lArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim);
+            lArgument := TDelphiSemanticPreprocessor.CompilerIncludeFileName(
+              lArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim));
             lExpected := TPath.GetFullPath(TPath.Combine(
               ExtractFilePath(lSources[aSource].Source.FileName), lArgument));
             lSelected := '';

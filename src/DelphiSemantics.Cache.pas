@@ -320,6 +320,7 @@ begin
     // Include order affects lookup; equivalent Windows path spellings do not.
     '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
     '|skippedIncludePolicy=all-candidates-v1' +
+    '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +

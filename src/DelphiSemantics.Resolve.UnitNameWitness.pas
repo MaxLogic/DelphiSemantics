@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Resolve.UnitNameWitness;
+unit DelphiSemantics.Resolve.UnitNameWitness;
 
 interface
 
@@ -636,7 +636,7 @@ begin
   for lDirectory in [ExtractFilePath(aIncludingFile), ExtractFilePath(aRootFile)] do
   begin
     lCandidate := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(
-      TPath.Combine(lDirectory, aArgument));
+      TPath.Combine(lDirectory, TDelphiSemanticPreprocessor.CompilerIncludeFileName(aArgument)));
     if not StartsText(fSdkSourceRoot, lCandidate) then
       Exit(False);
     if not TFile.Exists(lCandidate) then

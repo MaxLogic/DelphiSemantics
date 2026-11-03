@@ -83,6 +83,7 @@ type
       TDelphiSemanticDirectiveFacts; static;
     class function ImportDirectiveIsModeled(const aDirective: string): Boolean; static;
     class function IncludeArgumentFromDirective(const aDirective: string): string; static;
+    class function CompilerIncludeFileName(const aName: string): string; static;
     class function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
       const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean; static;
     class function PreprocessFile(const aOptions: TDelphiSemanticPreprocessOptions):
@@ -689,6 +690,7 @@ function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
   const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean;
 var
   lPath: string;
+  lIncludeName: string;
   lSearchPath: string;
 begin
   if aIncludeName = '<include-unclassified>' then
@@ -696,18 +698,21 @@ begin
     aFileName := '';
     Exit(False);
   end;
-  if TPath.IsPathRooted(aIncludeName) then
+  // dcc64 always supplies .pas when an include has no extension; it never
+  // probes the extensionless file or an implicit .inc (native MSBuild matrix).
+  lIncludeName := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aIncludeName);
+  if TPath.IsPathRooted(lIncludeName) then
   begin
-    aFileName := TPath.GetFullPath(aIncludeName);
+    aFileName := TPath.GetFullPath(lIncludeName);
     Exit(TFile.Exists(aFileName));
   end;
 
   // dcc64 resolves every nesting level from the original unit, not from
   // the including .inc. Project and explicit -I directories follow in order.
   if aOptions.SourceFileName <> '' then
-    lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), aIncludeName))
+    lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), lIncludeName))
   else
-    lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, aIncludeName));
+    lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, lIncludeName));
   if TFile.Exists(lPath) then
   begin
     aFileName := lPath;
@@ -721,7 +726,7 @@ begin
       aFileName := '';
       Exit(False);
     end;
-    lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, aIncludeName));
+    lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, lIncludeName));
     if TFile.Exists(lPath) then
     begin
       aFileName := lPath;
@@ -818,6 +823,14 @@ begin
     Exit('');
   // An I/INCLUDE argument we cannot parse cannot prove absence.
   Result := '<include-unclassified>';
+end;
+
+class function TDelphiSemanticPreprocessor.CompilerIncludeFileName(const aName: string): string;
+begin
+  Result := aName;
+  if (Result <> '') and (Result <> '<include-unclassified>') and
+    (TPath.GetExtension(Result) = '') then
+    Result := Result + '.pas';
 end;
 
 class function TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(

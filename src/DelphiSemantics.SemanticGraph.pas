@@ -451,6 +451,7 @@ var
     lSuffix := aArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim);
     if lSuffix = '' then
       Exit;
+    lSuffix := TDelphiSemanticPreprocessor.CompilerIncludeFileName(lSuffix);
     lExpected := TPath.GetFullPath(TPath.Combine(aDirectory, lSuffix));
     lFileName := '';
     // Selection must already have been observed by preprocessing. Never
