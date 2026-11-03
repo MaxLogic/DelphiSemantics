@@ -11,6 +11,8 @@ type
     SourceText: string;
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
+    // Conservative candidates for skipped-file absence evidence, not active lookup.
+    SkippedIncludeSearchPaths: TArray<string>;
   end;
 
   TDelphiSemanticPreprocessDiagnostic = record
@@ -741,7 +743,7 @@ begin
   lCandidates := TList<string>.Create;
   try
     lOptions := Default(TDelphiSemanticPreprocessOptions);
-    for lDirectory in [aDirectory] + aOptions.SearchPaths do
+    for lDirectory in [aDirectory] + aOptions.SearchPaths + aOptions.SkippedIncludeSearchPaths do
       if ResolveIncludeFileName(aName, lDirectory, lOptions, lCandidate) and
         not MatchText(lCandidate, lCandidates.ToArray) then
         lCandidates.Add(lCandidate);

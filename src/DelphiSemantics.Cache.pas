@@ -319,6 +319,7 @@ begin
   Result := 'defineEvidenceComplete=' + BoolToStr(aOptions.DefineEvidenceComplete, True) +
     // Include order affects lookup; equivalent Windows path spellings do not.
     '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
+    '|skippedIncludePolicy=all-candidates-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
@@ -490,6 +491,7 @@ begin
   lOptions.SourceText := aSource.Source.Text;
   lOptions.Defines := aOptions.Defines;
   lOptions.SearchPaths := aOptions.IncludePaths;
+  lOptions.SkippedIncludeSearchPaths := aOptions.SearchPaths;
   if not aOptions.ProjectContextApplied then
     lOptions.SearchPaths := lOptions.SearchPaths + aOptions.SearchPaths;
   Result := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
