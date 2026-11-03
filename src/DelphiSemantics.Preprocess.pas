@@ -716,6 +716,11 @@ begin
 
   for lSearchPath in aOptions.SearchPaths do
   begin
+    if lSearchPath = '<include-path-unproved>' then
+    begin
+      aFileName := '';
+      Exit(False);
+    end;
     lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, aIncludeName));
     if TFile.Exists(lPath) then
     begin

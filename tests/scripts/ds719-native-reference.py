@@ -34,12 +34,28 @@ def write(path, text):
     path.write_bytes(text.replace("\r\n", "\n").replace("\n", "\r\n").encode("ascii"))
 
 
-def project(root, refs, search="s", aliases=""):
+def project(root, refs, search="s", aliases="", msbuild_properties=None):
     write(root / "P.dproj", '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
           '<PropertyGroup><MainSource>P.dpr</MainSource><DCC_Namespace>System;Winapi</DCC_Namespace>'
           f'<DCC_UnitSearchPath>{search}</DCC_UnitSearchPath><DCC_UnitAlias>{aliases}</DCC_UnitAlias>'
           '</PropertyGroup><ItemGroup>' + ''.join(f'<DCCReference Include="{x}.pas"/>' for x in refs)
           + '</ItemGroup></Project>')
+    if msbuild_properties is not None:
+        # These rows use the installed Delphi targets and MSBuild, including
+        # the targets' evaluated include path rather than a handmade dcc -I.
+        path = root / "P.dproj"
+        text = path.read_text()
+        properties = {"AppType": "Console", "FrameworkType": "None",
+                      "ProjectVersion": "20.2", "DS719NativeMSBuild": "true",
+                      "DCC_ExeOutput": "native/msbuild", "DCC_DcuOutput": "native/msbuild",
+                      **msbuild_properties}
+        extra = '<PropertyGroup>' + ''.join(
+            '<' + key + '>' + value + '</' + key + '>' for key, value in properties.items()) + '</PropertyGroup>'
+        text = text.replace('</Project>', extra +
+            '<ItemGroup><DelphiCompile Include="$(MainSource)"/></ItemGroup>' +
+            '<Import Project="$(BDS)\\Bin\\CodeGear.Delphi.Targets" '
+            "Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/></Project>")
+        write(path, text)
     units = ', '.join(f"{Path(x).name} in '{x}.pas'" for x in refs)
     write(root / "P.dpr", "program P; {$APPTYPE CONSOLE} uses " + units + "; begin Unit1.Run; end.\n")
 
@@ -757,7 +773,7 @@ def generate(repo, root, full, only=""):
         folder = root / case['name']
         for name, source in retained['files'].items():
             write(folder / name, source)
-        project(folder, retained['refs'])
+        project(folder, retained['refs'], msbuild_properties=retained.get('msbuild_properties'))
         case['root'] = str(folder)
         cases.append(case)
     if full:
@@ -799,7 +815,7 @@ def generate(repo, root, full, only=""):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 655 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 660 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -852,7 +868,28 @@ def native(root, bds, tag, defines=()):
                "-E" + str(output), "-N0" + str(output), root / main]
     if defines:
         command.append("-D" + ";".join(defines))
-    build = run(command, root, root / (tag + "-compile.json"))
+    if prop("DS719NativeMSBuild") == "true":
+        # Keep each native image independent while restoring the project input
+        # before the next planner/cache route observes it.
+        path = root / "P.dproj"
+        original_project = path.read_bytes()
+        text = original_project.decode("ascii")
+        for key in ("DCC_ExeOutput", "DCC_DcuOutput"):
+            text = re.sub(r'<' + key + r'>.*?</' + key + r'>',
+                          lambda match: '<' + key + '>' + str(output) + '</' + key + '>', text)
+        write(path, text)
+        host = os.environ.get('DAK_BUILD_HOST', r'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe')
+        command = [host, 'build', '--project', path, '--delphi', '23.0',
+                   '--config', 'Debug', '--platform', 'Win64', '--target', 'Rebuild',
+                   '--ai', '--log-dir', output / 'build-logs']
+        for define in defines:
+            command.extend(['--define', define])
+        try:
+            build = run(command, root, root / (tag + "-compile.json"))
+        finally:
+            path.write_bytes(original_project)
+    else:
+        build = run(command, root, root / (tag + "-compile.json"))
     if build["exit"]:
         return {"build": build, "runtime": None}
     runtime = run([output / (Path(main).stem + ".exe")], root, root / (tag + "-runtime.json"))

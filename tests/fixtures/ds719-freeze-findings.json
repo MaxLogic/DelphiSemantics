@@ -2086,5 +2086,123 @@
       "unit": "B",
       "cause": "IMPORTS_DIRECTIVE_UNPROVED"
     }
+  },
+  {
+    "name": "rz-b1-unit-search-before-unused-includepath",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": ", C",
+      "s2/c.inc": " ",
+      "i1/c.inc": " "
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rz-b1",
+    "require_named_refusal": true,
+    "msbuild_properties": {
+      "DCC_UnitSearchPath": "s1;s2",
+      "DCC_IncludePath": "i1"
+    }
+  },
+  {
+    "name": "rz-b1-unit-search-plan-identity",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "s2/c.inc": ", C"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rz-b1",
+    "msbuild_properties": {
+      "DCC_UnitSearchPath": "s1;s2",
+      "DCC_IncludePath": "i1"
+    },
+    "expect_plan": true,
+    "require_identity": true
+  },
+  {
+    "name": "rz-b1-library-after-unit-search",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "lib/c.inc": ", C"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rz-b1",
+    "msbuild_properties": {
+      "ImportEnvOptions": "false",
+      "DCC_UnitSearchPath": "s1;s2",
+      "DelphiLibraryPath": "lib;$(BDS)\\lib\\win64\\release"
+    },
+    "expect_plan": true,
+    "require_identity": true
+  },
+  {
+    "name": "rz-b1-library-only-collision",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "lib/c.inc": ", C"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rz-b1",
+    "require_named_refusal": true,
+    "msbuild_properties": {
+      "ImportEnvOptions": "false",
+      "DCC_UnitSearchPath": "s1;s2",
+      "DelphiLibraryPath": "lib;$(BDS)\\lib\\win64\\release"
+    }
+  },
+  {
+    "name": "rz-b1-search-order-reversed",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nuses B, A {$I c.inc};\nprocedure Run;\nimplementation\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "s2/c.inc": ", C"
+    },
+    "refs": [
+      "Unit1",
+      "A",
+      "B",
+      "C"
+    ],
+    "family": "rz-b1",
+    "require_named_refusal": true,
+    "msbuild_properties": {
+      "DCC_UnitSearchPath": "s2;s1"
+    }
   }
 ]

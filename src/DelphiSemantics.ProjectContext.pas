@@ -2238,8 +2238,11 @@ begin
     AddDelimitedTexts(lDefines, GetPropertyValue(aProperties, 'DCC_Define'));
     for lDefine in TDelphiSemanticCompilerProfileBuilder.DefinesForPlatform(aProject.Platform) do
       AddUniqueText(lDefines, lDefine);
-    AddDelimitedPaths(lIncludePaths, aProject.ProjectDirectory,
-      GetPropertyValue(aProperties, 'DCC_IncludePath'));
+    if SameText(GetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown'), 'True') then
+      AddDelimitedPaths(lIncludePaths, aProject.ProjectDirectory,
+        GetPropertyValue(aProperties, 'DSCompilerIncludePaths'))
+    else
+      lIncludePaths.Add('<include-path-unproved>');
     AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
       GetPropertyValue(aProperties, 'DCC_UnitSearchPath'));
     for lSearchPath in aOptions.SearchPaths do
@@ -2696,6 +2699,49 @@ begin
   Result := False;
 end;
 
+procedure PopulateCompilerIncludePaths(const aProperties, aProfile: TPropertyMap;
+  const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+var
+  lProblems: TList<TDelphiSemanticDiagnostic>;
+  lIncludePath, lLibraryPath, lLanguage, lPath: string;
+begin
+  lProblems := TList<TDelphiSemanticDiagnostic>.Create;
+  try
+    // Delphi's targets pass IncludePath=UnitSearchPath, not DCC_IncludePath.
+    // Keep this active list separate from witness browsing/reference paths.
+    if not TryGetPropertyValue(aProperties, 'IncludePath', lIncludePath) then
+    begin
+      if SameText(GetPropertyValue(aProperties, 'ImportEnvOptions'), 'false') then
+        lLibraryPath := GetPropertyValue(aProperties, 'DelphiLibraryPath')
+      else
+        lLibraryPath := GetPropertyValue(aProfile, 'DelphiLibraryPath');
+      if lLibraryPath = '' then
+        lLibraryPath := '$(BDSLIB)\$(Platform)\$(Config)';
+      lIncludePath := GetPropertyValue(aProperties, 'DCC_UnitSearchPath') + ';' + lLibraryPath;
+      lLanguage := GetPropertyValue(aProfile, 'LANGDIR').Trim;
+      if SameText(lLanguage, 'EN') then
+        lLanguage := '';
+      if lLanguage <> '' then
+        lIncludePath := GetPropertyValue(aProfile, 'DelphiTranslatedLibraryPath') + ';' + lIncludePath;
+      if SameText(GetPropertyValue(aProperties, 'DCC_DebugDCUs'), 'true') then
+      begin
+        lIncludePath := GetPropertyValue(aProfile, 'DelphiDebugDCUPath') + ';' + lIncludePath;
+        if lLanguage <> '' then
+          lIncludePath := GetPropertyValue(aProfile, 'DelphiTranslatedDebugLibraryPath') + ';' + lIncludePath;
+      end;
+    end;
+    lPath := ExpandSemanticProjectProperty(lIncludePath,
+      GetPropertyValue(aProperties, 'MSBuildProjectFullPath'), aProfile, lProblems);
+    SetPropertyValue(aProperties, 'DSCompilerIncludePaths', lPath);
+    SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown',
+      BoolToStr((lProblems.Count = 0) and (Pos('$(', lPath) = 0), True));
+    for var lProblem in lProblems do
+      PublishProfileProblem(aDiagnostics, lProblem);
+  finally
+    lProblems.Free;
+  end;
+end;
+
 procedure PopulateWitnessProfileProperties(const aProperties: TPropertyMap;
   const aOptions: TDelphiSemanticOptions;
   const aObservations: IProjectContextObservationsBuilder;
@@ -2718,6 +2764,7 @@ begin
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   lInputs := ProfileInputs(aOptions);
   lValues := TPropertyMap.Create;
+  SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'False');
   lHasLibraryEvidence := False;
   lExpandedPaths := '';
   lEnvOptions := '';
@@ -2793,6 +2840,7 @@ begin
       // expansion so final paths and their known state observe the same values.
       lExpandedPaths := ExpandSemanticProjectProperty(lRawPaths, lEnvOptions,
         lProfile, lDiagnostics);
+      PopulateCompilerIncludePaths(aProperties, lProfile, aDiagnostics);
     except
       on E: Exception do
       begin

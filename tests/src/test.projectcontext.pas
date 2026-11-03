@@ -809,7 +809,8 @@ function ProfileIdentityOracleProject(const aFileName, aVersion,
   aEffectiveSearchPath: string): TDelphiSemanticProjectInfo;
 begin
   // Independent fixture oracle: no result fields or loader arrays are copied.
-  // Our minimal P.dproj has no references, scopes, aliases, includes or switches.
+  // The minimal project has no references/scopes/aliases/switches, but the
+  // Delphi targets supply the fallback library tier for include lookup.
   Result := Default(TDelphiSemanticProjectInfo);
   Result.ProjectFileName := aFileName;
   Result.ProjectDirectory := TPath.GetDirectoryName(aFileName);
@@ -820,8 +821,13 @@ begin
   Result.Defines := ['MSWINDOWS', 'WIN64', 'CPUX64'];
   Result.CompilerProfileName := 'Delphi-' + aVersion + '-Win64-Debug';
   Result.DefineEvidenceComplete := True;
+  Result.IncludePaths := [TPath.Combine(
+    TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(aVersion, ''), 'lib\Win64\Debug')];
   if aEffectiveSearchPath <> '' then
+  begin
     Result.SearchPaths := [aEffectiveSearchPath];
+    Result.IncludePaths := [aEffectiveSearchPath] + Result.IncludePaths;
+  end;
 end;
 
 procedure TProjectContextTests.ExplicitProfileIdentityMatchesBase641e4a3(const aOrigin: string);
