@@ -22,6 +22,16 @@ type
       out aReason: string): Boolean;
   end;
 
+  // DAK-477: only owners with complete request evidence can authorize facts reuse.
+  // Replaying evidence must retain the same locks and safety checks as cold binding.
+  // Optional complete native-proof transcript. Validation must replay ordinary
+  // proof boundaries; a failed replay consumes the owner and requires replacement.
+  IDelphiSemanticPlanningCacheEvidenceOwner = interface
+    ['{2031B188-713A-477F-848D-EDE867B54B79}']
+    function PlanningCacheEvidence: string;
+    function ValidatePlanningCacheEvidence(const aEvidence: string): Boolean;
+  end;
+
   TDelphiSemanticCacheOptions = record
     SqliteCacheFileName: string;
     CompilerProfileName: string;
@@ -173,6 +183,8 @@ type
       const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
     function BuildIdentity(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitCacheIdentity;
+    procedure PublishValidatedUnitModel(const aIdentity: TDelphiSemanticUnitCacheIdentity;
+      const aModel: TDelphiSemanticUnitModel);
     class procedure RequireCurrentSources(const aObservations:
       IDelphiSemanticSourceObservations); static;
     property Diagnostics: TArray<TDelphiSemanticCacheDiagnostic> read GetDiagnostics;
@@ -905,6 +917,20 @@ begin
   finally
     LeaveAccess(True);
   end;
+end;
+
+procedure TDelphiSemanticUnitCache.PublishValidatedUnitModel(
+  const aIdentity: TDelphiSemanticUnitCacheIdentity;
+  const aModel: TDelphiSemanticUnitModel);
+begin
+  // Publication is deferred until the complete combined request is validated.
+  // Keep the observations produced by extraction; never supplement an old model.
+  RequireCurrentSources(aModel.SourceObservations);
+  if (aModel.SourceObservations = nil) or (aModel.SourceObservations.Count = 0) then
+    raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: missing publication observations');
+  StorePersistentEntry(CanonicalIdentityPath(aIdentity.SourceFileName),
+    aIdentity.UnitCacheKey, aIdentity, aModel);
+  RequireCurrentSources(aModel.SourceObservations);
 end;
 
 procedure TDelphiSemanticUnitCache.SetCompilerProfileName(const aValue: string);

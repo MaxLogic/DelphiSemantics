@@ -181,6 +181,24 @@ type
     [Test]
     procedure CombinedRemoveWithApiExposesOneSessionContract;
     [Test]
+    [Category('DAK477')]
+    [TestCase('Unchanged', 'unchanged')]
+    [TestCase('Source edit', 'source')]
+    [TestCase('Include edit', 'include')]
+    [TestCase('Project edit', 'project')]
+    [TestCase('Ordered search paths', 'paths')]
+    [TestCase('Define change', 'define')]
+    [TestCase('Compiler content', 'compiler')]
+    [TestCase('Environment include variable', 'environment')]
+    [TestCase('Schema bump', 'schema')]
+    [TestCase('Corrupt payload', 'corrupt')]
+    [TestCase('Partial payload', 'partial')]
+    [TestCase('Obsolete payload schema', 'obsolete-payload')]
+    [TestCase('Uncertified inputs', 'uncertified')]
+    [TestCase('Corrupt SQLite file', 'corrupt-file')]
+    [TestCase('Partial SQLite file', 'partial-file')]
+    procedure CombinedPlanningCacheInvalidates(const aScenario: string);
+    [Test]
     procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
     [Test]
     procedure ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
@@ -2765,6 +2783,152 @@ begin
   AssertCombinedResultHelperUsesOneSessionOperation(lApiSource);
   AssertCombinedSessionExtractsOnce(lSessionSource);
   AssertFactsBuildExtractsOnce(lSessionSource);
+end;
+
+procedure TProjectSessionTests.CombinedPlanningCacheInvalidates(const aScenario: string);
+var
+  i: Integer;
+  lCold, lWarm, lChanged, lFresh: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lRoot, lProject, lUnit, lInclude, lCompiler, lUnitText, lPayload: string;
+  lSerializer: TJsonSerializer;
+  lConnection: TFDConnection;
+  lPartialBytes: TBytes;
+begin
+  lRoot := ProjectSessionTempPath('dak477-' + aScenario);
+  TDirectory.CreateDirectory(lRoot);
+  lProject := TPath.Combine(lRoot, 'P.dproj');
+  lUnit := TPath.Combine(lRoot, 'U.pas');
+  lInclude := TPath.Combine(lRoot, 'Fields.inc');
+  lCompiler := TPath.Combine(lRoot, 'compiler-identity.bin');
+  WriteTextFile(lCompiler, 'compiler-a');
+  WriteTextFile(TPath.Combine(lRoot, 'P.dpr'), 'program P;' + sLineBreak + 'uses U;' + sLineBreak + 'begin end.');
+  WriteTextFile(lProject, '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="U.pas"/></ItemGroup></Project>');
+  WriteTextFile(lInclude, '  Value: Integer;');
+  lUnitText := 'unit U;' + sLineBreak + 'interface' + sLineBreak +
+    'type TData = record' + sLineBreak + '{$I Fields.inc}' + sLineBreak + 'end;' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'var data: TData;' + sLineBreak +
+    'begin with data do Value := 1; end;' + sLineBreak + 'end.';
+  WriteTextFile(lUnit, lUnitText);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := lRoot;
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'first'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'second'));
+  lOptions.SearchPaths := [TPath.Combine(lRoot, 'first'), TPath.Combine(lRoot, 'second')];
+  lOptions.PlanningCacheInputsProvided := True;
+  SetLength(lOptions.PlanningCacheInputs, 2);
+  lOptions.PlanningCacheInputs[0].Name := 'compiler-sha256';
+  lOptions.PlanningCacheInputs[0].Value := THashSHA2.GetHashStringFromFile(lCompiler);
+  lOptions.PlanningCacheInputs[1].Name := 'cache-schema';
+  lOptions.PlanningCacheInputs[1].Value := 'caller-schema-1';
+  for i := 0 to 1 do
+  begin
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lOpened.Success);
+    try
+      if i = 0 then
+        lCold := lOpened.Session.BuildRemoveWithFactsAndPlanResult
+      else
+        lWarm := lOpened.Session.BuildRemoveWithFactsAndPlanResult;
+    finally
+      lOpened.Session.Free;
+    end;
+  end;
+  Assert.AreEqual(Int64(1), lWarm.Facts.Metrics.ProjectFactsCacheHits,
+    'The combined production route must reuse unchanged persisted facts.');
+  lSerializer := TJsonSerializer.Create;
+  try
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lCold.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lWarm.Plan));
+    if aScenario = 'unchanged' then
+      Exit;
+    if aScenario = 'source' then
+      WriteTextFile(lUnit, lUnitText.Replace('Value := 1', 'Value := 2'))
+    else if aScenario = 'include' then
+      WriteTextFile(lInclude, '  Value: Int64;')
+    else if aScenario = 'project' then
+      WriteTextFile(lProject, TFile.ReadAllText(lProject) + sLineBreak + '<!--changed-->')
+    else if aScenario = 'paths' then
+    begin
+      lOptions.SearchPaths := [TPath.Combine(lRoot, 'second'), TPath.Combine(lRoot, 'first')];
+    end else if aScenario = 'define' then
+    begin
+      lOptions.CallerDefinesProvided := True;
+      SetLength(lOptions.EnvironmentVariables, 1);
+      lOptions.EnvironmentVariables[0].Name := 'DCC_Define';
+      lOptions.EnvironmentVariables[0].Value := 'DAK477_CHANGED';
+    end else if aScenario = 'compiler' then
+    begin
+      WriteTextFile(lCompiler, 'compiler-b');
+      lOptions.PlanningCacheInputs[0].Value := THashSHA2.GetHashStringFromFile(lCompiler);
+    end else if aScenario = 'environment' then
+    begin
+      SetLength(lOptions.EnvironmentVariables, 1);
+      lOptions.EnvironmentVariables[0].Name := 'INCLUDE';
+      lOptions.EnvironmentVariables[0].Value := 'changed-include-environment';
+    end else if aScenario = 'schema' then
+      lOptions.PlanningCacheInputs[1].Value := 'caller-schema-2'
+    else if aScenario = 'uncertified' then
+      lOptions.PlanningCacheInputsProvided := False
+    else if aScenario = 'corrupt-file' then
+      WriteTextFile(lOptions.SqliteCacheFileName, 'corrupt SQLite database')
+    else if aScenario = 'partial-file' then
+    begin
+      lPartialBytes := TFile.ReadAllBytes(lOptions.SqliteCacheFileName);
+      SetLength(lPartialBytes, 100);
+      TFile.WriteAllBytes(lOptions.SqliteCacheFileName, lPartialBytes);
+    end else
+    begin
+      lConnection := TFDConnection.Create(nil);
+      try
+        lConnection.Params.Values['DriverID'] := 'SQLite';
+        lConnection.Params.Values['Database'] := lOptions.SqliteCacheFileName;
+        lConnection.LoginPrompt := False;
+        lConnection.Connected := True;
+        if aScenario = 'corrupt' then
+          lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = ''corrupt''')
+        else if aScenario = 'partial' then
+          lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = substr(payload, 1, length(payload) / 2)')
+        else begin
+          lPayload := lConnection.ExecSQLScalar('SELECT payload FROM combined_remove_with_facts');
+          lPayload := lPayload.Replace('combined-remove-with-facts-v1', 'combined-remove-with-facts-v0');
+          lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = ?, payload_hash = ?',
+            [lPayload, THashSHA2.GetHashString(lPayload)]);
+        end;
+      finally
+        lConnection.Free;
+      end;
+    end;
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lOpened.Success);
+    try
+      lChanged := lOpened.Session.BuildRemoveWithFactsAndPlanResult;
+    finally
+      lOpened.Session.Free;
+    end;
+    Assert.AreEqual(Int64(0), lChanged.Facts.Metrics.ProjectFactsCacheHits, aScenario);
+    if aScenario <> 'uncertified' then
+      Assert.AreEqual(Int64(1), lChanged.Facts.Metrics.ProjectFactsCacheMisses, aScenario);
+    lOptions.SqliteCacheFileName := '';
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lOpened.Success);
+    try
+      lFresh := lOpened.Session.BuildRemoveWithFactsAndPlanResult;
+    finally
+      lOpened.Session.Free;
+    end;
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lFresh.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lChanged.Plan), aScenario);
+  finally
+    lSerializer.Free;
+  end;
 end;
 
 procedure TProjectSessionTests.ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;

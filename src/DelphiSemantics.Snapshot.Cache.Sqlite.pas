@@ -101,6 +101,10 @@ type
       const aConnection: TObject; const aUnit: TUnitSnapshot);
   public
     constructor Create(const aCacheFileName: string);
+    function TryLoadCombinedFactsPayload(const aIdentity: string; out aPayload: string;
+      out aInvalid: Boolean): Boolean;
+    procedure StoreCombinedFactsPayload(const aIdentity, aPayload: string);
+    procedure DeleteCombinedFactsPayload(const aIdentity: string);
     destructor Destroy; override;
     procedure StoreUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
@@ -3037,6 +3041,101 @@ begin
     Exit;
 
   StoreUnitFromProjectSnapshot(aIdentity, aSnapshot, aSnapshot.UnitByIndex(aUnitIndex));
+end;
+
+function TDelphiSemanticSnapshotSqliteCache.TryLoadCombinedFactsPayload(
+  const aIdentity: string; out aPayload: string; out aInvalid: Boolean): Boolean;
+var
+  lConnectionObject: TObject;
+  lConnection: TFDConnection;
+  lError: string;
+  lQuery: TFDQuery;
+begin
+  Result := False;
+  aPayload := '';
+  aInvalid := False;
+  if not SharedConnection(lConnectionObject, lError) then
+    raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
+  lConnection := lConnectionObject as TFDConnection;
+  lConnection.ExecSQL('CREATE TABLE IF NOT EXISTS combined_remove_with_facts (' +
+    'identity TEXT PRIMARY KEY, payload TEXT NOT NULL, payload_hash TEXT NOT NULL)');
+  lQuery := TFDQuery.Create(nil);
+  try
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'SELECT payload, payload_hash FROM combined_remove_with_facts WHERE identity = :identity';
+    SetWideParam(lQuery, 0, aIdentity);
+    lQuery.Open;
+    if lQuery.Eof then
+      Exit;
+    aPayload := lQuery.Fields[0].AsWideString;
+    aInvalid := (aPayload = '') or (Length(aPayload) > 128 * 1024 * 1024) or
+      (THashSHA2.GetHashString(aPayload) <> lQuery.Fields[1].AsWideString);
+    if aInvalid then
+    begin
+      aPayload := '';
+      Exit;
+    end;
+    Result := True;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.DeleteCombinedFactsPayload(const aIdentity: string);
+var
+  lConnectionObject: TObject;
+  lConnection: TFDConnection;
+  lError: string;
+  lQuery: TFDQuery;
+begin
+  if not SharedConnection(lConnectionObject, lError) then
+    raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
+  lConnection := lConnectionObject as TFDConnection;
+  lQuery := TFDQuery.Create(nil);
+  try
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'DELETE FROM combined_remove_with_facts WHERE identity = :identity';
+    SetWideParam(lQuery, 0, aIdentity);
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StoreCombinedFactsPayload(
+  const aIdentity, aPayload: string);
+var
+  lConnectionObject: TObject;
+  lConnection: TFDConnection;
+  lError: string;
+  lQuery: TFDQuery;
+begin
+  if not SharedConnection(lConnectionObject, lError) then
+    raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
+  lConnection := lConnectionObject as TFDConnection;
+  lConnection.ExecSQL('CREATE TABLE IF NOT EXISTS combined_remove_with_facts (' +
+    'identity TEXT PRIMARY KEY, payload TEXT NOT NULL, payload_hash TEXT NOT NULL)');
+  lQuery := TFDQuery.Create(nil);
+  try
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'INSERT OR REPLACE INTO combined_remove_with_facts ' +
+      '(identity, payload, payload_hash) VALUES (:identity, :payload, :payload_hash)';
+    SetWideParam(lQuery, 0, aIdentity);
+    SetWideParam(lQuery, 1, aPayload);
+    SetWideParam(lQuery, 2, THashSHA2.GetHashString(aPayload));
+    lConnection.StartTransaction;
+    try
+      lConnection.ExecSQL('DELETE FROM combined_remove_with_facts');
+      lQuery.ExecSQL;
+      lConnection.Commit;
+    except
+      if lConnection.InTransaction then
+        lConnection.Rollback;
+      raise;
+    end;
+  finally
+    lQuery.Free;
+  end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreProjectRemoveWithPlanningFacts(

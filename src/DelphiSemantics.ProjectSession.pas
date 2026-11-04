@@ -214,8 +214,9 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils,
+  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.JSON.Serializers,
   System.RegularExpressions, System.SysUtils,
+  Winapi.Windows,
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
   DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
@@ -780,6 +781,19 @@ type
   TProjectWithBindingFactsCoreResult = record
     BuildResult: TDelphiSemanticProjectWithBindingFactsBuildResult;
     SemanticCachePersistenceAvailable: Boolean;
+    CacheIdentity: string;
+    PendingPayload: string;
+    CacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  end;
+
+  TCombinedPlanningFactsPayload = record
+    Schema: string;
+    ContextFingerprint: string;
+    Symbols: TArray<TDelphiSemanticInventorySymbol>;
+    Bindings: TArray<TDelphiSemanticWithBinding>;
+    Metrics: TDelphiSemanticProjectWithBindingMetrics;
+    ValueEvidence: TDelphiSemanticValueMemberEvidence;
+    NativeEvidence: string;
   end;
 
 procedure CaptureProjectModelCacheState(const aCache: TDelphiSemanticUnitCache;
@@ -914,20 +928,241 @@ begin
 end;
 {$ENDIF}
 
+function CombinedPlanningCacheIdentity(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>;
+  const aUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
+  const aWitness: IDelphiSemanticUnitNameWitness): string;
+var
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lInput: TDelphiSemanticProperty;
+  lText: string;
+begin
+  Result := '';
+  // An omitted native compiler context is not a certified empty context.
+  if (not aOptions.PlanningCacheInputsProvided) or
+    (Length(aOptions.PlanningCacheInputs) = 0) or
+    (aProject.ContextObservations = nil) then
+    Exit;
+  if (aProject.ContextObservations.EvidenceFingerprint = '') or
+    (aProject.ContextObservations.ConfigurationIdentity = '') then
+    Exit;
+  lIdentity := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions,
+    aSourceFileNames, aScopedSourceFileNames, aUnitCacheIdentities, aWitness.IdentityText);
+  lText := 'combined-remove-with-facts-v1|' + lIdentity.CacheKey + '|' +
+    aProject.ContextObservations.EvidenceFingerprint + '|' +
+    aProject.ContextObservations.ConfigurationIdentity + '|' +
+    BoolToStr(aOptions.ForceFullIdentifierAnalysis, True) + '|' +
+    THashSHA2.GetHashStringFromFile(ParamStr(0)) + '|' +
+    IntToStr(Length(aOptions.PlanningCacheInputs)) + '|' +
+    IntToStr(Length(aOptions.EnvironmentVariables));
+  for lInput in aOptions.PlanningCacheInputs + aOptions.EnvironmentVariables do
+    lText := lText + '|' + IntToStr(Length(lInput.Name)) + ':' + lInput.Name +
+      '|' + IntToStr(Length(lInput.Value)) + ':' + lInput.Value;
+  Result := THashSHA2.GetHashString(lText);
+end;
+
+procedure RequireCombinedProjectCurrent(const aProject: TDelphiSemanticProjectInfo);
+var
+  i: Integer;
+  lItem: TDelphiSemanticProjectContextObservation;
+begin
+  if aProject.ContextObservations = nil then
+    raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_UNAVAILABLE');
+  for i := 0 to aProject.ContextObservations.Count - 1 do
+  begin
+    lItem := aProject.ContextObservations.Items[i];
+    if TFile.Exists(lItem.FileName) <> lItem.Exists then
+      raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_CHANGED: ' + lItem.FileName);
+    if lItem.Kind = pckoInput then
+      if (lItem.ContentHash = '') or
+        (THashSHA2.GetHashStringFromFile(lItem.FileName) <> lItem.ContentHash) then
+        raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_CHANGED: ' + lItem.FileName);
+  end;
+end;
+
+procedure RequireCombinedModelsCurrent(const aModels: TArray<TDelphiSemanticUnitModel>);
+var
+  lModel: TDelphiSemanticUnitModel;
+begin
+  for lModel in aModels do
+    TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
+end;
+
+function TryLoadCombinedPlanningFacts(const aOptions: TDelphiSemanticOptions;
+  const aIdentity, aContextFingerprint: string; const aModels: TArray<TDelphiSemanticUnitModel>;
+  out aFacts: TDelphiSemanticProjectWithBindingFacts; out aInvalid: Boolean): Boolean;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lEvidenceOwner: IDelphiSemanticPlanningCacheEvidenceOwner;
+  lPayload: TCombinedPlanningFactsPayload;
+  lPayloadText: string;
+  lSerializer: TJsonSerializer;
+  lStopwatch: TStopwatch;
+  lReadMilliseconds, lDeserializeMilliseconds, lIndexMilliseconds: Int64;
+begin
+  Result := False;
+  aInvalid := False;
+  aFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aOptions.SqliteCacheFileName);
+  lSerializer := TJsonSerializer.Create;
+  try
+    lStopwatch := TStopwatch.StartNew;
+    if not lCache.TryLoadCombinedFactsPayload(aIdentity, lPayloadText, aInvalid) then
+      Exit;
+    lReadMilliseconds := lStopwatch.ElapsedMilliseconds;
+    lStopwatch := TStopwatch.StartNew;
+    try
+      lPayload := lSerializer.Deserialize<TCombinedPlanningFactsPayload>(lPayloadText);
+      // Reject incomplete, unknown or noncanonical fields, not just malformed JSON.
+      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v1') or
+        (lPayload.ContextFingerprint <> aContextFingerprint) or
+        (lSerializer.Serialize<TCombinedPlanningFactsPayload>(lPayload) <> lPayloadText);
+    except
+      on E: Exception do
+      begin
+        aInvalid := True;
+        OutputDebugString(PChar('DAK-477 combined facts decode miss: ' + E.Message));
+      end;
+    end;
+    if aInvalid then
+      Exit;
+    lDeserializeMilliseconds := lStopwatch.ElapsedMilliseconds;
+    lStopwatch := TStopwatch.StartNew;
+    try
+      aFacts.ContextFingerprint := lPayload.ContextFingerprint;
+      aFacts.Symbols := lPayload.Symbols;
+      aFacts.Bindings := lPayload.Bindings;
+      aFacts.UnitModels := Copy(aModels);
+      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aModels, aFacts.Symbols);
+      aFacts.LookupIndex.AttachValueMemberEvidence(lPayload.ValueEvidence);
+    except
+      on E: Exception do
+      begin
+        aInvalid := True;
+        aFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+        OutputDebugString(PChar('DAK-477 combined facts reconstruction miss: ' + E.Message));
+        Exit;
+      end;
+    end;
+    lIndexMilliseconds := lStopwatch.ElapsedMilliseconds;
+    RequireCombinedModelsCurrent(aModels);
+    if aOptions.ImplicitRootMemberAbsence <> nil then
+    begin
+      if not Supports(aOptions.ImplicitRootMemberAbsence,
+        IDelphiSemanticPlanningCacheEvidenceOwner, lEvidenceOwner) then
+        Exit;
+      if not lEvidenceOwner.ValidatePlanningCacheEvidence(lPayload.NativeEvidence) then
+      begin
+        // The owner has consumed replay callbacks. Do not use it for a cold
+        // retry; the caller must create a fresh owner, retaining this failed run.
+        lCache.DeleteCombinedFactsPayload(aIdentity);
+        raise EInvalidOpException.Create('PLANNING_CACHE_NATIVE_EVIDENCE_CHANGED');
+      end;
+    end else if lPayload.NativeEvidence <> '' then
+      Exit;
+    RequireCombinedModelsCurrent(aModels);
+    // Reused shape is stable; execution timings and counters belong to this run.
+    aFacts.Metrics := Default(TDelphiSemanticProjectWithBindingMetrics);
+    aFacts.Metrics.SemanticGraphUsed := lPayload.Metrics.SemanticGraphUsed;
+    aFacts.Metrics.BuildUnitIndexUsed := lPayload.Metrics.BuildUnitIndexUsed;
+    aFacts.Metrics.UnitCount := lPayload.Metrics.UnitCount;
+    aFacts.Metrics.WithStatementCount := lPayload.Metrics.WithStatementCount;
+    aFacts.Metrics.BindingCount := lPayload.Metrics.BindingCount;
+    aFacts.Metrics.LookupIndexBuildMilliseconds := lIndexMilliseconds;
+    aFacts.Metrics.SnapshotSqlReadMilliseconds := lReadMilliseconds;
+    aFacts.Metrics.SnapshotDeserializeMilliseconds := lDeserializeMilliseconds;
+    aFacts.Metrics.SnapshotIndexRebuildMilliseconds := lIndexMilliseconds;
+    Result := True;
+  finally
+    lSerializer.Free;
+    lCache.Free;
+  end;
+end;
+
+function CombinedPlanningFactsPayload(const aOptions: TDelphiSemanticOptions;
+  const aFacts: TDelphiSemanticProjectWithBindingFacts): string;
+var
+  lEvidenceOwner: IDelphiSemanticPlanningCacheEvidenceOwner;
+  lPayload: TCombinedPlanningFactsPayload;
+  lSerializer: TJsonSerializer;
+begin
+  lPayload := Default(TCombinedPlanningFactsPayload);
+  lPayload.Schema := 'combined-remove-with-facts-v1';
+  lPayload.ContextFingerprint := aFacts.ContextFingerprint;
+  lPayload.Symbols := aFacts.Symbols;
+  lPayload.Bindings := aFacts.Bindings;
+  lPayload.Metrics := aFacts.Metrics;
+  lPayload.ValueEvidence := aFacts.LookupIndex.ExportValueMemberEvidence;
+  if aOptions.ImplicitRootMemberAbsence <> nil then
+  begin
+    if not Supports(aOptions.ImplicitRootMemberAbsence,
+      IDelphiSemanticPlanningCacheEvidenceOwner, lEvidenceOwner) then
+      raise EInvalidOpException.Create('Combined facts cache needs a complete evidence owner');
+    lPayload.NativeEvidence := lEvidenceOwner.PlanningCacheEvidence;
+  end;
+  lSerializer := TJsonSerializer.Create;
+  try
+    Result := lSerializer.Serialize<TCombinedPlanningFactsPayload>(lPayload);
+  finally
+    lSerializer.Free;
+  end;
+end;
+
+procedure PublishCombinedPlanningCaches(const aOptions: TDelphiSemanticOptions;
+  const aCoreResult: TProjectWithBindingFactsCoreResult);
+var
+  i: Integer;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lEvidenceOwner: IDelphiSemanticPlanningCacheEvidenceOwner;
+  lUnitCache: TDelphiSemanticSqliteUnitCache;
+begin
+  if (aCoreResult.CacheIdentity = '') or (aCoreResult.PendingPayload = '') then
+    Exit;
+  RequireCombinedModelsCurrent(aCoreResult.BuildResult.Facts.UnitModels);
+  if aOptions.ImplicitRootMemberAbsence <> nil then
+  begin
+    if not Supports(aOptions.ImplicitRootMemberAbsence,
+      IDelphiSemanticPlanningCacheEvidenceOwner, lEvidenceOwner) or
+      (lEvidenceOwner.PlanningCacheEvidence = '') then
+      raise EInvalidOpException.Create('Combined facts cache publication evidence is unavailable');
+    lUnitCache := TDelphiSemanticSqliteUnitCache.Create(CacheOptionsFromSessionOptions(aOptions));
+    try
+      for i := 0 to High(aCoreResult.CacheIdentities) do
+        lUnitCache.PublishValidatedUnitModel(aCoreResult.CacheIdentities[i],
+          aCoreResult.BuildResult.Facts.UnitModels[i]);
+    finally
+      lUnitCache.Free;
+    end;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(aOptions.SqliteCacheFileName);
+  try
+    lCache.StoreCombinedFactsPayload(aCoreResult.CacheIdentity, aCoreResult.PendingPayload);
+  finally
+    lCache.Free;
+  end;
+  RequireCombinedModelsCurrent(aCoreResult.BuildResult.Facts.UnitModels);
+end;
+
 function BuildWithBindingFactsResultCore(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions;
   const aScopedSourceFileNames: TArray<string>;
-  var aSemanticCachePersistenceAvailable: Boolean):
+  var aSemanticCachePersistenceAvailable: Boolean;
+  const aUseCombinedCache: Boolean = False):
   TProjectWithBindingFactsCoreResult; overload;
 var
   lExtraction: TProjectModelExtractionResult;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lGraph: TDelphiSemanticSemanticGraph;
   lWitness: IDelphiSemanticUnitNameWitness;
+  lEvidenceOwner: IDelphiSemanticPlanningCacheEvidenceOwner;
+  lInvalid: Boolean;
+  lFiles: TArray<string>;
 begin
   Result := Default(TProjectWithBindingFactsCoreResult);
+  lFiles := ProjectModelFileNames(aProject);
   lExtraction := ExtractProjectModels(aProject, aOptions,
-    ProjectModelFileNames(aProject), aScopedSourceFileNames,
+    lFiles, aScopedSourceFileNames,
     Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable);
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
@@ -935,7 +1170,30 @@ begin
   lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
     TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
       aOptions.RsVarsPath));
-  if aOptions.SkipWithBindingSemanticGraph then
+  if aUseCombinedCache and (aOptions.SqliteCacheFileName <> '') and
+    ((aOptions.ImplicitRootMemberAbsence = nil) or
+    Supports(aOptions.ImplicitRootMemberAbsence,
+      IDelphiSemanticPlanningCacheEvidenceOwner, lEvidenceOwner)) then
+    Result.CacheIdentity := CombinedPlanningCacheIdentity(aProject, aOptions,
+      lFiles, aScopedSourceFileNames, lExtraction.CacheIdentities, lWitness);
+  lInvalid := False;
+  if (Result.CacheIdentity <> '') and TryLoadCombinedPlanningFacts(aOptions,
+    Result.CacheIdentity, aProject.ContextFingerprint, lExtraction.Models, lFacts, lInvalid) then
+  begin
+    lFacts.Metrics.ProjectFactsCacheHits := 1;
+    lFacts.Metrics.ProjectFactsCacheMisses := 0;
+    lFacts.Metrics.ProjectFactsCacheInvalidations := 0;
+  end else begin
+    lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+    if Result.CacheIdentity <> '' then
+    begin
+      lFacts.Metrics.ProjectFactsCacheMisses := 1;
+      lFacts.Metrics.ProjectFactsCacheInvalidations := Ord(lInvalid);
+    end;
+  end;
+  if lFacts.Metrics.ProjectFactsCacheHits = 1 then
+    lGraph := nil
+  else if aOptions.SkipWithBindingSemanticGraph then
     lGraph := nil
   else
     lGraph := TDelphiSemanticSemanticGraphBuilder.Build(aProject,
@@ -948,9 +1206,17 @@ begin
     else
       Result.BuildResult.SemanticGraphMetrics :=
         Default(TDelphiSemanticGraphBuildMetrics);
-    lFacts := TDelphiSemanticWithBinder.BindProject(
-      aProject.ContextFingerprint, lGraph, lExtraction.Models,
-      aOptions.ImplicitRootMemberAbsence, lWitness);
+    if lFacts.Metrics.ProjectFactsCacheHits = 0 then
+    begin
+      lFacts := TDelphiSemanticWithBinder.BindProject(
+        aProject.ContextFingerprint, lGraph, lExtraction.Models,
+        aOptions.ImplicitRootMemberAbsence, lWitness);
+      if Result.CacheIdentity <> '' then
+      begin
+        lFacts.Metrics.ProjectFactsCacheMisses := 1;
+        lFacts.Metrics.ProjectFactsCacheInvalidations := Ord(lInvalid);
+      end;
+    end;
     // Binding invokes request callbacks. Seal the consumed bytes again before
     // placing any facts in the public result.
     RequireCurrentRequestModels(aOptions, lExtraction.Models);
@@ -965,6 +1231,17 @@ begin
       lExtraction.CacheMetrics.Invalidations;
     Result.BuildResult.Facts.Metrics.SemanticCachePersistentConnectionOpenCount :=
       lExtraction.CacheMetrics.PersistentConnectionOpenCount;
+    if Result.CacheIdentity <> '' then
+    begin
+      RequireCombinedProjectCurrent(aProject);
+      RequireCombinedModelsCurrent(lExtraction.Models);
+      if lFacts.Metrics.ProjectFactsCacheHits = 0 then
+      begin
+        Result.CacheIdentities := lExtraction.CacheIdentities;
+        Result.PendingPayload := CombinedPlanningFactsPayload(aOptions,
+          Result.BuildResult.Facts);
+      end;
+    end;
   finally
     lGraph.Free;
   end;
@@ -1966,7 +2243,7 @@ begin
   try
     lCoreResult := BuildWithBindingFactsResultCore(fProject, fOptions,
       aScopedSourceFileNames,
-      fLastRemoveWithFactsAndPlanBuildMetrics.SemanticCachePersistenceAvailable);
+      fLastRemoveWithFactsAndPlanBuildMetrics.SemanticCachePersistenceAvailable, True);
   finally
     lStopwatch.Stop;
     fLastRemoveWithFactsAndPlanBuildMetrics.SemanticProjectFactsMilliseconds :=
@@ -1995,6 +2272,13 @@ begin
       lStopwatch.ElapsedMilliseconds;
     CompleteSemanticPlanMetrics(fLastRemoveWithPlannerMetrics,
       fLastRemoveWithFactsAndPlanBuildMetrics.SemanticPlanMilliseconds);
+  end;
+  if lCoreResult.CacheIdentity <> '' then
+  begin
+    RequireCombinedProjectCurrent(fProject);
+    RequireCombinedModelsCurrent(Result.Facts.UnitModels);
+    if SameText(Result.Plan.Status, 'planned') then
+      PublishCombinedPlanningCaches(fOptions, lCoreResult);
   end;
   Result.ModelExtractionPassCount :=
     fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount;

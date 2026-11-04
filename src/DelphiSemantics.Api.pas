@@ -148,6 +148,10 @@ type
     Cache: TDelphiSemanticCacheOptions;
     UseLspEnrichment: Boolean;
     ImplicitRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+    // Certify every external compiler/context input, including ordered native
+    // settings, compiler content and captured environments. False bypasses reuse.
+    PlanningCacheInputsProvided: Boolean;
+    PlanningCacheInputs: TArray<TDelphiSemanticProperty>;
   end;
 
   TDelphiSemanticApi = record
@@ -207,6 +211,8 @@ begin
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
+  Result.PlanningCacheInputsProvided := aOptions.PlanningCacheInputsProvided;
+  Result.PlanningCacheInputs := Copy(aOptions.PlanningCacheInputs);
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
 end;
 

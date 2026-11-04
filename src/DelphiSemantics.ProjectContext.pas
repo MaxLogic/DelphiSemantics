@@ -48,6 +48,10 @@ type
     CompilerIncludeSearchPathProvided: Boolean;
     SearchPaths: TArray<string>;
     SqliteCacheFileName: string;
+    // Certify every external compiler/context input, including ordered native
+    // settings, compiler content and captured environments. False bypasses reuse.
+    PlanningCacheInputsProvided: Boolean;
+    PlanningCacheInputs: TArray<TDelphiSemanticProperty>;
     SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
     SkipWithBindingSemanticGraph: Boolean;

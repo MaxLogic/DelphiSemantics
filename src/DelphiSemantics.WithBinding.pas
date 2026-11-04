@@ -215,6 +215,7 @@ type
     Queries: TArray<TDelphiSemanticValueEvidenceQuery>;
     ValueNames: TArray<string>;
     UnverifiedOwnerKeys: TArray<string>;
+    RootMemberAbsences: TArray<string>;
   end;
 
   TDelphiSemanticRemoveWithLookupIndex = record
@@ -1412,6 +1413,9 @@ begin
   fValueEvidence.Queries := Copy(aEvidence.Queries);
   fValueEvidence.ValueNames := Copy(aEvidence.ValueNames);
   fValueEvidence.UnverifiedOwnerKeys := Copy(aEvidence.UnverifiedOwnerKeys);
+  fValueEvidence.RootMemberAbsences := Copy(aEvidence.RootMemberAbsences);
+  for lName in aEvidence.RootMemberAbsences do
+    fRootMemberAbsences.Add(lName);
   for i := 0 to High(aEvidence.Owners) do
   begin
     lOwner := aEvidence.Owners[i];
@@ -1455,6 +1459,7 @@ begin
   Result.Queries := Copy(fValueEvidence.Queries);
   Result.ValueNames := Copy(fValueEvidence.ValueNames);
   Result.UnverifiedOwnerKeys := Copy(fValueEvidence.UnverifiedOwnerKeys);
+  Result.RootMemberAbsences := fRootMemberAbsences.ToArray;
   for i := 0 to High(Result.Owners) do
     Result.Owners[i].ValueNames := Copy(fValueEvidence.Owners[i].ValueNames);
 end;

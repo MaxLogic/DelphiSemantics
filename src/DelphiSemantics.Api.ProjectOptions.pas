@@ -27,6 +27,8 @@ begin
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;
+  Result.PlanningCacheInputsProvided := aOptions.PlanningCacheInputsProvided;
+  Result.PlanningCacheInputs := Copy(aOptions.PlanningCacheInputs);
   Result.UseLspEnrichment := aOptions.UseLspEnrichment;
   Result.ImplicitRootMemberAbsence := aOptions.ImplicitRootMemberAbsence;
 end;
