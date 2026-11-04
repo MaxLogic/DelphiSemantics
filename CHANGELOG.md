@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Large-project WITH name-witness scans list each lookup directory once instead of probing every imported unit name; tiny SDK lookups retain bounded queries.
 - Unit-model caches written before caller-certified include evidence rebuild instead of reusing earlier directive facts.
 - WITH statements refused by unproved include-dependent declarations or imports publish no legacy candidate edit.
 - Include-dependent semantic proofs require a caller-certified complete compiler include-search list, including additional switches and response files in compiler order. Emulated project paths cannot certify it; changed lists invalidate context and cache identity.

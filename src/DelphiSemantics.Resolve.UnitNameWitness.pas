@@ -7,8 +7,11 @@ uses
 
 type
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  TWitnessBeforeEntries = reference to procedure;
   TWitnessLookupTestOptions = record
     CaptureNativeQueries: Boolean;
+    CaptureDirectoryListings: Boolean;
+    BeforeEntries: TWitnessBeforeEntries;
     ForcedPreimages: string;
     LookupErrorDirectory: string;
     LookupError: Cardinal;
@@ -52,7 +55,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.StrUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.Masks, System.StrUtils,
   System.SysUtils,
   Winapi.Windows,
   Xml.omnixmldom, Xml.XMLDoc, Xml.xmldom, Xml.XMLIntf,
@@ -274,6 +277,10 @@ begin
       end;
     end;
   IndexDirectory(aRtlSourceRoot, True);
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  if Assigned(fTestOptions.BeforeEntries) then
+    fTestOptions.BeforeEntries();
+{$ENDIF}
   lIndexed.Clear;
   for lModel in aModels do
     if lModel.UnitName <> '' then
@@ -436,13 +443,18 @@ begin
 end;
 
 procedure TUnitNameWitness.IndexDirectory(const aDirectory: string; const aRecursive: Boolean);
+const
+  // Two extension queries per name, capped at 64 queries per directory.
+  // At 32 names our installed SDK measurement used 4.4 ms/build bounded versus
+  // 33.8 ms/build listing. Larger sets use one listing to bound metadata work.
+  cMaxBoundedNames = 32;
 var
   lPath, lName, lExtension, lCanonical: string;
   lPaths: TList<string>;
   lSearch: TSearchOption;
   lNames: TArray<string>;
-  lFiles: TArray<string>;
-  lBounded: Boolean;
+  lFiles, lInventory: TArray<string>;
+  lBounded, lUseInventory: Boolean;
   lCharacter: Char;
 begin
   if aDirectory = '' then
@@ -453,7 +465,8 @@ begin
   try
     if not TDirectory.Exists(aDirectory) then
       Exit;
-    lBounded := not aRecursive and not fFullEnumeration and
+    lBounded := (fNeededNames.Count <= cMaxBoundedNames) and
+      not aRecursive and not fFullEnumeration and
       TWitnessQueryMasks.SeparatorsProved(
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
         fTestOptions.ForcedPreimages
@@ -474,6 +487,20 @@ begin
     end;
     if not lBounded then
       lNames := [''];
+    // Retain the reference recursive walk (including reparse traversal). For
+    // ordinary lookup roots the RTL already walks '*', applying its pattern in
+    // memory. List once and apply that same matcher, in PAS then DCU order.
+    // This inventory lives only for this call; source bytes are still read at
+    // AddEntry/ScanFile time, and the next witness always observes a fresh list.
+    lUseInventory := not lBounded and not aRecursive and not fFullEnumeration;
+    if lUseInventory then
+    begin
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+      if fTestOptions.CaptureDirectoryListings then
+        fNativeQueries := fNativeQueries + [aDirectory];
+{$ENDIF}
+      lInventory := TDirectory.GetFiles(aDirectory, '*', lSearch);
+    end;
     for lExtension in ['.pas', '.dcu'] do
       for lName in lNames do
       begin
@@ -490,10 +517,14 @@ begin
             // Discard the incomplete query and preserve the reference enumeration.
             lFiles := TDirectory.GetFiles(aDirectory, '*' + lExtension, lSearch);
           end;
-        end else
+        end else if lUseInventory then
+          lFiles := lInventory
+        else
           lFiles := TDirectory.GetFiles(aDirectory, '*' + lExtension, lSearch);
         for lPath in lFiles do
         begin
+          if lUseInventory and not MatchesMask(ExtractFileName(lPath), '*' + lExtension) then
+            Continue;
           lCanonical := TPath.GetFileNameWithoutExtension(lPath);
           if not fNeededNames.ContainsKey(lCanonical) then
             Continue;
