@@ -141,6 +141,11 @@ uses
   MaxLogic.IOUtils, MaxLogic.StrUtils,
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
 
+const
+  cOptionalCompilerIncludeProperties: array[0..9] of string = ('BDSLIB', 'DelphiLibraryPath', 'DCC_UnitSearchPath',
+    'LANGDIR', 'DCC_DebugDCUs', 'DelphiDebugDCUPath', 'DCC_TranslatedLibraryPath',
+    'DCC_TranslatedDebugLibraryPath', 'DelphiTranslatedLibraryPath', 'DelphiTranslatedDebugLibraryPath');
+
 type
   TPropertyMap = TDictionary<string, string>;
 
@@ -1469,6 +1474,15 @@ begin
   Result := False;
 end;
 
+procedure InvalidateNonSemanticProperty(const aProperties: TPropertyMap; const aName: string);
+begin
+  // A discarded conditional value is unknown, unlike an optional input that
+  // was never supplied. Do not let default seeding turn that uncertainty empty.
+  if MatchText(aName, cOptionalCompilerIncludeProperties) then
+    SetPropertyValue(aProperties, 'DSCompilerIncludeUnknown.' + aName, 'True');
+  aProperties.Remove(PropertyKey(aName));
+end;
+
 procedure RemoveNonSemanticPropertyGroupValues(const aNode: IXMLNode;
   const aProperties: TPropertyMap);
 var
@@ -1479,7 +1493,7 @@ begin
   begin
     lChild := aNode.ChildNodes[i];
     if IsXmlElement(lChild) and not IsSemanticProjectProperty(XmlNodeName(lChild)) then
-      aProperties.Remove(PropertyKey(XmlNodeName(lChild)));
+      InvalidateNonSemanticProperty(aProperties, XmlNodeName(lChild));
   end;
 end;
 
@@ -1531,6 +1545,19 @@ begin
       Exit(False);
 end;
 
+procedure SeedOptionalCompilerIncludeProperties(const aProperties: TPropertyMap);
+var
+  lName: string;
+begin
+  // These installed-target inputs are optional MSBuild properties: unset means
+  // empty, not unknown. Seed before evaluation so IncludePath captures the value
+  // at its assignment, including conditional prefixes and later project overrides.
+  for lName in cOptionalCompilerIncludeProperties do
+    if not aProperties.ContainsKey(PropertyKey(lName)) and
+      not SameText(GetPropertyValue(aProperties, 'DSCompilerIncludeUnknown.' + lName), 'True') then
+      SetPropertyValue(aProperties, lName, '');
+end;
+
 procedure ApplyImport(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
@@ -1560,6 +1587,9 @@ begin
     if lProject <> '' then
     begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
+      if SameText(TPath.GetFileName(lImportFileName), 'CodeGear.Delphi.Targets') and
+        TFile.Exists(lImportFileName) then
+        SeedOptionalCompilerIncludeProperties(aProperties);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
         aDiagnostics, aLockPlatform, aObservations);
       if SameText(TPath.GetFileName(lImportFileName), 'CodeGear.Delphi.Targets') and
@@ -1643,7 +1673,7 @@ begin
           ['DCC_Define', 'DCC_AdditionalSwitches', 'CfgDependentOn']) then
           aObservations.MarkDefineEvidenceIncomplete;
         if not IsSemanticProjectProperty(lName) then
-          aProperties.Remove(PropertyKey(lName));
+          InvalidateNonSemanticProperty(aProperties, lName);
         Continue;
       end;
       if lConditionActive then
@@ -1678,6 +1708,7 @@ begin
         if (not aLockPlatform) or (not SameText(lName, 'Platform')) then
         begin
           SetPropertyValue(aProperties, lName, lExpandedValue);
+          aProperties.Remove(PropertyKey('DSCompilerIncludeUnknown.' + lName));
           if SameText(lName, 'BDSUSERDIR') or SameText(lName, 'BDSCOMMONDIR') then
             SetPropertyValue(aProperties, lName + 'Source', 'project property');
         end;

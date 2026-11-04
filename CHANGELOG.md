@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Installed compiler targets evaluate unset optional include properties as empty while retaining unknown conditional inputs and assignment order.
 - Extensionless include directives resolve only the compiler default .pas file; active and skipped include evidence uses the same name.
 - Active include lookup uses MSBuild unit-search and library paths in compiler order; unused DCC_IncludePath cannot select a different file.
 - Skipped-include helper absence checks retain all project source candidates without changing active compiler include lookup.

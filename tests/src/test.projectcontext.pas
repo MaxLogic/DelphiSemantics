@@ -171,6 +171,11 @@ type
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure InstalledDelphiTargetsDoNotReportUnusedBuildMacros;
+    [TestCase('Unset', 'unset')]
+    [TestCase('Explicit', 'explicit')]
+    [TestCase('Later override', 'late')]
+    [TestCase('Unknown conditional input', 'unknown')]
+    procedure InstalledTargetsCaptureEvaluatedIncludePath(const aKind: string);
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitSelfReferentialSearchPathRemainsEffective;
@@ -2290,6 +2295,62 @@ begin
   end;
 end;
 
+procedure TProjectContextTests.InstalledTargetsCaptureEvaluatedIncludePath(const aKind: string);
+var
+  lBdsRoot: string;
+  lOptions: TDelphiSemanticOptions;
+  lPath: string;
+  lProperties: string;
+  lResult: TDelphiSemanticContextResult;
+  lTail: string;
+begin
+  lBdsRoot := TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', '');
+  lPath := ContextEvidenceTempPath('CapturedIncludes-' + aKind + '.dproj');
+  lProperties := '';
+  lTail := '';
+  if aKind <> 'unset' then
+    lProperties := '<DCC_UnitSearchPath>OwnedUnits</DCC_UnitSearchPath>';
+  if aKind = 'unknown' then
+    lProperties := lProperties + '<DCC_DebugDCUs Condition="''$(UnobservedFlag)''==''true''">true</DCC_DebugDCUs>';
+  if aKind = 'late' then
+    lTail := '<PropertyGroup><DCC_UnitSearchPath>LateUnits</DCC_UnitSearchPath></PropertyGroup>';
+  WriteUtf8Bytes(lPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>Probe.dpr</MainSource><FrameworkType>None</FrameworkType>' +
+    '<DelphiLibraryPath>NativeLib</DelphiLibraryPath>' + lProperties + '</PropertyGroup>' +
+    '<Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>' + lTail + '</Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  SetLength(lOptions.EnvironmentVariables, 2);
+  lOptions.EnvironmentVariables[0].Name := 'BDS';
+  lOptions.EnvironmentVariables[0].Value := lBdsRoot;
+  lOptions.EnvironmentVariables[1].Name := 'APPDATA';
+  lOptions.EnvironmentVariables[1].Value := ExtractFilePath(lPath) + 'empty-appdata';
+  TDirectory.CreateDirectory(lOptions.EnvironmentVariables[1].Value);
+  lResult := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  if aKind = 'unknown' then
+  begin
+    Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+    Assert.IsTrue(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'));
+    Exit;
+  end;
+  Assert.AreEqual('True', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'), DiagnosticSummary(lResult));
+  if aKind = 'unset' then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lResult.Project.IncludePaths));
+    Assert.AreEqual(TPath.Combine(ExtractFilePath(lPath), 'NativeLib'), lResult.Project.IncludePaths[0]);
+  end else begin
+    Assert.AreEqual<Integer>(2, Length(lResult.Project.IncludePaths));
+    Assert.AreEqual(TPath.Combine(ExtractFilePath(lPath), 'OwnedUnits'), lResult.Project.IncludePaths[0]);
+    Assert.AreEqual(TPath.Combine(ExtractFilePath(lPath), 'NativeLib'), lResult.Project.IncludePaths[1]);
+  end;
+  if aKind = 'late' then
+    Assert.AreEqual('LateUnits', lResult.Project.PropertyValue('DCC_UnitSearchPath'));
+end;
+
 procedure TProjectContextTests.InstalledDelphiTargetsDoNotReportUnusedBuildMacros;
 var
   lAppDataPath: string;
@@ -2339,11 +2400,12 @@ begin
   Assert.IsFalse(HasDiagnostic(lResult, 'UNRESOLVED_MSBUILD_MACRO'),
     'Unconsumed build-only macros in installed targets must not block source context.' +
     sLineBreak + DiagnosticSummary(lResult));
-  Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
-  Assert.IsTrue(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'),
-    'Include-only uncertainty must remain visible without changing source macro evidence.');
-  Assert.AreEqual<Integer>(1, Length(lResult.Project.IncludePaths));
-  Assert.AreEqual('<include-path-unproved>', lResult.Project.IncludePaths[0]);
+  Assert.AreEqual('True', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  Assert.IsFalse(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'),
+    'Unset optional target inputs are empty in MSBuild, so the include list is proved.');
+  Assert.AreEqual<Integer>(2, Length(lResult.Project.IncludePaths));
+  Assert.AreEqual(TPath.Combine(ExtractFilePath(lDprojFileName), 'OwnedUnits'), lResult.Project.IncludePaths[0]);
+  Assert.AreEqual(TPath.Combine(lBdsRoot, 'lib\Win64\Debug'), lResult.Project.IncludePaths[1]);
 end;
 
 procedure TProjectContextTests.ExplicitSelfReferentialSearchPathRemainsEffective;
