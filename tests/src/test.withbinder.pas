@@ -2446,7 +2446,7 @@ uses
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
-  DelphiSemantics.SourceConditionals, Test.Support;
+  DelphiSemantics.SourceConditionals, Test.CompilerIncludeCapture, Test.Support;
 
 var
   GWithBinderTempRoot: string;
@@ -3020,6 +3020,12 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lOptions.DelphiVersion := '23.0';
+  // A-375 class (b): a native caller supplies the complete include list.
+  if MatchText(aShape, ['declaration', 'site']) then
+  begin
+    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+    lOptions.CompilerIncludeSearchPathProvided := True;
+  end;
   lProvider := TNamedRootAbsenceStub.Create;
   lOptions.ImplicitRootMemberAbsence := lProvider;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
@@ -3195,6 +3201,12 @@ begin
   lOptions.DelphiVersion := '23.0';
   if lShape = 'n-project-define' then
     lOptions.Defines := ['USE_ADO'];
+  // A-375 class (b): retain the original witness assertions with certified includes.
+  if Pos('-inc-', aShape) > 0 then
+  begin
+    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+    lOptions.CompilerIncludeSearchPathProvided := True;
+  end;
   lProvider := TNamedRootAbsenceStub.Create;
   lOptions.ImplicitRootMemberAbsence := lProvider;
   // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.

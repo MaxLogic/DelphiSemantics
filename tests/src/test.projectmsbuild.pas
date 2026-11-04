@@ -97,7 +97,7 @@ uses
   System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
-  Test.Support;
+  Test.CompilerIncludeCapture, Test.Support;
 
 var
   GProjectMsBuildTempRoot: string;
@@ -240,6 +240,9 @@ end;
 
 procedure TProjectMsBuildTests.ContextIncludesIncludePathsCompilerProfileAndFingerprint;
 var
+  lCaptureRoot: string;
+  lCertifiedPaths: TArray<string>;
+  lFingerprint: string;
   lEnvironment: TArray<TDelphiSemanticProperty>;
   lOptions: TDelphiSemanticOptions;
   lProjectDir: string;
@@ -262,24 +265,48 @@ begin
     TPath.Combine(lProjectDir, 'LibraryTwo');
   lOptions.EnvironmentVariables := lEnvironment;
 
+  // A-375 and the explicit context-test ruling: certify through DAK's native helper.
+  lCaptureRoot := ProjectMsBuildTempPath('caller-certified-context');
+  TDirectory.CreateDirectory(lCaptureRoot);
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lCaptureRoot,
+    [TPath.Combine(lProjectDir, 'CertifiedFirst'), TPath.Combine(lProjectDir, 'CertifiedSecond')]);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lCertifiedPaths := lOptions.CompilerIncludeSearchPath.Split([';'], TStringSplitOptions.ExcludeEmpty);
+
   lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'),
     lOptions);
 
   Assert.IsTrue(lResult.Success);
-  // DS-719 A-374: targets use unit search paths, then the library path.
-  Assert.AreEqual(6, Integer(Length(lResult.Project.IncludePaths)));
-  Assert.AreEqual(3, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'OptsetUnits')));
-  Assert.AreEqual(0, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Source')));
-  Assert.AreEqual(1, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Generated')));
-  Assert.AreEqual(2, PathIndex(lResult.Project.IncludePaths,
-    TPath.Combine(lProjectDir, 'ResolvedMacro\Broken')));
-  Assert.AreEqual(4, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'LibraryOne')));
-  Assert.AreEqual(5, PathIndex(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'LibraryTwo')));
+  // The independent native snapshot supplies this exact ordered list, including the shipped RTL tier.
+  Assert.AreEqual<Integer>(3, Length(lCertifiedPaths));
+  Assert.AreEqual(Length(lCertifiedPaths), Length(lResult.Project.IncludePaths));
+  Assert.AreEqual(TPath.Combine(lProjectDir, 'CertifiedFirst'), lCertifiedPaths[0]);
+  Assert.AreEqual(TPath.Combine(lProjectDir, 'CertifiedSecond'), lCertifiedPaths[1]);
+  for var i := 0 to High(lCertifiedPaths) do
+    Assert.AreEqual(lCertifiedPaths[i], lResult.Project.IncludePaths[i]);
+  Assert.AreEqual('True', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
   Assert.IsFalse(ContainsPath(lResult.Project.IncludePaths, TPath.Combine(lProjectDir, 'Includes')));
   Assert.IsFalse(ContainsPath(lResult.Project.IncludePaths,
     TPath.Combine(lProjectDir, 'SharedIncludes')));
   Assert.AreEqual('Delphi-23.0-Win32-Debug', lResult.Project.CompilerProfileName);
   Assert.AreNotEqual('', lResult.Project.ContextFingerprint);
+  lFingerprint := lResult.Project.ContextFingerprint;
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lCaptureRoot,
+    [TPath.Combine(lProjectDir, 'CertifiedSecond'), TPath.Combine(lProjectDir, 'CertifiedFirst')]);
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'), lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual(TPath.Combine(lProjectDir, 'CertifiedSecond'), lResult.Project.IncludePaths[0]);
+  Assert.AreEqual(TPath.Combine(lProjectDir, 'CertifiedFirst'), lResult.Project.IncludePaths[1]);
+  Assert.AreNotEqual(lFingerprint, lResult.Project.ContextFingerprint);
+  Assert.AreEqual('Delphi-23.0-Win32-Debug', lResult.Project.CompilerProfileName);
+
+  lOptions.CompilerIncludeSearchPathProvided := False;
+  lOptions.CompilerIncludeSearchPath := '';
+  lResult := TDelphiSemanticProject.Load(FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj'), lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  Assert.AreEqual<Integer>(1, Length(lResult.Project.IncludePaths));
+  Assert.AreEqual('<include-path-unproved>', lResult.Project.IncludePaths[0]);
 end;
 
 procedure TProjectMsBuildTests.MigratedDakConditionCasesApplyExpectedProperties;
