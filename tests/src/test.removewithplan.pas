@@ -1196,7 +1196,7 @@ uses
   DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.RootMemberAbsence,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   DelphiSemantics.WithBinding.Inventory,
-  Test.Support;
+  Test.CompilerIncludeCapture, Test.Support;
 
 var
   GMaxTdbPlanCached: Boolean;
@@ -4263,6 +4263,9 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  // A-375 class (b): origin containment models a caller with certified includes.
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+  lOptions.CompilerIncludeSearchPathProvided := True;
   for i := 0 to 1 do
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
