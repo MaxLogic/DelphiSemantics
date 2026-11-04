@@ -16,6 +16,13 @@ type
       const aActive: Boolean): Boolean;
   public
     [Category('Fast')]
+    [TestCase('Uses include', 'uses')]
+    [TestCase('Declaration include', 'declaration')]
+    [TestCase('Outside dependency spans', 'outside')]
+    [TestCase('Include closes parent conditional', 'cross-endif')]
+    procedure IncludeSpanRequiresCallerEvidence(const aShape: string);
+
+    [Category('Fast')]
     [TestCase('IFDEF after unknown DEFINE', 'ifdef')]
     [TestCase('IF Defined after unknown DEFINE', 'defined')]
     [TestCase('IFNDEF after unknown UNDEF', 'ifndef')]
@@ -28,6 +35,9 @@ type
     [Category('Fast')]
     [Test]
     procedure NestedIncludesUseUnitDirectoryBeforeSearchPaths;
+    [Category('Fast')]
+    [Test]
+    procedure UnprovedIncludePathIsNotASkippedIncludeDirectory;
 
     [Category('Fast')]
     [TestCase('Triple quoted with apostrophe', '3')]
@@ -167,6 +177,45 @@ begin
 end;
 
 
+procedure TPreprocessTests.IncludeSpanRequiresCallerEvidence(const aShape: string);
+var
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lRoot, lChild: string;
+begin
+  lRoot := PreprocessTempRoot('caller-include-' + aShape);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Unit1.pas');
+  lOptions.SearchPaths := ['<include-path-unproved>'];
+  lChild := 'TSelected = record Value: Integer; end;';
+  if aShape = 'uses' then
+  begin
+    lOptions.SourceText := 'unit Unit1; interface uses A {$I child.inc}; implementation end.';
+    lChild := ', C';
+  end else if aShape = 'cross-endif' then
+  begin
+    lOptions.SourceText := 'unit Unit1; interface type {$IFDEF FLAG}{$I child.inc} implementation end.';
+    lChild := '{$ENDIF}' + lChild;
+  end else if aShape = 'declaration' then
+    lOptions.SourceText := 'unit Unit1; interface type {$I child.inc} implementation end.'
+  else begin
+    lOptions.SourceText := 'unit Unit1; interface type TSelected = Integer; implementation ' +
+      'procedure Run; begin {$I child.inc} end; end.';
+    lChild := 'Writeln(1);';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'child.inc'), lChild, TEncoding.ASCII);
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.IsFalse(lFacts.UnitUnproved, 'A local include has a bounded expansion.');
+  if aShape = 'uses' then
+    Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lFacts.ImportCause)
+  else if (aShape = 'declaration') or (aShape = 'cross-endif') then
+    Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.NameCause('TSelected'))
+  else begin
+    Assert.AreEqual('', lFacts.ImportCause);
+    Assert.AreEqual('', lFacts.NameCause('TSelected'));
+  end;
+end;
+
 procedure TPreprocessTests.UnknownDirectiveSymbolTaintsLaterImports(const aShape: string);
 var
   lOptions: TDelphiSemanticPreprocessOptions;
@@ -204,6 +253,20 @@ begin
   Assert.IsTrue(lFacts.ImportsUnproved,
     'An unknown write must taint every later conditional on that symbol.');
   Assert.IsFalse(lFacts.UnitUnproved, 'The span is bounded; keep the precise import cause.');
+end;
+
+procedure TPreprocessTests.UnprovedIncludePathIsNotASkippedIncludeDirectory;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('unproved-skipped'), 'Unit1.pas');
+  lOptions.SourceText := 'unit Unit1; interface {$IFDEF ABSENT}{$I missing.inc}{$ENDIF} implementation end.';
+  lOptions.SearchPaths := ['<include-path-unproved>'];
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'An inactive include with unavailable search evidence must not raise.');
+  Assert.AreEqual<Integer>(0, Length(lResult.Includes));
 end;
 
 procedure TPreprocessTests.NestedIncludesUseUnitDirectoryBeforeSearchPaths;

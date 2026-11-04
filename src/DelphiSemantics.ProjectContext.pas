@@ -39,6 +39,13 @@ type
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
     CallerDefinesProvided: Boolean;
+    // Complete ordered include-search option directories used by the compiler.
+      // The caller certifies completeness, including additional -I and response files.
+      // Relative entries are project-relative. DS never appends emulated directories.
+      // Native source-directory lookup remains separate from this option list.
+      // Provided distinguishes certified empty from unavailable evidence.
+    CompilerIncludeSearchPath: string;
+    CompilerIncludeSearchPathProvided: Boolean;
     SearchPaths: TArray<string>;
     SqliteCacheFileName: string;
     SnapshotBuildWorkerCount: Integer;
@@ -1545,19 +1552,6 @@ begin
       Exit(False);
 end;
 
-procedure SeedOptionalCompilerIncludeProperties(const aProperties: TPropertyMap);
-var
-  lName: string;
-begin
-  // These installed-target inputs are optional MSBuild properties: unset means
-  // empty, not unknown. Seed before evaluation so IncludePath captures the value
-  // at its assignment, including conditional prefixes and later project overrides.
-  for lName in cOptionalCompilerIncludeProperties do
-    if not aProperties.ContainsKey(PropertyKey(lName)) and
-      not SameText(GetPropertyValue(aProperties, 'DSCompilerIncludeUnknown.' + lName), 'True') then
-      SetPropertyValue(aProperties, lName, '');
-end;
-
 procedure ApplyImport(const aNode: IXMLNode; const aFileName, aBaseDirectory: string;
   const aProperties: TPropertyMap; const aDiagnostics: TList<TDelphiSemanticDiagnostic>;
   const aLockPlatform: Boolean; const aObservations: IProjectContextObservationsBuilder);
@@ -1587,9 +1581,6 @@ begin
     if lProject <> '' then
     begin
       lImportFileName := NormalizeProjectPath(aBaseDirectory, lProject);
-      if SameText(TPath.GetFileName(lImportFileName), 'CodeGear.Delphi.Targets') and
-        TFile.Exists(lImportFileName) then
-        SeedOptionalCompilerIncludeProperties(aProperties);
       ApplyPropertyFile(lImportFileName, ExtractFilePath(lImportFileName), aProperties,
         aDiagnostics, aLockPlatform, aObservations);
       if SameText(TPath.GetFileName(lImportFileName), 'CodeGear.Delphi.Targets') and
@@ -2422,6 +2413,9 @@ begin
     if aOptions.ImplicitRootMemberAbsence <> nil then
       AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
         aRootAbsenceFingerprint);
+    AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPathProvided',
+      BoolToStr(aOptions.CompilerIncludeSearchPathProvided, True));
+    AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPath', aOptions.CompilerIncludeSearchPath);
     AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
     AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
     AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
@@ -2447,6 +2441,9 @@ begin
     AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
     AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
     AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
+    AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPathProvided',
+      BoolToStr(aOptions.CompilerIncludeSearchPathProvided, True));
+    AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPath', aOptions.CompilerIncludeSearchPath);
     if aOptions.ImplicitRootMemberAbsence <> nil then
       AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
         aRootAbsenceFingerprint);
@@ -2733,63 +2730,29 @@ begin
   Result := False;
 end;
 
-procedure PopulateCompilerIncludePaths(const aProperties, aProfile: TPropertyMap;
+procedure PopulateCompilerIncludePaths(const aProperties: TPropertyMap;
+  const aOptions: TDelphiSemanticOptions;
   const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
-var
-  lProblems: TList<TDelphiSemanticDiagnostic>;
-  lIncludePath, lLibraryPath, lLanguage, lPath: string;
 begin
-  lProblems := TList<TDelphiSemanticDiagnostic>.Create;
-  try
-    // Delphi's targets pass IncludePath=UnitSearchPath, not DCC_IncludePath.
-    // Keep this active list separate from witness browsing/reference paths.
-    // A raw project property can be overwritten by the targets. Without the
-    // evaluated import we cannot know whether an override precedes/follows it.
-    if aProperties.ContainsKey(PropertyKey('IncludePath')) and
-      not SameText(GetPropertyValue(aProperties, 'DSCompilerTargetsEvaluated'), 'True') then
-    begin
-      SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'False');
-      SetPropertyValue(aProperties, 'DSCompilerIncludePaths', '');
-      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('COMPILER_INCLUDE_PATH_UNPROVED',
-        'IncludePath override is not backed by evaluated Delphi targets.',
-        GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
-      Exit;
-    end;
-    if not TryGetPropertyValue(aProperties, 'IncludePath', lIncludePath) then
-    begin
-      if SameText(GetPropertyValue(aProperties, 'ImportEnvOptions'), 'false') then
-        lLibraryPath := GetPropertyValue(aProperties, 'DelphiLibraryPath')
-      else
-        lLibraryPath := GetPropertyValue(aProfile, 'DelphiLibraryPath');
-      if lLibraryPath = '' then
-        lLibraryPath := '$(BDSLIB)\$(Platform)\$(Config)';
-      lIncludePath := GetPropertyValue(aProperties, 'DCC_UnitSearchPath') + ';' + lLibraryPath;
-      lLanguage := GetPropertyValue(aProfile, 'LANGDIR').Trim;
-      if SameText(lLanguage, 'EN') then
-        lLanguage := '';
-      if lLanguage <> '' then
-        lIncludePath := GetPropertyValue(aProfile, 'DelphiTranslatedLibraryPath') + ';' + lIncludePath;
-      if SameText(GetPropertyValue(aProperties, 'DCC_DebugDCUs'), 'true') then
-      begin
-        lIncludePath := GetPropertyValue(aProfile, 'DelphiDebugDCUPath') + ';' + lIncludePath;
-        if lLanguage <> '' then
-          lIncludePath := GetPropertyValue(aProfile, 'DelphiTranslatedDebugLibraryPath') + ';' + lIncludePath;
-      end;
-    end;
-    lPath := ExpandSemanticProjectProperty(lIncludePath,
-      GetPropertyValue(aProperties, 'MSBuildProjectFullPath'), aProfile, lProblems);
-    SetPropertyValue(aProperties, 'DSCompilerIncludePaths', lPath);
-    SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown',
-      BoolToStr((lProblems.Count = 0) and (Pos('$(', lPath) = 0), True));
-    // Include-only uncertainty does not make unrelated source macros unknown.
-    // Keep the original problem visible under the include proof's diagnostic.
-    for var lProblem in lProblems do
-      PublishProfileProblem(aDiagnostics, CreateWarningDiagnostic(
-        'COMPILER_INCLUDE_PATH_UNPROVED', lProblem.Code + ': ' + lProblem.Message,
-        lProblem.FileName));
-  finally
-    lProblems.Free;
+  // Only the caller can certify the complete ordered compiler include-search list.
+  // The project evaluator cannot observe every MSBuild writer or its timing.
+  SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'False');
+  SetPropertyValue(aProperties, 'DSCompilerIncludePaths', '');
+  if not aOptions.CompilerIncludeSearchPathProvided then
+    Exit;
+  if aOptions.CompilerIncludeSearchPathProvided and
+    (Pos('$(', aOptions.CompilerIncludeSearchPath) = 0) then
+  begin
+    SetPropertyValue(aProperties, 'DSCompilerIncludePaths', aOptions.CompilerIncludeSearchPath);
+    SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'True');
+    Exit;
   end;
+  // Absence is informational for unrelated statements. Directive facts withhold
+  // proof only where imports or declarations depend on an include expansion.
+  AddDiagnostic(aDiagnostics, CreateDiagnostic('COMPILER_INCLUDE_PATH_UNPROVED',
+    'The caller did not supply an evaluated MSBuild IncludePath.',
+    GetPropertyValue(aProperties, 'MSBuildProjectFullPath'),
+    TDelphiSemanticDiagnosticSeverity.dsInfo));
 end;
 
 procedure PopulateWitnessProfileProperties(const aProperties: TPropertyMap;
@@ -2890,7 +2853,6 @@ begin
       // expansion so final paths and their known state observe the same values.
       lExpandedPaths := ExpandSemanticProjectProperty(lRawPaths, lEnvOptions,
         lProfile, lDiagnostics);
-      PopulateCompilerIncludePaths(aProperties, lProfile, aDiagnostics);
     except
       on E: Exception do
       begin
@@ -2927,6 +2889,7 @@ begin
     ApplyPropertyDocument(lDocument, aProjectFileName, TPath.GetDirectoryName(aProjectFileName),
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
     PopulateWitnessProfileProperties(lProperties, aOptions, lObservations, aDiagnostics);
+    PopulateCompilerIncludePaths(lProperties, aOptions, aDiagnostics);
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);

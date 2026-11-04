@@ -22,6 +22,8 @@ begin
   Result.RsVarsPath := aOptions.RsVarsPath;
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
+  Result.CompilerIncludeSearchPath := aOptions.CompilerIncludeSearchPath;
+  Result.CompilerIncludeSearchPathProvided := aOptions.CompilerIncludeSearchPathProvided;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;

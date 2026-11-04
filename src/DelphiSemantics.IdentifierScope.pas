@@ -413,7 +413,8 @@ begin
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     AddUniquePath(lPaths, lSeen, aProject.ProjectDirectory);
     for lPath in aProject.IncludePaths do
-      AddUniquePath(lPaths, lSeen, lPath);
+      if lPath <> '<include-path-unproved>' then
+        AddUniquePath(lPaths, lSeen, lPath);
     for lPath in aProject.SourceLookupPaths do
       AddUniquePath(lPaths, lSeen, lPath);
     for lFileName in aSourceFileNames do

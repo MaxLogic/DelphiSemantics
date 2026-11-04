@@ -177,6 +177,13 @@ type
     [TestCase('Unknown conditional input', 'unknown')]
     procedure InstalledTargetsCaptureEvaluatedIncludePath(const aKind: string);
     [Test]
+    [TestCase('No supplied value', 'absent')]
+    [TestCase('Supplied value', 'supplied')]
+    [TestCase('Proved empty', 'empty')]
+    [TestCase('Order identity', 'identity')]
+    [TestCase('Unresolved supplied macro', 'unresolved')]
+    procedure CallerEvaluatedIncludeEvidence(const aKind: string);
+    [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitSelfReferentialSearchPathRemainsEffective;
     [Test]
@@ -797,6 +804,9 @@ begin
     if aOptions.ImplicitRootMemberAbsence <> nil then
       Base641e4a3AppendFingerprintItem(lBuilder, 'implicitRootMemberAbsence',
         aRootAbsenceFingerprint);
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPathProvided',
+      BoolToStr(aOptions.CompilerIncludeSearchPathProvided, True));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerIncludeSearchPath', aOptions.CompilerIncludeSearchPath);
     Base641e4a3AppendFingerprintItems(lBuilder, 'includePaths', aProject.IncludePaths, True);
     Base641e4a3AppendFingerprintItems(lBuilder, 'references', aProject.ReferenceDirectories, True);
     Base641e4a3AppendFingerprintItems(lBuilder, 'sourceFiles', aProject.SourceFileNames, True);
@@ -826,12 +836,11 @@ begin
   Result.Defines := ['MSWINDOWS', 'WIN64', 'CPUX64'];
   Result.CompilerProfileName := 'Delphi-' + aVersion + '-Win64-Debug';
   Result.DefineEvidenceComplete := True;
-  Result.IncludePaths := [TPath.Combine(
-    TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(aVersion, ''), 'lib\Win64\Debug')];
+  Result.IncludePaths := ['<include-path-unproved>'];
   if aEffectiveSearchPath <> '' then
   begin
     Result.SearchPaths := [aEffectiveSearchPath];
-    Result.IncludePaths := [aEffectiveSearchPath] + Result.IncludePaths;
+    // Search-path emulation does not certify the compiler include list.
   end;
 end;
 
@@ -2295,6 +2304,57 @@ begin
   end;
 end;
 
+procedure TProjectContextTests.CallerEvaluatedIncludeEvidence(const aKind: string);
+var
+  lFirst, lSecond: TDelphiSemanticContextResult;
+  lOptions: TDelphiSemanticOptions;
+  lPath: string;
+begin
+  lPath := ContextEvidenceTempPath('CallerIncludes-' + aKind + '.dproj');
+  WriteUtf8Bytes(lPath,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>Probe.dpr</MainSource><DCC_UnitSearchPath>Emulated</DCC_UnitSearchPath>' +
+    '<ImportEnvOptions>false</ImportEnvOptions><DelphiLibraryPath>Library</DelphiLibraryPath>' +
+    '</PropertyGroup></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.CompilerIncludeSearchPathProvided := aKind <> 'absent';
+  lOptions.CompilerIncludeSearchPath := 'Second;First';
+  if aKind = 'empty' then
+    lOptions.CompilerIncludeSearchPath := '';
+  if aKind = 'unresolved' then
+    lOptions.CompilerIncludeSearchPath := '$(UnknownInclude)';
+  lFirst := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.IsTrue(lFirst.Success, DiagnosticSummary(lFirst));
+  if (aKind = 'absent') or (aKind = 'unresolved') then
+  begin
+    Assert.AreEqual('False', lFirst.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+    Assert.AreEqual(aKind = 'unresolved', HasDiagnostic(lFirst, 'COMPILER_INCLUDE_PATH_UNPROVED'),
+      'Absent optional proof is not a global problem for unrelated statements.');
+    Assert.AreEqual('<include-path-unproved>', lFirst.Project.IncludePaths[0]);
+    Exit;
+  end;
+  Assert.AreEqual('True', lFirst.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  if aKind = 'empty' then
+    Assert.AreEqual<Integer>(0, Length(lFirst.Project.IncludePaths))
+  else begin
+    Assert.AreEqual<Integer>(2, Length(lFirst.Project.IncludePaths));
+    Assert.AreEqual(TPath.Combine(ExtractFilePath(lPath), 'Second'), lFirst.Project.IncludePaths[0]);
+    Assert.AreEqual(TPath.Combine(ExtractFilePath(lPath), 'First'), lFirst.Project.IncludePaths[1]);
+  end;
+  if aKind = 'identity' then
+  begin
+    lOptions.CompilerIncludeSearchPath := 'First;Second';
+    lSecond := TDelphiSemanticProject.Load(lPath, lOptions);
+    Assert.IsTrue(lSecond.Success, DiagnosticSummary(lSecond));
+    Assert.AreNotEqual(lFirst.Project.ContextFingerprint, lSecond.Project.ContextFingerprint);
+    Assert.AreNotEqual(lFirst.Project.ContextObservations.ConfigurationIdentity,
+      lSecond.Project.ContextObservations.ConfigurationIdentity);
+  end;
+end;
+
 procedure TProjectContextTests.InstalledTargetsCaptureEvaluatedIncludePath(const aKind: string);
 var
   lBdsRoot: string;
@@ -2330,11 +2390,22 @@ begin
   lOptions.EnvironmentVariables[1].Value := ExtractFilePath(lPath) + 'empty-appdata';
   TDirectory.CreateDirectory(lOptions.EnvironmentVariables[1].Value);
   lResult := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'),
+    'DS emulation never proves the compiler include list.');
+  if aKind <> 'unknown' then
+  begin
+    lOptions.CompilerIncludeSearchPathProvided := True;
+    if aKind = 'unset' then
+      lOptions.CompilerIncludeSearchPath := 'NativeLib'
+    else
+      lOptions.CompilerIncludeSearchPath := 'OwnedUnits;NativeLib';
+    lResult := TDelphiSemanticProject.Load(lPath, lOptions);
+  end;
   Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
   if aKind = 'unknown' then
   begin
     Assert.AreEqual('False', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
-    Assert.IsTrue(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'));
+    Assert.AreEqual('<include-path-unproved>', lResult.Project.IncludePaths[0]);
     Exit;
   end;
   Assert.AreEqual('True', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'), DiagnosticSummary(lResult));
@@ -2389,6 +2460,8 @@ begin
   lOptions.EnvironmentVariables[1].Name := 'APPDATA';
   lOptions.EnvironmentVariables[1].Value := lAppDataPath;
 
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := 'OwnedUnits;' + TPath.Combine(lBdsRoot, 'lib\Win64\Debug');
   lResult := TDelphiSemanticProject.Load(lDprojFileName, lOptions);
 
   Assert.IsTrue(lResult.Success);
@@ -2402,7 +2475,7 @@ begin
     sLineBreak + DiagnosticSummary(lResult));
   Assert.AreEqual('True', lResult.Project.PropertyValue('DSCompilerIncludePathsKnown'));
   Assert.IsFalse(HasDiagnostic(lResult, 'COMPILER_INCLUDE_PATH_UNPROVED'),
-    'Unset optional target inputs are empty in MSBuild, so the include list is proved.');
+    'The supplied evaluated list proves the compiler include directories.');
   Assert.AreEqual<Integer>(2, Length(lResult.Project.IncludePaths));
   Assert.AreEqual(TPath.Combine(ExtractFilePath(lDprojFileName), 'OwnedUnits'), lResult.Project.IncludePaths[0]);
   Assert.AreEqual(TPath.Combine(lBdsRoot, 'lib\Win64\Debug'), lResult.Project.IncludePaths[1]);

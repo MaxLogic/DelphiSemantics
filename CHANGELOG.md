@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
-- Installed compiler targets evaluate unset optional include properties as empty while retaining unknown conditional inputs and assignment order.
+- Include-dependent semantic proofs require a caller-certified complete compiler include-search list, including additional switches and response files in compiler order. Emulated project paths cannot certify it; changed lists invalidate context and cache identity.
 - Extensionless include directives resolve only the compiler default .pas file; active and skipped include evidence uses the same name.
 - Active include lookup uses MSBuild unit-search and library paths in compiler order; unused DCC_IncludePath cannot select a different file.
 - Skipped-include helper absence checks retain all project source candidates without changing active compiler include lookup.

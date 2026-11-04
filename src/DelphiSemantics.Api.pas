@@ -139,6 +139,12 @@ type
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
+    // Caller-certified complete compiler include-search option list, in dcc order.
+    // Include every -I from MSBuild, additional switches and response files.
+    // DS never appends emulated directories; relative entries are project-relative.
+    // Native source-directory lookup is separate. Provided permits a certified empty list.
+    CompilerIncludeSearchPath: string;
+    CompilerIncludeSearchPathProvided: Boolean;
     Cache: TDelphiSemanticCacheOptions;
     UseLspEnrichment: Boolean;
     ImplicitRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
@@ -196,6 +202,8 @@ begin
   Result.RsVarsPath := aOptions.RsVarsPath;
   Result.EnvOptionsPath := aOptions.EnvOptionsPath;
   Result.EnvironmentVariables := aOptions.EnvironmentVariables;
+  Result.CompilerIncludeSearchPath := aOptions.CompilerIncludeSearchPath;
+  Result.CompilerIncludeSearchPathProvided := aOptions.CompilerIncludeSearchPathProvided;
   Result.AdditionalSourceFileNames := aOptions.AdditionalSourceFileNames;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.SqliteCacheFileName := aOptions.Cache.SqliteCacheFileName;

@@ -693,7 +693,8 @@ var
   lIncludeName: string;
   lSearchPath: string;
 begin
-  if aIncludeName = '<include-unclassified>' then
+  if (aIncludeName = '<include-unclassified>') or
+    (aCurrentDirectory = '<include-path-unproved>') then
   begin
     aFileName := '';
     Exit(False);
@@ -975,6 +976,7 @@ type
     fSources: TSourceTextCache;
     fActivity: TArray<TDelphiSemanticActivitySpan>;
     fFrames: TObjectList<TDirectiveScanFrame>;
+    fIncludeFrames: TObjectList<TDirectiveScanFrame>;
     fSpans: TList<TDelphiSemanticDirectiveSpan>;
     fNames, fIncludes, fUnknownSymbols: TStringList;
     fFacts: TDelphiSemanticDirectiveFacts;
@@ -982,7 +984,8 @@ type
     fExpandedOffset: Integer;
     function TestsUnknownSymbol(const aBody: string): Boolean;
     function KnownInactive(const aFileName: string; const aOffset: Integer): Boolean;
-    procedure CloseFrame(const aFileName: string; const aOffset: Integer);
+    procedure CloseFrame(const aFileName: string; const aOffset: Integer;
+      const aIncludeFrame: Boolean = False);
     procedure Directive(const aBody, aFileName: string; const aFirst, aLast: Integer);
     procedure Word(const aWord: string);
     procedure Scan(const aText, aFileName: string);
@@ -1018,6 +1021,7 @@ begin
   fSources := aSources;
   fActivity := aActivity;
   fFrames := TObjectList<TDirectiveScanFrame>.Create;
+  fIncludeFrames := TObjectList<TDirectiveScanFrame>.Create;
   fSpans := TList<TDelphiSemanticDirectiveSpan>.Create;
   fNames := TStringList.Create;
   fNames.CaseSensitive := False;
@@ -1038,6 +1042,7 @@ begin
   fIncludes.Free;
   fNames.Free;
   fSpans.Free;
+  fIncludeFrames.Free;
   fFrames.Free;
   inherited;
 end;
@@ -1080,16 +1085,24 @@ begin
     end;
 end;
 
-procedure TDirectiveScanner.CloseFrame(const aFileName: string; const aOffset: Integer);
+procedure TDirectiveScanner.CloseFrame(const aFileName: string; const aOffset: Integer;
+  const aIncludeFrame: Boolean);
 var
   lFrame: TDirectiveScanFrame;
+  lFrames: TObjectList<TDirectiveScanFrame>;
 begin
-  if fFrames.Count = 0 then
+  // Compiler conditionals may cross include boundaries. Include evidence must
+  // never be pushed onto the conditional stack or consumed by a child ENDIF.
+  if aIncludeFrame then
+    lFrames := fIncludeFrames
+  else
+    lFrames := fFrames;
+  if lFrames.Count = 0 then
   begin
     fFacts.UnitUnproved := True;
     Exit;
   end;
-  lFrame := fFrames.Last;
+  lFrame := lFrames.Last;
   if lFrame.Unknown then
   begin
     lFrame.Span.EndFileName := aFileName;
@@ -1100,14 +1113,17 @@ begin
     fFacts.HelpersUnproved := fFacts.HelpersUnproved or lFrame.HasHelper;
     fNames.AddStrings(lFrame.Names);
   end;
-  fFrames.Delete(fFrames.Count - 1);
+  lFrames.Delete(lFrames.Count - 1);
 end;
 
 procedure TDirectiveScanner.Word(const aWord: string);
+var
+  lFrames: TObjectList<TDirectiveScanFrame>;
 begin
   if SameText(aWord, 'uses') then
     fClause := True;
-  for var lFrame in fFrames do
+  for lFrames in [fFrames, fIncludeFrames] do
+    for var lFrame in lFrames do
   begin
     // A lexical superset is deliberate: source in an unknown branch need not
     // form a standalone declaration tree. Never prove absence from a partial parse.
@@ -1122,6 +1138,7 @@ procedure TDirectiveScanner.Directive(const aBody, aFileName: string;
 var
   i: Integer;
   lName, lArgument, lChildFile: string;
+  lUnprovedInclude: Boolean;
   lFrame: TDirectiveScanFrame;
   lSource: TDelphiSemanticSourceLoadResult;
   lSpan: TDelphiSemanticDirectiveSpan;
@@ -1165,7 +1182,23 @@ begin
       fFacts.UnitUnproved := True;
       Exit;
     end;
+    lUnprovedInclude := IndexText('<include-path-unproved>', fOptions.SearchPaths) >= 0;
+    if lUnprovedInclude then
+    begin
+      // A locally readable expansion still has no caller-supplied compiler
+      // context. Retain its bounded import/declaration uncertainty separately.
+      lFrame := TDirectiveScanFrame.Create;
+      fIncludeFrames.Add(lFrame);
+      lFrame.Unknown := True;
+      lFrame.TouchesUses := fClause;
+      lFrame.Span.Directive := 'COMPILER_INCLUDE_PATH_UNPROVED: ' + aBody;
+      lFrame.Span.StartFileName := aFileName;
+      lFrame.Span.StartOffset := aFirst;
+      lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
+    end;
     Scan(lSource.Source.Text, lChildFile);
+    if lUnprovedInclude then
+      CloseFrame(aFileName, aLast, True);
     Exit;
   end;
   if MatchText(lName, ['IF', 'IFDEF', 'IFNDEF', 'IFOPT']) then
@@ -1194,6 +1227,8 @@ begin
   else if MatchText(lName, ['DEFINE', 'UNDEF']) and
     TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
   begin
+    if fIncludeFrames.Count > 0 then
+      fUnknownSymbols.Add(Trim(Copy(aBody, i, MaxInt)));
     for lFrame in fFrames do
       if lFrame.Unknown then
       begin
