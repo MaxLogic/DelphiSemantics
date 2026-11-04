@@ -116,7 +116,7 @@ begin
     'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe');
   lInvocation.fPropertyArguments := '/p:Config=Debug /p:Platform=' + aPlatform + ' /p:BDS="' +
     lInvocation.fSdkRoot + '"';
-  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aProjectFileName), '.dak\' + TPath.GetFileNameWithoutExtension(aProjectFileName) + '\native-include-capture');
+  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aProjectFileName), '.dak\' + TPath.GetFileNameWithoutExtension(aProjectFileName) + '\inc');
   lRunner := TIncludeCaptureProcessRunner.Create;
   lContext := TryCaptureNativeCompilerContext(lInvocation, lRunner, lReason);
   if lContext = nil then
