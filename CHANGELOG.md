@@ -3,10 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
-
 - Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.
-
 - Combined remove-with planning reuses complete persisted facts only with certified external compiler inputs. Native proof queries replay through a fresh owner, and validated models publish after successful planning. Changed inputs and damaged caches rebuild.
+- Large-project WITH name-witness scans list each lookup directory once instead of probing every imported unit name; tiny SDK lookups retain bounded queries.
 - Unit-model caches written before caller-certified include evidence rebuild instead of reusing earlier directive facts.
 - WITH statements refused by unproved include-dependent declarations or imports publish no legacy candidate edit.
 - Include-dependent semantic proofs require a caller-certified complete compiler include-search list, including additional switches and response files in compiler order. Emulated project paths cannot certify it; changed lists invalidate context and cache identity.

@@ -1,4 +1,4 @@
-﻿unit Test.UnitNameWitness;
+unit Test.UnitNameWitness;
 
 interface
 
@@ -22,6 +22,18 @@ type
     [Category('Fast')]
     [Test]
     procedure BoundedLookupMatchesFullEnumeration;
+    [TestCase('Empty', '0')]
+    [TestCase('One', '1')]
+    [TestCase('Tiny', '32')]
+    [TestCase('Boundary', '33')]
+    [TestCase('Large', '1463')]
+    procedure DirectoryListingCharacterization(const aNameCount: Integer);
+    [Test]
+    procedure LargeNameSetsAvoidNativeProbes;
+    [TestCase('Removed source', 'remove')]
+    [TestCase('Changed source bytes', 'edit')]
+    [TestCase('Added candidate after listing', 'add')]
+    procedure DirectoryChangesBetweenListingAndUse(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure ComparerClassLookupMatchesFullEnumeration;
@@ -278,6 +290,114 @@ begin
   end;
 end;
 
+
+procedure TUnitNameWitnessTests.DirectoryListingCharacterization(const aNameCount: Integer);
+var
+  lReference, lActual: IDelphiSemanticUnitNameWitness;
+  lExpected, lCandidates: TArray<string>;
+  lFirst, lSecond, lName: string;
+  lQueries, lFallbacks, i: Integer;
+begin
+  lFirst := TPath.Combine(fRoot, 'first');
+  lSecond := TPath.Combine(fRoot, 'second');
+  TDirectory.CreateDirectory(lFirst);
+  TDirectory.CreateDirectory(lSecond);
+  WriteSource('first\mIxEd.PaS', 'unit Mixed; interface implementation end.');
+  WriteSource('first\Mixed.DcU', 'DCU');
+  WriteSource('first\Mixed.pasmore', 'not a Pascal source');
+  WriteSource('first\Unit.One.DCU', 'DCU');
+  WriteSource('second\Mixed.pas', 'unit Mixed; interface implementation end.');
+  TDirectory.CreateDirectory(TPath.Combine(lFirst, 'Missing.pas'));
+  WriteSource('first\nested\Missing.pas', 'unit Missing; interface implementation end.');
+  fProject.SearchPaths := [lFirst, lSecond, lFirst, TPath.Combine(fRoot, 'missing-directory')];
+  SetLength(fProject.Properties, 2);
+  fProject.Properties[0].Name := 'DelphiBrowsingPath';
+  fProject.Properties[0].Value := lSecond;
+  fProject.Properties[1].Name := 'DelphiDebugDCUPath';
+  fProject.Properties[1].Value := lFirst;
+  SetLength(fModels[0].DependencyFacts.InterfaceImports, aNameCount);
+  for i := 0 to aNameCount - 1 do
+    fModels[0].DependencyFacts.InterfaceImports[i] := 'Missing' + IntToStr(i);
+  if aNameCount > 0 then
+    fModels[0].DependencyFacts.InterfaceImports[0] := 'Mixed';
+  if aNameCount > 1 then
+    fModels[0].DependencyFacts.InterfaceImports[1] := 'Unit.One';
+  lReference := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    fProject, fModels, '', True, lExpected);
+  lActual := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    fProject, fModels, '', False, lCandidates, lQueries, lFallbacks);
+  Assert.AreEqual(string.Join(#10, lExpected), string.Join(#10, lCandidates),
+    'Complete ordered witness candidate index');
+  Assert.AreEqual(lReference.IdentityText, lActual.IdentityText, 'Complete witness identity');
+  for lName in fModels[0].DependencyFacts.InterfaceImports do
+    Assert.AreEqual(lReference.MayDeclare(lName, 'Absent'), lActual.MayDeclare(lName, 'Absent'), lName);
+end;
+
+procedure TUnitNameWitnessTests.LargeNameSetsAvoidNativeProbes;
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+  lCandidates, lListings: TArray<string>;
+  lOptions: TWitnessLookupTestOptions;
+  lQueries, lFallbacks, i: Integer;
+begin
+  fProject.SearchPaths := [fRoot, fRoot];
+  SetLength(fProject.Properties, 2);
+  fProject.Properties[0].Name := 'DelphiBrowsingPath';
+  fProject.Properties[0].Value := fRoot;
+  fProject.Properties[1].Name := 'DelphiDebugDCUPath';
+  fProject.Properties[1].Value := fRoot;
+  lOptions := Default(TWitnessLookupTestOptions);
+  lOptions.CaptureDirectoryListings := True;
+  SetLength(fModels[0].DependencyFacts.InterfaceImports, 1463);
+  for i := 0 to 1462 do
+    fModels[0].DependencyFacts.InterfaceImports[i] := 'Needed' + IntToStr(i);
+  lWitness := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    fProject, fModels, '', False, lOptions, lCandidates, lListings, lQueries, lFallbacks);
+  Assert.IsNotNull(lWitness);
+  Assert.AreEqual(0, lQueries, 'Large name sets must use a directory inventory');
+  Assert.AreEqual<NativeInt>(1, Length(lListings), 'Search, browsing and debug roots share one listing');
+  Assert.AreEqual(fRoot, lListings[0]);
+end;
+
+procedure TUnitNameWitnessTests.DirectoryChangesBetweenListingAndUse(const aShape: string);
+var
+  lReference, lActual: IDelphiSemanticUnitNameWitness;
+  lExpected, lCandidates, lNativeQueries: TArray<string>;
+  lOptions: TWitnessLookupTestOptions;
+  lQueries, lFallbacks, i: Integer;
+begin
+  fProject.SearchPaths := [fRoot, TPath.Combine(fRoot, '..\lib\win64\release')];
+  SetLength(fModels[0].DependencyFacts.InterfaceImports, 1463);
+  fModels[0].DependencyFacts.InterfaceImports[0] := 'U';
+  for i := 1 to 1462 do
+    fModels[0].DependencyFacts.InterfaceImports[i] := 'Missing' + IntToStr(i);
+  lOptions := Default(TWitnessLookupTestOptions);
+  lOptions.BeforeEntries :=
+    procedure
+    begin
+      if aShape = 'remove' then
+        TFile.Delete(TPath.Combine(fRoot, 'U.pas'))
+      else if aShape = 'edit' then
+        WriteSource('U.pas', 'unit U; interface type TChanged = Integer; implementation end.')
+      else
+        WriteSource('new\U.pas', 'unit U; interface implementation end.');
+    end;
+  lReference := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    fProject, fModels, fRoot, True, lOptions, lExpected, lNativeQueries, lQueries, lFallbacks);
+  WriteSource('U.pas', 'unit U; interface type TOther = Integer; implementation end.');
+  if aShape = 'add' then
+    TFile.Delete(TPath.Combine(fRoot, 'new\U.pas'));
+  lActual := TDelphiSemanticUnitNameWitnessBuilder.BuildForTest(
+    fProject, fModels, fRoot, False, lOptions, lCandidates, lNativeQueries, lQueries, lFallbacks);
+  Assert.AreEqual(string.Join(#10, lExpected), string.Join(#10, lCandidates), 'Listed index');
+  Assert.AreEqual(lReference.IdentityText, lActual.IdentityText, 'Read-time identity after drift');
+  Assert.AreEqual(lReference.MayDeclare('U', 'Absent'), lActual.MayDeclare('U', 'Absent'));
+  Assert.AreEqual(lReference.MayDeclare('U', 'TChanged'), lActual.MayDeclare('U', 'TChanged'));
+  Assert.AreEqual(aShape = 'remove', lActual.MayDeclare('U', 'Absent'),
+    'A vanished indexed source is unreadable; additions after listing belong to the next witness');
+  if aShape = 'edit' then
+    Assert.IsTrue(lActual.MayDeclare('U', 'TChanged'), 'Read the changed source bytes');
+end;
 
 function CompareWitnessLookup(const aDirectory, aNeededName: string;
   const aExpectBounded: Boolean; const aLines: TStrings;
