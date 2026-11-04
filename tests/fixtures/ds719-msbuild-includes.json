@@ -1,0 +1,174 @@
+[
+  {
+    "name": "msbuild-include-H1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "L1/c.inc": " ",
+      "s2/c.inc": ", C",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n<ImportEnvOptions>false</ImportEnvOptions><DelphiLibraryPath>L1;C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\lib\\Win64\\release</DelphiLibraryPath>\n  </PropertyGroup>\n  <Choose><When Condition=\"'$(Config)'=='Debug'\"><PropertyGroup><DCC_UnitSearchPath>s2;$(DCC_UnitSearchPath)</DCC_UnitSearchPath></PropertyGroup></When></Choose>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-H2",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "L1/c.inc": " ",
+      "D1/c.inc": ", C",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n<ImportEnvOptions>false</ImportEnvOptions><DelphiLibraryPath>L1;C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\lib\\Win64\\release</DelphiLibraryPath><DelphiDebugDCUPath>D1</DelphiDebugDCUPath>\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {
+      "DCC_DebugDCUs": "true"
+    },
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-H3",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "L1/c.inc": " ",
+      "D1/c.inc": ", C",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n<ImportEnvOptions>false</ImportEnvOptions><DelphiLibraryPath>L1;C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\lib\\Win64\\release</DelphiLibraryPath><DelphiDebugDCUPath>D1</DelphiDebugDCUPath>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(DS719FLAG)'=='1'\"><DCC_DebugDCUs>true</DCC_DebugDCUs></PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {
+      "DS719FLAG": "1"
+    },
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-M1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "L1/c.inc": " ",
+      "s2/c.inc": ", C",
+      "opts/s2/c.inc": ", C",
+      "opts/x.optset": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\"><PropertyGroup><DCC_UnitSearchPath>s2;$(DCC_UnitSearchPath)</DCC_UnitSearchPath></PropertyGroup></Project>",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n<ImportEnvOptions>false</ImportEnvOptions><DelphiLibraryPath>L1;C:\\Program Files (x86)\\Embarcadero\\Studio\\23.0\\lib\\Win64\\release</DelphiLibraryPath>\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n  <ImportGroup><Import Project=\"opts\\x.optset\"/></ImportGroup>\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-P1",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": ", C",
+      "i1/c.inc": " ",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;s1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n  <PropertyGroup><DCC_UnitSearchPath>i1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath></PropertyGroup>\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-P2",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "s2/c.inc": ", C",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;$(DS719PROBEDIR);s1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {
+      "DS719PROBEDIR": "{D}\\s2"
+    },
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-P3",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "i1/c.inc": ", C",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;s1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n<DCC_AdditionalSwitches>-Ii1</DCC_AdditionalSwitches>\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-P4",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": " ",
+      "s2/c.inc": " ",
+      "opts/s2/c.inc": ", C",
+      "opts/x.optset": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\"><PropertyGroup><DCC_UnitSearchPath>$(MSBuildThisFileDirectory)s2;$(DCC_UnitSearchPath)</DCC_UnitSearchPath></PropertyGroup></Project>",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;s1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n  <Import Project=\"opts\\x.optset\"/>\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_refusal": "receiver-type-not-visible"
+  },
+  {
+    "name": "msbuild-include-j10b-includepath-post",
+    "files": {
+      "A.pas": "unit A;\ninterface\ntype TX = record X, Y, Padding: Integer; end;\nimplementation\nend.\n",
+      "B.pas": "unit B;\ninterface\nuses A;\nvar\n  Item: TX;\nimplementation\nend.\n",
+      "C.pas": "unit C;\ninterface\ntype TX = record Q, X, Y: Integer; end;\nimplementation\nend.\n",
+      "P.dpr": "program P;\n{$APPTYPE CONSOLE}\nuses Unit1 in 'Unit1.pas', A in 'A.pas', B in 'B.pas', C in 'C.pas';\nbegin\n  Unit1.Run;\nend.\n",
+      "Unit1.pas": "unit Unit1;\ninterface\nprocedure Run;\nimplementation\nuses B, A {$I c.inc};\nprocedure Run;\nvar\n  Dummy: Integer;\nbegin\n  Dummy := 0; FillChar(Item, SizeOf(Item), 0);\n  with Item do\n  begin\n    X := 7; Y := 9;\n  end;\n  Writeln('VALUE=', Item.X, ' ', Item.Y, ' ', Item.Padding);\nend;\nend.\n",
+      "s1/c.inc": ", C",
+      "i1/c.inc": " ",
+      "P.dproj": "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n  <PropertyGroup>\n    <ProjectGuid>{B9948BB8-84EC-4352-B64F-F46C3DBAD4BC}</ProjectGuid>\n    <MainSource>P.dpr</MainSource>\n    <Base>True</Base>\n    <Config Condition=\"'$(Config)'==''\">Debug</Config>\n    <TargetedPlatforms>3</TargetedPlatforms>\n    <AppType>Console</AppType>\n    <FrameworkType>None</FrameworkType>\n    <ProjectVersion>20.2</ProjectVersion>\n    <Platform Condition=\"'$(Platform)'==''\">Win64</Platform>\n  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Base)'!=''\">\n    <DCC_ExeOutput>.\\bin</DCC_ExeOutput>\n    <DCC_DcuOutput>$(DCC_ExeOutput)</DCC_DcuOutput>\n    <DCC_UnitSearchPath>.;s1;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>\n    <DCC_Namespace>System;System.Win;Winapi;$(DCC_Namespace)</DCC_Namespace>\n    <DCC_Define>;$(DCC_Define)</DCC_Define>\n    \n\n  </PropertyGroup>\n\n  <ItemGroup>\n    <DelphiCompile Include=\"$(MainSource)\">\n      <MainSource>MainSource</MainSource>\n    </DelphiCompile>\n<DCCReference Include=\"Unit1.pas\"/>\n<DCCReference Include=\"A.pas\"/>\n<DCCReference Include=\"B.pas\"/>\n<DCCReference Include=\"C.pas\"/>\n  </ItemGroup>\n  <ProjectExtensions>\n    <Borland.Personality>Delphi.Personality.12</Borland.Personality>\n    <Borland.ProjectType/>\n    <BorlandProject>\n      <Delphi.Personality><Source><Source Name=\"MainSource\">P.dpr</Source></Source></Delphi.Personality>\n      <Platforms><Platform value=\"Win32\">True</Platform><Platform value=\"Win64\">True</Platform></Platforms>\n    </BorlandProject>\n    <ProjectFileVersion>12</ProjectFileVersion>\n  </ProjectExtensions>\n\n  <Import Project=\"$(BDS)\\Bin\\CodeGear.Delphi.Targets\" Condition=\"Exists('$(BDS)\\Bin\\CodeGear.Delphi.Targets')\"/>\n  <PropertyGroup><IncludePath>i1;$(IncludePath)</IncludePath></PropertyGroup>\n<PropertyGroup><DS719NativeMSBuild>true</DS719NativeMSBuild><DS719CapturedIncludeCase>true</DS719CapturedIncludeCase></PropertyGroup></Project>\n"
+    },
+    "environment": {},
+    "family": "msbuild-include-evidence",
+    "require_identity": true,
+    "expected_native_output": "VALUE=7 9 0\r\n",
+    "expect_plan": true
+  }
+]

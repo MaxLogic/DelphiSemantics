@@ -351,6 +351,11 @@ begin
       if lCase.GetValue<TJSONValue>('caller_defines', nil) <> nil then
         for var lDefine in lCase.GetValue<TJSONArray>('caller_defines') do
           lOptions.Defines := lOptions.Defines + [lDefine.Value];
+      if lCase.GetValue<TJSONValue>('compiler_include_search_path', nil) <> nil then
+      begin
+        lOptions.CompilerIncludeSearchPathProvided := True;
+        lOptions.CompilerIncludeSearchPath := lCase.GetValue<string>('compiler_include_search_path');
+      end;
       lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCaseRoot, 'session.sqlite');
       lDenialName := lCase.GetValue<string>('denial_reference', '');
       for lPhase := 0 to Ord(lDenialName <> '') do

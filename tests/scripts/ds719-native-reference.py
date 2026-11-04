@@ -650,6 +650,91 @@ def multiline_var_cases(root):
                  expect_plan=True, expected_native_output='23\r\n')]
 
 
+def msbuild_include_cases(repo, root):
+    cases = []
+    for retained in json.loads((repo / 'tests/fixtures/ds719-msbuild-includes.json').read_text()):
+        folder = root / retained['name']
+        for filename, text in retained['files'].items():
+            write(folder / filename, text)
+        environment = {key: value.replace('{D}', str(folder))
+                       for key, value in retained.get('environment', {}).items()}
+        (folder / 'native-environment.json').write_text(json.dumps(environment))
+        cases.append({**{key: value for key, value in retained.items()
+                         if key not in ('files', 'environment')}, 'root': str(folder)})
+    return cases
+
+
+def raw_compiler_include_search_path(root):
+    # Shared by the actual raw-dcc invocation and its DS caller. Raw invocations
+    # disable cfg loading, so these explicit -I directories are the complete list.
+    ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
+    xml = ET.parse(root / 'P.dproj')
+    def prop(key):
+        values = xml.findall('./m:PropertyGroup/m:' + key, ns)
+        return values[-1].text or '' if values else ''
+    refs = [str((root / item.attrib['Include']).parent)
+            for item in xml.findall('.//m:DCCReference', ns)]
+    return [str(root), *[str(root / path) for path in prop('DCC_IncludePath').split(';') if path],
+            *refs, *[str(root / path) for path in prop('DelphiDebugDCUPath').split(';') if path]]
+
+
+def compiler_include_search_path(folder):
+    # dcc command-line -I precedes response-file -I regardless of @ placement.
+    # Within each source, repeated -I and semicolon entries retain first-listed order.
+    # Our controlled native rows accept only measured include switches; unknown
+    # contributors fail the fixture rather than silently certifying a partial list.
+    import ctypes
+    def words(text):
+        count = ctypes.c_int()
+        shell = ctypes.WinDLL('shell32', use_last_error=True)
+        shell.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+        shell.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel.LocalFree.restype = ctypes.c_void_p
+        pointer = shell.CommandLineToArgvW('dcc ' + text, ctypes.byref(count))
+        if not pointer:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return [pointer[i] for i in range(1, count.value)]
+        finally:
+            kernel.LocalFree(pointer)
+    def paths(tokens, response=False):
+        direct, deferred = [], []
+        for token in tokens:
+            if token.startswith('-I') and len(token) > 2:
+                direct.extend(part for part in token[2:].split(';') if part)
+            elif token.startswith('@') and len(token) > 1 and not response:
+                filename = folder / token[1:]
+                deferred.extend(paths(words(filename.read_text(encoding='utf-8-sig').replace('\r', ' ').replace('\n', ' ')), True))
+            else:
+                raise RuntimeError('Complete compiler include list unavailable: ' + token)
+        return direct + deferred
+    lines = (folder / 'captured-additional.txt').read_text(encoding='utf-8-sig').splitlines()
+    assert lines[0] == 'DS719_BEGIN' and lines[-1] == 'DS719_END', lines
+    switches = ';'.join(lines[1:-1])
+    extras = paths(words(switches))
+    captured = (folder / 'captured-include.txt').read_text(encoding='utf-8-sig').splitlines()
+    return ';'.join(extras + captured)
+
+
+def msbuild_include_invocation(root, bds, target, tag):
+    targets = root / 'include-capture.targets'
+    write(targets, '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+          '<Target Name="CaptureInclude" DependsOnTargets="__RemoveLatestBackSlashFromPaths;__GenerateUnitSearchPathFile">'
+          '<WriteLinesToFile File="captured-include.txt" Lines="$(IncludePath)" Overwrite="true"/>'
+          '<WriteLinesToFile File="captured-additional.txt" Lines="DS719_BEGIN;$(DCC_AdditionalSwitches);DS719_END" Overwrite="true"/>'
+          '</Target><Target Name="IncludeAtDcc" BeforeTargets="_PasCoreCompile">'
+          '<WriteLinesToFile File="at-dcc-include.txt" Lines="$(IncludePath)" Overwrite="true"/>'
+          '</Target></Project>')
+    command = root / (tag + '.cmd')
+    write(command, '@echo off\ncall "' + str(bds / 'bin/rsvars.bat') + '"\n'
+          '"C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\MSBuild.exe" P.dproj /nologo /v:m /t:' + target +
+          ' /p:Config=Debug /p:Platform=Win64 /p:DCC_ForceExecute=true /p:DCC_UseMSBuildExternally=true'
+          ' /p:GlobalOptionFile="' + str(targets) + '" /p:CmdsFileOutput="' + str(root / (tag + '.cmds')) + '"\nexit /b %errorlevel%\n')
+    return run(['cmd', '/d', '/c', command], root, root / (tag + '-compile.json'))
+
+
 def generate(repo, root, full, only=""):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -767,6 +852,7 @@ def generate(repo, root, full, only=""):
     cases.extend(helper_kind_cases(root))
     cases.extend(helper_evidence_cases(repo, root))
     cases.extend(multiline_var_cases(root))
+    cases.extend(msbuild_include_cases(repo, root))
     # Recovery design 0.24: native regressions for B1, M1 and Fix D follow-ups.
     for retained in json.loads((repo / 'tests/fixtures/ds719-freeze-findings.json').read_text()):
         case = {key: value for key, value in retained.items() if key not in ('files', 'refs')}
@@ -807,6 +893,18 @@ def generate(repo, root, full, only=""):
         prefixes = tuple(prefix.strip() for prefix in only.split(",") if prefix.strip())
         assert prefixes, "Empty native selection"
         cases = [case for case in cases if case["name"].startswith(prefixes)]
+    for case in cases:
+        folder = Path(case['root'])
+        xml = ET.parse(folder / 'P.dproj')
+        ns = {'m': 'http://schemas.microsoft.com/developer/msbuild/2003'}
+        msbuild = any(item.text == 'true' for item in xml.findall('.//m:DS719NativeMSBuild', ns))
+        if msbuild:
+            bds = Path(os.environ.get('BDS', r'C:\Program Files (x86)\Embarcadero\Studio\23.0'))
+            capture = msbuild_include_invocation(folder, bds, 'CaptureInclude', 'capture')
+            assert capture['exit'] == 0, capture
+            case['compiler_include_search_path'] = compiler_include_search_path(folder)
+        else:
+            case['compiler_include_search_path'] = ';'.join(raw_compiler_include_search_path(folder))
     # DS-719 A-367: these exact positives require the exact listed refusal.
     for case in cases:
         if case['name'] in ('r7-later-var-indexed-1', 'r7-later-field-indexed-1'):
@@ -815,7 +913,7 @@ def generate(repo, root, full, only=""):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 663 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 672 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -826,7 +924,11 @@ def generate(repo, root, full, only=""):
 
 def run(command, cwd, log):
     start = time.perf_counter()
-    process = subprocess.run(list(map(str, command)), cwd=cwd, capture_output=True,
+    environment = dict(os.environ)
+    environment_file = Path(cwd) / 'native-environment.json'
+    if environment_file.exists():
+        environment.update(json.loads(environment_file.read_text()))
+    process = subprocess.run(list(map(str, command)), cwd=cwd, capture_output=True, env=environment,
                              creationflags=subprocess.CREATE_NO_WINDOW, timeout=90)
     row = {"command": list(map(str, command)), "cwd": str(cwd), "exit": process.returncode,
            "seconds": time.perf_counter() - start, "stdout": process.stdout.decode("utf-8", errors="replace"),
@@ -844,10 +946,9 @@ def native(root, bds, tag, defines=()):
     refs = [str((root / x.attrib["Include"]).parent) for x in xml.findall(".//m:DCCReference", ns)]
     search = [str(root), *[str(root / x) for x in prop("DCC_UnitSearchPath").split(";") if x], *refs,
               str(bds / "lib/win64/release")]
-    includes = [str(root), *[str(root / x) for x in prop("DCC_IncludePath").split(";") if x], *refs]
+    includes = raw_compiler_include_search_path(root)
     debug_paths = [str(root / x) for x in prop("DelphiDebugDCUPath").split(";") if x]
     search.extend(debug_paths)
-    includes.extend(debug_paths)
     aliases = re.sub(r"\$\([^)]+\)", "", prop("DCC_UnitAlias") + prop("DCC_UnitAliases"))
     targets = ET.parse(bds / "bin/CodeGear.Common.Targets")
     defaults = []
@@ -862,7 +963,7 @@ def native(root, bds, tag, defines=()):
             "7" if tag == "binding-contrast" else str(2 + int(tag.split("-")[1])))
     output = root / "native" / slot; output.mkdir(parents=True, exist_ok=True)
     main = prop("MainSource") or "P.dpr"
-    command = [bds / "bin/dcc64.exe", "-B", "-Q", "-NSSystem;Winapi;System.Win;Xml",
+    command = [bds / "bin/dcc64.exe", "-B", "-Q", "--no-config", "-NSSystem;Winapi;System.Win;Xml",
                "-U" + ";".join(search), "-I" + ";".join(includes),
                "-A" + ";".join(x for x in aliases.split(";") if x),
                "-E" + str(output), "-N0" + str(output), root / main]
@@ -885,7 +986,14 @@ def native(root, bds, tag, defines=()):
         for define in defines:
             command.extend(['--define', define])
         try:
-            build = run(command, root, root / (tag + "-compile.json"))
+            if prop('DS719CapturedIncludeCase') == 'true':
+                build = msbuild_include_invocation(root, bds, 'Rebuild', tag)
+                if build['exit'] == 0:
+                    captured = (root / 'captured-include.txt').read_text(encoding='utf-8-sig').splitlines()
+                    actual = (root / 'at-dcc-include.txt').read_text(encoding='utf-8-sig').splitlines()
+                    assert captured == actual, (root, captured, actual)
+            else:
+                build = run(command, root, root / (tag + "-compile.json"))
         finally:
             path.write_bytes(original_project)
     else:
