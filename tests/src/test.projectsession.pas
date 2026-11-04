@@ -199,6 +199,17 @@ type
     [TestCase('Partial SQLite file', 'partial-file')]
     procedure CombinedPlanningCacheInvalidates(const aScenario: string);
     [Test]
+    [Category('DAK477Witness')]
+    [TestCase('Earlier source shadows SDK', 'shadow-source')]
+    [TestCase('Used SDK source removed', 'removed-source')]
+    [TestCase('Earlier DCU changes pairing', 'shadow-dcu')]
+    [TestCase('Unit scope to all', 'scope-all')]
+    [TestCase('Different directory scope', 'scope-directory')]
+    procedure CombinedPlanningCacheWitnessInvalidates(const aScenario: string);
+    [Test]
+    [Category('DAK477Payload')]
+    procedure CombinedPlanningCacheReportsOversizedPayload;
+    [Test]
     procedure ProjectSessionOperationResultsKeepMetricsStableAcrossLaterOperations;
     [Test]
     procedure ProjectSessionBuildWithBindingFactsDoesNotBuildDiscardedSnapshot;
@@ -292,8 +303,8 @@ uses
   DelphiSemantics.Cache.Sqlite,
   DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
-  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite,
-  DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitNameWitness,
+  DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.WithBinding,
   Test.Support;
 
@@ -2783,6 +2794,164 @@ begin
   AssertCombinedResultHelperUsesOneSessionOperation(lApiSource);
   AssertCombinedSessionExtractsOnce(lSessionSource);
   AssertFactsBuildExtractsOnce(lSessionSource);
+end;
+
+procedure TProjectSessionTests.CombinedPlanningCacheReportsOversizedPayload;
+var
+  i: Integer;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lBuilt: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  lRoot, lColdPlan: string;
+  lSerializer: TJsonSerializer;
+begin
+  lRoot := ProjectSessionTempPath('dak477-payload-limit');
+  TDirectory.CreateDirectory(lRoot);
+  WriteTextFile(TPath.Combine(lRoot, 'P.dpr'), 'program P; uses U; begin end.');
+  WriteTextFile(TPath.Combine(lRoot, 'U.pas'), 'unit U; interface ' +
+    'type TData = record Value: Integer; end; procedure Run; implementation ' +
+    'procedure Run; var data: TData; begin with data do Value := 1; end; end.');
+  WriteTextFile(TPath.Combine(lRoot, 'P.dproj'), '<Project><PropertyGroup><MainSource>P.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="U.pas"/></ItemGroup></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := lRoot;
+  lOptions.PlanningCacheInputsProvided := True;
+  SetLength(lOptions.PlanningCacheInputs, 1);
+  lOptions.PlanningCacheInputs[0].Name := 'fixture-context';
+  lOptions.PlanningCacheInputs[0].Value := 'payload-limit-v1';
+  lSerializer := TJsonSerializer.Create;
+  CombinedFactsPayloadMaxCharactersForTest := 1;
+  try
+    for i := 0 to 1 do
+    begin
+      lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+      Assert.IsTrue(lOpened.Success);
+      try
+        lBuilt := lOpened.Session.BuildRemoveWithFactsAndPlanResult;
+        Assert.AreEqual('planned', lBuilt.Plan.Status);
+        Assert.AreEqual('payload-too-large', lBuilt.Facts.Metrics.ProjectFactsCacheStoreOutcome);
+        Assert.AreEqual(Int64(0), lBuilt.Facts.Metrics.ProjectFactsCacheHits);
+        Assert.AreEqual(Int64(1), lBuilt.Facts.Metrics.ProjectFactsCacheMisses);
+        Assert.AreEqual(Int64(0), lBuilt.Facts.Metrics.ProjectFactsCacheInvalidations);
+        if i = 0 then
+          lColdPlan := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lBuilt.Plan)
+        else
+          Assert.AreEqual(lColdPlan, lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lBuilt.Plan));
+      finally
+        lOpened.Session.Free;
+      end;
+    end;
+  finally
+    CombinedFactsPayloadMaxCharactersForTest := 0;
+    lSerializer.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.CombinedPlanningCacheWitnessInvalidates(const aScenario: string);
+var
+  lCold, lWarm, lChanged, lFresh: TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  lOptions: TDelphiSemanticOptions;
+  lRoot, lUnit, lOther, lSdkSource, lEarlier, lFirstWitness, lChangedWitness: string;
+  lScope: TArray<string>;
+  lSerializer: TJsonSerializer;
+
+  procedure WriteRelative(const aName, aText: string);
+  var
+    lFileName: string;
+  begin
+    lFileName := TPath.Combine(lRoot, aName);
+    TDirectory.CreateDirectory(ExtractFileDir(lFileName));
+    WriteTextFile(lFileName, aText);
+  end;
+
+  function Build(out aWitnessIdentity: string): TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
+  var
+    lOpened: TDelphiSemanticProjectSessionResult;
+    lWitness: IDelphiSemanticUnitNameWitness;
+  begin
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lOpened.Success, 'Open: ' + aScenario);
+    try
+      Result := lOpened.Session.BuildRemoveWithFactsAndPlanResult(lScope);
+      lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(lOpened.Session.Project,
+        Result.Facts.UnitModels, TPath.Combine(lRoot, 'sdk\source'));
+      aWitnessIdentity := lWitness.IdentityText;
+    finally
+      lOpened.Session.Free;
+    end;
+  end;
+
+begin
+  lRoot := ProjectSessionTempPath('dak477-witness-' + aScenario);
+  lUnit := TPath.Combine(lRoot, 'first\U.pas');
+  lOther := TPath.Combine(lRoot, 'second\V.pas');
+  lSdkSource := TPath.Combine(lRoot, 'sdk\source\rtl\WitnessSdk.pas');
+  lEarlier := TPath.Combine(lRoot, 'earlier');
+  TDirectory.CreateDirectory(lEarlier);
+  WriteRelative('P.dpr', 'program P; uses U in ''first\U.pas'', V in ''second\V.pas''; begin end.');
+  WriteRelative('P.dproj', '<Project><PropertyGroup><MainSource>P.dpr</MainSource>' +
+    '<BDSUSERDIR /><BDSCOMMONDIR /></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="first\U.pas"/><DCCReference Include="second\V.pas"/></ItemGroup></Project>');
+  WriteRelative('first\U.pas', 'unit U; interface uses WitnessSdk; ' +
+    'type TData = record Value: Integer; end; procedure Run; implementation ' +
+    'procedure Run; var data: TData; begin with data do Value := 1; end; end.');
+  WriteRelative('second\V.pas', 'unit V; interface implementation end.');
+  WriteRelative('sdk\source\rtl\WitnessSdk.pas', 'unit WitnessSdk; interface implementation end.');
+  WriteRelative('sdk\lib\win64\release\WitnessSdk.dcu', 'compiled SDK unit');
+  WriteRelative('profile.proj', '<Project><PropertyGroup><DelphiLibraryPath />' +
+    '<DelphiBrowsingPath /><DelphiDebugDCUPath /></PropertyGroup></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Platform := 'Win64';
+  lOptions.RsVarsPath := TPath.Combine(lRoot, 'sdk\bin\rsvars.bat');
+  lOptions.EnvOptionsPath := TPath.Combine(lRoot, 'profile.proj');
+  lOptions.ProfileInputs := TIsolatedProfileInputs.Create;
+  lOptions.SearchPaths := [lEarlier, TPath.Combine(lRoot, 'sdk\lib\win64\release')];
+  lOptions.SkipWithBindingSemanticGraph := True;
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := lRoot;
+  lOptions.PlanningCacheInputsProvided := True;
+  SetLength(lOptions.PlanningCacheInputs, 1);
+  lOptions.PlanningCacheInputs[0].Name := 'fixture-context';
+  lOptions.PlanningCacheInputs[0].Value := 'isolated-sdk-v1';
+  lScope := [lUnit];
+  lCold := Build(lFirstWitness);
+  Assert.IsTrue(lFirstWitness.Contains('witness=WitnessSdk|'), lFirstWitness);
+  Assert.IsFalse(lFirstWitness.Contains('|unknown|'), 'Control must resolve the SDK pair: ' + lFirstWitness);
+  lWarm := Build(lChangedWitness);
+  Assert.AreEqual(Int64(1), lWarm.Facts.Metrics.ProjectFactsCacheHits, 'Unchanged control');
+  lSerializer := TJsonSerializer.Create;
+  try
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lCold.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lWarm.Plan), 'Unchanged plan');
+    if aScenario = 'shadow-source' then
+      WriteRelative('earlier\WitnessSdk.pas', 'unit WitnessSdk; interface implementation end.')
+    else if aScenario = 'removed-source' then
+      TFile.Delete(lSdkSource)
+    else if aScenario = 'shadow-dcu' then
+      WriteRelative('earlier\WitnessSdk.dcu', 'compiled shadow unit')
+    else if aScenario = 'scope-all' then
+      lScope := []
+    else
+      lScope := [lOther];
+    lChanged := Build(lChangedWitness);
+    if not aScenario.StartsWith('scope-') then
+      Assert.AreNotEqual(lFirstWitness, lChangedWitness, 'Mutation must change the witness');
+    Assert.AreEqual(Int64(0), lChanged.Facts.Metrics.ProjectFactsCacheHits, aScenario);
+    Assert.AreEqual(Int64(1), lChanged.Facts.Metrics.ProjectFactsCacheMisses, aScenario);
+    lOptions.SqliteCacheFileName := '';
+    lFresh := Build(lChangedWitness);
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lFresh.Plan),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lChanged.Plan), 'Cold equality: ' + aScenario);
+  finally
+    lSerializer.Free;
+  end;
 end;
 
 procedure TProjectSessionTests.CombinedPlanningCacheInvalidates(const aScenario: string);

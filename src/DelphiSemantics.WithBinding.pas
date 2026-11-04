@@ -145,6 +145,7 @@ type
     ProjectFactsCacheHits: Int64;
     ProjectFactsCacheMisses: Int64;
     ProjectFactsCacheInvalidations: Int64;
+    ProjectFactsCacheStoreOutcome: string;
     SnapshotSqlWriteMilliseconds: Int64;
     SnapshotSqlReadMilliseconds: Int64;
     SnapshotDeserializeMilliseconds: Int64;

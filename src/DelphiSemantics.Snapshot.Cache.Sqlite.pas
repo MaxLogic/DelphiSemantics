@@ -5,6 +5,14 @@ interface
 uses
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
+const
+  cCombinedFactsPayloadMaxCharacters = 128 * 1024 * 1024;
+
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+threadvar
+  CombinedFactsPayloadMaxCharactersForTest: Integer;
+{$ENDIF}
+
 type
   TDelphiSemanticSnapshotCacheIdentity = record
     CacheKey: string;
@@ -34,6 +42,7 @@ type
   TDelphiSemanticSnapshotSqliteCache = class
   private
     fCacheFileName: string;
+    fCombinedFactsStoreOutcome: string;
     fConnection: TObject;
     fDriverLink: TObject;
     fMetrics: TDelphiSemanticSnapshotCacheMetrics;
@@ -123,6 +132,7 @@ type
       out aSnapshot: TDelphiProjectSnapshot): Boolean;
     function TryLoadUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       out aSnapshot: TDelphiProjectSnapshot): Boolean;
+    property CombinedFactsStoreOutcome: string read fCombinedFactsStoreOutcome;
     property Metrics: TDelphiSemanticSnapshotCacheMetrics read fMetrics;
   end;
 
@@ -3043,6 +3053,16 @@ begin
   StoreUnitFromProjectSnapshot(aIdentity, aSnapshot, aSnapshot.UnitByIndex(aUnitIndex));
 end;
 
+function CombinedFactsPayloadCharacterLimit: Integer;
+begin
+  Result := cCombinedFactsPayloadMaxCharacters;
+  {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  // Thread-local override keeps small boundary fixtures isolated from other tests.
+  if CombinedFactsPayloadMaxCharactersForTest > 0 then
+    Result := CombinedFactsPayloadMaxCharactersForTest;
+  {$ENDIF}
+end;
+
 function TDelphiSemanticSnapshotSqliteCache.TryLoadCombinedFactsPayload(
   const aIdentity: string; out aPayload: string; out aInvalid: Boolean): Boolean;
 var
@@ -3068,7 +3088,7 @@ begin
     if lQuery.Eof then
       Exit;
     aPayload := lQuery.Fields[0].AsWideString;
-    aInvalid := (aPayload = '') or (Length(aPayload) > 128 * 1024 * 1024) or
+    aInvalid := (aPayload = '') or (Length(aPayload) > CombinedFactsPayloadCharacterLimit) or
       (THashSHA2.GetHashString(aPayload) <> lQuery.Fields[1].AsWideString);
     if aInvalid then
     begin
@@ -3110,6 +3130,13 @@ var
   lError: string;
   lQuery: TFDQuery;
 begin
+  fCombinedFactsStoreOutcome := '';
+  // Do not open, hash, replace or delete rows for a payload the loader cannot use.
+  if Length(aPayload) > CombinedFactsPayloadCharacterLimit then
+  begin
+    fCombinedFactsStoreOutcome := 'payload-too-large';
+    Exit;
+  end;
   if not SharedConnection(lConnectionObject, lError) then
     raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
   lConnection := lConnectionObject as TFDConnection;
@@ -3128,6 +3155,7 @@ begin
       lConnection.ExecSQL('DELETE FROM combined_remove_with_facts');
       lQuery.ExecSQL;
       lConnection.Commit;
+      fCombinedFactsStoreOutcome := 'stored';
     except
       if lConnection.InTransaction then
         lConnection.Rollback;

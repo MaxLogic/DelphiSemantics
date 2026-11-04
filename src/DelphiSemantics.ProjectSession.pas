@@ -1109,14 +1109,15 @@ begin
   end;
 end;
 
-procedure PublishCombinedPlanningCaches(const aOptions: TDelphiSemanticOptions;
-  const aCoreResult: TProjectWithBindingFactsCoreResult);
+function PublishCombinedPlanningCaches(const aOptions: TDelphiSemanticOptions;
+  const aCoreResult: TProjectWithBindingFactsCoreResult): string;
 var
   i: Integer;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lEvidenceOwner: IDelphiSemanticPlanningCacheEvidenceOwner;
   lUnitCache: TDelphiSemanticSqliteUnitCache;
 begin
+  Result := '';
   if (aCoreResult.CacheIdentity = '') or (aCoreResult.PendingPayload = '') then
     Exit;
   RequireCombinedModelsCurrent(aCoreResult.BuildResult.Facts.UnitModels);
@@ -1138,6 +1139,7 @@ begin
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(aOptions.SqliteCacheFileName);
   try
     lCache.StoreCombinedFactsPayload(aCoreResult.CacheIdentity, aCoreResult.PendingPayload);
+    Result := lCache.CombinedFactsStoreOutcome;
   finally
     lCache.Free;
   end;
@@ -2278,7 +2280,8 @@ begin
     RequireCombinedProjectCurrent(fProject);
     RequireCombinedModelsCurrent(Result.Facts.UnitModels);
     if SameText(Result.Plan.Status, 'planned') then
-      PublishCombinedPlanningCaches(fOptions, lCoreResult);
+      Result.Facts.Metrics.ProjectFactsCacheStoreOutcome :=
+        PublishCombinedPlanningCaches(fOptions, lCoreResult);
   end;
   Result.ModelExtractionPassCount :=
     fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount;

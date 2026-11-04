@@ -4,9 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Cache,
-  DelphiSemantics.Cache.Sqlite,
-  DelphiSemantics.Model;
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
+  DelphiSemantics.Snapshot.Cache.Sqlite;
 
 type
   [TestFixture]
@@ -48,6 +47,15 @@ type
     function TempPath(const aName: string): string;
     function WriteUnitFile(const aName, aTypeName: string): string;
   public
+    [Test]
+    [Category('DAK477Payload')]
+    [TestCase('Below limit', '31')]
+    [TestCase('At limit', '32')]
+    [TestCase('Over limit', '33')]
+    procedure CombinedPayloadStoreHonorsLimit(const aLength: Integer);
+    [Test]
+    [Category('DAK477Payload')]
+    procedure CombinedPayloadLoadHonorsSameLimit;
     [Category('Fast')]
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
@@ -2118,6 +2126,58 @@ begin
   end;
 
   RunLocalUnitCacheConcurrencyScenario(lCacheFileName);
+end;
+
+procedure TCacheSqliteTests.CombinedPayloadStoreHonorsLimit(const aLength: Integer);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lInvalid: Boolean;
+  lPayload, lLoaded: string;
+begin
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(TempPath('combined-limit-' + IntToStr(aLength) + '.sqlite'));
+  CombinedFactsPayloadMaxCharactersForTest := 32;
+  try
+    lCache.StoreCombinedFactsPayload('control', 'small payload');
+    lPayload := StringOfChar('x', aLength);
+    lCache.StoreCombinedFactsPayload('candidate', lPayload);
+    if aLength > 32 then
+    begin
+      Assert.AreEqual('payload-too-large', lCache.CombinedFactsStoreOutcome);
+      Assert.IsFalse(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+      Assert.IsFalse(lInvalid, 'A rejected write must not leave an invalid row');
+      Assert.IsTrue(lCache.TryLoadCombinedFactsPayload('control', lLoaded, lInvalid),
+        'Rejected publication must not delete the previous usable row');
+      Assert.AreEqual('small payload', lLoaded);
+    end else begin
+      Assert.AreEqual('stored', lCache.CombinedFactsStoreOutcome);
+      Assert.IsTrue(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+      Assert.IsFalse(lInvalid);
+      Assert.AreEqual(lPayload, lLoaded);
+    end;
+  finally
+    CombinedFactsPayloadMaxCharactersForTest := 0;
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.CombinedPayloadLoadHonorsSameLimit;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lInvalid: Boolean;
+  lLoaded: string;
+begin
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(TempPath('combined-load-limit.sqlite'));
+  CombinedFactsPayloadMaxCharactersForTest := 32;
+  try
+    lCache.StoreCombinedFactsPayload('candidate', StringOfChar('x', 32));
+    CombinedFactsPayloadMaxCharactersForTest := 31;
+    Assert.IsFalse(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+    Assert.IsTrue(lInvalid, 'Loader must apply the same effective limit');
+    Assert.AreEqual('', lLoaded);
+  finally
+    CombinedFactsPayloadMaxCharactersForTest := 0;
+    lCache.Free;
+  end;
 end;
 
 initialization

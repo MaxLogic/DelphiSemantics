@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.
+
 - Combined remove-with planning reuses complete persisted facts only with certified external compiler inputs. Native proof queries replay through a fresh owner, and validated models publish after successful planning. Changed inputs and damaged caches rebuild.
 - Unit-model caches written before caller-certified include evidence rebuild instead of reusing earlier directive facts.
 - WITH statements refused by unproved include-dependent declarations or imports publish no legacy candidate edit.
