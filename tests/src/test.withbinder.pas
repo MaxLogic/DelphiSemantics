@@ -5593,7 +5593,8 @@ begin
   lExpectedReason := 'activity-unverified';
   lExpectedSafety := '';
   // DS-719 0.25: source completeness can refuse before statement activity.
-  if MatchText(aShape, ['hidden-if', 'hidden-declared', 'hidden-malformed']) then
+  // A-375 class (c), explicit routine-body ruling: refusal cause changes only.
+  if MatchText(aShape, ['hidden-if', 'hidden-declared', 'hidden-malformed', 'hidden-include']) then
   begin
     lExpectedReason := 'selector-type-not-resolved';
     lExpectedSafety := 'DECLARATIONS_DIRECTIVE_UNPROVED';
@@ -18499,7 +18500,11 @@ begin
         StartsText('inline-active-', aShape) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, aShape);
-        if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
+        // A-375 class (c): unproved declaration includes retain zero-edit refusal.
+        if MatchText(lShape, ['anonymous-declaration-include',
+          'anonymous-declaration-include-multiline']) then
+          Assert.AreEqual('selector-type-not-resolved', lStatement.Reason)
+        else if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
           Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.Reason)
         else if lShape = 'partial-strong-global' then
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason)
@@ -18514,7 +18519,11 @@ begin
           Assert.AreEqual('symbol-not-found', lStatement.Reason)
         else
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason);
-        if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
+        // A-375 class (c): unproved declaration includes retain zero-edit refusal.
+        if MatchText(lShape, ['anonymous-declaration-include',
+          'anonymous-declaration-include-multiline']) then
+          Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lStatement.SafetyReason)
+        else if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
           Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason)
         else if lShape = 'partial-strong-global' then
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason)
