@@ -3023,7 +3023,7 @@ begin
   // A-375 class (b): a native caller supplies the complete include list.
   if MatchText(aShape, ['declaration', 'site']) then
   begin
-    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+    lOptions.CompilerIncludeSearchPath := CaptureFixtureCompilerIncludePath(lOptions.ProjectFileName);
     lOptions.CompilerIncludeSearchPathProvided := True;
   end;
   lProvider := TNamedRootAbsenceStub.Create;
@@ -3204,7 +3204,7 @@ begin
   // A-375 class (b): retain the original witness assertions with certified includes.
   if Pos('-inc-', aShape) > 0 then
   begin
-    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+    lOptions.CompilerIncludeSearchPath := CaptureFixtureCompilerIncludePath(lOptions.ProjectFileName);
     lOptions.CompilerIncludeSearchPathProvided := True;
   end;
   lProvider := TNamedRootAbsenceStub.Create;

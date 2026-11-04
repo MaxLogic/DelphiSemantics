@@ -5,6 +5,8 @@ interface
 function CaptureTestCompilerIncludePath(const aRoot: string;
   const aDirectories: TArray<string>): string;
 
+function CaptureFixtureCompilerIncludePath(const aProjectFileName: string): string;
+
 implementation
 
 uses
@@ -98,15 +100,37 @@ begin
 end;
 
 
-function CaptureTestCompilerIncludePath(const aRoot: string;
-  const aDirectories: TArray<string>): string;
+function CaptureProjectCompilerIncludePath(const aProjectFileName, aPlatform: string): string;
 var
   lContext: IDakNativeCompilerContext;
   lInvocation: TDakNativeCompilerInvocation;
   lProfile: TDakNativeCompilerSourceProfile;
   lReason: string;
-  lRoot: string;
   lRunner: IBuildProcessRunner;
+begin
+  lInvocation := Default(TDakNativeCompilerInvocation);
+  lInvocation.fProjectFileName := aProjectFileName;
+  lInvocation.fSdkRoot := ExcludeTrailingPathDelimiter(TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', ''));
+  lInvocation.fCompilerFileName := TPath.Combine(lInvocation.fSdkRoot, IfThen(SameText(aPlatform, 'Win32'), 'bin\dcc32.exe', 'bin\dcc64.exe'));
+  lInvocation.fMsBuildFileName := TPath.Combine(GetEnvironmentVariable('WINDIR'),
+    'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe');
+  lInvocation.fPropertyArguments := '/p:Config=Debug /p:Platform=' + aPlatform + ' /p:BDS="' +
+    lInvocation.fSdkRoot + '"';
+  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aProjectFileName), '.dak\' + TPath.GetFileNameWithoutExtension(aProjectFileName) + '\native-include-capture');
+  lRunner := TIncludeCaptureProcessRunner.Create;
+  lContext := TryCaptureNativeCompilerContext(lInvocation, lRunner, lReason);
+  if lContext = nil then
+    raise EInvalidOpException.Create('Test native include capture failed: ' + lReason);
+  if not lContext.InputsAreCurrent then
+    raise EInvalidOpException.Create('Test native include capture changed');
+  lProfile := lContext.SourceProfile;
+  Result := StringReplace(lProfile.fCompilerIncludeSearchPath, sLineBreak, ';', [rfReplaceAll]);
+end;
+
+function CaptureTestCompilerIncludePath(const aRoot: string;
+  const aDirectories: TArray<string>): string;
+var
+  lRoot: string;
   lSearchPath: string;
 begin
   // A-375: caller fixtures use the same native snapshot helper as DAK.
@@ -124,23 +148,24 @@ begin
     '<DCC_UnitSearchPath>' + lSearchPath + '</DCC_UnitSearchPath>' +
     '<DelphiLibraryPath></DelphiLibraryPath><ImportEnvOptions>false</ImportEnvOptions>' +
     '</PropertyGroup><Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/></Project>', TEncoding.ASCII);
-  lInvocation := Default(TDakNativeCompilerInvocation);
-  lInvocation.fProjectFileName := TPath.Combine(lRoot, 'Capture.dproj');
-  lInvocation.fSdkRoot := ExcludeTrailingPathDelimiter(TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', ''));
-  lInvocation.fCompilerFileName := TPath.Combine(lInvocation.fSdkRoot, 'bin\dcc64.exe');
-  lInvocation.fMsBuildFileName := TPath.Combine(GetEnvironmentVariable('WINDIR'),
-    'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe');
-  lInvocation.fPropertyArguments := '/p:Config=Debug /p:Platform=Win64 /p:BDS="' +
-    lInvocation.fSdkRoot + '"';
-  lInvocation.fWorkRoot := TPath.Combine(lRoot, '.dak');
-  lRunner := TIncludeCaptureProcessRunner.Create;
-  lContext := TryCaptureNativeCompilerContext(lInvocation, lRunner, lReason);
-  if lContext = nil then
-    raise EInvalidOpException.Create('Test native include capture failed: ' + lReason);
-  if not lContext.InputsAreCurrent then
-    raise EInvalidOpException.Create('Test native include capture changed');
-  lProfile := lContext.SourceProfile;
-  Result := StringReplace(lProfile.fCompilerIncludeSearchPath, sLineBreak, ';', [rfReplaceAll]);
+  Result := CaptureProjectCompilerIncludePath(TPath.Combine(lRoot, 'Capture.dproj'), 'Win64');
+end;
+
+function CaptureFixtureCompilerIncludePath(const aProjectFileName: string): string;
+var
+  lProjectText: string;
+begin
+  // These test-owned minimal fixtures become native metadata projects before
+  // either caller capture or DS loading. We capture the same project DS reads.
+  lProjectText := TFile.ReadAllText(aProjectFileName, TEncoding.UTF8);
+  lProjectText := StringReplace(lProjectText, '<Project>',
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">', []);
+  lProjectText := StringReplace(lProjectText, '</Project>',
+    '<PropertyGroup><FrameworkType>None</FrameworkType><ImportEnvOptions>false</ImportEnvOptions>' +
+    '<DelphiLibraryPath></DelphiLibraryPath><DCC_UnitSearchPath>$(MSBuildProjectDirectory)</DCC_UnitSearchPath>' +
+    '</PropertyGroup><Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/></Project>', []);
+  TFile.WriteAllText(aProjectFileName, lProjectText, TEncoding.ASCII);
+  Result := CaptureProjectCompilerIncludePath(aProjectFileName, 'Win32');
 end;
 
 end.

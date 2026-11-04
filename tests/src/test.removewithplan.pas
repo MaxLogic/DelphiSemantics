@@ -4264,7 +4264,7 @@ begin
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
   // A-375 class (b): origin containment models a caller with certified includes.
-  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(lRoot, [lRoot]);
+  lOptions.CompilerIncludeSearchPath := CaptureFixtureCompilerIncludePath(lOptions.ProjectFileName);
   lOptions.CompilerIncludeSearchPathProvided := True;
   for i := 0 to 1 do
   begin
