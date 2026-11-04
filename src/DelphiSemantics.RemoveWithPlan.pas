@@ -8783,6 +8783,9 @@ begin
             for lFinalStatement in Result.FinalStatements do
               if (SameText(lFinalStatement.Reason, 'receiver-member-owner-conflict') or
                 SameText(lFinalStatement.Reason, 'receiver-member-unqualified') or
+                // DS-719: include-evidence refusals publish no legacy candidate.
+                SameText(lFinalStatement.SafetyReason, 'DECLARATIONS_DIRECTIVE_UNPROVED') or
+                SameText(lFinalStatement.SafetyReason, 'IMPORTS_DIRECTIVE_UNPROVED') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VISIBILITY_UNPROVED') or
                 SameText(lFinalStatement.SafetyReason, 'TYPE_VALUE_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or

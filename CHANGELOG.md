@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- WITH statements refused by unproved include-dependent declarations or imports publish no legacy candidate edit.
 - Include-dependent semantic proofs require a caller-certified complete compiler include-search list, including additional switches and response files in compiler order. Emulated project paths cannot certify it; changed lists invalidate context and cache identity.
 - Extensionless include directives resolve only the compiler default .pas file; active and skipped include evidence uses the same name.
 - Active include lookup uses MSBuild unit-search and library paths in compiler order; unused DCC_IncludePath cannot select a different file.
