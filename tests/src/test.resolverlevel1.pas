@@ -12,6 +12,10 @@ type
   private
     function LoadModel: TDelphiSemanticUnitModel;
   public
+    [Test]
+    procedure OverloadedParameterWithoutRoutineIdentityRefuses;
+    [Test]
+    procedure ParameterCoordinatesNameTheParameterToken;
     [Category('Fast')]
     [Test]
     procedure LexicalSymbolsShadowUnitDeclarations;
@@ -264,6 +268,51 @@ begin
 
   Assert.AreEqual('unsupported', lResult.Status);
   Assert.AreEqual('CALL_SELECTOR_UNSUPPORTED', lResult.ReasonCode);
+end;
+
+procedure TResolverLevel1Tests.OverloadedParameterWithoutRoutineIdentityRefuses;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticResolveContext;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('BindingSafety', 'overloads\Unit1.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.RoutineName := 'Execute';
+  lContext.SectionKind := 'implementation';
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'aRec');
+  Assert.IsFalse(lResult.Found, 'A name-only context cannot select either overload.');
+  Assert.IsFalse(lResult.Authoritative);
+  Assert.AreEqual('ambiguous', lResult.Status);
+  Assert.AreEqual('MULTIPLE_PARAMETER_DECLARATIONS', lResult.ReasonCode);
+end;
+
+procedure TResolverLevel1Tests.ParameterCoordinatesNameTheParameterToken;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticResolveContext;
+  lResult: TDelphiSemanticResolveResult;
+  lSeen: Integer;
+begin
+  lModel := LoadModel;
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.RoutineName := 'ResolveTarget';
+  lContext.SectionKind := 'implementation';
+  lResult := TDelphiSemanticResolver.ResolveName(lModel, lContext, 'SharedName');
+  Assert.IsTrue(lResult.Found);
+  lSeen := 0;
+  for var lRoutine in lModel.Routines do
+    if lRoutine.Name = 'ResolveTarget' then
+      for var lParameter in lRoutine.Parameters do
+        if (lParameter.Name = 'SharedName') and (lParameter.Line = lResult.Line) and
+          (lParameter.Column = lResult.Column) then
+          Inc(lSeen);
+  Assert.AreEqual(1, lSeen, 'Coordinates must identify the parameter, never the routine heading.');
 end;
 
 initialization

@@ -2557,6 +2557,7 @@ procedure TDelphiSemanticTypeIdentityIndexData.AddHelperTargetKeys(
   const aIdentity: TDelphiSemanticTypeIdentity);
 var
   lTarget: TDelphiSemanticTypeResolution;
+  lTerminal: TDelphiSemanticTypeIdentity;
 begin
   if aIdentity.HelperTargetName = '' then
     Exit;
@@ -2566,11 +2567,20 @@ begin
     aIdentity.HelperTargetName);
   if lTarget.Outcome = noResolved then
   begin
+    AddToMap(fHelpersByTargetName, lTarget.Identity.DeclaredId.Value, aIdentity);
     AddToMap(fHelpersByTargetName, lTarget.Identity.Name, aIdentity);
     AddToMap(fHelpersByTargetName, lTarget.Identity.UnitName + '.' + lTarget.Identity.Name,
       aIdentity);
     AddToMap(fHelpersByTargetName, lTarget.Identity.CanonicalName, aIdentity);
     AddToMap(fHelpersByTargetName, lTarget.Identity.UnderlyingName, aIdentity);
+    // The receiver may use the terminal declaration while the helper names a
+    // weak alias. Keep that candidate under the terminal's qualified identity.
+    if WeakAliasTerminal(lTarget.Identity, lTerminal) then
+    begin
+      if not SameText(lTerminal.DeclaredId.Value, lTarget.Identity.DeclaredId.Value) then
+        AddToMap(fHelpersByTargetName, lTerminal.DeclaredId.Value, aIdentity);
+      AddToMap(fHelpersByTargetName, lTerminal.UnitName + '.' + lTerminal.Name, aIdentity);
+    end;
   end;
 end;
 
@@ -2730,11 +2740,32 @@ function TDelphiSemanticTypeIdentityIndexData.FindHelpersForTarget(
   const aTargetTypeName: string): TArray<TDelphiSemanticTypeIdentity>;
 var
   lList: TDelphiSemanticTypeIdentityList;
+  lOwner: TDelphiSemanticTypeLookupResult;
+  lOwnerIdentity: TDelphiSemanticTypeIdentity;
+  lTarget: TDelphiSemanticTypeResolution;
 begin
-  if fHelpersByTargetName.TryGetValue(aTargetTypeName, lList) then
-    Exit(lList.ToArray);
-
   Result := nil;
+  // Held lineage IDs never round-trip through a spelling lookup. Keep the
+  // existing name input for inventory callers, then apply the same ID check.
+  if not fByDeclaredId.TryGetValue(aTargetTypeName, lOwnerIdentity) then
+  begin
+    lOwner := ResolveQualifiedName(aTargetTypeName);
+    if not lOwner.Found then
+      Exit;
+    lOwnerIdentity := lOwner.Identity;
+  end;
+  if not fHelpersByTargetName.TryGetValue(aTargetTypeName, lList) then
+    Exit;
+  for var lHelper in lList do
+  begin
+    // Name keys enumerate candidates only. Bind each target at its declaration
+    // and compare weak-alias terminals by DeclaredId, as in site helper lookup.
+    lTarget := ResolveTypeAt(TDelphiSemanticNameSites.AtTypeIdentity(lHelper),
+      lHelper.HelperTargetName);
+    if (lTarget.Outcome = noResolved) and
+      (CompareWeakAliasTargets(lTarget.Identity, lOwnerIdentity) = noResolved) then
+      Result := Result + [lHelper];
+  end;
 end;
 
 function TDelphiSemanticTypeIdentityIndexData.ResolveQualifiedName(

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- WITH helper targets retain declaration identity across unit homonyms and weak aliases. Method-local receiver types retain class scope, and name-only overloaded parameter lookup refuses ambiguous declarations.
 - WITH rewrites refuse inactive subjects that may shadow qualified names and inactive assembly blocks; inactive statement terminators no longer truncate active bodies. Older model and planning caches rebuild.
 - WITH receiver temporary kinds use declared type kinds rather than Object/Class suffixes; pointer targets no longer use P prefixes or Ptr suffixes.
 - Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.

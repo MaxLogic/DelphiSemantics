@@ -35,6 +35,42 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('foreign-helper route 0', 'foreign-helper,0')]
+    [TestCase('foreign-helper route 1', 'foreign-helper,1')]
+    [TestCase('foreign-helper route 2', 'foreign-helper,2')]
+    [TestCase('foreign-helper route 3', 'foreign-helper,3')]
+    [TestCase('foreign-helper route 4', 'foreign-helper,4')]
+    [TestCase('own-helper route 0', 'own-helper,0')]
+    [TestCase('own-helper route 1', 'own-helper,1')]
+    [TestCase('own-helper route 2', 'own-helper,2')]
+    [TestCase('own-helper route 3', 'own-helper,3')]
+    [TestCase('own-helper route 4', 'own-helper,4')]
+    [TestCase('alias-helper route 0', 'alias-helper,0')]
+    [TestCase('alias-helper route 1', 'alias-helper,1')]
+    [TestCase('alias-helper route 2', 'alias-helper,2')]
+    [TestCase('alias-helper route 3', 'alias-helper,3')]
+    [TestCase('alias-helper route 4', 'alias-helper,4')]
+    [TestCase('class-own route 0', 'class-own,0')]
+    [TestCase('class-own route 1', 'class-own,1')]
+    [TestCase('class-own route 2', 'class-own,2')]
+    [TestCase('class-own route 3', 'class-own,3')]
+    [TestCase('class-own route 4', 'class-own,4')]
+    [TestCase('class-ancestor route 0', 'class-ancestor,0')]
+    [TestCase('class-ancestor route 1', 'class-ancestor,1')]
+    [TestCase('class-ancestor route 2', 'class-ancestor,2')]
+    [TestCase('class-ancestor route 3', 'class-ancestor,3')]
+    [TestCase('class-ancestor route 4', 'class-ancestor,4')]
+    [TestCase('declaration-order route 0', 'declaration-order,0')]
+    [TestCase('declaration-order route 1', 'declaration-order,1')]
+    [TestCase('declaration-order route 2', 'declaration-order,2')]
+    [TestCase('declaration-order route 3', 'declaration-order,3')]
+    [TestCase('declaration-order route 4', 'declaration-order,4')]
+    [TestCase('overloads route 0', 'overloads,0')]
+    [TestCase('overloads route 1', 'overloads,1')]
+    [TestCase('overloads route 2', 'overloads,2')]
+    [TestCase('overloads route 3', 'overloads,3')]
+    [TestCase('overloads route 4', 'overloads,4')]
+    procedure BindingSafetyRoutes(const aShape: string; const aRoute: Integer);
     [TestCase('subject-shadow route 0', 'subject-shadow,0')]
     [TestCase('subject-shadow route 1', 'subject-shadow,1')]
     [TestCase('subject-shadow route 2', 'subject-shadow,2')]
@@ -21021,6 +21057,145 @@ procedure TWithBinderTests.StrictHelperA6SdkControl(const aShape: string;
   const aSkipGraph: Boolean);
 begin
   RunOrderedTypeNamesOnFiveRoutes(aShape, aSkipGraph, '', 'sdk');
+end;
+
+procedure TWithBinderTests.BindingSafetyRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot, lExpectedType: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+  lCount: Integer;
+begin
+  lRoot := WithBinderTempPath('binding-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFolder in ['common', aShape] do
+    for var lFile in TDirectory.GetFiles(FixturePath('BindingSafety', lFolder), '*.pas') do
+      TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="Unit1.pas"/><DCCReference Include="DataUnit.pas"/>' +
+    '<DCCReference Include="ControlUnit.pas"/><DCCReference Include="ClassBase.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'binding-safety';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'binding-safety';
+      lIdentity.SchemaVersion := 'binding-safety';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  // Retain the actual published edits for independent dcc64 runtime comparison.
+  lProofRoot := GetEnvironmentVariable('DS_BINDING_SAFETY_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual<Integer>(1 + Ord(aShape = 'overloads'), Length(lFacts.Bindings));
+  Assert.AreEqual<Integer>(Length(lFacts.Bindings), Length(lPlan.FinalStatements));
+  lCount := 0;
+  for var lBinding in lFacts.Bindings do
+  begin
+    Assert.AreEqual<Integer>(1, Length(lBinding.Selectors));
+    if lBinding.Selectors[0].Status = 'resolved' then
+    begin
+      if MatchText(aShape, ['class-own', 'class-ancestor']) then
+        Assert.AreEqual('type', lBinding.Selectors[0].TypeIdentity.ScopeKind,
+          'A unit-level homonym must never become the receiver identity.');
+      if aShape = 'declaration-order' then
+        Assert.AreNotEqual('routine', lBinding.Selectors[0].TypeIdentity.ScopeKind,
+          'A later local type cannot type an earlier variable.');
+      if aShape = 'overloads' then
+      begin
+        lExpectedType := 'TWrong';
+        if lBinding.Line > 16 then
+          lExpectedType := 'TRight';
+        Assert.AreEqual(lExpectedType, lBinding.Selectors[0].TypeIdentity.Name);
+      end;
+    end;
+    for var lReference in lBinding.References do
+      if SameText(lReference.Name, 'Count') then
+      begin
+        Inc(lCount);
+        if aShape = 'foreign-helper' then
+          Assert.AreEqual('lexical', lReference.Classification,
+            'The foreign record helper cannot own Count on DataUnit.TRec.')
+        else if MatchText(aShape, ['own-helper', 'alias-helper']) then
+        begin
+          Assert.AreEqual('member', lReference.Classification);
+          Assert.AreEqual('TRecHelper', lReference.ReceiverTypeName);
+        end else if lReference.Classification <> 'member' then
+        begin
+          Assert.IsTrue(MatchText(lReference.Classification, ['unsupported', 'unresolved']),
+            'A receiver member must resolve correctly or retain a refusal.');
+          Assert.AreEqual('skipped', lBinding.Status);
+        end;
+      end;
+  end;
+  Assert.AreEqual<Integer>(Length(lFacts.Bindings), lCount);
+  for var lStatement in lPlan.FinalStatements do
+    if lStatement.Status = 'skipped' then
+    begin
+      Assert.IsNotEmpty(lStatement.Reason);
+      Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
+      Assert.AreEqual<Integer>(0, Length(lStatement.Temps));
+      Assert.AreEqual('', lStatement.ReplacementText);
+    end else
+      Assert.AreEqual('planned', lStatement.Status);
 end;
 
 initialization

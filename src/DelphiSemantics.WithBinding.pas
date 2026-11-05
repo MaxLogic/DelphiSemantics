@@ -593,6 +593,9 @@ type
     function SelectorTypeLookup(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string):
       TDelphiSemanticTypeLookupResult;
+    function TryClassScopedReceiverType(const aModel: TDelphiSemanticUnitModel;
+      const aResolved: TDelphiSemanticResolveResult; const aCurrentTypeName: string;
+      out aResolution: TDelphiSemanticTypeResolution): Boolean;
     function TryResolveSelectorIdentity(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
@@ -2311,14 +2314,17 @@ function TWithBindingProjectMemberIndex.LookupLegacyHelperMember(
 var
   lContext: TDelphiSemanticMemberLookupContext;
   lHelper: TDelphiSemanticTypeIdentity;
-  lTarget: string;
+  lLineage: TDelphiSemanticLineage;
+  lTarget: TDelphiSemanticTypeIdentity;
 begin
-  // Preserve base's helper inventory and order until 3d. The target spellings
-  // select helpers only; they never re-resolve the held receiver or choose D.
   lContext := aContext;
-  for lTarget in [aOwner.Name, aOwner.UnitName + '.' + aOwner.Name,
-    aOwner.CanonicalName, aOwner.UnderlyingName] do
-    for lHelper in fTypeIndex.FindHelpersForTarget(lTarget) do
+  lLineage := fTypeIndex.ResolveLineage(aOwner);
+  for var i := 0 to High(lLineage.Items) do
+  begin
+    if (lLineage.StrongAliasAt >= 0) and (i > lLineage.StrongAliasAt) then
+      Break;
+    lTarget := lLineage.Items[i];
+    for lHelper in fTypeIndex.FindHelpersForTarget(lTarget.DeclaredId.Value) do
     begin
       Result := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(lHelper.DeclaredId, aName);
       if Length(Result.Candidates) = 0 then
@@ -2329,6 +2335,7 @@ begin
         Result.Status := 'helper';
       Exit;
     end;
+  end;
   Result := Default(TDelphiSemanticMemberLookupResult);
   Result.Status := 'unresolved';
   Result.ReasonCode := 'DIRECT_MEMBER_NOT_FOUND';
@@ -3087,19 +3094,18 @@ begin
         end;
   end else if SameText(aResolved.Kind, 'parameter') then
   begin
-    // A resolved parameter carries its routine's coordinates: the routine at those
-    // coordinates plus the parameter name identify the declaration. The resolved
-    // TypeName is the selector's final type, so it cannot identify the parameter.
+    // The parameter token coordinates and name identify its declaration. The
+    // resolved TypeName may be the selector's final type, so it cannot identify
+    // the parameter.
     // Delphi resolves a heading's types in the scope enclosing the routine, so the
     // routine's own local types are not visible there. ScopeId and ParentScopeId come
     // from the uniquely matched AST scope, so an empty parent is a verified top level.
     for lRoutine in aModel.Routines do
-      if SameText(lRoutine.Name, aResolved.OwnerName) and
-        (lRoutine.Line = aResolved.Line) and
-        (lRoutine.Column = aResolved.Column) and (lRoutine.ScopeId <> '') and
+      if SameText(lRoutine.Name, aResolved.OwnerName) and (lRoutine.ScopeId <> '') and
         (lRoutine.AstScopeKind <> '') then
         for lParameter in lRoutine.Parameters do
-          if SameText(lParameter.Name, aResolved.Name) then
+          if SameText(lParameter.Name, aResolved.Name) and
+            (lParameter.Line = aResolved.Line) and (lParameter.Column = aResolved.Column) then
           begin
             Inc(lMatches);
             aScopeId := lRoutine.ParentScopeId;
@@ -3236,6 +3242,7 @@ var
   lCastType: string;
   lCaptureTypeName, lCaptureTypeStatus: string;
   lTypeLookup: TDelphiSemanticTypeLookupResult;
+  lClassTypeResolution: TDelphiSemanticTypeResolution;
   lComplex: Boolean;
   lContext: TDelphiSemanticResolveContext;
   lDereferenced: Boolean;
@@ -3562,7 +3569,21 @@ begin
   if lResult.Found and SameText(lResult.Status, 'resolved') then
     if lVerifiedLocalPointer then
       aIdentity := lPointerIdentity
-    else if ((lWithBase or (not MatchText(lResult.Kind, ['field', 'member', 'property']))) or
+    else if (not lComplex) and (not lWithBase) and
+      aProjectMemberIndex.TryClassScopedReceiverType(aModel, lBaseResult,
+        aCurrentTypeName, lClassTypeResolution) then
+    begin
+      if lClassTypeResolution.Outcome = noResolved then
+        aIdentity := lClassTypeResolution.Identity
+      else if not ((lClassTypeResolution.Outcome = noUnproved) and
+        MatchText(lClassTypeResolution.Cause, ['external-unindexed', 'witness-unknown']) and
+        StartsText('uses:', lClassTypeResolution.DecidingScope)) then
+      begin
+        lResult.Status := 'unsupported';
+        lResult.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+        lResult.Reason := 'The class-scoped receiver type is not proved at its declaration.';
+      end;
+    end else if ((lWithBase or (not MatchText(lResult.Kind, ['field', 'member', 'property']))) or
       TryMemberDeclaringModel(aProjectModels, lResult, lSymbolModel)) and
       aProjectMemberIndex.TryResolveTypeOriginScope(lSymbolModel, lOriginModel,
       lResult, lOriginScopeId, lOwnRoutineScopeId) then
@@ -6358,6 +6379,56 @@ begin
   else
     Result := fTypeIndex.ResolveVisibleName(aTypeName, aOriginModel.UnitName,
       lVisibleUnits, aOriginSectionKind);
+end;
+
+function TWithBindingProjectMemberIndex.TryClassScopedReceiverType(
+  const aModel: TDelphiSemanticUnitModel; const aResolved: TDelphiSemanticResolveResult;
+  const aCurrentTypeName: string; out aResolution: TDelphiSemanticTypeResolution): Boolean;
+var
+  lClass: TDelphiSemanticTypeIdentity;
+  lSite: TDelphiSemanticNameSite;
+  lSpelling: string;
+  lMatches: Integer;
+begin
+  Result := False;
+  aResolution := Default(TDelphiSemanticTypeResolution);
+  if (aCurrentTypeName = '') or not MatchText(aResolved.Kind, ['local', 'parameter']) or
+    not TRegEx.IsMatch(aResolved.TypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+    Exit;
+  Result := True;
+  lMatches := 0;
+  OwnerIdentity(aModel.UnitName, aCurrentTypeName, '', '', lClass);
+  if SameText(aResolved.Kind, 'local') then
+    for var lLocal in aModel.Locals do
+      if SameText(lLocal.Name, aResolved.Name) and (lLocal.Line = aResolved.Line) and
+        (lLocal.Column = aResolved.Column) then
+      begin
+        Inc(lMatches);
+        lSite := TDelphiSemanticNameSites.AtLocal(aModel, lLocal, lClass.DeclaredId);
+        lSpelling := lLocal.TypeName;
+      end;
+  if SameText(aResolved.Kind, 'parameter') then
+    for var lRoutine in aModel.Routines do
+      for var lParameter in lRoutine.Parameters do
+        if SameText(lParameter.Name, aResolved.Name) and (lParameter.Line = aResolved.Line) and
+          (lParameter.Column = aResolved.Column) then
+        begin
+          Inc(lMatches);
+          lSite := TDelphiSemanticNameSites.AtParameter(aModel, lRoutine, lParameter, lClass.DeclaredId);
+          lSpelling := lParameter.TypeName;
+        end;
+  if (lMatches <> 1) or (lClass.DeclaredId.Value = '') or
+    not TRegEx.IsMatch(lSpelling, '^[A-Za-z_][A-Za-z0-9_]*$') then
+  begin
+    aResolution.Outcome := noUnproved;
+    aResolution.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+    Exit;
+  end;
+  // A method's class and its ancestors precede unit scope. Resolve at the
+  // variable/parameter token so later local declarations cannot change it.
+  // An unindexed external target retains no identity. Its member lookup will
+  // keep the existing owner barrier; never retry the spelling in unit scope.
+  aResolution := fTypeIndex.ResolveTypeAt(lSite, lSpelling);
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveSelectorIdentity(

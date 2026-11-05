@@ -111,7 +111,8 @@ begin
   Result.Declarations[7].Kind := 'type';
   Result.Declarations[7].TypeName := 'record';
   Result.Declarations[7].SectionKind := 'interface';
-  Result.Declarations[7].Line := 32;
+  // Register the target after its helper, but retain Delphi's legal source order.
+  Result.Declarations[7].Line := 26;
   Result.Declarations[7].Column := 3;
 
   SetLength(Result.Members, 4);

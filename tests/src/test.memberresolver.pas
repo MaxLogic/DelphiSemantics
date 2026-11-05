@@ -17,6 +17,10 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel(const aUnitName: string): TDelphiSemanticUnitModel;
   public
+    [TestCase('foreign', 'foreign-helper,False')]
+    [TestCase('own', 'own-helper,True')]
+    [TestCase('alias', 'alias-helper,True')]
+    procedure HelpersRequireTargetDeclarationIdentity(const aShape: string; const aExpected: Boolean);
     [Category('Fast')]
     [Test]
     procedure ResolvesDirectMemberByOwnerAndName;
@@ -36,6 +40,9 @@ type
   end;
 
 implementation
+
+uses
+  System.SysUtils, Test.Support;
 
 function TMemberResolverTests.Graph: TDelphiSemanticSemanticGraph;
 begin
@@ -312,6 +319,45 @@ begin
         Inc(lCount);
       end;
     Assert.AreEqual(2, lCount);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TMemberResolverTests.HelpersRequireTargetDeclarationIdentity(
+  const aShape: string; const aExpected: Boolean);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lIndex: TDelphiSemanticMemberIdentityIndex;
+  lTypeIndex: TDelphiSemanticTypeIdentityIndex;
+  lTarget: TDelphiSemanticTypeIdentity;
+  lResult: TDelphiSemanticMemberLookupResult;
+begin
+  for var lFile in [FixturePath('BindingSafety', aShape + '\Unit1.pas'),
+    FixturePath('BindingSafety', 'common\DataUnit.pas'),
+    FixturePath('BindingSafety', 'common\ControlUnit.pas')] do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lOptions.ProjectContextApplied := True;
+    lModels := lModels + [TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions)];
+    Assert.IsTrue(lModels[High(lModels)].Success);
+  end;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, lModels);
+  try
+    lTypeIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lTarget := lTypeIndex.ResolveQualifiedName('DataUnit.TRec').Identity;
+    Assert.AreEqual<Integer>(Ord(aExpected),
+      Length(lTypeIndex.FindHelpersForTarget(lTarget.DeclaredId.Value)),
+      'Held declaration IDs must select helpers without resolving a spelling again.');
+    lIndex := MemberIndex(lGraph);
+    lResult := lIndex.ResolveMember('DataUnit.TRec', 'Count');
+    Assert.AreEqual(aExpected, lResult.Found,
+      'ExpandedOwnerTypes must compare helper targets by DeclaredId lineage.');
+    if aExpected then
+      Assert.AreEqual('TRecHelper', lResult.Member.OwnerName);
   finally
     lGraph.Free;
   end;
