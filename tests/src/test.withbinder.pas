@@ -35,6 +35,92 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('unknown-local route 0', 'unknown-local,0')]
+    [TestCase('unknown-local route 1', 'unknown-local,1')]
+    [TestCase('unknown-local route 2', 'unknown-local,2')]
+    [TestCase('unknown-local route 3', 'unknown-local,3')]
+    [TestCase('unknown-local route 4', 'unknown-local,4')]
+    [TestCase('inactive-local route 0', 'inactive-local,0')]
+    [TestCase('inactive-local route 1', 'inactive-local,1')]
+    [TestCase('inactive-local route 2', 'inactive-local,2')]
+    [TestCase('inactive-local route 3', 'inactive-local,3')]
+    [TestCase('inactive-local route 4', 'inactive-local,4')]
+    [TestCase('active-local route 0', 'active-local,0')]
+    [TestCase('active-local route 1', 'active-local,1')]
+    [TestCase('active-local route 2', 'active-local,2')]
+    [TestCase('active-local route 3', 'active-local,3')]
+    [TestCase('active-local route 4', 'active-local,4')]
+    [TestCase('unknown-import route 0', 'unknown-import,0')]
+    [TestCase('unknown-import route 1', 'unknown-import,1')]
+    [TestCase('unknown-import route 2', 'unknown-import,2')]
+    [TestCase('unknown-import route 3', 'unknown-import,3')]
+    [TestCase('unknown-import route 4', 'unknown-import,4')]
+    [TestCase('incomplete-local route 0', 'incomplete-local,0')]
+    [TestCase('incomplete-local route 1', 'incomplete-local,1')]
+    [TestCase('incomplete-local route 2', 'incomplete-local,2')]
+    [TestCase('incomplete-local route 3', 'incomplete-local,3')]
+    [TestCase('incomplete-local route 4', 'incomplete-local,4')]
+    [TestCase('complete-local route 0', 'complete-local,0')]
+    [TestCase('complete-local route 1', 'complete-local,1')]
+    [TestCase('complete-local route 2', 'complete-local,2')]
+    [TestCase('complete-local route 3', 'complete-local,3')]
+    [TestCase('complete-local route 4', 'complete-local,4')]
+    [TestCase('incomplete-import route 0', 'incomplete-import,0')]
+    [TestCase('incomplete-import route 1', 'incomplete-import,1')]
+    [TestCase('incomplete-import route 2', 'incomplete-import,2')]
+    [TestCase('incomplete-import route 3', 'incomplete-import,3')]
+    [TestCase('incomplete-import route 4', 'incomplete-import,4')]
+    [TestCase('unrelated-incomplete route 0', 'unrelated-incomplete,0')]
+    [TestCase('unrelated-incomplete route 1', 'unrelated-incomplete,1')]
+    [TestCase('unrelated-incomplete route 2', 'unrelated-incomplete,2')]
+    [TestCase('unrelated-incomplete route 3', 'unrelated-incomplete,3')]
+    [TestCase('unrelated-incomplete route 4', 'unrelated-incomplete,4')]
+    [TestCase('alias-incomplete route 0', 'alias-incomplete,0')]
+    [TestCase('alias-incomplete route 1', 'alias-incomplete,1')]
+    [TestCase('alias-incomplete route 2', 'alias-incomplete,2')]
+    [TestCase('alias-incomplete route 3', 'alias-incomplete,3')]
+    [TestCase('alias-incomplete route 4', 'alias-incomplete,4')]
+    [TestCase('private-incomplete route 0', 'private-incomplete,0')]
+    [TestCase('private-incomplete route 1', 'private-incomplete,1')]
+    [TestCase('private-incomplete route 2', 'private-incomplete,2')]
+    [TestCase('private-incomplete route 3', 'private-incomplete,3')]
+    [TestCase('private-incomplete route 4', 'private-incomplete,4')]
+    [TestCase('after-incomplete route 0', 'after-incomplete,0')]
+    [TestCase('after-incomplete route 1', 'after-incomplete,1')]
+    [TestCase('after-incomplete route 2', 'after-incomplete,2')]
+    [TestCase('after-incomplete route 3', 'after-incomplete,3')]
+    [TestCase('after-incomplete route 4', 'after-incomplete,4')]
+    [TestCase('indexed-field route 0', 'indexed-field,0')]
+    [TestCase('indexed-field route 1', 'indexed-field,1')]
+    [TestCase('indexed-field route 2', 'indexed-field,2')]
+    [TestCase('indexed-field route 3', 'indexed-field,3')]
+    [TestCase('indexed-field route 4', 'indexed-field,4')]
+    [TestCase('indexed-property route 0', 'indexed-property,0')]
+    [TestCase('indexed-property route 1', 'indexed-property,1')]
+    [TestCase('indexed-property route 2', 'indexed-property,2')]
+    [TestCase('indexed-property route 3', 'indexed-property,3')]
+    [TestCase('indexed-property route 4', 'indexed-property,4')]
+    [TestCase('indexed-helper route 0', 'indexed-helper,0')]
+    [TestCase('indexed-helper route 1', 'indexed-helper,1')]
+    [TestCase('indexed-helper route 2', 'indexed-helper,2')]
+    [TestCase('indexed-helper route 3', 'indexed-helper,3')]
+    [TestCase('indexed-helper route 4', 'indexed-helper,4')]
+    [TestCase('indexed-incomplete route 0', 'indexed-incomplete,0')]
+    [TestCase('indexed-incomplete route 1', 'indexed-incomplete,1')]
+    [TestCase('indexed-incomplete route 2', 'indexed-incomplete,2')]
+    [TestCase('indexed-incomplete route 3', 'indexed-incomplete,3')]
+    [TestCase('indexed-incomplete route 4', 'indexed-incomplete,4')]
+    [TestCase('indexed-local route 0', 'indexed-local,0')]
+    [TestCase('indexed-local route 1', 'indexed-local,1')]
+    [TestCase('indexed-local route 2', 'indexed-local,2')]
+    [TestCase('indexed-local route 3', 'indexed-local,3')]
+    [TestCase('indexed-local route 4', 'indexed-local,4')]
+    [TestCase('indexed-unindexed route 0', 'indexed-unindexed,0')]
+    [TestCase('indexed-unindexed route 1', 'indexed-unindexed,1')]
+    [TestCase('indexed-unindexed route 2', 'indexed-unindexed,2')]
+    [TestCase('indexed-unindexed route 3', 'indexed-unindexed,3')]
+    [TestCase('indexed-unindexed route 4', 'indexed-unindexed,4')]
+    procedure RecordHelperAbsenceRoutes(const aShape: string; const aRoute: Integer);
     [TestCase('repeat-one route 0', 'repeat-one,0')]
     [TestCase('repeat-one route 1', 'repeat-one,1')]
     [TestCase('repeat-one route 2', 'repeat-one,2')]
@@ -21436,6 +21522,146 @@ begin
           StartsText(';', TrimLeft(Copy(lLines[lEdit.Range.EndLine - 1],
             lEdit.Range.EndColumn + 1, MaxInt))), 'Published range must consume its separator.');
   end;
+end;
+
+procedure TWithBinderTests.RecordHelperAbsenceRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot, lExpectedStatus, lProjectReferences: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+  lCount: Integer;
+  lContext: TDelphiSemanticContextResult;
+  lRefused: Boolean;
+begin
+  lRoot := WithBinderTempPath('helper-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFile in TDirectory.GetFiles(FixturePath('RecordHelperAbsence', aShape), '*.pas') do
+    TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  lProjectReferences := '';
+  for var lFile in TDirectory.GetFiles(lRoot, '*.pas') do
+    lProjectReferences := lProjectReferences + '<DCCReference Include="' + ExtractFileName(lFile) + '"/>';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource><DCC_Namespace>System</DCC_Namespace>' +
+    '</PropertyGroup><ItemGroup>' + lProjectReferences + '</ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'helper-safety';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'helper-safety';
+      lIdentity.SchemaVersion := 'helper-safety';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  // Retain the actual published edits for independent dcc64 runtime comparison.
+  lProofRoot := GetEnvironmentVariable('DS_RECORD_HELPER_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    lContext := TDelphiSemanticApi.LoadProjectContext(lOptions.ProjectFileName, lOptions);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'context.json'),
+      lSerializer.Serialize<TDelphiSemanticContextResult>(lContext), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  lRefused := MatchText(aShape, ['unknown-local', 'unknown-import', 'incomplete-local',
+    'incomplete-import', 'alias-incomplete', 'indexed-incomplete', 'indexed-unindexed']);
+  lExpectedStatus := 'planned';
+  if lRefused or MatchText(aShape, ['active-local', 'private-incomplete', 'after-incomplete']) then
+    lExpectedStatus := 'skipped';
+  Assert.AreEqual(lExpectedStatus, lPlan.FinalStatements[0].Status,
+    aShape + ':' + lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
+  if lRefused then
+  begin
+    Assert.IsNotEmpty(lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.Edits), 'No legacy candidate may escape refusal.');
+  end;
+  lCount := 0;
+  for var lReference in lFacts.Bindings[0].References do
+    if SameText(lReference.Name, 'lCount') or SameText(lReference.Name, 'lArr[0]') then
+    begin
+      Inc(lCount);
+      if MatchText(aShape, ['incomplete-local', 'incomplete-import', 'alias-incomplete',
+        'indexed-incomplete', 'indexed-unindexed']) then
+      begin
+        Assert.AreEqual('unsupported', lReference.Classification);
+        Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lReference.ReasonCode);
+      end;
+      if MatchText(aShape, ['indexed-field', 'indexed-property', 'indexed-helper']) then
+      begin
+        Assert.AreEqual('unsupported', lReference.Classification);
+        Assert.AreEqual('INDEXED_SELECTOR_UNSUPPORTED', lReference.ReasonCode);
+        // The final planner recovers these complete members and qualifies the root.
+        Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.lArr[0]'));
+        Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.Value'));
+      end;
+    end;
+  Assert.AreEqual<Integer>(1, lCount);
+  if MatchText(aShape, ['inactive-local', 'unrelated-incomplete', 'private-incomplete',
+    'after-incomplete']) then
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'lexical'));
+  if MatchText(aShape, ['active-local', 'complete-local']) then
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'member'));
+  if aShape = 'unknown-local' then
+    Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.Bindings[0].Selectors[0].ReasonCode);
 end;
 
 initialization

@@ -555,6 +555,8 @@ type
       out aResult: TBoundMemberResolution): Boolean;
     function UnindexedRecordHelperMayApply(const aSite: TReceiverLookupSite;
       const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+    function IndexedRecordHelperMembersAreUnverified(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite; const aLineage: TDelphiSemanticLineage): Boolean;
     procedure BuildMemberSafetyDiagnostics;
     function LineageHasActivityFact(const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     function MemberActivityIsUnverified(const aBinding: TDelphiSemanticWithBinding;
@@ -7716,6 +7718,31 @@ begin
   end;
 end;
 
+function TWithBindingProjectMemberIndex.IndexedRecordHelperMembersAreUnverified(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aLineage: TDelphiSemanticLineage): Boolean;
+var
+  lHelpers: TDelphiSemanticHelperResolution;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lNameSite: TDelphiSemanticNameSite;
+  lStatement: TDelphiSemanticWithStatement;
+begin
+  // Reuse declaration-site target identity, site visibility and helper precedence.
+  // An indexed helper is not a complete member inventory merely because it exists.
+  lStatement := Default(TDelphiSemanticWithStatement);
+  lStatement.Line := aSite.Line;
+  lStatement.Column := aSite.Column;
+  lNameSite := TDelphiSemanticNameSites.AtWithStatement(aModel, lStatement,
+    RoutineScopeAtLine(aModel, aSite.Line), Default(TDelphiSemanticGraphTypeId));
+  lNameSite.FileName := aSite.FileName;
+  lHelpers := fTypeIndex.ResolveHelpersAt(aLineage, lNameSite);
+  for var lLevel in lHelpers.Levels do
+    for lIdentity in lLevel.Chain do
+      if not MembersClosed(lIdentity) then
+        Exit(True);
+  Result := False;
+end;
+
 function TWithBindingProjectMemberIndex.ReceiverMemberAbsenceIsVerified(
   const aModel: TDelphiSemanticUnitModel;
   const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
@@ -7780,7 +7807,8 @@ begin
     MatchText(lIdentity.UnderlyingName, ['record', 'packed record']);
   if Result then
   begin
-    if UnindexedRecordHelperMayApply(aSite, lLineage.Items) then
+    if UnindexedRecordHelperMayApply(aSite, lLineage.Items) or
+      IndexedRecordHelperMembersAreUnverified(aModel, aSite, lLineage) then
     begin
       Result := False;
       aRefusalCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';

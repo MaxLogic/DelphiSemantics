@@ -128,6 +128,7 @@ type
     [Test]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
+    [TestCase('Before indexed record helper completeness', '27')]
     procedure Schema13PlanningRowsRebuildWholeSnapshotCache(const aOldSchema: string);
     [Category('Fast')]
     [Test]

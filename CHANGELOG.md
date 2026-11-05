@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- WITH binding refuses record-member misses when an applicable indexed helper has an incomplete member inventory, including helper targets through weak aliases and indexed names. Older persisted plans rebuild.
+
 - WITH ranges stop before the enclosing repeat loop condition. WITH fact and body scans preserve Delphi 12 multiline strings, including odd apostrophes and literal WITH text; older cached facts rebuild.
 
 - WITH helper targets retain declaration identity across unit homonyms and weak aliases. Method-local receiver types retain class scope, and name-only overloaded parameter lookup refuses ambiguous declarations.
