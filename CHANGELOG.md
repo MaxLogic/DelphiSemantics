@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Model extraction indexes generic records, restores sibling type declarations after nested record fields and declaration sections, and indexes escaped and same-line helpers with their members. Older cached models rebuild.
+
 - WITH planning preserves independent nested rewrites beneath partial receiver refusals. Member inventories cover active anonymous-record tags, verified helper constants and inline simple type aliases; inactive tags no longer produce invalid member qualifications. Existing caches rebuild.
 
 - WITH binding verifies private field access and permits protected type constants in descendant methods. Type-scoped constants retain their owner in Resolve and no longer appear as unqualified unit declarations. Existing helper-unit and capture-type visibility refusals remain covered across all planner routes.

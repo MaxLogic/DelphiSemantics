@@ -346,6 +346,14 @@ type
     [TestCase('Record constant', 'record')]
     [TestCase('Class constant', 'class')]
     procedure NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
+    [TestCase('generic-record', 'generic-record')]
+    [TestCase('nested-record-const', 'nested-record-const')]
+    [TestCase('nested-record-var', 'nested-record-var')]
+    [TestCase('generic-const', 'generic-const')]
+    [TestCase('generic-var', 'generic-var')]
+    [TestCase('escaped-helper', 'escaped-helper')]
+    [TestCase('same-line-helper', 'same-line-helper')]
+    procedure ComplexTypeSectionDeclarations(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure MultilineVarParametersAreNotUnitVariables;
@@ -5048,6 +5056,90 @@ begin
     end;
 end;
 
+procedure TUnitModelTests.ComplexTypeSectionDeclarations(const aShape: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel, lDecoded: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource, lOwner, lSection: string;
+begin
+  lSource := 'unit ComplexTypes;'#13#10'interface'#13#10'type'#13#10 +
+    '  TItem = record Value: Integer; end;'#13#10;
+  if aShape = 'generic-record' then
+    lSource := lSource + '  TGen<T> = record'#13#10'    Data: T;'#13#10'  end;'#13#10 +
+      '  TPad = record Pad: Integer; end;'#13#10'  TX = TItem;'#13#10
+  else if aShape = 'escaped-helper' then
+    lSource := lSource + '  &THelp = record helper for TItem'#13#10 +
+      '    function Get: Integer;'#13#10'  end;'#13#10
+  else if aShape = 'same-line-helper' then
+    lSource := lSource + '  TPad = record Pad: Integer; end; ' +
+      'THelp = record helper for TItem function Get: Integer; end;'#13#10
+  else
+  begin
+    lOwner := 'TR = record';
+    if StartsText('generic-', aShape) then
+      lOwner := 'TG<T> = class';
+    lSource := lSource + '  ' + lOwner + #13#10;
+    if StartsText('nested-record-', aShape) then
+      lSource := lSource + '    Inner: record'#13#10'      Value: Integer;'#13#10'    end;'#13#10;
+    lSection := 'const'#13#10'      cValue = 1;';
+    if EndsText('-var', aShape) then
+      lSection := 'var'#13#10'      Data: Integer;';
+    lSource := lSource + '    ' + lSection + #13#10'  end;'#13#10 +
+      '  TC = class'#13#10'    function Get: Integer;'#13#10'  end;'#13#10 +
+      'const'#13#10'  UnitValue = 2;'#13#10;
+  end;
+  lSource := lSource + 'implementation'#13#10;
+  if EndsText('helper', aShape) then
+    lSource := lSource + 'function THelp.Get: Integer; begin Result := Value; end;'#13#10
+  else if aShape <> 'generic-record' then
+    lSource := lSource + 'function TC.Get: Integer; begin Result := UnitValue; end;'#13#10;
+  lSource := lSource + 'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('complex-' + aShape + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lDecoded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(lDecoded));
+  if aShape = 'generic-record' then
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration),
+      'The generic record must be indexed.');
+    Assert.AreEqual('record', lDeclaration.TypeName);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'TGen', 'Data'));
+    Assert.IsTrue(HasDeclaration(lModel, 'TPad', 'type', 'interface'));
+    Assert.IsTrue(FindDeclaration(lModel, 'TX', 'type-alias', 'interface', lDeclaration));
+    Assert.AreEqual('TItem', lDeclaration.TypeName);
+  end else if EndsText('helper', aShape) then
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'THelp', 'type', 'interface', lDeclaration),
+      'Escaped and same-line helpers must have real declarations.');
+    Assert.AreEqual('record', lDeclaration.AstHelperKind);
+    Assert.AreEqual('TItem', lDeclaration.HelperTargetName);
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'THelp', 'Get'));
+    Assert.AreEqual<Integer>(0, Length(lModel.UnindexedHelpers));
+    Assert.IsFalse(HasDiagnostic(lModel, 'AST_HELPER_DECLARATION_UNINDEXED'));
+  end else begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TC', 'type', 'interface', lDeclaration),
+      'The enclosing type section must resume after the owner.');
+    Assert.AreEqual('class', lDeclaration.TypeName);
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'TC', 'Get'));
+    Assert.IsFalse(HasDeclaration(lModel, 'TC', 'const', 'interface'));
+    Assert.IsTrue(FindDeclaration(lModel, 'UnitValue', 'const', 'interface', lDeclaration));
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    if EndsText('-const', aShape) then
+    begin
+      Assert.IsTrue(FindDeclaration(lModel, 'cValue', 'const', 'interface', lDeclaration));
+      Assert.AreEqual('type', lDeclaration.ScopeKind);
+    end;
+  end;
+end;
+
 procedure TUnitModelTests.NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
 var
   lDeclaration: TDelphiSemanticDeclaration;
@@ -6511,7 +6603,7 @@ begin
     lSection := 'implementation';
   end;
   if aShape <> 'none' then
-    lSource := lSource + 'type'#13#10'  &THelp = ' + lKind + ' helper for ' + lTarget + #13#10 +
+    lSource := lSource + 'type'#13#10'  &THelp ='#13#10'    ' + lKind + ' helper for ' + lTarget + #13#10 +
       '    function Count: Integer;'#13#10'  end;'#13#10;
   if aShape <> 'implementation' then
     lSource := lSource + 'implementation'#13#10;

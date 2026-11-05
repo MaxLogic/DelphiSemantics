@@ -149,6 +149,7 @@ type
     [TestCase('Same-line routine locals absent from previous producer', '41')]
     [TestCase('IFOPT erased by previous activity producer', '59')]
     [TestCase('Evidence failure discarded by previous activity producer', '60')]
+    [TestCase('Before generic and escaped helper extraction', '79')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Category('Fast')]
     [Test]
@@ -479,7 +480,7 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.78', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.80', lIdentity.ParserVersion,
       'Conditional WITH safety requires fresh extraction of earlier ranges and bindings.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
@@ -569,7 +570,7 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit IndependentHelper;'#13#10'interface'#13#10 +
     'type TRec = record Value: Integer; end;'#13#10 +
-    '  &THelp = record helper for TRec'#13#10 +
+    '  &THelp ='#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
     'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.', TEncoding.ASCII);
   lCacheOptions := Default(TDelphiSemanticCacheOptions);

@@ -35,6 +35,33 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [Category('DS751Slice')]
+    [TestCase('generic-record route 0', 'generic-record,0')]
+    [TestCase('generic-record route 1', 'generic-record,1')]
+    [TestCase('generic-record route 2', 'generic-record,2')]
+    [TestCase('generic-record route 3', 'generic-record,3')]
+    [TestCase('generic-record route 4', 'generic-record,4')]
+    [TestCase('nested-record route 0', 'nested-record,0')]
+    [TestCase('nested-record route 1', 'nested-record,1')]
+    [TestCase('nested-record route 2', 'nested-record,2')]
+    [TestCase('nested-record route 3', 'nested-record,3')]
+    [TestCase('nested-record route 4', 'nested-record,4')]
+    [TestCase('generic-const route 0', 'generic-const,0')]
+    [TestCase('generic-const route 1', 'generic-const,1')]
+    [TestCase('generic-const route 2', 'generic-const,2')]
+    [TestCase('generic-const route 3', 'generic-const,3')]
+    [TestCase('generic-const route 4', 'generic-const,4')]
+    [TestCase('escaped-helper route 0', 'escaped-helper,0')]
+    [TestCase('escaped-helper route 1', 'escaped-helper,1')]
+    [TestCase('escaped-helper route 2', 'escaped-helper,2')]
+    [TestCase('escaped-helper route 3', 'escaped-helper,3')]
+    [TestCase('escaped-helper route 4', 'escaped-helper,4')]
+    [TestCase('same-line-helper route 0', 'same-line-helper,0')]
+    [TestCase('same-line-helper route 1', 'same-line-helper,1')]
+    [TestCase('same-line-helper route 2', 'same-line-helper,2')]
+    [TestCase('same-line-helper route 3', 'same-line-helper,3')]
+    [TestCase('same-line-helper route 4', 'same-line-helper,4')]
+    procedure ModelExtractionRoutes(const aShape: string; const aRoute: Integer);
     [Category('DS744Slice')]
     [TestCase('nested-independent route 0', 'nested-independent,0')]
     [TestCase('nested-independent route 1', 'nested-independent,1')]
@@ -5353,9 +5380,14 @@ begin
       'begin end;' + #13#10;
   lText := lText + 'end.' + #13#10;
   if aBarrier = 'helper-escaped-name' then
+  begin
     lText := StringReplace(lText, 'TObjectExtraHelper', '&type', [rfReplaceAll]);
+    lText := StringReplace(lText, '&type = class helper',
+      '&type ='#13#10'    class helper', []);
+  end;
   if aBarrier = 'helper-unindexed-empty' then
-    lText := 'unit ClosureSupport; interface type &type = class helper for TObject end; implementation end.';
+    lText := 'unit ClosureSupport; interface type &type ='#13#10 +
+      'class helper for TObject end; implementation end.';
   TFile.WriteAllText(lOptions.SourceFileName, lText, TEncoding.ASCII);
   lSupport := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lSupport.Success);
@@ -5365,7 +5397,7 @@ begin
       ModelToJson(lSupport), TEncoding.UTF8);
     Assert.AreEqual('ast', lSupport.ScopeModelStatus);
     if aBarrier = 'helper-escaped-name' then
-      // Our line scanner also rejects Extra under the escaped helper owner.
+      // The split header also leaves Extra without an indexed helper owner.
       Assert.AreEqual(2, lSupport.RejectedDeclarationCount)
     else
       Assert.AreEqual(1, lSupport.RejectedDeclarationCount);
@@ -7175,7 +7207,7 @@ var
   lHelper, lBody, lSource, lTarget: string;
   lTypeA, lTypeB, lHelperModel, lConsumer: TDelphiSemanticUnitModel;
 begin
-  lHelper := '  &THelp = record helper for %s'#13#10 +
+  lHelper := '  &THelp = '#13#10'    record helper for %s'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10;
   lBody := 'procedure Run;'#13#10'var'#13#10'  lRecord: %s;'#13#10'  Count: Integer;'#13#10 +
     'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10;
@@ -7252,13 +7284,13 @@ begin
     '  TRec = record Value: Integer; end;'#13#10 +
     '  TAlias = TRec;'#13#10;
   if aShape = 'alias-receiver' then
-    lSource := lSource + '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+    lSource := lSource + '  &THelp = '#13#10'    record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
   else if aShape = 'alias-target' then
-    lSource := lSource + '  &THelp = record helper for TAlias'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+    lSource := lSource + '  &THelp = '#13#10'    record helper for TAlias'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
   else if aShape = 'class-helper' then
-    lSource := lSource + '  &THelp = class helper for TObject'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
+    lSource := lSource + '  &THelp = '#13#10'    class helper for TObject'#13#10'    function Count: Integer;'#13#10'  end;'#13#10
   else
-    lSource := lSource + '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10;
+    lSource := lSource + '  &THelp = '#13#10'    record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10;
   lSource := lSource + 'implementation'#13#10;
   if aShape = 'alias-receiver' then
     lSource := lSource + 'procedure Run;'#13#10'var'#13#10'  lRecord: TAlias;'#13#10'  Count: Integer;'#13#10 +
@@ -7311,7 +7343,7 @@ begin
     'unit RecordHelper;'#13#10'interface'#13#10 +
     IfThen(aShape = 'import', 'uses MissingHelperUnit;'#13#10, '') + 'type'#13#10 +
     '  TRec = record Value: Integer; end;'#13#10'  PRec = ^TRec;'#13#10 +
-    '  &TRecHelper = record helper for TRec'#13#10 +
+    '  &TRecHelper = '#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10 +
     'var Count: Integer;'#13#10'implementation'#13#10 +
     'function &TRecHelper.Count: Integer;'#13#10'begin Result := 1; end;'#13#10 +
@@ -11996,7 +12028,7 @@ begin
     'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
     'procedure BeforeHelper;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
     'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
-    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10 +
     'procedure AfterHelper;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
     'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
@@ -12018,7 +12050,7 @@ begin
       '  with GRec do Count := 1;'#13#10 +
       'end;'#13#10 +
       'type'#13#10 +
-      '  &THelp = record helper for TAlias'#13#10 +
+      '  &THelp = '#13#10'    record helper for TAlias'#13#10 +
       '    class var FCount: Integer;'#13#10 +
       '    class property Count: Integer read FCount write FCount;'#13#10 +
       '  end;'#13#10 +
@@ -12083,7 +12115,7 @@ begin
   lOptions.SourceFileName := WithBinderTempPath('MalformedHelper-' + StringReplace(aMode, ':', '-', [rfReplaceAll]) + '.pas');
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit MalformedHelper;'#13#10'interface'#13#10'uses MalformedRecord;'#13#10 +
-    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
     'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.', TEncoding.ASCII);
   lHelperModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
@@ -12165,7 +12197,7 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit CoordinateHelper;'#13#10'interface'#13#10 +
     'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
-    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    procedure Count;'#13#10'  end;'#13#10 +
     'procedure Count;'#13#10'begin end;'#13#10 +
     'procedure Run;'#13#10'var lRecord: TRec;'#13#10 +
@@ -12235,7 +12267,7 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit WriterCoordinate;'#13#10'interface'#13#10 +
     'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
-    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    procedure Count;'#13#10'  end;'#13#10 +
     'procedure Run;'#13#10'var lRecord: TRec;'#13#10 +
     'begin'#13#10'  with lRecord do Count();'#13#10'end;'#13#10 +
@@ -12273,7 +12305,7 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit WriterValues;'#13#10'interface'#13#10 +
     'type TRec = record Value: Integer; end;'#13#10'implementation'#13#10 +
-    'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10 +
     'procedure Run;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
     'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10 +
@@ -12327,7 +12359,7 @@ begin
   lOptions.SourceFileName := WithBinderTempPath('duplicate-helper-' + aOrder + '.pas');
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit Helpers;'#13#10'interface'#13#10'uses TypesA;'#13#10 +
-    'type'#13#10'  &THelp = record helper for TypesA.TRec'#13#10 +
+    'type'#13#10'  &THelp = '#13#10'    record helper for TypesA.TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10'implementation'#13#10 +
     'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10'end.',
     TEncoding.ASCII);
@@ -12400,7 +12432,7 @@ begin
   lOptions.ProjectContextApplied := True;
   lOptions.SourceFileName := WithBinderTempPath('HelperOrigin-' + aMode + '.pas');
   lIncludePath := ChangeFileExt(lOptions.SourceFileName, '.inc');
-  lHelper := 'type'#13#10'  &THelp = record helper for TRec'#13#10 +
+  lHelper := 'type'#13#10'  &THelp = '#13#10'    record helper for TRec'#13#10 +
     '    function Count: Integer;'#13#10'  end;'#13#10;
   lInclude := '// padding'#13#10'// padding'#13#10'// padding'#13#10;
   if aMode = 'included' then
@@ -12477,7 +12509,7 @@ begin
     '<DCCReference Include="ControlUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
     'unit Unit1;'#13#10'interface'#13#10'type TRec = record Value: Integer; end;'#13#10 +
-    '  &THelp = record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10 +
+    '  &THelp = '#13#10'    record helper for TRec'#13#10'    function Count: Integer;'#13#10'  end;'#13#10 +
     'implementation'#13#10'function &THelp.Count: Integer;'#13#10'begin Result := 1; end;'#13#10 +
     'procedure Run;'#13#10'var lRecord: TRec; Count: Integer;'#13#10 +
     'begin'#13#10'  with lRecord do Count := 1;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
@@ -21712,6 +21744,117 @@ begin
     'compound-class-helper']) then
     Assert.IsTrue(lFound > 0, aShape + ':' + lPlan.FinalStatements[0].Reason + ':' +
       lPlan.FinalStatements[0].SafetyReason);
+end;
+
+procedure TWithBinderTests.ModelExtractionRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+begin
+  lRoot := WithBinderTempPath('extract-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFile in TDirectory.GetFiles(FixturePath('ModelExtraction', aShape), '*.pas') do
+    TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="Unit1.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'model-extraction';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'model-extraction';
+      lIdentity.SchemaVersion := 'model-extraction';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  // Retain the actual published edits for independent dcc64 runtime comparison.
+  lProofRoot := GetEnvironmentVariable('DS_MODEL_EXTRACTION_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Get', 'member'),
+    'The extracted method must bind as a receiver member.');
+  if aShape = 'same-line-helper' then
+  begin
+    // Model binding is now complete. The independent source inventory still
+    // cannot qualify this same-line helper and must retain its established refusal.
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('receiver-member-unqualified', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
+  if aShape = 'generic-record' then
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('G := Item.Get + 1;'),
+      lPlan.FinalStatements[0].ReplacementText)
+  else if MatchText(aShape, ['nested-record', 'generic-const']) then
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('G := lWithCPtr^.Get + 1;'),
+      lPlan.FinalStatements[0].ReplacementText)
+  else
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('G := lWithItemPtr^.Get + 1;'),
+      lPlan.FinalStatements[0].ReplacementText);
 end;
 
 procedure TWithBinderTests.BindingSafetyRoutes(const aShape: string; const aRoute: Integer);
