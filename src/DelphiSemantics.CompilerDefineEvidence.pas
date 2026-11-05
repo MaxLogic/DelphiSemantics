@@ -232,6 +232,7 @@ function ValidateDescriptor(var aDescriptor: TDelphiSemanticCompilerDefineDescri
   const aRequest: TDelphiSemanticCompilerDefineRequest; out aReason: string): Boolean;
 const
   cVerifiedCompilerHash = 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
+  cVerifiedCompiler64Hash = '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9';
 var
   i, j: Integer;
   lNormalized: TArray<string>;
@@ -255,7 +256,8 @@ begin
     Exit(False);
   if (aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1') and
     ((aDescriptor.CaptureKind <> 'native-msbuild-dcc-inputs-v1') or
-    not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash)) then
+    (not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash) and
+    not SameText(aDescriptor.CompilerHash, cVerifiedCompiler64Hash))) then
     Exit(False);
   aReason := 'compiler define evidence contains invalid ordinary symbols';
   if not NormalizeSymbols(aDescriptor.Defines, lNormalized) then

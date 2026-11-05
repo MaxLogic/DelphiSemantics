@@ -117,6 +117,7 @@
     <DCCReference Include="src\test.withbinding.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
+    <DCCReference Include="..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.ProjectOptions.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.Compatibility.pas"/>

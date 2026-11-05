@@ -16,6 +16,9 @@ type
     [TestCase('source applicability', 'source')]
     [TestCase('immutable descriptor', 'immutable')]
     procedure AdmitsClosedCompilerInputs(const aShape: string);
+    [TestCase('Native 32-bit host', 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03')]
+    [TestCase('Native 64-bit host', '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9')]
+    procedure AdmitsVerifiedNativeCompilerHost(const aCompilerHash: string);
     [Test]
     [TestCase('replace emulated defines', 'replace')]
     [TestCase('certified empty', 'empty')]
@@ -134,6 +137,20 @@ begin
     lDescriptor.Sources[i].ContentHash := THashSHA2.GetHashStringFromFile(aSources[i]);
   end;
   Result := TTestDefineEvidence.Create(lDescriptor);
+end;
+
+procedure TCompilerDefineEvidenceTests.AdmitsVerifiedNativeCompilerHost(const aCompilerHash: string);
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lReason: string;
+begin
+  lDescriptor := ClosedDescriptor;
+  lDescriptor.CaptureKind := 'native-msbuild-dcc-inputs-v1';
+  lDescriptor.CompilerHash := aCompilerHash;
+  lEvidence := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason),
+    lReason);
 end;
 
 procedure TCompilerDefineEvidenceTests.AdmitsClosedCompilerInputs(const aShape: string);
