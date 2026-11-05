@@ -35,6 +35,62 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('subject-shadow route 0', 'subject-shadow,0')]
+    [TestCase('subject-shadow route 1', 'subject-shadow,1')]
+    [TestCase('subject-shadow route 2', 'subject-shadow,2')]
+    [TestCase('subject-shadow route 3', 'subject-shadow,3')]
+    [TestCase('subject-shadow route 4', 'subject-shadow,4')]
+    [TestCase('subject-absent route 0', 'subject-absent,0')]
+    [TestCase('subject-absent route 1', 'subject-absent,1')]
+    [TestCase('subject-absent route 2', 'subject-absent,2')]
+    [TestCase('subject-absent route 3', 'subject-absent,3')]
+    [TestCase('subject-absent route 4', 'subject-absent,4')]
+    [TestCase('subject-unknown route 0', 'subject-unknown,0')]
+    [TestCase('subject-unknown route 1', 'subject-unknown,1')]
+    [TestCase('subject-unknown route 2', 'subject-unknown,2')]
+    [TestCase('subject-unknown route 3', 'subject-unknown,3')]
+    [TestCase('subject-unknown route 4', 'subject-unknown,4')]
+    [TestCase('subject-active route 0', 'subject-active,0')]
+    [TestCase('subject-active route 1', 'subject-active,1')]
+    [TestCase('subject-active route 2', 'subject-active,2')]
+    [TestCase('subject-active route 3', 'subject-active,3')]
+    [TestCase('subject-active route 4', 'subject-active,4')]
+    [TestCase('asm route 0', 'asm,0')]
+    [TestCase('asm route 1', 'asm,1')]
+    [TestCase('asm route 2', 'asm,2')]
+    [TestCase('asm route 3', 'asm,3')]
+    [TestCase('asm route 4', 'asm,4')]
+    [TestCase('asm-nested route 0', 'asm-nested,0')]
+    [TestCase('asm-nested route 1', 'asm-nested,1')]
+    [TestCase('asm-nested route 2', 'asm-nested,2')]
+    [TestCase('asm-nested route 3', 'asm-nested,3')]
+    [TestCase('asm-nested route 4', 'asm-nested,4')]
+    [TestCase('terminator route 0', 'terminator,0')]
+    [TestCase('terminator route 1', 'terminator,1')]
+    [TestCase('terminator route 2', 'terminator,2')]
+    [TestCase('terminator route 3', 'terminator,3')]
+    [TestCase('terminator route 4', 'terminator,4')]
+    [TestCase('subject-hidden-member route 0', 'subject-hidden-member,0')]
+    [TestCase('subject-hidden-member route 1', 'subject-hidden-member,1')]
+    [TestCase('subject-hidden-member route 2', 'subject-hidden-member,2')]
+    [TestCase('subject-hidden-member route 3', 'subject-hidden-member,3')]
+    [TestCase('subject-hidden-member route 4', 'subject-hidden-member,4')]
+    [TestCase('subject-inactive-body route 0', 'subject-inactive-body,0')]
+    [TestCase('subject-inactive-body route 1', 'subject-inactive-body,1')]
+    [TestCase('subject-inactive-body route 2', 'subject-inactive-body,2')]
+    [TestCase('subject-inactive-body route 3', 'subject-inactive-body,3')]
+    [TestCase('subject-inactive-body route 4', 'subject-inactive-body,4')]
+    [TestCase('subject-child route 0', 'subject-child,0')]
+    [TestCase('subject-child route 1', 'subject-child,1')]
+    [TestCase('subject-child route 2', 'subject-child,2')]
+    [TestCase('subject-child route 3', 'subject-child,3')]
+    [TestCase('subject-child route 4', 'subject-child,4')]
+    [TestCase('subject-defined route 0', 'subject-defined,0')]
+    [TestCase('subject-defined route 1', 'subject-defined,1')]
+    [TestCase('subject-defined route 2', 'subject-defined,2')]
+    [TestCase('subject-defined route 3', 'subject-defined,3')]
+    [TestCase('subject-defined route 4', 'subject-defined,4')]
+    procedure ConditionalWithSafety(const aShape: string; const aRoute: Integer);
     [TestCase('cold', 'cold')]
     [TestCase('warm', 'warm')]
     [TestCase('snapshot', 'snapshot')]
@@ -5580,6 +5636,155 @@ begin
               'Known-false field must not borrow a foreign member.');
     end;
   end;
+end;
+
+
+procedure TWithBinderTests.ConditionalWithSafety(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lSource, lBody, lInnerType, lProofRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+begin
+  lRoot := WithBinderTempPath('ds737-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  lInnerType := 'TRec';
+  if MatchText(aShape, ['subject-absent', 'subject-hidden-member']) then
+    lInnerType := 'TAbsent';
+  lBody := 'with Rec{$IFDEF X}, Inner{$ENDIF} do Count := 1;';
+  if aShape = 'subject-unknown' then
+    lBody := lBody.Replace('{$IFDEF X}', '{$IF UseFast}');
+  if aShape = 'subject-active' then
+    lBody := 'with Rec, Inner do Count := 1;';
+  if aShape = 'subject-defined' then
+    lBody := '{$DEFINE X}' + lBody;
+  if aShape = 'subject-inactive-body' then
+    lBody := 'with Rec{$IFDEF X}, Inner{$ENDIF} do begin Local := 1; {$IFDEF Y} Count := 1; {$ENDIF} end;';
+  if aShape = 'subject-child' then
+    lBody := 'with Rec{$IFDEF X}, Inner{$ENDIF} do begin with Absent do Count := 1; end;';
+  if aShape = 'asm' then
+    lBody := 'with Rec do begin Count := 1; {$IFDEF X} asm nop end; {$ENDIF} Count := 9; end;';
+  if aShape = 'asm-nested' then
+    lBody := 'with Rec do begin Count := 1; {$IFDEF X} asm nop end; with Inner do Count := 3; {$ENDIF} Count := 9; end;';
+  if aShape = 'terminator' then
+    lBody := 'with Rec do {$IFDEF RELEASE_TRACE} Local := 1; with Inner do {$ENDIF} Count := 5;';
+  lSource := 'unit Unit1;'#13#10'interface'#13#10 +
+    'type TRec = record Count: Integer; end;'#13#10 +
+    'TAbsent = record Value: Integer; end;'#13#10 +
+    'var Rec: TRec;'#13#10'Inner: ' + lInnerType + ';'#13#10'Local: Integer;'#13#10'Absent: TAbsent;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  ' + lBody + #13#10'end;'#13#10'end.'#13#10;
+  if aShape = 'subject-hidden-member' then
+    lSource := lSource.Replace('TAbsent = record Value: Integer; end;',
+      'TAbsent = record Value: Integer; {$IFDEF X} Count: Integer; {$ENDIF} end;');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; Writeln(Rec.Count); ' +
+    'Writeln(Inner.' + IfThen(lInnerType = 'TRec', 'Count', 'Value') + '); Writeln(Local); end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  // Only session routes share their owned cold/warm cache within this case.
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'ds737';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'ds737';
+      lIdentity.SchemaVersion := 'ds737';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  lProofRoot := GetEnvironmentVariable('DS_WITH_ROUTE_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFileName in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFileName), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFileName, TPath.Combine(lProofRoot, ExtractFileName(lFileName)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(Length(lPlan.FinalStatements) > 0);
+  lStatement := lPlan.FinalStatements[0];
+  if MatchText(aShape, ['subject-shadow', 'subject-hidden-member', 'subject-inactive-body', 'subject-child',
+    'subject-unknown', 'asm-nested', 'terminator']) then
+  begin
+    Assert.AreEqual('skipped', lStatement.Status, aShape);
+    if MatchText(aShape, ['subject-shadow', 'subject-hidden-member', 'subject-inactive-body', 'subject-child']) then
+    begin
+      Assert.AreEqual('inactive-subject-shadowing', lStatement.Reason);
+      Assert.AreEqual('INACTIVE_SUBJECT_SHADOWING', lStatement.SafetyReason);
+    end else if aShape = 'subject-unknown' then
+      Assert.AreEqual('activity-unverified', lStatement.Reason)
+    else
+      Assert.IsNotEmpty(lStatement.Reason);
+    Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
+    Assert.AreEqual<Integer>(0, Length(lStatement.Temps));
+    Assert.AreEqual('', lStatement.ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.Edits), 'Refusal removes candidate edits.');
+  end else if (aShape = 'asm') and (lStatement.Status = 'skipped') then
+  begin
+    Assert.IsNotEmpty(lStatement.Reason);
+    Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.Edits));
+  end else if lStatement.Status = 'planned' then
+  begin
+    Assert.IsTrue(Length(lStatement.Edits) > 0);
+    if aShape = 'asm' then
+    begin
+      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '^.Count := 9;'),
+        'The tail member must remain qualified inside the replacement.');
+      Assert.IsTrue(ContainsText(lStatement.Verification.ExpectedSourceText, 'Count := 9; end;'));
+    end else
+      Assert.IsTrue(ContainsText(lStatement.ReplacementText, '^.Count := 1;'));
+  end else
+    Assert.Fail(aShape + ' control must remain planned: ' + lStatement.Reason);
+  Assert.AreEqual(lSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
 end;
 
 procedure TWithBinderTests.WholeWithSourceActivityIsRequired(const aShape: string);

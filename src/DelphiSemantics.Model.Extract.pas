@@ -5483,7 +5483,7 @@ var
   lBodyStartOffset: Integer;
   lCleanText: string;
   lSourceText: string;
-  lEndOffset: Integer;
+  lActiveEndOffset, lEndOffset: Integer;
   lItem: TDelphiSemanticWithStatement;
   lMatch: TMatch;
   lSelectorParts: TArray<string>;
@@ -5500,6 +5500,14 @@ begin
     lItem := Default(TDelphiSemanticWithStatement);
     lBodyStartOffset := lMatch.Index + lMatch.Length;
     lEndOffset := FindWithStatementEndOffset(lSourceText, lBodyStartOffset);
+    // Inactive terminators cannot shorten the statement selected by the compiler.
+    // Keep raw suffixes too: their activity and shadowing still require proof.
+    if aRangeText <> '' then
+    begin
+      lActiveEndOffset := FindWithStatementEndOffset(aText, lBodyStartOffset);
+      if lActiveEndOffset > lEndOffset then
+        lEndOffset := lActiveEndOffset;
+    end;
     lItem.Line := LineOfOffset(lSourceText, lMatch.Index);
     lItem.Column := ColumnOfOffset(lSourceText, lMatch.Index);
     lItem.EndLine := LineOfOffset(lSourceText, lEndOffset);

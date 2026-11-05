@@ -229,9 +229,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v56';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v57';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v85';
+    'project-session-remove-with-facts-v86';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)

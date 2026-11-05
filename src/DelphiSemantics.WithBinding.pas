@@ -5643,6 +5643,159 @@ begin
   end;
 end;
 
+
+function InactiveSubjectMayShadow(const aModel: TDelphiSemanticUnitModel;
+  const aSource: TWithBindingSourceContext;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aStatement: TDelphiSemanticWithStatement;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aRoutineName, aCurrentTypeName: string;
+  const aParentRoutineNames: TArray<string>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TMemberVerdict>): Boolean;
+var
+  lMatch: TMatch;
+  lHeader, lPart: string;
+  lParts: TArray<string>;
+  lSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  lIdentities: TWithSelectorIdentityArray;
+  lReference: TDelphiSemanticBoundReference;
+  lBound: TBoundMemberResolution;
+  lOwnerModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lOwnerSource: TWithBindingSourceContext;
+  lOwnerScan: string;
+  lOffset, lPartOffset, lStart, lFinish, i, j: Integer;
+  lInactive, lActive: Boolean;
+  lVerification: TDelphiSemanticWithBinding;
+begin
+  Result := False;
+  if aBinding.ActivityUnverified then
+    Exit;
+  lMatch := TRegEx.Match(SanitizeCodeText(aStatement.Text),
+    '(?<!&)\bwith\b\s+(.*?)\s+(?<!&)\bdo\b', [roIgnoreCase, roSingleLine]);
+  if not lMatch.Success then
+    Exit;
+  lHeader := lMatch.Groups[1].Value;
+  lOffset := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
+    aStatement.Line, aStatement.Column) + lMatch.Groups[1].Index - 1;
+  if (lOffset <= 0) or (lOffset + Length(lHeader) - 1 > Length(aSource.ReferenceScanText)) then
+    Exit(True);
+  lInactive := False;
+  for i := 1 to Length(lHeader) do
+    if not CharInSet(lHeader[i], [#9, #10, #13, ' ']) and
+      (aSource.ReferenceScanText[lOffset + i - 1] = ' ') then
+    begin
+      lInactive := True;
+      Break;
+    end;
+  if not lInactive then
+    Exit;
+  if not TrySplitTopLevelCommaList(lHeader, lParts) then
+    Exit(True);
+  lVerification := WithBindingForPlanning(aBinding);
+  // Bind the physical subject list with the same lexical/member resolver. These
+  // speculative selectors never become rewrite selectors or persisted edits.
+  lSelectors := nil;
+  lPartOffset := 1;
+  for i := 0 to High(lParts) do
+  begin
+    lPart := lParts[i];
+    j := Pos(lPart, lHeader, lPartOffset);
+    if j = 0 then
+      Exit(True);
+    lPartOffset := j + Length(lPart);
+    lInactive := False;
+    lActive := False;
+    for lStart := j to lPartOffset - 1 do
+      if not CharInSet(lHeader[lStart], [#9, #10, #13, ' ']) then
+      begin
+        if aSource.ReferenceScanText[lOffset + lStart - 1] = ' ' then
+          lInactive := True
+        else
+          lActive := True;
+      end;
+    if not lInactive then
+      Continue;
+    // Optional earlier subjects can change later selector lookup. Nested lists
+    // need their enclosing selector environment before absence is authoritative.
+    if (i <> High(lParts)) or (aStatement.NestingDepth > 0) then
+      Exit(True);
+    // A partially conditional expression is not an independently absent subject.
+    if lActive then
+      Exit(True);
+    if Length(lSelectors) = 0 then
+      lSelectors := BindSelectors(aModel, aSource, aProjectModels, aRoutineName,
+        aCurrentTypeName, lHeader, aParentRoutineNames, nil,
+        aStatement.Line, aStatement.Column, aStatement, aProjectMemberIndex,
+        aMemberCache, lIdentities);
+    if Length(lSelectors) <> Length(lParts) then
+      Exit(True);
+    // Only a closed source-backed record can currently establish absence across
+    // the alternative subject list. Conditional record members cannot prove it.
+    if not SameText(lSelectors[i].TypeIdentity.Kind, 'type') or
+      not SameText(lSelectors[i].TypeIdentity.CanonicalName, 'record') or
+      not aProjectMemberIndex.TrySafetyDeclarationModel(lSelectors[i].TypeIdentity, lOwnerModel) then
+      Exit(True);
+    if not SameText(lSelectors[i].TypeIdentity.SourceRange.FileName, lOwnerModel.FileName) then
+      Exit(True);
+    lOwnerSource := PrepareWithBindingSource(lOwnerModel);
+    lStart := ActivityOffset(lOwnerSource.LineStarts, Length(lOwnerModel.SourceText),
+      lSelectors[i].TypeIdentity.SourceRange.Line, lSelectors[i].TypeIdentity.SourceRange.Column);
+    // Type identity ranges identify the name. The AST body endpoint covers
+    // conditional fields hidden from the selected member inventory.
+    lFinish := 0;
+    for lDeclaration in lOwnerModel.Declarations do
+      if (lDeclaration.Line = lSelectors[i].TypeIdentity.SourceRange.Line) and
+        (lDeclaration.Column = lSelectors[i].TypeIdentity.SourceRange.Column) and
+        SameText(lDeclaration.Name, lSelectors[i].TypeIdentity.Name) then
+      begin
+        lFinish := ActivityOffset(lOwnerSource.LineStarts, Length(lOwnerModel.SourceText),
+          lDeclaration.TypeBodyEndLine, lDeclaration.TypeBodyEndColumn);
+        Break;
+      end;
+    if (lStart <= 0) or (lFinish < lStart) or (lFinish > Length(lOwnerModel.SourceText)) then
+      Exit(True);
+    lOwnerScan := SanitizeCodeText(lOwnerSource.ReferenceScanText);
+    for j := lStart to lFinish do
+      if not CharInSet(lOwnerSource.SanitizedSourceText[j], [#9, #10, #13, ' ']) and
+        (lOwnerScan[j] = ' ') then
+        Exit(True);
+    for lReference in lVerification.References do
+      if SameText(lReference.Classification, 'member') and
+        aProjectMemberIndex.TryResolveVerifiedSimpleMember(aModel,
+          ReceiverLookupSite(aModel, aStatement.Line, aStatement.Column),
+          [lSelectors[i]], aCurrentTypeName, 'inactive-subject:' + aBinding.SemanticId,
+          lReference.Name, aMemberCache, lBound) then
+        Exit(True);
+  end;
+end;
+
+function ContainsInactiveAsm(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement;
+  const aSource: TWithBindingSourceContext): Boolean;
+var
+  lMatch: TMatch;
+  lStart, lOffset: Integer;
+begin
+  Result := False;
+  lStart := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
+    aStatement.BodyLine, aStatement.BodyColumn);
+  if lStart <= 0 then
+    Exit;
+  lMatch := TRegEx.Match(SanitizeCodeText(aStatement.BodyText), '(?<!&)\basm\b', [roIgnoreCase]);
+  while lMatch.Success do
+  begin
+    lOffset := lStart + lMatch.Index - 1;
+    if (lOffset > 0) and (lOffset <= Length(aSource.ReferenceScanText)) and
+      (aSource.ReferenceScanText[lOffset] = ' ') and
+      not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+        aModel.VerifiedActiveSourceText, lOffset) then
+      Exit(True);
+    lMatch := lMatch.NextMatch;
+  end;
+end;
+
 function InactiveWithIdentifierChar(const aChar: Char): Boolean;
 begin
   Result := (aChar = '_') or aChar.IsLetterOrDigit;
@@ -7985,6 +8138,8 @@ var
   j: Integer;
   lBinding: TDelphiSemanticWithBinding;
   lBindingCapacity: Integer;
+  lParentStatementIndexes: TArray<Integer>;
+  lProofStatementIndex: Integer;
   lBindingStopwatch: TStopwatch;
   lBindings: TList<TDelphiSemanticWithBinding>;
   lBindingBuildMs: Int64;
@@ -8102,6 +8257,7 @@ begin
         Continue;
       lSourceContext := PrepareWithBindingSource(lModel);
       lActivityLineStarts := lSourceContext.LineStarts;
+      lParentStatementIndexes := BuildParentStatementIndexes(lModel.WithStatements);
       SetLength(lWithStatementLines, Length(lModel.WithStatements));
       for i := 0 to High(lModel.WithStatements) do
         lWithStatementLines[i] := lModel.WithStatements[i].Line;
@@ -8174,6 +8330,29 @@ begin
         begin
           lBinding.Status := 'skipped';
           lBinding.SkipReason := lSkipReason;
+        end;
+        if not lBinding.ActivityUnverified then
+        begin
+          // A child's qualification can use an inherited outer subject. Check
+          // every covering header against all names that this binding rewrites.
+          lProofStatementIndex := i;
+          while lProofStatementIndex >= 0 do
+          begin
+            if InactiveSubjectMayShadow(lModel, lSourceContext, aModels,
+              lModel.WithStatements[lProofStatementIndex], lBinding,
+              lRoutineLookupName, lCurrentTypeName, lParentRoutineNames,
+              lProjectMemberIndex, lMemberCache) then
+            begin
+              lBinding.SkipReason := 'INACTIVE_SUBJECT_SHADOWING';
+              Break;
+            end;
+            lProofStatementIndex := lParentStatementIndexes[lProofStatementIndex];
+          end;
+          if (lBinding.SkipReason <> 'INACTIVE_SUBJECT_SHADOWING') and
+            ContainsInactiveAsm(lModel, lStatement, lSourceContext) then
+            lBinding.SkipReason := 'INACTIVE_ASM_BLOCK';
+          if MatchText(lBinding.SkipReason, ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) then
+            lBinding.Status := 'skipped';
         end;
         if ContainsInactiveNestedWith(lModel, lStatement, lSourceContext) then
           // The earlier inactive refusal has already been copied to SkipReason.

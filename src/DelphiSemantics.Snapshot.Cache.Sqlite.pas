@@ -152,7 +152,8 @@ uses
 const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
   // 14: expected identity row count for complete project planning facts.
-  cSnapshotCacheSchemaVersion = '24';
+  // 25: DS-737/739 invalidate planning facts with unsafe conditional WITH ranges.
+  cSnapshotCacheSchemaVersion = '25';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

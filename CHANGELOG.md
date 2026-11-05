@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- WITH rewrites refuse inactive subjects that may shadow qualified names and inactive assembly blocks; inactive statement terminators no longer truncate active bodies. Older model and planning caches rebuild.
 - WITH receiver temporary kinds use declared type kinds rather than Object/Class suffixes; pointer targets no longer use P prefixes or Ptr suffixes.
 - Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.
 - Combined remove-with planning reuses complete persisted facts only with certified external compiler inputs. Native proof queries replay through a fresh owner, and validated models publish after successful planning. Changed inputs and damaged caches rebuild.

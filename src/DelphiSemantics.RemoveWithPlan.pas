@@ -8651,8 +8651,10 @@ begin
           end;
         end;
         if MatchText(lBinding.SkipReason,
-          ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) and
-          (not lBinding.MemberActivityUnverified) then
+          ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) or
+          (MatchText(lBinding.SkipReason,
+            ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) and
+            (not lBinding.MemberActivityUnverified)) then
         begin
           if lSafetyReasons[lBindingIndex] = '' then
             lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
@@ -8684,6 +8686,12 @@ begin
         lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
         while lParentIndex >= 0 do
         begin
+          if MatchText(lSafetyReasons[lParentIndex],
+            ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) then
+          begin
+            lSafetyReasons[lBindingIndex] := lSafetyReasons[lParentIndex];
+            Break;
+          end;
           if lInactiveNestedWithShadow[lParentIndex] then
           begin
             lInactiveNestedWithShadow[lBindingIndex] := True;
@@ -8762,6 +8770,8 @@ begin
                 SameText(lFinalStatement.SafetyReason, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') or
+                SameText(lFinalStatement.SafetyReason, 'INACTIVE_SUBJECT_SHADOWING') or
+                SameText(lFinalStatement.SafetyReason, 'INACTIVE_ASM_BLOCK') or
                 SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
               begin
