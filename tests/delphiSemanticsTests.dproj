@@ -134,6 +134,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Lsp.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.CompilerDefineEvidence.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectContext.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectSession.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>

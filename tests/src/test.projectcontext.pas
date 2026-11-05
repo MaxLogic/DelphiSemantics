@@ -3,7 +3,7 @@ unit Test.ProjectContext;
 interface
 
 uses
-  DUnitX.TestFramework, DelphiSemantics.ProjectContext;
+  DUnitX.TestFramework, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ProjectContext;
 
 type
   TProfileDirectoryMatrixAttribute = class(CustomTestCaseSourceAttribute)
@@ -87,6 +87,9 @@ type
     [Category('Fast')]
     [Test]
     procedure DprojResolvesBasicMetadata;
+    [Test]
+    [Category('Fast')]
+    procedure UncertifiedEvaluatedDefinesRemainPartial;
 
     [Category('Fast')]
     [TestCase('EvaluatedProject', 'project,True')]
@@ -248,7 +251,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
-  DelphiSemantics.Source, Test.Support;
+  DelphiSemantics.Source, Test.CompilerDefineEvidence, Test.Support;
 
 const
   // Increasing precedence for these fixtures: project properties precede the
@@ -777,7 +780,7 @@ var
   lPropertyName: string;
 begin
   lContext := Default(TDelphiSemanticCacheIdentityContext);
-  lContext.SchemaVersion := 'project-context-fingerprint-v3';
+  lContext.SchemaVersion := 'project-context-fingerprint-v4';
   lContext.ProjectPath := aProject.ProjectFileName;
   lContext.Configuration := aProject.Configuration;
   lContext.Platform := aProject.Platform;
@@ -793,6 +796,8 @@ begin
     Base641e4a3AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
     Base641e4a3AppendFingerprintItem(lBuilder, 'defineEvidenceComplete',
       BoolToStr(aProject.DefineEvidenceComplete, True));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
+    Base641e4a3AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
     Base641e4a3AppendFingerprintItem(lBuilder, 'main',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
     Base641e4a3AppendFingerprintItem(lBuilder, 'rsvars',
@@ -835,7 +840,8 @@ begin
   Result.MainSourceFileName := TPath.ChangeExtension(aFileName, '.dpr');
   Result.Defines := ['MSWINDOWS', 'WIN64', 'CPUX64'];
   Result.CompilerProfileName := 'Delphi-' + aVersion + '-Win64-Debug';
-  Result.DefineEvidenceComplete := True;
+  Result.DefineEvidenceComplete := False;
+  Result.CompilerDefineEvidenceFingerprint := 'unavailable';
   Result.IncludePaths := ['<include-path-unproved>'];
   if aEffectiveSearchPath <> '' then
   begin
@@ -882,8 +888,8 @@ begin
   lResult := TDelphiSemanticProject.Load(lFileName, lOptions);
   Assert.IsTrue(lResult.Success);
   lBaseProject := ProfileIdentityOracleProject(lFileName, '23.0', '');
-  Assert.IsTrue(lResult.Project.DefineEvidenceComplete,
-    'The minimal fixture has complete define evidence');
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'A minimal XML fixture has partial positive facts, not a compiler certificate.');
   Assert.AreNotEqual(Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, ''),
     lResult.Project.ContextFingerprint, 'Pre-evidence cache identities must invalidate');
   lBaseProject.ContextFingerprint := DefineEvidenceContextFingerprintOracle(lBaseProject, lOptions, '');
@@ -951,8 +957,8 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('True', lResult.Project.PropertyValue('DSWitnessProfileKnown'));
   lBaseProject := ProfileIdentityOracleProject(lFileName, aVersion, lSearchPath);
-  Assert.IsTrue(lResult.Project.DefineEvidenceComplete,
-    'The minimal fixture has complete define evidence');
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'A minimal XML fixture has partial positive facts, not a compiler certificate.');
   Assert.AreNotEqual(Base641e4a3BuildContextFingerprint(lBaseProject, lOptions, ''),
     lResult.Project.ContextFingerprint, 'Pre-evidence cache identities must invalidate');
   lBaseProject.ContextFingerprint := DefineEvidenceContextFingerprintOracle(lBaseProject, lOptions, '');
@@ -1535,7 +1541,8 @@ begin
   end;
   lResult := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
   Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
-  Assert.AreEqual(aComplete, lResult.Project.DefineEvidenceComplete, aShape);
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'Bounded toolchain evaluation never certifies absent defines: ' + aShape);
   if aComplete then
   begin
     if aShape = 'self' then
@@ -1586,7 +1593,7 @@ begin
   begin
     WriteUtf8Bytes(TPath.Combine(lUser, 'UserTools.proj'), '<Project><!-- changed input --></Project>');
     lChanged := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
-    Assert.IsTrue(lChanged.Project.DefineEvidenceComplete);
+    Assert.IsFalse(lChanged.Project.DefineEvidenceComplete, 'Changed partial inputs remain uncertified.');
     Assert.AreNotEqual(lResult.Project.ContextObservations.EvidenceFingerprint,
       lChanged.Project.ContextObservations.EvidenceFingerprint, 'Exact input bytes participate in evidence.');
   end;
@@ -1643,14 +1650,33 @@ begin
   end;
   lResult := TDelphiSemanticProject.Load(lPath, lOptions);
   Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
-  Assert.AreEqual(aComplete, lResult.Project.DefineEvidenceComplete,
-    aShape + ': ' + DiagnosticSummary(lResult));
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'Legacy define sources remain partial: ' + aShape + ': ' + DiagnosticSummary(lResult));
   if MatchText(aShape, ['caller', 'environment']) then
   begin
-    Assert.IsTrue(lControl.Project.DefineEvidenceComplete, 'Complete project control.');
-    Assert.AreNotEqual(lControl.Project.ContextFingerprint, lResult.Project.ContextFingerprint,
-      'Define evidence must participate in context identity.');
+    Assert.IsFalse(lControl.Project.DefineEvidenceComplete, 'Uncertified control remains partial.');
+    Assert.AreEqual(lControl.Project.ContextFingerprint, lResult.Project.ContextFingerprint,
+      'Neither legacy availability nor an uncaptured compiler environment certifies absence.');
   end;
+end;
+
+procedure TProjectContextTests.UncertifiedEvaluatedDefinesRemainPartial;
+var
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lPath: string;
+begin
+  lPath := ContextEvidenceTempPath('Uncertified.dproj');
+  WriteUtf8Bytes(lPath, '<Project><PropertyGroup><DCC_Define>DEBUG</DCC_Define>' +
+    '</PropertyGroup></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lResult := TDelphiSemanticProject.Load(lPath, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'XML evaluation does not certify compiler-only definitions.');
 end;
 
 procedure TProjectContextTests.DprojResolvesBasicMetadata;
@@ -1766,8 +1792,9 @@ begin
   lAfterProjectChangeFingerprint := lContextChanged.Project.ContextObservations.EvidenceFingerprint;
   Assert.AreNotEqual(lAfterOptionChangeFingerprint, lAfterProjectChangeFingerprint,
     'A raw project-file change must be retained even when evaluated properties are unchanged.');
-  Assert.AreEqual(lContextDebug.Project.ContextObservations.ConfigurationIdentity,
-    lContextChanged.Project.ContextObservations.ConfigurationIdentity);
+  Assert.AreNotEqual(lContextDebug.Project.ContextObservations.ConfigurationIdentity,
+    lContextChanged.Project.ContextObservations.ConfigurationIdentity,
+    'Effective positive define changes are part of semantic configuration identity.');
 
   lOptions.Platform := 'Win32';
   lContextPlatformChanged := TDelphiSemanticProject.Load(lDprojFileName, lOptions);
@@ -2134,6 +2161,7 @@ var
   lUnitSourceIndex: Integer;
   lOptions: TDelphiSemanticOptions;
   lRequest: TDelphiSemanticPlanBindingRequest;
+  lDefineRequest: TDelphiSemanticCompilerDefineRequest;
   lRoot: string;
   lScopeBoundPlan: TDelphiSemanticBoundPlanResult;
   lScopeEvidence: TDelphiSemanticContextEvidenceExtension;
@@ -2168,6 +2196,15 @@ begin
   lOptions.ProjectPath := TPath.Combine(lRoot, 'BoundProject.dproj');
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lDefineRequest := Default(TDelphiSemanticCompilerDefineRequest);
+  lDefineRequest.ProjectFileName := lOptions.ProjectPath;
+  lDefineRequest.MainSourceFileName := TPath.Combine(lRoot, 'BoundProject.dpr');
+  lDefineRequest.Configuration := 'Debug';
+  lDefineRequest.Platform := 'Win64';
+  lDefineRequest.DelphiVersion := '23.0';
+  lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lDefineRequest,
+    [lDefineRequest.MainSourceFileName, lUnitFileName], []);
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   Assert.IsTrue(lSessionResult.Success);
   try

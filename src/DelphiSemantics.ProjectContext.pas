@@ -3,7 +3,7 @@ unit DelphiSemantics.ProjectContext;
 interface
 
 uses
-  DelphiSemantics.RootMemberAbsence;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.RootMemberAbsence;
 
 const
   cDelphiSemanticCompilerLinkPropertyNames: array[0..4] of string = (
@@ -39,6 +39,8 @@ type
     EnvironmentVariables: TArray<TDelphiSemanticProperty>;
     AdditionalSourceFileNames: TArray<string>;
     CallerDefinesProvided: Boolean;
+    CallerDefines: TArray<string>;
+    CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
     // Complete ordered include-search option directories used by the compiler.
       // The caller certifies completeness, including additional -I and response files.
       // Relative entries are project-relative. DS never appends emulated directories.
@@ -102,6 +104,8 @@ type
     SourceFileNames: TArray<string>;
     Defines: TArray<string>;
     DefineEvidenceComplete: Boolean;
+    CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
+    CompilerDefineEvidenceFingerprint: string;
     IncludePaths: TArray<string>;
     SearchPaths: TArray<string>;
     UnitScopeNames: TArray<string>;
@@ -2363,8 +2367,11 @@ begin
 
     aProject.Defines := lDefines.ToArray;
     CaptureMainSourceConfig(aProject.MainSourceFileName, aObservations);
-    aProject.DefineEvidenceComplete := CompleteProjectDefineEvidence(aProperties,
-      aOptions, aObservations);
+    // Preserve bounded input observations without granting absence authority.
+    if aOptions.CompilerDefineEvidence = nil then
+      CompleteProjectDefineEvidence(aProperties, aOptions, aObservations);
+    // XML/toolchain emulation retains partial positive facts only (DS-772).
+    aProject.DefineEvidenceComplete := False;
     aProject.IncludePaths := lIncludePaths.ToArray;
     aProject.SearchPaths := lSearchPaths.ToArray;
     aProject.UnitScopeNames := lUnitScopeNames.ToArray;
@@ -2467,7 +2474,7 @@ var
   lPropertyName: string;
 begin
   lContext := Default(TDelphiSemanticCacheIdentityContext);
-  lContext.SchemaVersion := 'project-context-fingerprint-v3';
+  lContext.SchemaVersion := 'project-context-fingerprint-v4';
   lContext.ProjectPath := aProject.ProjectFileName;
   lContext.Configuration := aProject.Configuration;
   lContext.Platform := aProject.Platform;
@@ -2483,6 +2490,8 @@ begin
     AppendFingerprintItem(lBuilder, 'projectIdentity', lProjectIdentity.ProjectKey);
     AppendFingerprintItem(lBuilder, 'defineEvidenceComplete',
       BoolToStr(aProject.DefineEvidenceComplete, True));
+    AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
+    AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
     AppendFingerprintItem(lBuilder, 'main',
       TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aProject.MainSourceFileName));
     AppendFingerprintItem(lBuilder, 'rsvars',
@@ -2518,7 +2527,11 @@ var
 begin
   lBuilder := TStringBuilder.Create;
   try
-    lBuilder.AppendLine('schema=semantic-project-configuration-v1');
+    lBuilder.AppendLine('schema=semantic-project-configuration-v2');
+    AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
+    AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
+    AppendFingerprintItem(lBuilder, 'defineEvidenceComplete', BoolToStr(aProject.DefineEvidenceComplete, True));
+    AppendFingerprintItems(lBuilder, 'defines', aProject.Defines, False);
     AppendFingerprintItem(lBuilder, 'configuration', aProject.Configuration);
     AppendFingerprintItem(lBuilder, 'platform', aProject.Platform);
     AppendFingerprintItem(lBuilder, 'delphiVersion', aOptions.DelphiVersion);
@@ -2953,6 +2966,42 @@ begin
   end;
 end;
 
+procedure AdmitProjectCompilerDefines(var aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+var
+  lRequest: TDelphiSemanticCompilerDefineRequest;
+  lReason: string;
+  lEvidence: IDelphiSemanticCompilerDefineEvidence;
+begin
+  aProject.DefineEvidenceComplete := False;
+  aProject.CompilerDefineEvidence := nil;
+  aProject.CompilerDefineEvidenceFingerprint := 'unavailable';
+  if aOptions.CompilerDefineEvidence = nil then
+    Exit;
+  lRequest := Default(TDelphiSemanticCompilerDefineRequest);
+  lRequest.ProjectFileName := aProject.ProjectFileName;
+  lRequest.MainSourceFileName := aProject.MainSourceFileName;
+  lRequest.Configuration := aOptions.Configuration;
+  lRequest.Platform := aOptions.Platform;
+  lRequest.DelphiVersion := aOptions.DelphiVersion;
+  if TDelphiSemanticCompilerDefines.TryAdmit(aOptions.CompilerDefineEvidence,
+    lRequest, lEvidence, lReason) then
+  begin
+    if aOptions.CallerDefinesProvided and not TDelphiSemanticCompilerDefines.SameDefines(
+      aOptions.CallerDefines, TDelphiSemanticCompilerDefines.EffectiveDefines(lEvidence)) then
+      lReason := 'legacy caller defines conflict with certified effective defines'
+    else begin
+      aProject.CompilerDefineEvidence := lEvidence;
+      aProject.CompilerDefineEvidenceFingerprint := TDelphiSemanticCompilerDefines.Fingerprint(lEvidence);
+      aProject.Defines := TDelphiSemanticCompilerDefines.EffectiveDefines(lEvidence);
+      aProject.DefineEvidenceComplete := True;
+      Exit;
+    end;
+  end;
+  AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('COMPILER_DEFINE_EVIDENCE_UNPROVED',
+    lReason, aProject.ProjectFileName));
+end;
+
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
   const aRootAbsenceFingerprint: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
@@ -2975,6 +3024,7 @@ begin
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
     AddAdditionalSourceFiles(Result, aOptions);
+    AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);
     Result.ContextFingerprint := BuildContextFingerprint(Result, aOptions, aRootAbsenceFingerprint);
     lContextObservations := lObservations.Build(

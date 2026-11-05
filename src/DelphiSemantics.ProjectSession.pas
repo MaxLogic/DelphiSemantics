@@ -3,7 +3,7 @@ unit DelphiSemantics.ProjectSession;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.GlobalVars, DelphiSemantics.Graph,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.GlobalVars, DelphiSemantics.Graph,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.Query,
   DelphiSemantics.RemoveWithPlan, DelphiSemantics.SemanticGraph,
   DelphiSemantics.Snapshot,
@@ -229,9 +229,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v64';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v65';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v94';
+    'project-session-remove-with-facts-v95';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -270,6 +270,9 @@ begin
   Result.IncludePaths := [aProject.ProjectDirectory] + aProject.IncludePaths;
   Result.ProjectContextApplied := True;
   Result.DefineEvidenceComplete := aProject.DefineEvidenceComplete;
+  Result.CompilerDefineEvidence := aProject.CompilerDefineEvidence;
+  if aProject.CompilerDefineEvidence <> nil then
+    Result.CompilerDefineRequest := aProject.CompilerDefineEvidence.Descriptor.Invocation;
   Result.WritableTypedConstants := SameText(
     Trim(aProject.PropertyValue('DCC_WriteableConstants')), 'true');
 end;
@@ -840,6 +843,7 @@ begin
       lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
     end;
 
+    TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
     if ModelObservationOwner(aOptions) <> nil then
     begin
       if lCache = nil then
@@ -905,6 +909,7 @@ procedure RequireCurrentRequestModels(const aOptions: TDelphiSemanticOptions;
 var
   lModel: TDelphiSemanticUnitModel;
 begin
+  TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
   if ModelObservationOwner(aOptions) <> nil then
     for lModel in aModels do
       TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
@@ -967,6 +972,7 @@ var
   i: Integer;
   lItem: TDelphiSemanticProjectContextObservation;
 begin
+  TDelphiSemanticCompilerDefines.RequireCurrent(aProject.CompilerDefineEvidence);
   if aProject.ContextObservations = nil then
     raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_UNAVAILABLE');
   for i := 0 to aProject.ContextObservations.Count - 1 do
@@ -2545,6 +2551,7 @@ class function TDelphiSemanticProjectSession.Open(const aOptions: TDelphiSemanti
 var
   lContext: TDelphiSemanticContextResult;
   lDiagnostic: TDelphiSemanticDiagnostic;
+  lOptions: TDelphiSemanticOptions;
   lProfileAccepted: Boolean;
   lProfileReason: string;
   lProfileValidator: IDelphiSemanticProjectProfileValidator;
@@ -2595,7 +2602,9 @@ begin
   Result.Status := psOpen;
   Result.Provenance := 'project-context';
   Result.Diagnostics := Copy(lContext.Diagnostics);
-  Result.Session := TDelphiSemanticProjectSession.Create(aOptions, lContext.Project,
+  lOptions := aOptions;
+  lOptions.CompilerDefineEvidence := lContext.Project.CompilerDefineEvidence;
+  Result.Session := TDelphiSemanticProjectSession.Create(lOptions, lContext.Project,
     lContext.Diagnostics, Result.Status, Result.Provenance);
 end;
 

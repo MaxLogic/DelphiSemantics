@@ -3,7 +3,7 @@ unit DelphiSemantics.Api;
 interface
 
 uses
-  DelphiSemantics.Cache, DelphiSemantics.DeadCode, DelphiSemantics.ExternalSymbols,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.DeadCode, DelphiSemantics.ExternalSymbols,
   DelphiSemantics.Index, DelphiSemantics.Model, DelphiSemantics.ProjectContext,
   DelphiSemantics.Query, DelphiSemantics.Refactor,
   DelphiSemantics.Resolve.MemberResolver,
@@ -139,6 +139,7 @@ type
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
+    CompilerDefineEvidence: DelphiSemantics.CompilerDefineEvidence.IDelphiSemanticCompilerDefineEvidence;
     // Caller-certified complete compiler include-search option list, in dcc order.
     // Include every -I from MSBuild, additional switches and response files.
     // DS never appends emulated directories; relative entries are project-relative.
@@ -200,6 +201,8 @@ begin
   Result := Default(TDelphiSemanticOptions);
   Result.ProjectPath := aOptions.ProjectFileName;
   Result.CallerDefinesProvided := Length(aOptions.Defines) > 0;
+  Result.CallerDefines := Copy(aOptions.Defines);
+  Result.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
   Result.Configuration := aOptions.Configuration;
   Result.Platform := aOptions.Platform;
   Result.DelphiVersion := aOptions.DelphiVersion;

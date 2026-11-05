@@ -6436,6 +6436,9 @@ begin
   GExtractionContext := lExtractionContext;
   try
     lDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
+    if aOptions.CompilerDefineEvidenceReason <> '' then
+      AddDiagnostic(lDiagnostics, 'COMPILER_DEFINE_EVIDENCE_UNPROVED',
+        aOptions.CompilerDefineEvidenceReason, aOptions.SourceFileName, 0);
     lInterfaceUses := TList<string>.Create;
     lImplementationUses := TList<string>.Create;
     lDeclarations := TList<TDelphiSemanticDeclaration>.Create;

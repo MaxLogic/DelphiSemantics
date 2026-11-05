@@ -4,7 +4,7 @@ interface
 
 uses
   System.Generics.Collections,
-  DelphiSemantics.Model, DelphiSemantics.Source;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model, DelphiSemantics.Source;
 
 type
   TDelphiSemanticModelObservation = record
@@ -213,8 +213,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated model extraction and conditional WITH safety require fresh extraction.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.83';
+  // Integrated model extraction, conditional safety and compiler define evidence require fresh extraction.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.84';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -330,6 +330,7 @@ end;
 function ExtractionOptionsIdentityText(const aOptions: TDelphiSemanticModelOptions): string;
 begin
   Result := 'defineEvidenceComplete=' + BoolToStr(aOptions.DefineEvidenceComplete, True) +
+    '|compilerDefineEvidence=' + TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) +
     // Include order affects lookup; equivalent Windows path spellings do not.
     '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
     '|skippedIncludePolicy=all-candidates-v1' +
@@ -795,15 +796,18 @@ end;
 function TDelphiSemanticUnitCache.BuildIdentity(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitCacheIdentity;
 var
+  lOptions: TDelphiSemanticModelOptions;
   lObservations: IDelphiSemanticSourceObservations;
 begin
+  lOptions := AdmitCompilerDefineModelOptions(aOptions);
   EnterAccess(False);
   try
-    Result := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+    Result := BuildLoadedUnitIdentity(lOptions, fCompilerProfileName, fParserVersion,
       fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
   finally
     LeaveAccess(False);
   end;
+  TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
 end;
 
 function TDelphiSemanticUnitCache.PersistentEntryExistsForIdentity(
@@ -836,17 +840,19 @@ function TDelphiSemanticUnitCache.GetOrBuildUnitModelWithStatus(
   const aOptions: TDelphiSemanticModelOptions;
   const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
 var
+  lOptions: TDelphiSemanticModelOptions;
   lDictionary: TCacheDictionary;
   lEntry: TCacheEntry;
   lIdentity: string;
   lKey: string;
   lObservations: IDelphiSemanticSourceObservations;
 begin
+  lOptions := AdmitCompilerDefineModelOptions(aOptions);
   EnterAccess(True);
   try
     try
       Result := Default(TDelphiSemanticUnitCacheAccessResult);
-      Result.Identity := BuildLoadedUnitIdentity(aOptions, fCompilerProfileName, fParserVersion,
+      Result.Identity := BuildLoadedUnitIdentity(lOptions, fCompilerProfileName, fParserVersion,
         fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations);
       lIdentity := CanonicalIdentityPath(aOptions.SourceFileName);
       lKey := Result.Identity.UnitCacheKey;
@@ -859,6 +865,7 @@ begin
           Inc(fMetrics.CacheHits);
           Result.CacheHit := True;
           Result.Model := CloneUnitModel(lEntry.Model);
+          TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
           ValidateOwnedModel(Result);
           Exit;
         end;
@@ -872,6 +879,7 @@ begin
         Result.CacheHit := True;
         // Only evidence stored with this parse can authorize a warm model.
         // The fresh identity read validates it and never supplies missing evidence.
+        TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
         ValidateOwnedModel(Result);
         lEntry.Key := lKey;
         lEntry.Model := CloneUnitModel(Result.Model);
@@ -888,7 +896,7 @@ begin
       end;
 
       Inc(fMetrics.CacheMisses);
-      Result.Model := aBuilder(aOptions);
+      Result.Model := aBuilder(lOptions);
       if (Result.Model.SourceObservations <> nil) and
         not SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
       begin
@@ -899,6 +907,7 @@ begin
           raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: extraction drift');
         Exit;
       end;
+      TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
       ValidateOwnedModel(Result);
       // Owner-enabled requests read existing entries but never persist partial
       // requests. Snapshot/facts caches are bypassed by our project session too.

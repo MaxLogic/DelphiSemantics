@@ -3,7 +3,7 @@ unit DelphiSemantics.Model;
 interface
 
 uses
-  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticModelOptions = record
@@ -13,6 +13,9 @@ type
     IncludePaths: TArray<string>;
     ProjectContextApplied: Boolean;
     DefineEvidenceComplete: Boolean;
+    CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
+    CompilerDefineRequest: TDelphiSemanticCompilerDefineRequest;
+    CompilerDefineEvidenceReason: string;
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
@@ -319,10 +322,52 @@ type
       out aObservations: IDelphiSemanticSourceObservations): TDelphiSemanticUnitModel; overload; static;
   end;
 
+function AdmitCompilerDefineModelOptions(const aOptions: TDelphiSemanticModelOptions):
+  TDelphiSemanticModelOptions;
+
 implementation
 
 uses
+  System.SysUtils,
   DelphiSemantics.Model.Extract;
+
+function AdmitCompilerDefineModelOptions(const aOptions: TDelphiSemanticModelOptions):
+  TDelphiSemanticModelOptions;
+var
+  lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lDefines: TArray<string>;
+begin
+  Result := aOptions;
+  Result.DefineEvidenceComplete := False;
+  if aOptions.CompilerDefineEvidence = nil then
+    Exit;
+  if TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) <> 'unavailable' then
+    TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
+  if not TDelphiSemanticCompilerDefines.TryAdmit(aOptions.CompilerDefineEvidence,
+    aOptions.CompilerDefineRequest, lAdmitted, Result.CompilerDefineEvidenceReason) then
+  begin
+    Result.CompilerDefineEvidence := nil;
+    Exit;
+  end;
+  Result.CompilerDefineEvidence := lAdmitted;
+  lDefines := TDelphiSemanticCompilerDefines.EffectiveDefines(lAdmitted);
+  if (Length(aOptions.Defines) > 0) and
+    not TDelphiSemanticCompilerDefines.SameDefines(aOptions.Defines, lDefines) then
+  begin
+    Result.CompilerDefineEvidence := nil;
+    Result.CompilerDefineEvidenceReason := 'legacy model defines conflict with certified effective defines';
+    Exit;
+  end;
+  if TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted, aOptions.SourceFileName) then
+  begin
+    Result.Defines := lDefines;
+    Result.DefineEvidenceComplete := True;
+  end else begin
+    // Project -D values cannot describe an imported prebuilt DCU's history.
+    Result.Defines := nil;
+    Result.CompilerDefineEvidenceReason := 'certified invocation does not select and rebuild this source';
+  end;
+end;
 
 function TDelphiSemanticUnitDependencyFacts.Clone: TDelphiSemanticUnitDependencyFacts;
 begin
@@ -334,8 +379,12 @@ end;
 
 class function TDelphiSemanticUnitModelExtractor.ExtractFromFile(
   const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel;
+var
+  lOptions: TDelphiSemanticModelOptions;
 begin
-  Result := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(aOptions);
+  lOptions := AdmitCompilerDefineModelOptions(aOptions);
+  Result := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(lOptions);
+  TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
 end;
 
 class function TDelphiSemanticUnitModelExtractor.ExtractFromFile(

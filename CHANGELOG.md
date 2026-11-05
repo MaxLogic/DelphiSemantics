@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Project define completeness requires an admitted compiler-input certificate. Legacy define lists and XML evaluation remain partial; certificate identity and currentness guard model and planning caches.
+
 
 - Method headings inside types no longer add standalone routine symbols after blank lines. Enum values no longer reference themselves at their declarations, preserving rename and unused-value reporting. Older model and snapshot caches rebuild.
 - Constant, enum and member extraction uses indexed candidate lookups to avoid repeated full-list scans on large units.
