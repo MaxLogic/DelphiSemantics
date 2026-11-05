@@ -593,6 +593,12 @@ type
     [TestCase('one-line-routine-temp', 'one-line-routine-temp')]
     [TestCase('regular-routine', 'regular-routine')]
     procedure CapturePositionOnFiveRoutes(const aShape: string);
+    [TestCase('Dynamic array record named Object', 'array-record-object')]
+    [TestCase('Record named Object', 'record-object')]
+    [TestCase('Record named Class', 'record-class')]
+    [TestCase('Class named Object', 'class-object')]
+    [TestCase('Old-style object', 'old-object')]
+    procedure DeclaredReceiverKindOnFiveRoutes(const aShape: string);
     [TestCase('unrelated', 'capture-proof-unrelated')]
     [TestCase('homonym', 'capture-proof-homonym')]
     [TestCase('enum-capture', 'capture-proof-enum-capture')]
@@ -20074,7 +20080,9 @@ begin
     Assert.AreEqual(lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value,
       lFacts.Bindings[0].Selectors[0].CaptureTypeIdentity.DeclaredId.Value, aShape);
   end;
-  if aShape = 'ab' then
+  if aShape = 'b-after-sysutils' then
+    Assert.AreEqual('Unit2', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName)
+  else if aShape = 'ab' then
     Assert.AreEqual('B', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName)
   else if MatchText(aShape, ['own', 'c-local-wins']) then
     Assert.AreEqual('Unit1', lFacts.Bindings[0].Selectors[0].TypeIdentity.UnitName);
@@ -20123,6 +20131,44 @@ begin
       finally
         lSession.Session.Free;
       end;
+    end;
+    if (GetEnvironmentVariable('DS_WITH_ROUTE_PROOF_ROOT') <> '') and
+      (StartsText('ds761-', aShape) or MatchText(aShape,
+        ['a-before-sysutils', 'b-after-sysutils', 'c-local-wins'])) then
+    begin
+      // Export only the opt-in native proof inputs, outside automatic temp cleanup.
+      var lProofRoot := TPath.Combine(GetEnvironmentVariable('DS_WITH_ROUTE_PROOF_ROOT'),
+        aShape + BoolToStr(aSkipGraph, True));
+      TDirectory.CreateDirectory(lProofRoot);
+      if i = 0 then
+        for var lSourceFile in TDirectory.GetFiles(lRoot) do
+          if MatchText(ExtractFileExt(lSourceFile), ['.pas', '.dpr', '.dproj']) then
+            TFile.Copy(lSourceFile, TPath.Combine(lProofRoot, ExtractFileName(lSourceFile)));
+      var lSerializer: TJsonSerializer;
+      GC(lSerializer, TJsonSerializer.Create, g);
+      if i = 0 then
+        TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+          lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+      var lJson := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan);
+      TFile.WriteAllText(TPath.Combine(lProofRoot, 'route-' + IntToStr(i) + '.json'),
+        lJson, TEncoding.UTF8);
+    end;
+    if MatchText(aShape, ['ds761-array-record-object', 'ds761-old-object']) then
+    begin
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+      if (aShape = 'ds761-array-record-object') and
+        SameText(lPlan.FinalStatements[0].Status, 'planned') then
+      begin
+        Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[0].Temps), aShape);
+        Assert.AreEqual('record-pointer-temp',
+          lPlan.FinalStatements[0].Temps[0].Strategy, aShape);
+      end else begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+        Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+      end;
+      Continue;
     end;
     if StartsText('capture-external-', aShape) then
     begin
@@ -20416,6 +20462,18 @@ end;
 procedure TWithBinderTests.CaptureClearanceOnFiveRoutes(const aShape: string);
 begin
   RunOrderedTypeNamesOnFiveRoutes(aShape, False, '');
+end;
+
+procedure TWithBinderTests.DeclaredReceiverKindOnFiveRoutes(const aShape: string);
+var
+  lStrategy: string;
+begin
+  lStrategy := 'record-pointer-temp';
+  if aShape = 'class-object' then
+    lStrategy := 'reference-temp'
+  else if MatchText(aShape, ['old-object', 'array-record-object']) then
+    lStrategy := '';
+  RunOrderedTypeNamesOnFiveRoutes('ds761-' + aShape, False, lStrategy);
 end;
 
 procedure TWithBinderTests.CapturePositionOnFiveRoutes(const aShape: string);

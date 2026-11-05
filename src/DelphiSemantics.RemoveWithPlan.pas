@@ -908,28 +908,6 @@ begin
       Exit(lSymbol.TypeName);
 end;
 
-function ConventionalPointerTargetType(const aFacts: TRemoveWithPlanFacts;
-  const aTypeName: string): string;
-var
-  lCandidateTypeName: string;
-  lTypeName: string;
-begin
-  Result := '';
-  lTypeName := Trim(aTypeName);
-  if EndsText('Ptr', lTypeName) and (Length(lTypeName) > Length('Ptr')) then
-  begin
-    lCandidateTypeName := Copy(lTypeName, 1, Length(lTypeName) - Length('Ptr'));
-    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
-      Exit(lCandidateTypeName);
-  end;
-  if StartsText('P', lTypeName) and (Length(lTypeName) > 1) then
-  begin
-    lCandidateTypeName := Copy(lTypeName, 2, MaxInt);
-    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
-      Exit(lCandidateTypeName);
-  end;
-end;
-
 function SelectorShapeType(const aFacts: TRemoveWithPlanFacts;
   const aBaseTypeName, aSelectorText: string): string;
 var
@@ -944,8 +922,6 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if (lPointerTargetType = '') and (lIndexPos > 0) then
       Exit('')
     else if lPointerTargetType <> '' then
@@ -962,8 +938,6 @@ begin
   if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -985,8 +959,6 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if (lPointerTargetType = '') and (lIndexPos > 0) then
       Exit('')
     else if lPointerTargetType <> '' then
@@ -1003,8 +975,6 @@ begin
   if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -1697,7 +1667,7 @@ begin
       SameText(lSymbol.TypeCategory, 'class') or SameText(lSymbol.TypeCategory, 'interface') then
       Exit(True);
   end;
-  Result := EndsText('Object', aTypeName) or EndsText('Class', aTypeName);
+  // DS-761: a declaration's kind, never its spelling, authorizes a value temp.
 end;
 
 function TypeIsRecordLike(const aFacts: TRemoveWithPlanFacts;
@@ -3468,9 +3438,8 @@ begin
   lBaseName := 'lWith' + RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
-    // 0.10: spelling clearance cannot authorize a value copy or interface AddRef.
-    // TypeIsClassLike's legacy suffix heuristic stays for DS-761, but a reference
-    // temp still requires independently proved class kind at admission.
+    // Spelling clearance cannot authorize a value copy or interface AddRef.
+    // Keep the independent identity-kind check at the admission boundary.
     lKindIdentity := aDecision.ReceiverIdentity;
     // A deliberate receiver-identity omission does not erase proved capture kind.
     // Capture visibility still checks the emitted type independently below.

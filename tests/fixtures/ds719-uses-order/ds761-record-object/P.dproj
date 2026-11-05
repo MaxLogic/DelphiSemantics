@@ -1,0 +1,1 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup><MainSource>P.dpr</MainSource><ProjectName>P</ProjectName><Base>True</Base><Config>Debug</Config><Platform>Win64</Platform></PropertyGroup><PropertyGroup><DCC_Namespace>System;Winapi</DCC_Namespace></PropertyGroup><Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" /></Project>
