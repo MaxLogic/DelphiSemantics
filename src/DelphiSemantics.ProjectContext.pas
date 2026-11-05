@@ -142,6 +142,11 @@ type
       out aDiagnostics: TArray<TDelphiSemanticDiagnostic>): Boolean; static;
   end;
 
+// Search entries are MSBuild list values, not command-line arguments. Quotes
+// remain in the native search item and must not be stripped to invent a directory.
+function TryResolveCompilerSearchPathEntry(const aBaseDirectory, aValue: string;
+  out aPath, aError: string): Boolean;
+
 implementation
 
 uses
@@ -912,6 +917,42 @@ begin
     TryFindXmlElementText(aDocument.DocumentElement, aName, Result);
 end;
 
+function TryResolveCompilerSearchPathEntry(const aBaseDirectory, aValue: string;
+  out aPath, aError: string): Boolean;
+var
+  lValue: string;
+begin
+  Result := False;
+  aPath := '';
+  aError := '';
+  lValue := Trim(aValue);
+  if Pos('"', lValue) > 0 then
+  begin
+    aError := Format('Compiler search path entry [%s] contains a quote; its directory is unproved.', [aValue]);
+    Exit;
+  end;
+  if Pos('$(', lValue) > 0 then
+  begin
+    aError := Format('Compiler search path entry [%s] contains an unresolved macro.', [aValue]);
+    Exit;
+  end;
+  try
+    if lValue <> '' then
+    begin
+      if not TPath.IsPathRooted(lValue) then
+        lValue := TPath.Combine(aBaseDirectory, lValue);
+      aPath := TPath.GetFullPath(lValue);
+    end;
+    Result := True;
+  except
+    on E: EArgumentException do
+      aError := Format('Compiler search path entry [%s] is unusable: %s', [aValue, E.Message]);
+  end;
+end;
+
+type
+  ECompilerSearchPathError = class(EConvertError);
+
 function NormalizeProjectPath(const aBaseDirectory, aFileName: string): string;
 begin
   if TPath.IsPathRooted(aFileName) then
@@ -1436,13 +1477,14 @@ procedure AddUniquePath(const aItems: TList<string>; const aBaseDirectory, aValu
 var
   lItem: string;
   lPath: string;
-  lValue: string;
+  lValue, lError: string;
 begin
   lValue := aValue.Trim;
-  if (lValue = '') or (Pos('$(', lValue) > 0) then
+  if not TryResolveCompilerSearchPathEntry(aBaseDirectory, lValue, lPath, lError) then
+    raise ECompilerSearchPathError.Create(lError);
+  if lPath = '' then
     Exit;
-
-  lPath := ExcludeTrailingPathDelimiter(NormalizeProjectPath(aBaseDirectory, lValue));
+  lPath := ExcludeTrailingPathDelimiter(lPath);
   for lItem in aItems do
     if SameText(lItem, lPath) then
       Exit;
@@ -2952,7 +2994,12 @@ begin
     end;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   try
-    lProject := LoadProjectInfo(lProjectFileName, aOptions, lRootAbsenceFingerprint, lDiagnostics);
+    try
+      lProject := LoadProjectInfo(lProjectFileName, aOptions, lRootAbsenceFingerprint, lDiagnostics);
+    except
+      on E: ECompilerSearchPathError do
+        Exit(FailureResult(CreateErrorDiagnostic('COMPILER_SEARCH_PATH_UNPROVED', E.Message, lProjectFileName)));
+    end;
     AddLspEnrichmentDiagnosticIfRequested(aOptions, lProjectFileName, lDiagnostics);
     Result := SuccessResult(lProject, lDiagnostics);
   finally

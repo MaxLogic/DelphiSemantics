@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+
+- Quoted or unusable compiler search-path entries refuse project context with a named diagnostic instead of raising a path exception (DAK-475).
 - Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.
 - Combined remove-with planning reuses complete persisted facts only with certified external compiler inputs. Native proof queries replay through a fresh owner, and validated models publish after successful planning. Changed inputs and damaged caches rebuild.
 - Large-project WITH name-witness scans list each lookup directory once instead of probing every imported unit name; tiny SDK lookups retain bounded queries.
