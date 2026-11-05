@@ -63,16 +63,26 @@ type
     [TestCase('same-line-helper route 4', 'same-line-helper,4')]
     procedure ModelExtractionRoutes(const aShape: string; const aRoute: Integer);
     [Category('DS744Slice')]
+    [TestCase('partial-independent route 0', 'partial-independent,0')]
+    [TestCase('partial-independent route 1', 'partial-independent,1')]
+    [TestCase('partial-independent route 2', 'partial-independent,2')]
+    [TestCase('partial-independent route 3', 'partial-independent,3')]
+    [TestCase('partial-independent route 4', 'partial-independent,4')]
+    [TestCase('partial-dependent route 0', 'partial-dependent,0')]
+    [TestCase('partial-dependent route 1', 'partial-dependent,1')]
+    [TestCase('partial-dependent route 2', 'partial-dependent,2')]
+    [TestCase('partial-dependent route 3', 'partial-dependent,3')]
+    [TestCase('partial-dependent route 4', 'partial-dependent,4')]
     [TestCase('nested-independent route 0', 'nested-independent,0')]
     [TestCase('nested-independent route 1', 'nested-independent,1')]
     [TestCase('nested-independent route 2', 'nested-independent,2')]
     [TestCase('nested-independent route 3', 'nested-independent,3')]
     [TestCase('nested-independent route 4', 'nested-independent,4')]
-    [TestCase('nested-dependent route 0', 'nested-dependent,0')]
-    [TestCase('nested-dependent route 1', 'nested-dependent,1')]
-    [TestCase('nested-dependent route 2', 'nested-dependent,2')]
-    [TestCase('nested-dependent route 3', 'nested-dependent,3')]
-    [TestCase('nested-dependent route 4', 'nested-dependent,4')]
+    [TestCase('nested-verified-parent-dependent route 0', 'nested-verified-parent-dependent,0')]
+    [TestCase('nested-verified-parent-dependent route 1', 'nested-verified-parent-dependent,1')]
+    [TestCase('nested-verified-parent-dependent route 2', 'nested-verified-parent-dependent,2')]
+    [TestCase('nested-verified-parent-dependent route 3', 'nested-verified-parent-dependent,3')]
+    [TestCase('nested-verified-parent-dependent route 4', 'nested-verified-parent-dependent,4')]
     [TestCase('nested-own-refusal route 0', 'nested-own-refusal,0')]
     [TestCase('nested-own-refusal route 1', 'nested-own-refusal,1')]
     [TestCase('nested-own-refusal route 2', 'nested-own-refusal,2')]
@@ -2065,11 +2075,11 @@ type
     [TestCase('partial-cascade-forward-ancestor sessioncold', 'partial-cascade-forward-ancestor,sessioncold')]
     [TestCase('partial-cascade-forward-ancestor sessionwarm', 'partial-cascade-forward-ancestor,sessionwarm')]
     [TestCase('partial-cascade-forward-ancestor standalone', 'partial-cascade-forward-ancestor,standalone')]
-    [TestCase('rmpv-compiling-anon-field cold', 'rmpv-compiling-anon-field,cold')]
-    [TestCase('rmpv-compiling-anon-field snapshot', 'rmpv-compiling-anon-field,snapshot')]
-    [TestCase('rmpv-compiling-anon-field sessioncold', 'rmpv-compiling-anon-field,sessioncold')]
-    [TestCase('rmpv-compiling-anon-field sessionwarm', 'rmpv-compiling-anon-field,sessionwarm')]
-    [TestCase('rmpv-compiling-anon-field standalone', 'rmpv-compiling-anon-field,standalone')]
+    [TestCase('rmpv-compiling-generic-ancestor cold', 'rmpv-compiling-generic-ancestor,cold')]
+    [TestCase('rmpv-compiling-generic-ancestor snapshot', 'rmpv-compiling-generic-ancestor,snapshot')]
+    [TestCase('rmpv-compiling-generic-ancestor sessioncold', 'rmpv-compiling-generic-ancestor,sessioncold')]
+    [TestCase('rmpv-compiling-generic-ancestor sessionwarm', 'rmpv-compiling-generic-ancestor,sessionwarm')]
+    [TestCase('rmpv-compiling-generic-ancestor standalone', 'rmpv-compiling-generic-ancestor,standalone')]
     procedure AliasReceiverUnverifiedFamiliesRemainRefused(const aShape, aMode: string);
 
 
@@ -2149,6 +2159,11 @@ type
     [TestCase('anon-partial-field sessioncold', 'anon-partial-field,sessioncold')]
     [TestCase('anon-partial-field sessionwarm', 'anon-partial-field,sessionwarm')]
     [TestCase('anon-partial-field standalone', 'anon-partial-field,standalone')]
+    [TestCase('anon-partial-include-homonym cold', 'anon-partial-include-homonym,cold')]
+    [TestCase('anon-partial-include-homonym snapshot', 'anon-partial-include-homonym,snapshot')]
+    [TestCase('anon-partial-include-homonym sessioncold', 'anon-partial-include-homonym,sessioncold')]
+    [TestCase('anon-partial-include-homonym sessionwarm', 'anon-partial-include-homonym,sessionwarm')]
+    [TestCase('anon-partial-include-homonym standalone', 'anon-partial-include-homonym,standalone')]
     [TestCase('anon-partial-include cold', 'anon-partial-include,cold')]
     [TestCase('anon-partial-include snapshot', 'anon-partial-include,snapshot')]
     [TestCase('anon-partial-include sessioncold', 'anon-partial-include,sessioncold')]
@@ -18472,6 +18487,12 @@ end;
 
 procedure TWithBinderTests.AliasReceiverUnverifiedFamiliesRemainRefused(const aShape, aMode: string);
 begin
+  if aShape = 'rmpv-compiling-generic-ancestor' then
+  begin
+    InventoryCoverageRoutes('partial-dependent', IndexText(aMode,
+      ['cold', 'snapshot', 'standalone', 'sessioncold', 'sessionwarm']));
+    Exit;
+  end;
   ValueMembersColdWarmSnapshot(aShape, aMode);
 end;
 
@@ -18547,8 +18568,6 @@ begin
   lRoot := WithBinderTempPath('DS731-persistence-' + aShape + '-' + aMode + '-' + TPath.GetRandomFileName);
   TDirectory.CreateDirectory(lRoot);
   lShape := aShape;
-  if aShape = 'rmpv-compiling-anon-field' then
-    lShape := 'anon-partial-field';
   if StartsText('inactive-tag-', aShape) then
     lShape := 'anonymous-inactive';
   lType := 'var'#13#10'  Rec: record'#13#10'    A: Integer;'#13#10 +
@@ -18745,10 +18764,16 @@ begin
         lBody := 'with Rec do begin A := Low(A); X := Count; end;';
       end;
     end;
-    if lShape = 'anon-partial-include' then
+    if MatchText(lShape, ['anon-partial-include', 'anon-partial-include-homonym']) then
     begin
       lType := lType.Replace('    case Count:', '    {$I extra.inc}'#13#10'    case Count:');
+      lBody := 'with Rec do begin A := Count; Hidden := 1; lOutside := 2; end;';
       TFile.WriteAllText(TPath.Combine(lRoot, 'extra.inc'), 'Hidden: Integer;', TEncoding.ASCII);
+      if lShape = 'anon-partial-include-homonym' then
+      begin
+        TFile.WriteAllText(TPath.Combine(lRoot, 'extra.inc'), 'lOutside: Integer;', TEncoding.ASCII);
+        lBody := 'with Rec do begin A := Count; lOutside := 1; end;';
+      end;
     end;
     if lShape = 'anon-pointer-control' then
     begin
@@ -18904,12 +18929,6 @@ begin
   lSource := 'unit Unit1;'#13#10'interface'#13#10 + lType + #13#10 + lGlobal +
     #13#10'implementation'#13#10 + lImplementation + 'procedure Run;'#13#10 + lLocal +
     #13#10'begin'#13#10'  ' + lBody + #13#10'end;'#13#10'end.'#13#10;
-  if aShape = 'rmpv-compiling-anon-field' then
-  begin
-    lSource := lSource.Replace('interface'#13#10, 'interface'#13#10'procedure Run;'#13#10);
-    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
-      'program P; {$APPTYPE CONSOLE} uses Unit1, ControlUnit; begin Unit1.Run; end.', TEncoding.ASCII);
-  end;
   if EndsText('-lf', aShape) then
     lSource := lSource.Replace(#13#10, #10);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
@@ -19042,7 +19061,7 @@ begin
     end;
   end;
   Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
-  if EndsText('-forward-ancestor', lShape) or (aShape = 'rmpv-compiling-anon-field') then
+  if EndsText('-forward-ancestor', lShape) then
   begin
     lExpectedStatements := 1;
     if lShape = 'nested-forward-ancestor' then
@@ -19116,7 +19135,7 @@ begin
       // DS-746: the active AST now proves both the anonymous tag and fields.
       if MatchText(lShape, ['anonymous-global', 'anonymous-local', 'anonymous-include',
         'anonymous-include-paren', 'anonymous-include-fields-only', 'anon-partial-field',
-        'anon-partial-enum', 'anon-partial-include']) or StartsText('inline-active-', aShape) then
+        'anon-partial-enum', 'anon-partial-include', 'anon-partial-include-homonym']) or StartsText('inline-active-', aShape) then
       begin
         Assert.AreEqual('planned', lStatement.Status, aShape);
         lExpected := ' Rec.A := Rec.Count;';
@@ -19125,7 +19144,9 @@ begin
         else if lShape = 'anon-partial-enum' then
           lExpected := ' begin Rec.A := Low(Rec.A); Rec.X := Rec.Count; end;'
         else if lShape = 'anon-partial-include' then
-          lExpected := ' begin Rec.A := Rec.Count; lOutside := 1; end;';
+          lExpected := ' begin Rec.A := Rec.Count; Rec.Hidden := 1; lOutside := 2; end;'
+        else if lShape = 'anon-partial-include-homonym' then
+          lExpected := ' begin Rec.A := Rec.Count; Rec.lOutside := 1; end;';
         Assert.AreEqual(lExpected, lStatement.ReplacementText, aShape);
         Assert.AreEqual('', lStatement.Reason);
         Assert.AreEqual('', lStatement.SafetyReason);
@@ -19138,8 +19159,7 @@ begin
         Assert.AreEqual('planned', lStatement.Status, lShape + ': ' + lStatement.Reason);
         Assert.AreEqual(DS741ExpectedReplacement(lShape), lStatement.ReplacementText);
         Continue;
-      end else if EndsText('-forward-ancestor', lShape) or
-        (aShape = 'rmpv-compiling-anon-field') then
+      end else if EndsText('-forward-ancestor', lShape) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, lShape + ': ' + lStatement.Reason);
         // DS-744: retained parents keep their refusal; children keep their own.
@@ -19195,23 +19215,18 @@ begin
         Assert.AreEqual('', lStatement.ReplacementText);
         Continue;
       end;
-      if MatchText(lShape, ['anonymous-global', 'anonymous-local', 'anonymous-include', 'helper-own',
+      if MatchText(lShape, ['helper-own',
         'anonymous-declaration-include', 'anonymous-declaration-include-multiline',
-        'anonymous-type-include', 'anonymous-include-paren', 'class-var',
+        'anonymous-type-include', 'class-var',
         'indexed-named-tag', 'indexed-inline-tag', 'strong-alias-qualified-target',
         'receiver-diagnostic', 'homonym-unverified', 'partial-weak-global',
-        'partial-weak-noglobal', 'partial-strong-global', 'partial-indexed-ancestor',
-        'anon-partial-field', 'anon-partial-enum', 'anon-partial-include', 'anon-pointer-control',
-        'anonymous-include-fields-only']) or
-        StartsText('inline-active-', aShape) then
+        'partial-weak-noglobal', 'partial-strong-global', 'partial-indexed-ancestor']) then
       begin
         Assert.AreEqual('skipped', lStatement.Status, aShape);
         // A-375 class (c): unproved declaration includes retain zero-edit refusal.
         if MatchText(lShape, ['anonymous-declaration-include',
           'anonymous-declaration-include-multiline']) then
           Assert.AreEqual('selector-type-not-resolved', lStatement.Reason)
-        else if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
-          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.Reason)
         else if lShape = 'partial-strong-global' then
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason)
         else if StartsText('partial-', lShape) then
@@ -19229,8 +19244,6 @@ begin
         if MatchText(lShape, ['anonymous-declaration-include',
           'anonymous-declaration-include-multiline']) then
           Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lStatement.SafetyReason)
-        else if MatchText(lShape, ['anon-partial-field', 'anon-partial-enum']) then
-          Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lStatement.SafetyReason)
         else if lShape = 'partial-strong-global' then
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason)
         else if StartsText('partial-', lShape) then
@@ -21538,7 +21551,7 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lFound: Integer;
 begin
-  lRoot := WithBinderTempPath('inventory-' + aShape + IntToStr(aRoute));
+  lRoot := WithBinderTempPath('inventory-' + aShape + IntToStr(aRoute) + '-' + TPath.GetRandomFileName);
   TDirectory.CreateDirectory(lRoot);
   lTypes := 'type'#13#10'  TRec = record A: Integer; const Count = 7; end;'#13#10 +
     'var Rec: TRec; Count: Integer;';
@@ -21554,7 +21567,7 @@ begin
       'Other: TOther; Count: Integer;';
     lSetup := 'Rec.A := 0; Other.B := 0; Count := 100;';
     lBody := 'with Rec do begin A := Count; with Other do B := 2; end;';
-    if aShape = 'nested-dependent' then
+    if aShape = 'nested-verified-parent-dependent' then
       lBody := 'with Rec do begin A := Count; with Other do B := Count; end;';
     if aShape = 'nested-own-refusal' then
       lBody := 'with Rec do begin A := Count; with Unit1.Other do B := 1; end;';
@@ -21633,11 +21646,18 @@ begin
   TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
     '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
     '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
-    '<DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+    '<DCCReference Include="Unit1.pas"/>' +
+    IfThen(StartsText('partial-', aShape), '<DCCReference Include="BaseUnit.pas"/>', '') +
+    '</ItemGroup></Project>', TEncoding.ASCII);
   lSource := 'unit Unit1;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10 +
     lTypes + #13#10'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
     'begin'#13#10' ' + lSetup + #13#10' ' + lBody + #13#10' ' + lOutput + #13#10 +
     'end;'#13#10'end.'#13#10;
+  if StartsText('partial-', aShape) then
+  begin
+    lSource := TFile.ReadAllText(TPath.Combine(FixturePath('WithPartial', aShape), 'Unit1.pas'), TEncoding.ASCII);
+    TFile.Copy(TPath.Combine(FixturePath('WithPartial', aShape), 'BaseUnit.pas'), TPath.Combine(lRoot, 'BaseUnit.pas'));
+  end;
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
@@ -21688,12 +21708,40 @@ begin
     TDirectory.CreateDirectory(lProofRoot);
     for var lFile in TDirectory.GetFiles(lRoot) do
       if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
-        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)), True);
     GC(lSerializer, TJsonSerializer.Create, g);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
       lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
       lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  if StartsText('partial-', aShape) then
+  begin
+    Assert.AreEqual<Integer>(2, Length(lPlan.FinalStatements));
+    Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].CaptureTypeStatus);
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('RECEIVER_MEMBERS_PARTIALLY_VERIFIED', lPlan.FinalStatements[0].SafetyReason);
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+    if aShape = 'partial-independent' then
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[1].Status);
+      Assert.AreEqual('', lPlan.FinalStatements[1].Reason);
+      Assert.AreEqual('', lPlan.FinalStatements[1].SafetyReason);
+      Assert.AreEqual(' Other.B := 2;', lPlan.FinalStatements[1].ReplacementText);
+      Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements[1].Edits));
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[1].Temps));
+    end else begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[1].Status);
+      Assert.AreEqual('selector-type-not-resolved', lPlan.FinalStatements[1].Reason);
+      Assert.AreEqual('PARENT_SELECTOR_UNRESOLVED', lPlan.FinalStatements[1].SafetyReason);
+      Assert.AreEqual('', lPlan.FinalStatements[1].ReplacementText);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[1].Edits));
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[1].Temps));
+    end;
+    Exit;
   end;
   Assert.IsTrue(Length(lPlan.FinalStatements) > 0);
   if aShape = 'anonymous-tag' then
@@ -21707,8 +21755,38 @@ begin
     Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
     Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('Rec.Count'));
   end;
-  if MatchText(aShape, ['compound-class-helper', 'compound-object']) then
-    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+  if StartsText('compound-', aShape) then
+  begin
+    // Characterized against de1bddf on every route; preserve the complete outcome.
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+    lStatement := lPlan.FinalStatements[0];
+    if MatchText(aShape, ['compound-class-helper', 'compound-object']) then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      if aShape = 'compound-object' then
+      begin
+        Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+        Assert.AreEqual('ALIAS_RECEIVER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      end else begin
+        Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.Reason);
+        Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
+      end;
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
+      Assert.AreEqual<Integer>(0, Length(lStatement.Temps));
+    end else begin
+      Assert.AreEqual('planned', lStatement.Status);
+      Assert.AreEqual('', lStatement.Reason);
+      Assert.AreEqual('', lStatement.SafetyReason);
+      lExpected := ' lWithRecPtr := @Rec;'#13#10' lWithRecPtr^.A := lWithRecPtr^.Count;';
+      if aShape = 'compound-class' then
+        lExpected := ' lWithRec := Rec;'#13#10' lWithRec.A := lWithRec.Count;';
+      Assert.AreEqual(lExpected, lStatement.ReplacementText);
+      Assert.AreEqual<Integer>(2, Length(lStatement.Edits));
+      Assert.AreEqual<Integer>(1, Length(lStatement.Temps));
+    end;
+    Exit;
+  end;
   if StartsText('alias-', aShape) then
   begin
     lFound := 0;
@@ -21727,7 +21805,7 @@ begin
       Assert.AreEqual<Integer>(0, Length(lStatement.Edits));
       Continue;
     end;
-    if aShape = 'nested-dependent' then
+    if aShape = 'nested-verified-parent-dependent' then
     begin
       Assert.AreEqual('planned', lStatement.Status);
       Assert.IsTrue(lStatement.ReplacementText.Contains('lWithOtherPtr^.B := lWithItemPtr^.Count;'));
@@ -21740,7 +21818,7 @@ begin
         aShape + ':' + lStatement.ReplacementText);
     end;
   end;
-  if not MatchText(aShape, ['nested-dependent', 'nested-own-refusal', 'compound-class', 'compound-object',
+  if not MatchText(aShape, ['nested-verified-parent-dependent', 'nested-own-refusal', 'compound-class', 'compound-object',
     'compound-class-helper']) then
     Assert.IsTrue(lFound > 0, aShape + ':' + lPlan.FinalStatements[0].Reason + ':' +
       lPlan.FinalStatements[0].SafetyReason);
