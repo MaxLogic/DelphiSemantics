@@ -12344,6 +12344,129 @@ begin
   ValueMembersColdWarmSnapshot(aShape, 'standalone');
 end;
 
+procedure AssertPlanningSnapshotByteEqual(const aCold, aLoaded: TDelphiProjectSnapshot;
+  const aColdSymbols: TArray<TDelphiSemanticInventorySymbol>);
+var
+  i: Cardinal;
+  j: Integer;
+  lColdFacts, lLoadedFacts: TSemanticRemoveWithPlanningFacts;
+  lExpectedSymbols, lActualSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lSerializer: TJsonSerializer;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Assert.IsTrue(aLoaded <> nil, 'DS-743: persisted planning facts must load.');
+  lSerializer := TJsonSerializer.Create;
+  try
+    lColdFacts := aCold.RemoveWithPlanningFacts;
+    lLoadedFacts := aLoaded.RemoveWithPlanningFacts;
+    // Cold builders keep inventory in LookupIndex; SQLite also exposes its rows.
+    // Check every inventory group before comparing the common planning payload.
+    Assert.AreEqual<NativeInt>(0, Length(lColdFacts.Symbols));
+    Assert.AreEqual(Length(aColdSymbols), Length(lLoadedFacts.Symbols));
+    for lSymbol in aColdSymbols do
+    begin
+      Assert.IsTrue(Length(lColdFacts.LookupIndex.FindSymbolsByName(lSymbol.Name)) > 0);
+      lExpectedSymbols := Copy(lColdFacts.LookupIndex.FindSymbolsByName(lSymbol.Name));
+      lActualSymbols := lLoadedFacts.LookupIndex.FindSymbolsByName(lSymbol.Name);
+      // TSemanticRemoveWithTypeIdentityFact persists line/column ranges, not parser offsets.
+      for j := 0 to High(lExpectedSymbols) do
+      begin
+        lExpectedSymbols[j].OwnerIdentity.SourceRange.Offset := 0;
+        lExpectedSymbols[j].OwnerIdentity.SourceRange.EndOffset := 0;
+        lExpectedSymbols[j].AccessOwnerIdentity.SourceRange.Offset := 0;
+        lExpectedSymbols[j].AccessOwnerIdentity.SourceRange.EndOffset := 0;
+      end;
+      Assert.AreEqual(lSerializer.Serialize<TArray<TDelphiSemanticInventorySymbol>>(lExpectedSymbols),
+        lSerializer.Serialize<TArray<TDelphiSemanticInventorySymbol>>(lActualSymbols),
+        'DS-743: loaded planning inventory must equal the cold DTO byte for byte: ' + lSymbol.Name);
+    end;
+    lLoadedFacts.Symbols := nil;
+    Assert.AreEqual(lSerializer.Serialize<TSemanticRemoveWithPlanningFacts>(lColdFacts),
+      lSerializer.Serialize<TSemanticRemoveWithPlanningFacts>(lLoadedFacts),
+      'DS-743: loaded planning facts must equal the cold facts byte for byte.');
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticValueMemberEvidence>(
+      aCold.RemoveWithPlanningFacts.LookupIndex.ExportValueMemberEvidence),
+      lSerializer.Serialize<TDelphiSemanticValueMemberEvidence>(
+      aLoaded.RemoveWithPlanningFacts.LookupIndex.ExportValueMemberEvidence),
+      'DS-743: loaded lookup evidence must equal the cold evidence byte for byte.');
+    // The writer may append lookup-only strings; every cold fact ID keeps its text.
+    Assert.IsTrue(aLoaded.ExactStringCount >= aCold.ExactStringCount);
+    for i := 1 to aCold.ExactStringCount do
+      Assert.AreEqual(aCold.ExactTextOf(TSemanticStringId(i)),
+        aLoaded.ExactTextOf(TSemanticStringId(i)), 'DS-743: planning-fact string identity.');
+    Assert.AreEqual(lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(
+      TDelphiSemanticRemoveWithPlanner.Plan(aCold)),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(
+      TDelphiSemanticRemoveWithPlanner.Plan(aLoaded)),
+      'DS-743: loaded plan must equal the cold snapshot plan byte for byte.');
+  finally
+    lSerializer.Free;
+  end;
+end;
+
+procedure AssertSessionPlanningFactsByteEqual(const aColdFacts: TDelphiSemanticProjectWithBindingFacts;
+  const aCacheFileName: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCold, lLoaded: TDelphiProjectSnapshot;
+  lConnection: TFDConnection;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lQuery: TFDQuery;
+begin
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lCold := BuildProjectSnapshotFromModels(aColdFacts.UnitModels, aColdFacts, lOptions, lMetrics);
+  try
+    lConnection := TFDConnection.Create(nil);
+    try
+      lConnection.DriverName := 'SQLite';
+      lConnection.Params.Values['Database'] := aCacheFileName;
+      lConnection.LoginPrompt := False;
+      lConnection.Connected := True;
+      lQuery := TFDQuery.Create(nil);
+      try
+        lQuery.Connection := lConnection;
+        lQuery.Open('select cache_key, identity_key, source_file_name, file_hash, context_hash, ' +
+          'include_graph_hash, schema_version from snapshot_project_remove_with_facts');
+        Assert.IsFalse(lQuery.Eof, 'DS-743: the cold session must persist planning facts.');
+        lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+        lIdentity.CacheKey := lQuery.Fields[0].AsWideString;
+        lIdentity.IdentityKey := lQuery.Fields[1].AsWideString;
+        lIdentity.SourceFileName := lQuery.Fields[2].AsWideString;
+        lIdentity.FileHash := lQuery.Fields[3].AsWideString;
+        lIdentity.ContextHash := lQuery.Fields[4].AsWideString;
+        lIdentity.IncludeGraphHash := lQuery.Fields[5].AsWideString;
+        lIdentity.SchemaVersion := lQuery.Fields[6].AsWideString;
+        lQuery.Next;
+        Assert.IsTrue(lQuery.Eof, 'DS-743: the fixture must have one project planning entry.');
+      finally
+        lQuery.Free;
+      end;
+    finally
+      lConnection.Free;
+    end;
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
+    try
+      lLoaded := nil;
+      try
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded),
+          'DS-743: the session must reload its own persisted facts.');
+        Assert.AreEqual(1, lCache.Metrics.CacheHits);
+        Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+        Assert.AreEqual(0, lCache.Metrics.Invalidations);
+        AssertPlanningSnapshotByteEqual(lCold, lLoaded, aColdFacts.Symbols);
+      finally
+        lLoaded.Free;
+      end;
+    finally
+      lCache.Free;
+    end;
+  finally
+    lCold.Free;
+  end;
+end;
+
 procedure TWithBinderTests.AliasReceiverMembersBindAndPlan(const aShape, aMode: string);
 var
   lRoot, lSource, lExpected: string;
@@ -12358,6 +12481,7 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lHasMember, lRefused: Boolean;
   lSerializer: TJsonSerializer;
+  lColdSessionPlanText: string;
   g: TGarbos;
 begin
   lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
@@ -13056,30 +13180,16 @@ begin
       lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
       try
         lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
-        if (aShape = 'local-weak-var-globalA') then
-        begin
-          // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
-          lLoaded := nil;
-          try
-            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-            Assert.IsTrue(lLoaded = nil);
-            Assert.AreEqual(0, lCache.Metrics.CacheHits);
-            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(1, lCache.Metrics.Invalidations);
-          finally
-            lLoaded.Free;
-          end;
-          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
-        end else begin
-          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          try
-            Assert.AreEqual(1, lCache.Metrics.CacheHits);
-            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(0, lCache.Metrics.Invalidations);
-            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
-          finally
-            lLoaded.Free;
-          end;
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        try
+          Assert.AreEqual(1, lCache.Metrics.CacheHits);
+          Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(0, lCache.Metrics.Invalidations);
+          if aShape = 'local-weak-var-globalA' then
+            AssertPlanningSnapshotByteEqual(lStored, lLoaded, lFacts.Symbols);
+          lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
         end;
       finally
         lCache.Free;
@@ -13088,6 +13198,7 @@ begin
       lStored.Free;
     end;
   end;
+  GC(lSerializer, TJsonSerializer.Create, g);
   if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
     for var i := 0 to Ord(aMode = 'sessionwarm') do
     begin
@@ -13095,22 +13206,27 @@ begin
       try
         Assert.IsTrue(lSession.Success);
         lSessionBuild := lSession.Session.PlanRemoveWithResult;
-        if ((aShape = 'local-weak-var-globalA')) and (i = 1) then
+        Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        if (aShape = 'local-weak-var-globalA') and (aMode = 'sessionwarm') then
         begin
-          // DS-743 owns the unchanged loader guard; the session falls back to cold.
-          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
-        end else
-          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations);
+          if i = 1 then
+          begin
+            Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheMisses);
+            Assert.AreEqual(lColdSessionPlanText,
+              lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan),
+              'DS-743: warm session plan must equal its cold result byte for byte.');
+          end else
+            lColdSessionPlanText := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan);
+          AssertSessionPlanningFactsByteEqual(lFacts, lOptions.Cache.SqliteCacheFileName);
+        end;
         lSnapshotPlan := lSessionBuild.Plan;
       finally
         lSession.Session.Free;
       end;
     end;
-  GC(lSerializer, TJsonSerializer.Create, g);
   // Compatibility and snapshot planners intentionally identify their producer route.
-  // The local standalone fallback is compared byte-for-byte without normalization.
+  // DS-743 additionally compares cold/loaded snapshot and session DTO bytes above.
   if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
   begin
     Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
@@ -13181,6 +13297,7 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lRefused: Boolean;
   lSerializer: TJsonSerializer;
+  lColdSessionPlanText: string;
   g: TGarbos;
 begin
   lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
@@ -13582,30 +13699,16 @@ begin
       lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
       try
         lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
-        if (aShape = 'nested-local-weak') then
-        begin
-          // DS-743: warm-unreachable (pre-existing guard: local receiver scope chain).
-          lLoaded := nil;
-          try
-            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-            Assert.IsTrue(lLoaded = nil);
-            Assert.AreEqual(0, lCache.Metrics.CacheHits);
-            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(1, lCache.Metrics.Invalidations);
-          finally
-            lLoaded.Free;
-          end;
-          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
-        end else begin
-          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          try
-            Assert.AreEqual(1, lCache.Metrics.CacheHits);
-            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(0, lCache.Metrics.Invalidations);
-            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
-          finally
-            lLoaded.Free;
-          end;
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        try
+          Assert.AreEqual(1, lCache.Metrics.CacheHits);
+          Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(0, lCache.Metrics.Invalidations);
+          if aShape = 'nested-local-weak' then
+            AssertPlanningSnapshotByteEqual(lStored, lLoaded, lFacts.Symbols);
+          lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
         end;
       finally
         lCache.Free;
@@ -13614,6 +13717,7 @@ begin
       lStored.Free;
     end;
   end;
+  GC(lSerializer, TJsonSerializer.Create, g);
   if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
     for var i := 0 to Ord(aMode = 'sessionwarm') do
     begin
@@ -13621,22 +13725,27 @@ begin
       try
         Assert.IsTrue(lSession.Success);
         lSessionBuild := lSession.Session.PlanRemoveWithResult;
-        if ((aShape = 'nested-local-weak')) and (i = 1) then
+        Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        if (aShape = 'nested-local-weak') and (aMode = 'sessionwarm') then
         begin
-          // DS-743 owns the unchanged loader guard; the session falls back to cold.
-          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
-        end else
-          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations);
+          if i = 1 then
+          begin
+            Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheMisses);
+            Assert.AreEqual(lColdSessionPlanText,
+              lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan),
+              'DS-743: warm session plan must equal its cold result byte for byte.');
+          end else
+            lColdSessionPlanText := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan);
+          AssertSessionPlanningFactsByteEqual(lFacts, lOptions.Cache.SqliteCacheFileName);
+        end;
         lSnapshotPlan := lSessionBuild.Plan;
       finally
         lSession.Session.Free;
       end;
     end;
-  GC(lSerializer, TJsonSerializer.Create, g);
   // Compatibility and snapshot planners intentionally identify their producer route.
-  // The local standalone fallback is compared byte-for-byte without normalization.
+  // DS-743 additionally compares cold/loaded snapshot and session DTO bytes above.
   if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
   begin
     Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
@@ -13699,10 +13808,11 @@ var
   lSession: TDelphiSemanticProjectSessionResult;
   lSessionBuild: TDelphiSemanticRemoveWithPlanBuildResult;
   lStatement, lInnerStatement: TDelphiSemanticRemoveWithFinalStatement;
-  lRefused, lLocal, lWarmUnreachable, lProjectionFound: Boolean;
+  lRefused, lLocal, lRoutineAliasRoundTrip, lProjectionFound: Boolean;
   lSymbol: TDelphiSemanticInventorySymbol;
   lExpectedEdits, lExpectedLine, lExpectedColumn: Integer;
   lSerializer: TJsonSerializer;
+  lColdSessionPlanText: string;
   g: TGarbos;
 begin
   lRoot := WithBinderTempPath('DS741-' + aShape + '-' + aMode);
@@ -17493,7 +17603,7 @@ begin
       'with GetSR do with GetSR do', []);
     lExpectedLine := 18;
   end;
-  lWarmUnreachable := MatchText(aShape, ['control-opus-e7-forward-nested-strong-weak',
+  lRoutineAliasRoundTrip := MatchText(aShape, ['control-opus-e7-forward-nested-strong-weak',
     'control-opus-e14-forward-two-level-strong-weak']);
   Assert.AreNotEqual('', lSource, aShape);
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
@@ -17563,30 +17673,16 @@ begin
       lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
       try
         lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
-        if lWarmUnreachable then
-        begin
-          // DS-743: the local weak-alias scope-chain guard rejects persisted facts.
-          lLoaded := nil;
-          try
-            Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-            Assert.IsTrue(lLoaded = nil);
-            Assert.AreEqual(0, lCache.Metrics.CacheHits);
-            Assert.AreEqual(1, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(1, lCache.Metrics.Invalidations);
-          finally
-            lLoaded.Free;
-          end;
-          lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
-        end else begin
-          Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
-          try
-            Assert.AreEqual(1, lCache.Metrics.CacheHits);
-            Assert.AreEqual(0, lCache.Metrics.CacheMisses);
-            Assert.AreEqual(0, lCache.Metrics.Invalidations);
-            lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
-          finally
-            lLoaded.Free;
-          end;
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        try
+          Assert.AreEqual(1, lCache.Metrics.CacheHits);
+          Assert.AreEqual(0, lCache.Metrics.CacheMisses);
+          Assert.AreEqual(0, lCache.Metrics.Invalidations);
+          if lRoutineAliasRoundTrip then
+            AssertPlanningSnapshotByteEqual(lStored, lLoaded, lFacts.Symbols);
+          lSnapshotPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
         end;
       finally
         lCache.Free;
@@ -17595,6 +17691,7 @@ begin
       lStored.Free;
     end;
   end;
+  GC(lSerializer, TJsonSerializer.Create, g);
   if MatchText(aMode, ['sessioncold', 'sessionwarm']) then
     for var i := 0 to Ord(aMode = 'sessionwarm') do
     begin
@@ -17602,22 +17699,27 @@ begin
       try
         Assert.IsTrue(lSession.Success);
         lSessionBuild := lSession.Session.PlanRemoveWithResult;
-        if lWarmUnreachable and (i = 1) then
+        Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+        if (lRoutineAliasRoundTrip) and (aMode = 'sessionwarm') then
         begin
-          // DS-743 cold fallback, never counted as a persisted hit.
-          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheHits);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheMisses > 0);
-          Assert.IsTrue(lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations > 0);
-        end else
-          Assert.AreEqual(i, Integer(lSessionBuild.SnapshotMetrics.SnapshotCacheHits));
+          Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheInvalidations);
+          if i = 1 then
+          begin
+            Assert.AreEqual(0, lSessionBuild.SnapshotMetrics.SnapshotCacheMisses);
+            Assert.AreEqual(lColdSessionPlanText,
+              lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan),
+              'DS-743: warm session plan must equal its cold result byte for byte.');
+          end else
+            lColdSessionPlanText := lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lSessionBuild.Plan);
+          AssertSessionPlanningFactsByteEqual(lFacts, lOptions.Cache.SqliteCacheFileName);
+        end;
         lSnapshotPlan := lSessionBuild.Plan;
       finally
         lSession.Session.Free;
       end;
     end;
-  GC(lSerializer, TJsonSerializer.Create, g);
   // Compatibility and snapshot planners intentionally identify their producer route.
-  // The local standalone fallback is compared byte-for-byte without normalization.
+  // DS-743 additionally compares cold/loaded snapshot and session DTO bytes above.
   if lSnapshotPlan.BaselineSemanticModelVersion <> lPlan.BaselineSemanticModelVersion then
   begin
     Assert.AreEqual('project-snapshot-v1', lSnapshotPlan.BaselineSemanticModelVersion);
