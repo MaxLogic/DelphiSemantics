@@ -56,6 +56,31 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [TestCase('repeat-one full', 'repeat-one,False')]
+    [TestCase('repeat-one scan', 'repeat-one,True')]
+    [TestCase('repeat-multi full', 'repeat-multi,False')]
+    [TestCase('repeat-multi scan', 'repeat-multi,True')]
+    [TestCase('repeat-nested full', 'repeat-nested,False')]
+    [TestCase('repeat-nested scan', 'repeat-nested,True')]
+    [TestCase('repeat-no-semi full', 'repeat-no-semi,False')]
+    [TestCase('repeat-no-semi scan', 'repeat-no-semi,True')]
+    [TestCase('repeat-independent full', 'repeat-independent,False')]
+    [TestCase('repeat-independent scan', 'repeat-independent,True')]
+    [TestCase('triple-simple full', 'triple-simple,False')]
+    [TestCase('triple-simple scan', 'triple-simple,True')]
+    [TestCase('triple-apostrophe full', 'triple-apostrophe,False')]
+    [TestCase('triple-apostrophe scan', 'triple-apostrophe,True')]
+    [TestCase('triple-double full', 'triple-double,False')]
+    [TestCase('triple-double scan', 'triple-double,True')]
+    [TestCase('inactive-simple full', 'inactive-simple,False')]
+    [TestCase('inactive-simple scan', 'inactive-simple,True')]
+    [TestCase('inactive-apostrophe full', 'inactive-apostrophe,False')]
+    [TestCase('inactive-apostrophe scan', 'inactive-apostrophe,True')]
+    [TestCase('inactive-double full', 'inactive-double,False')]
+    [TestCase('inactive-double scan', 'inactive-double,True')]
+    [TestCase('include-body full', 'include-body,False')]
+    [TestCase('include-body scan', 'include-body,True')]
+    procedure StatementRangeExtraction(const aShape: string; const aLightweight: Boolean);
     [TestCase('empty', 'empty')]
     [TestCase('tagless', 'tagless')]
     [TestCase('anonymous-field', 'anonymous-field')]
@@ -6682,6 +6707,45 @@ begin
   end;
   Assert.AreEqual(ModelToJson(lModel), ModelToJson(JsonToModel(ModelToJson(lModel))), aShape);
 end;
+
+procedure TUnitModelTests.StatementRangeExtraction(const aShape: string; const aLightweight: Boolean);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lExpected: Integer;
+  lSource, lExpectedText: string;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('WithStatementRanges', aShape + '\Unit1.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.WithStatementsOnly := aLightweight;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  if aShape = 'include-body' then
+  begin
+    Assert.IsTrue(HasDiagnostic(lModel, 'WITH_IN_INCLUDE_UNVERIFIED'));
+    Assert.AreEqual('include-with-unverified', lModel.ScopeModelStatus);
+    Assert.AreEqual<NativeInt>(0, Length(lModel.WithStatements));
+    Exit;
+  end;
+  Assert.IsTrue(lModel.Success);
+  lExpected := 1 + Ord(MatchText(aShape, ['repeat-nested', 'repeat-independent']));
+  Assert.AreEqual<NativeInt>(lExpected, Length(lModel.WithStatements));
+  if StartsText('triple-', aShape) or StartsText('inactive-', aShape) then
+  begin
+    lSource := TFile.ReadAllText(lOptions.SourceFileName);
+    lExpectedText := Copy(lSource, Pos('with lRec do', lSource),
+      Pos('  Writeln(', lSource) - Pos('with lRec do', lSource)).TrimRight;
+    Assert.AreEqual(lExpectedText, lModel.WithStatements[0].Text);
+  end;
+  for var lStatement in lModel.WithStatements do
+  begin
+    if StartsText('repeat-', aShape) then
+      Assert.IsFalse(ContainsText(lStatement.Text, 'until'));
+    Assert.IsFalse(ContainsText(lStatement.SelectorText, 'Fake'));
+    Assert.IsTrue(lStatement.BodyEndLine <= Length(TFile.ReadAllLines(lOptions.SourceFileName)));
+  end;
+end;
+
 
 initialization
   TDUnitX.RegisterTestFixture(TUnitModelTests);

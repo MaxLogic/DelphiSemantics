@@ -5299,20 +5299,10 @@ var
     lIndex := aStartIndex;
     while lIndex <= Length(aText) do
     begin
-      if aText[lIndex] = '''' then
+      if aText[lIndex] = #39 then
       begin
-        Inc(lIndex);
-        while lIndex <= Length(aText) do
-        begin
-          if aText[lIndex] = '''' then
-          begin
-            if (lIndex < Length(aText)) and (aText[lIndex + 1] = '''') then
-              Inc(lIndex)
-            else
-              Break;
-          end;
-          Inc(lIndex);
-        end;
+        SkipPascalStringLiteral(aText, lIndex);
+        Dec(lIndex);
       end else if (aText[lIndex] = '/') and (lIndex < Length(aText)) and
         (aText[lIndex + 1] = '/') then
       begin
@@ -5374,20 +5364,10 @@ begin
     begin
       if CharInSet(aText[i], [#10, #13]) then
         lCommentMode := 0;
-    end else if aText[i] = '''' then
+    end else if aText[i] = #39 then
     begin
-      Inc(i);
-      while i <= Length(aText) do
-      begin
-        if aText[i] = '''' then
-        begin
-          if (i < Length(aText)) and (aText[i + 1] = '''') then
-            Inc(i)
-          else
-            Break;
-        end;
-        Inc(i);
-      end;
+      SkipPascalStringLiteral(aText, i);
+      Dec(i);
     end else if (aText[i] = '(') and (i < Length(aText)) and (aText[i + 1] = '*') then
     begin
       lCommentMode := 1;
@@ -5436,7 +5416,9 @@ begin
       begin
         PushBlockKind('repeat');
         Inc(lBlockDepth);
-      end else if SameText(lToken, 'until') and
+      end else if SameText(lToken, 'until') and (lBlockDepth = 0) then
+        Exit(PreviousNonWhitespaceOffset(lTokenStartOffset - 1))
+      else if SameText(lToken, 'until') and
         (Length(lBlockKinds) > 0) and SameText(lBlockKinds[High(lBlockKinds)],
         'repeat') then
       begin
@@ -5461,7 +5443,8 @@ begin
             end;
             Exit(i);
           end;
-          if NextCodeTokenEquals(i + 1, 'end') then
+          if NextCodeTokenEquals(i + 1, 'end') or
+            NextCodeTokenEquals(i + 1, 'until') then
             Exit(lTokenEndOffset);
           Exit(FindNextSemicolonOutsideTrivia(i));
         end;

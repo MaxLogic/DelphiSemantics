@@ -9,6 +9,7 @@ function IsMemberAccessDot(const aText: string; const aIndex: Integer): Boolean;
 function IsWordAt(const aText: string; const aOffset: Integer; const aWord: string): Boolean; overload;
 function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
+procedure SkipPascalStringLiteral(const aText: string; var aIndex: Integer);
 function SanitizeCodeText(const aText: string): string;
 function FindSectionKeywordOffset(const aText, aKeyword: string): Integer;
 function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
@@ -272,10 +273,53 @@ begin
   end;
 end;
 
+// Return the first offset after one literal. Delphi 12 multiline delimiters are
+// an odd run of at least three quotes immediately followed by a line break.
+procedure SkipPascalStringLiteral(const aText: string; var aIndex: Integer);
+var
+  lOpeningCount, lQuoteCount, lStart: Integer;
+begin
+  lStart := aIndex;
+  while (aIndex <= Length(aText)) and (aText[aIndex] = #39) do
+    Inc(aIndex);
+  lOpeningCount := aIndex - lStart;
+  if (lOpeningCount >= 3) and Odd(lOpeningCount) and
+    (aIndex <= Length(aText)) and CharInSet(aText[aIndex], [#10, #13]) then
+  begin
+    while aIndex <= Length(aText) do
+    begin
+      if aText[aIndex] <> #39 then
+      begin
+        Inc(aIndex);
+        Continue;
+      end;
+      lStart := aIndex;
+      while (aIndex <= Length(aText)) and (aText[aIndex] = #39) do
+        Inc(aIndex);
+      lQuoteCount := aIndex - lStart;
+      if lQuoteCount = lOpeningCount then
+        Exit;
+    end;
+    Exit;
+  end;
+  aIndex := lStart + 1;
+  while aIndex <= Length(aText) do
+  begin
+    if aText[aIndex] = #39 then
+    begin
+      Inc(aIndex);
+      if (aIndex > Length(aText)) or (aText[aIndex] <> #39) then
+        Exit;
+    end;
+    Inc(aIndex);
+  end;
+end;
+
 function SanitizeCodeText(const aText: string): string;
 var
   i: Integer;
   lCommentMode: Integer;
+  lLiteralEnd: Integer;
   sb: TStringBuilder;
 begin
   sb := TStringBuilder.Create(Length(aText));
@@ -312,27 +356,19 @@ begin
           lCommentMode := 0;
         end else
           sb.Append(' ');
-      end else if aText[i] = '''' then
+      end else if aText[i] = #39 then
       begin
-        sb.Append(' ');
-        Inc(i);
-        while i <= Length(aText) do
+        lLiteralEnd := i;
+        SkipPascalStringLiteral(aText, lLiteralEnd);
+        while i < lLiteralEnd do
         begin
           if CharInSet(aText[i], [#10, #13]) then
             sb.Append(aText[i])
           else
             sb.Append(' ');
-          if aText[i] = '''' then
-          begin
-            if (i < Length(aText)) and (aText[i + 1] = '''') then
-            begin
-              Inc(i);
-              sb.Append(' ');
-            end else
-              Break;
-          end;
           Inc(i);
         end;
+        Continue;
       end else if (aText[i] = '(') and (i < Length(aText)) and (aText[i + 1] = '*') then
       begin
         sb.Append(' ');

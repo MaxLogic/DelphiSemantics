@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // DS-737/739 require fresh WITH ranges and inactive-subject safety facts.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.77';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.78';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

@@ -4230,12 +4230,11 @@ var
   lInBraceComment: Boolean;
   lInLineComment: Boolean;
   lInParenComment: Boolean;
-  lInString: Boolean;
+  lLiteralEnd: Integer;
 begin
   lInBraceComment := False;
   lInLineComment := False;
   lInParenComment := False;
-  lInString := False;
   i := 1;
   while (i < aOffset) and (i <= Length(aText)) do
   begin
@@ -4264,22 +4263,15 @@ begin
       Inc(i);
       Continue;
     end;
-    if lInString then
+    if aText[i] = #39 then
     begin
-      if (aText[i] = '''') and (i < Length(aText)) and (aText[i + 1] = '''') then
-      begin
-        Inc(i, 2);
-        Continue;
-      end;
-      if aText[i] = '''' then
-        lInString := False;
-      Inc(i);
+      lLiteralEnd := i;
+      SkipPascalStringLiteral(aText, lLiteralEnd);
+      if aOffset < lLiteralEnd then
+        Exit(True);
+      i := lLiteralEnd;
       Continue;
-    end;
-
-    if aText[i] = '''' then
-      lInString := True
-    else if (aText[i] = '/') and (i < Length(aText)) and
+    end else if (aText[i] = '/') and (i < Length(aText)) and
       (aText[i + 1] = '/') then
     begin
       lInLineComment := True;
@@ -4296,7 +4288,7 @@ begin
     end;
     Inc(i);
   end;
-  Result := lInString or lInLineComment or lInBraceComment or lInParenComment;
+  Result := lInLineComment or lInBraceComment or lInParenComment;
 end;
 
 function BodyNextNonWhitespaceChar(const aText: string;

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- WITH ranges stop before the enclosing repeat loop condition. WITH fact and body scans preserve Delphi 12 multiline strings, including odd apostrophes and literal WITH text; older cached facts rebuild.
+
 - WITH helper targets retain declaration identity across unit homonyms and weak aliases. Method-local receiver types retain class scope, and name-only overloaded parameter lookup refuses ambiguous declarations.
 - WITH rewrites refuse inactive subjects that may shadow qualified names and inactive assembly blocks; inactive statement terminators no longer truncate active bodies. Older model and planning caches rebuild.
 - WITH receiver temporary kinds use declared type kinds rather than Object/Class suffixes; pointer targets no longer use P prefixes or Ptr suffixes.

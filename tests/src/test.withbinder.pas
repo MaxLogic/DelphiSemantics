@@ -35,6 +35,92 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('repeat-one route 0', 'repeat-one,0')]
+    [TestCase('repeat-one route 1', 'repeat-one,1')]
+    [TestCase('repeat-one route 2', 'repeat-one,2')]
+    [TestCase('repeat-one route 3', 'repeat-one,3')]
+    [TestCase('repeat-one route 4', 'repeat-one,4')]
+    [TestCase('repeat-multi route 0', 'repeat-multi,0')]
+    [TestCase('repeat-multi route 1', 'repeat-multi,1')]
+    [TestCase('repeat-multi route 2', 'repeat-multi,2')]
+    [TestCase('repeat-multi route 3', 'repeat-multi,3')]
+    [TestCase('repeat-multi route 4', 'repeat-multi,4')]
+    [TestCase('repeat-nested route 0', 'repeat-nested,0')]
+    [TestCase('repeat-nested route 1', 'repeat-nested,1')]
+    [TestCase('repeat-nested route 2', 'repeat-nested,2')]
+    [TestCase('repeat-nested route 3', 'repeat-nested,3')]
+    [TestCase('repeat-nested route 4', 'repeat-nested,4')]
+    [TestCase('repeat-no-semi route 0', 'repeat-no-semi,0')]
+    [TestCase('repeat-no-semi route 1', 'repeat-no-semi,1')]
+    [TestCase('repeat-no-semi route 2', 'repeat-no-semi,2')]
+    [TestCase('repeat-no-semi route 3', 'repeat-no-semi,3')]
+    [TestCase('repeat-no-semi route 4', 'repeat-no-semi,4')]
+    [TestCase('handler-single route 0', 'handler-single,0')]
+    [TestCase('handler-single route 1', 'handler-single,1')]
+    [TestCase('handler-single route 2', 'handler-single,2')]
+    [TestCase('handler-single route 3', 'handler-single,3')]
+    [TestCase('handler-single route 4', 'handler-single,4')]
+    [TestCase('handler-next route 0', 'handler-next,0')]
+    [TestCase('handler-next route 1', 'handler-next,1')]
+    [TestCase('handler-next route 2', 'handler-next,2')]
+    [TestCase('handler-next route 3', 'handler-next,3')]
+    [TestCase('handler-next route 4', 'handler-next,4')]
+    [TestCase('handler-else route 0', 'handler-else,0')]
+    [TestCase('handler-else route 1', 'handler-else,1')]
+    [TestCase('handler-else route 2', 'handler-else,2')]
+    [TestCase('handler-else route 3', 'handler-else,3')]
+    [TestCase('handler-else route 4', 'handler-else,4')]
+    [TestCase('handler-multi route 0', 'handler-multi,0')]
+    [TestCase('handler-multi route 1', 'handler-multi,1')]
+    [TestCase('handler-multi route 2', 'handler-multi,2')]
+    [TestCase('handler-multi route 3', 'handler-multi,3')]
+    [TestCase('handler-multi route 4', 'handler-multi,4')]
+    [TestCase('include-body route 0', 'include-body,0')]
+    [TestCase('include-body route 1', 'include-body,1')]
+    [TestCase('include-body route 2', 'include-body,2')]
+    [TestCase('include-body route 3', 'include-body,3')]
+    [TestCase('include-body route 4', 'include-body,4')]
+    [TestCase('include-mixed route 0', 'include-mixed,0')]
+    [TestCase('include-mixed route 1', 'include-mixed,1')]
+    [TestCase('include-mixed route 2', 'include-mixed,2')]
+    [TestCase('include-mixed route 3', 'include-mixed,3')]
+    [TestCase('include-mixed route 4', 'include-mixed,4')]
+    [TestCase('triple-simple route 0', 'triple-simple,0')]
+    [TestCase('triple-simple route 1', 'triple-simple,1')]
+    [TestCase('triple-simple route 2', 'triple-simple,2')]
+    [TestCase('triple-simple route 3', 'triple-simple,3')]
+    [TestCase('triple-simple route 4', 'triple-simple,4')]
+    [TestCase('inactive-simple route 0', 'inactive-simple,0')]
+    [TestCase('inactive-simple route 1', 'inactive-simple,1')]
+    [TestCase('inactive-simple route 2', 'inactive-simple,2')]
+    [TestCase('inactive-simple route 3', 'inactive-simple,3')]
+    [TestCase('inactive-simple route 4', 'inactive-simple,4')]
+    [TestCase('triple-apostrophe route 0', 'triple-apostrophe,0')]
+    [TestCase('triple-apostrophe route 1', 'triple-apostrophe,1')]
+    [TestCase('triple-apostrophe route 2', 'triple-apostrophe,2')]
+    [TestCase('triple-apostrophe route 3', 'triple-apostrophe,3')]
+    [TestCase('triple-apostrophe route 4', 'triple-apostrophe,4')]
+    [TestCase('inactive-apostrophe route 0', 'inactive-apostrophe,0')]
+    [TestCase('inactive-apostrophe route 1', 'inactive-apostrophe,1')]
+    [TestCase('inactive-apostrophe route 2', 'inactive-apostrophe,2')]
+    [TestCase('inactive-apostrophe route 3', 'inactive-apostrophe,3')]
+    [TestCase('inactive-apostrophe route 4', 'inactive-apostrophe,4')]
+    [TestCase('triple-double route 0', 'triple-double,0')]
+    [TestCase('triple-double route 1', 'triple-double,1')]
+    [TestCase('triple-double route 2', 'triple-double,2')]
+    [TestCase('triple-double route 3', 'triple-double,3')]
+    [TestCase('triple-double route 4', 'triple-double,4')]
+    [TestCase('inactive-double route 0', 'inactive-double,0')]
+    [TestCase('inactive-double route 1', 'inactive-double,1')]
+    [TestCase('inactive-double route 2', 'inactive-double,2')]
+    [TestCase('inactive-double route 3', 'inactive-double,3')]
+    [TestCase('inactive-double route 4', 'inactive-double,4')]
+    [TestCase('repeat-independent route 0', 'repeat-independent,0')]
+    [TestCase('repeat-independent route 1', 'repeat-independent,1')]
+    [TestCase('repeat-independent route 2', 'repeat-independent,2')]
+    [TestCase('repeat-independent route 3', 'repeat-independent,3')]
+    [TestCase('repeat-independent route 4', 'repeat-independent,4')]
+    procedure StatementRangeRoutes(const aShape: string; const aRoute: Integer);
     [TestCase('foreign-helper route 0', 'foreign-helper,0')]
     [TestCase('foreign-helper route 1', 'foreign-helper,1')]
     [TestCase('foreign-helper route 2', 'foreign-helper,2')]
@@ -21196,6 +21282,160 @@ begin
       Assert.AreEqual('', lStatement.ReplacementText);
     end else
       Assert.AreEqual('planned', lStatement.Status);
+end;
+
+procedure TWithBinderTests.StatementRangeRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot, lSource, lExpectedText: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+  lExpected: Integer;
+  lLines: TArray<string>;
+  lCacheable: Boolean;
+begin
+  lRoot := WithBinderTempPath('range-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFile in TDirectory.GetFiles(FixturePath('WithStatementRanges', aShape)) do
+    TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  lSource := TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.CompilerIncludeSearchPath := CaptureFixtureCompilerIncludePath(lOptions.ProjectFileName);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lCacheable := not StartsText('include-', aShape);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'statement-range';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'statement-range';
+      lIdentity.SchemaVersion := 'statement-range';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      if lCacheable then
+      begin
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        GC(lLoaded, g);
+        lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+      end else begin
+        // Incomplete include units are deliberately uncacheable. The persisted
+        // route must miss rather than resurrect an unsafe plan.
+        Assert.IsFalse(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+        lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lStored);
+      end;
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual((i - 3) * Ord(lCacheable), Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  // Export published facts/edits before assertions for native compiler/runtime proof.
+  lProofRoot := GetEnvironmentVariable('DS_STATEMENT_RANGE_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.inc', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual(lSource, TFile.ReadAllText(TPath.Combine(lRoot, 'Unit1.pas')));
+  Assert.IsFalse(ContainsText(lPlan.Diagnostic, 'EXCEPTION'), lPlan.Diagnostic);
+  Assert.IsFalse(ContainsText(lPlan.Diagnostic, 'Range check error'), lPlan.Diagnostic);
+  if StartsText('include-', aShape) then
+  begin
+    Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'WITH_IN_INCLUDE_UNVERIFIED'), lPlan.Diagnostic);
+    for var lStatement in lPlan.FinalStatements do
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      Assert.IsNotEmpty(lStatement.Reason);
+      Assert.AreEqual<NativeInt>(0, Length(lStatement.Edits));
+      Assert.AreEqual<NativeInt>(0, Length(lStatement.Temps));
+      Assert.AreEqual('', lStatement.ReplacementText);
+    end;
+    Exit;
+  end;
+  lExpected := 1 + Ord(MatchText(aShape, ['repeat-nested', 'repeat-independent']));
+  Assert.AreEqual<NativeInt>(lExpected, Length(lFacts.Bindings), 'Literal WITH text cannot become a binding.');
+  Assert.AreEqual<NativeInt>(lExpected, Length(lPlan.Statements));
+  Assert.AreEqual<NativeInt>(lExpected - Ord(aShape = 'repeat-independent'), Length(lPlan.FinalStatements));
+  if aShape = 'repeat-independent' then
+  begin
+    Assert.AreEqual('covered-by-parent-rewrite', lPlan.Statements[1].Reason);
+    Assert.AreEqual(lPlan.Statements[0].StatementId, lPlan.Statements[1].CoveredByStatementId);
+  end;
+  lLines := TFile.ReadAllLines(TPath.Combine(lRoot, 'Unit1.pas'));
+  for var lStatement in lPlan.FinalStatements do
+  begin
+    if StartsText('repeat-', aShape) then
+      Assert.IsFalse(ContainsText(lStatement.Verification.ExpectedSourceText, 'until'),
+        'The enclosing UNTIL is outside the WITH.');
+    if StartsText('triple-', aShape) or StartsText('inactive-', aShape) then
+    begin
+      lExpectedText := Copy(lSource, Pos('with lRec do', lSource),
+        Pos('  Writeln(', lSource) - Pos('with lRec do', lSource)).TrimRight;
+      Assert.AreEqual(lExpectedText, lStatement.Verification.ExpectedSourceText);
+    end;
+    if (aShape = 'repeat-nested') or (lStatement.Reason = 'covered-by-parent-rewrite') then
+    begin
+      Assert.AreEqual('skipped', lStatement.Status);
+      if aShape = 'repeat-nested' then
+        Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+      Assert.AreEqual<NativeInt>(0, Length(lStatement.Edits));
+      Assert.AreEqual<NativeInt>(0, Length(lStatement.Temps));
+      Assert.AreEqual('', lStatement.ReplacementText);
+      Continue;
+    end;
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason + ':' + lStatement.SafetyReason);
+    Assert.IsFalse(ContainsText(lStatement.ReplacementText, ';;'), 'Handler separators cannot double.');
+    Assert.IsTrue(Length(lStatement.Edits) > 0);
+    for var lEdit in lStatement.Edits do
+      if lEdit.Kind = 'replace-statement' then
+        Assert.IsFalse(EndsText(';', TrimRight(lEdit.ReplacementText)) and
+          StartsText(';', TrimLeft(Copy(lLines[lEdit.Range.EndLine - 1],
+            lEdit.Range.EndColumn + 1, MaxInt))), 'Published range must consume its separator.');
+  end;
 end;
 
 initialization

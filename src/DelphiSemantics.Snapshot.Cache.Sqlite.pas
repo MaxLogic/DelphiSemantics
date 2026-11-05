@@ -154,7 +154,7 @@ const
   // 14: expected identity row count for complete project planning facts.
   // 25: DS-737/739 invalidate planning facts with unsafe conditional WITH ranges.
   // 26: DS-736/707 retain helper and receiver declaration identity.
-  cSnapshotCacheSchemaVersion = '26';
+  cSnapshotCacheSchemaVersion = '27';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

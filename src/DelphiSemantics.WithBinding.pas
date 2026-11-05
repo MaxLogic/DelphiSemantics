@@ -2672,76 +2672,8 @@ begin
 end;
 
 function SanitizeBodyText(const aText: string): string;
-  procedure BlankAt(const aIndex: Integer);
-  begin
-    if not CharInSet(Result[aIndex], [#10, #13]) then
-      Result[aIndex] := ' ';
-  end;
-
-var
-  i: Integer;
 begin
-  Result := aText;
-  i := 1;
-  while i <= Length(Result) do
-  begin
-    if aText[i] = '''' then
-    begin
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if aText[i] = '''' then
-        begin
-          if (i < Length(aText)) and (aText[i + 1] = '''') then
-          begin
-            Inc(i);
-            BlankAt(i);
-          end else
-            Break;
-        end;
-        Inc(i);
-      end;
-    end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
-    begin
-      while (i <= Length(Result)) and not CharInSet(Result[i], [#10, #13]) do
-      begin
-        BlankAt(i);
-        Inc(i);
-      end;
-      Continue;
-    end else if aText[i] = '{' then
-    begin
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if aText[i] = '}' then
-          Break;
-        Inc(i);
-      end;
-    end else if (aText[i] = '(') and (i < Length(aText)) and (aText[i + 1] = '*') then
-    begin
-      BlankAt(i);
-      Inc(i);
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if (aText[i] = '*') and (i < Length(aText)) and (aText[i + 1] = ')') then
-        begin
-          Inc(i);
-          BlankAt(i);
-          Break;
-        end;
-        Inc(i);
-      end;
-    end;
-    Inc(i);
-  end;
+  Result := SanitizeCodeText(aText);
 end;
 
 function ExtractWithBodyText(const aStatement: TDelphiSemanticWithStatement;
@@ -5861,19 +5793,9 @@ begin
   i := 1;
   while i <= Length(lText) do
   begin
-    if lText[i] = '''' then
+    if lText[i] = #39 then
     begin
-      Inc(i);
-      while i <= Length(lText) do
-      begin
-        if lText[i] = '''' then
-        begin
-          Inc(i);
-          if (i > Length(lText)) or (lText[i] <> '''') then
-            Break;
-        end;
-        Inc(i);
-      end;
+      SkipPascalStringLiteral(lText, i);
       Continue;
     end;
     if (lText[i] = '/') and (i < Length(lText)) and (lText[i + 1] = '/') then
