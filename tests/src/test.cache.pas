@@ -427,9 +427,10 @@ begin
   lModelOptions.SourceFileName := TempPath('NoContextWitness.pas');
   TFile.WriteAllText(lModelOptions.SourceFileName,
     'unit NoContextWitness;'#13#10 + 'interface'#13#10 +
-    'const ActiveName = 1;'#13#10 + '{$IFDEF RELEASE_TRACE}'#13#10 +
+    'const ActiveName = 1;'#13#10 + '{$UNDEF RELEASE_TRACE}{$IFDEF RELEASE_TRACE}'#13#10 +
     'const InactiveName = 2;'#13#10 + '{$ENDIF}'#13#10 +
     '{$IF UseUnknown} const UnknownName = 3; {$IFEND}'#13#10 +
+    '{$IFDEF POSSIBLE_EXTERNAL} const PossibleName = 4; {$ENDIF}'#13#10 +
     'implementation'#13#10 + 'end.', TEncoding.ASCII);
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lCacheOptions.SqliteCacheFileName := TempPath('no-context-witness.sqlite3');
@@ -451,6 +452,10 @@ begin
     Assert.IsTrue(ContainsText(lSecond.Model.ReferenceScanSourceText, 'UnknownName'),
       'An unknown region must remain in the conservative reference scan.');
     Assert.IsFalse(ContainsText(lSecond.Model.ReferenceScanSourceText, 'InactiveName'));
+    Assert.IsTrue(ContainsText(lSecond.Model.ReferenceScanSourceText, 'PossibleName'),
+      'An absent ordinary define is unknown without a certificate, including after SQLite reload.');
+    Assert.IsTrue(lSecond.Model.DirectiveFacts.NameCause('PossibleName') <> '');
+    Assert.IsFalse(lSecond.Model.DefineEvidenceComplete);
     Assert.AreEqual('', lFirst.Model.VerifiedActiveSourceText);
     Assert.AreEqual('', lSecond.Model.VerifiedActiveSourceText,
       'A warm scan witness must never become project activity authority.');

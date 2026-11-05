@@ -505,6 +505,11 @@ begin
   lOptions.SourceFileName := aOptions.SourceFileName;
   lOptions.SourceText := aSource.Source.Text;
   lOptions.Defines := aOptions.Defines;
+  lOptions.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
+  lOptions.CompilerDefineEvidenceFingerprint :=
+    TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence);
+  if aOptions.DefineEvidenceComplete and (aOptions.CompilerDefineEvidence <> nil) then
+    lOptions.PredefinedFalse := aOptions.CompilerDefineEvidence.Descriptor.PredefinedFalse;
   lOptions.SearchPaths := aOptions.IncludePaths;
   lOptions.SkippedIncludeSearchPaths := aOptions.SearchPaths;
   if not aOptions.ProjectContextApplied then

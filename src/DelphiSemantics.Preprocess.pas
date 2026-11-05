@@ -10,6 +10,10 @@ type
     SourceFileName: string;
     SourceText: string;
     Defines: TArray<string>;
+    // Only the owning model/context admission may certify ordinary absence.
+    DefineEvidenceComplete: Boolean;
+    CompilerDefineEvidenceFingerprint: string;
+    PredefinedFalse: TArray<string>;
     SearchPaths: TArray<string>;
     // Conservative candidates for skipped-file absence evidence, not active lookup.
     SkippedIncludeSearchPaths: TArray<string>;
@@ -104,9 +108,18 @@ type
   TSourceTextCache = TDictionary<string, TDelphiSemanticSourceLoadResult>;
   TLineOriginList = TList<TDelphiSemanticSourceLineOrigin>;
 
+  TPreprocessExpansion = record
+    ParentId: string;
+    DirectiveOffset: Integer;
+    FileName: string;
+    Id: string;
+  end;
+
   TPreprocessCapture = class
     Spans: TList<TDelphiSemanticCopiedSourceSpan>;
     ActivitySpans: TList<TDelphiSemanticActivitySpan>;
+    Expansions: TList<TPreprocessExpansion>;
+    DefineEvidenceComplete: Boolean;
     UnknownSymbols: TDictionary<string, Boolean>;
     AllSymbolsUnknown: Boolean;
     HasUnknownActivity: Boolean;
@@ -121,6 +134,7 @@ type
   TPreprocessOutputContext = record
     Capture: TPreprocessCapture;
     BaseOffset: Integer;
+    DirectiveOffset: Integer;
     ExpansionId: string;
   end;
 
@@ -137,6 +151,7 @@ constructor TPreprocessCapture.Create;
 begin
   inherited Create;
   ActivityComplete := True;
+  Expansions := TList<TPreprocessExpansion>.Create;
   SkippedIncludes := TList<string>.Create;
   Spans := TList<TDelphiSemanticCopiedSourceSpan>.Create;
   ActivitySpans := TList<TDelphiSemanticActivitySpan>.Create;
@@ -145,6 +160,7 @@ end;
 
 destructor TPreprocessCapture.Destroy;
 begin
+  Expansions.Free;
   SkippedIncludes.Free;
   UnknownSymbols.Free;
   ActivitySpans.Free;
@@ -237,7 +253,7 @@ begin
   lName := DefineKey(aName);
   // DS-667: names, not assumed values, from Embarcadero's predefined table:
   // https://docwiki.embarcadero.com/RADStudio/Athens/en/Conditional_compilation_(Delphi)
-  // Includes documented legacy and framework symbols; VER versions remain unknown.
+  // VER-family values require an explicit compiler witness; FRAMEWORK_* is ordinary.
   if (Length(lName) > 3) and StartsStr('VER', lName) then
   begin
     for i := 4 to Length(lName) do
@@ -248,9 +264,9 @@ begin
   // Delphi 12 compiler probes across all nine installed targets also establish LLVM,
   // MANAGED_RECORD and WEAK_NATIVEINT (round9-compiler-predefined-probe.json).
   Result := MatchText(lName, ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64',
-    'ASSEMBLER', 'AUTOREFCOUNT', 'CONDITIONALEXPRESSIONS', 'CONSOLE', 'CPU386',
+    'ASSEMBLER', 'AUTOREFCOUNT', 'BCB', 'CONDITIONALEXPRESSIONS', 'CONSOLE', 'CPU386',
     'CPU32BITS', 'CPU64BITS', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX64', 'CPUX86',
-    'DCC', 'ELF', 'EXTERNALLINKER', 'FRAMEWORK_FMX', 'FRAMEWORK_VCL', 'IOS', 'IOS32', 'IOS64',
+    'DCC', 'ELF', 'EXTERNALLINKER', 'IOS', 'IOS32', 'IOS64',
     'IOSSIMULATOR',
     'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64', 'MANAGED_RECORD', 'MSWINDOWS',
     'NATIVECODE', 'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX',
@@ -263,10 +279,11 @@ function IsConditionalStateKnown(const aDefines: TDefineMap; const aName: string
 var
   lUnknown: Boolean;
 begin
-  // An ordinary absent define is false; captured DEFINE/UNDEF states also win
-  // for compiler symbols whose implicit value is otherwise not captured.
+  // Explicit positives/negatives (including source writes) are known. Ordinary
+  // absence needs admitted evidence; compiler absence needs its separate witness.
   Result := aDefines.ContainsKey(DefineKey(aName)) or
-    not IsCompilerPredefinedConditional(aName);
+    ((aCapture <> nil) and aCapture.DefineEvidenceComplete and
+    not IsCompilerPredefinedConditional(aName));
   if aCapture <> nil then
   begin
     if aCapture.UnknownSymbols.TryGetValue(DefineKey(aName), lUnknown) then
@@ -975,6 +992,8 @@ type
     fOptions: TDelphiSemanticPreprocessOptions;
     fSources: TSourceTextCache;
     fActivity: TArray<TDelphiSemanticActivitySpan>;
+    fExpansions: TArray<TPreprocessExpansion>;
+    fExpansionId: string;
     fFrames: TObjectList<TDirectiveScanFrame>;
     fIncludeFrames: TObjectList<TDirectiveScanFrame>;
     fSpans: TList<TDelphiSemanticDirectiveSpan>;
@@ -982,16 +1001,19 @@ type
     fFacts: TDelphiSemanticDirectiveFacts;
     fClause: Boolean;
     fExpandedOffset: Integer;
+    function ActivityAt(const aFileName: string; const aOffset: Integer): TDelphiSemanticSourceActivity;
+    function IncludeExpansionId(const aFileName: string; const aOffset: Integer): string;
     function TestsUnknownSymbol(const aBody: string): Boolean;
     function KnownInactive(const aFileName: string; const aOffset: Integer): Boolean;
     procedure CloseFrame(const aFileName: string; const aOffset: Integer;
       const aIncludeFrame: Boolean = False);
     procedure Directive(const aBody, aFileName: string; const aFirst, aLast: Integer);
     procedure Word(const aWord: string);
-    procedure Scan(const aText, aFileName: string);
+    procedure Scan(const aText, aFileName, aExpansionId: string);
   public
     constructor Create(const aOptions: TDelphiSemanticPreprocessOptions;
-      const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>);
+      const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>;
+      const aExpansions: TArray<TPreprocessExpansion>);
     destructor Destroy; override;
     function Execute: TDelphiSemanticDirectiveFacts;
   end;
@@ -1012,7 +1034,8 @@ begin
 end;
 
 constructor TDirectiveScanner.Create(const aOptions: TDelphiSemanticPreprocessOptions;
-  const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>);
+  const aSources: TSourceTextCache; const aActivity: TArray<TDelphiSemanticActivitySpan>;
+  const aExpansions: TArray<TPreprocessExpansion>);
 begin
   inherited Create;
   fOptions := aOptions;
@@ -1020,6 +1043,7 @@ begin
     fOptions.SourceFileName := TPath.GetFullPath(fOptions.SourceFileName);
   fSources := aSources;
   fActivity := aActivity;
+  fExpansions := aExpansions;
   fFrames := TObjectList<TDirectiveScanFrame>.Create;
   fIncludeFrames := TObjectList<TDirectiveScanFrame>.Create;
   fSpans := TList<TDelphiSemanticDirectiveSpan>.Create;
@@ -1071,18 +1095,31 @@ begin
   end;
 end;
 
+function TDirectiveScanner.ActivityAt(const aFileName: string;
+  const aOffset: Integer): TDelphiSemanticSourceActivity;
+begin
+  // A repeated include must never borrow another expansion's activity.
+  for var lSpan in fActivity do
+    if SameText(lSpan.FileName, aFileName) and (lSpan.ExpansionId = fExpansionId) and
+      (aOffset >= lSpan.StartOffset) and (aOffset < lSpan.EndOffset) then
+      Exit(lSpan.Activity);
+  Result := saUnknown;
+end;
+
+function TDirectiveScanner.IncludeExpansionId(const aFileName: string;
+  const aOffset: Integer): string;
+begin
+  for var lExpansion in fExpansions do
+    if (lExpansion.ParentId = fExpansionId) and (lExpansion.DirectiveOffset = aOffset) and
+      SameText(lExpansion.FileName, aFileName) then
+      Exit(lExpansion.Id);
+  Result := '';
+end;
+
 function TDirectiveScanner.KnownInactive(const aFileName: string;
   const aOffset: Integer): Boolean;
 begin
-  Result := False;
-  for var lSpan in fActivity do
-    if SameText(lSpan.FileName, aFileName) and (aOffset >= lSpan.StartOffset) and
-      (aOffset < lSpan.EndOffset) then
-    begin
-      if lSpan.Activity <> saInactive then
-        Exit(False);
-      Result := True;
-    end;
+  Result := ActivityAt(aFileName, aOffset) = saInactive;
 end;
 
 procedure TDirectiveScanner.CloseFrame(const aFileName: string; const aOffset: Integer;
@@ -1196,7 +1233,7 @@ begin
       lFrame.Span.StartOffset := aFirst;
       lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
     end;
-    Scan(lSource.Source.Text, lChildFile);
+    Scan(lSource.Source.Text, lChildFile, IncludeExpansionId(lChildFile, aFirst));
     if lUnprovedInclude then
       CloseFrame(aFileName, aLast, True);
     Exit;
@@ -1209,14 +1246,17 @@ begin
     lFrame.Span.StartFileName := aFileName;
     lFrame.Span.StartOffset := aFirst;
     lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
-    lFrame.Unknown := (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
-      TestsUnknownSymbol(Copy(aBody, i, MaxInt));
+    lFrame.Unknown := not KnownInactive(aFileName, aFirst) and
+      ((ActivityAt(aFileName, aFirst) = saUnknown) or
+      (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
+      TestsUnknownSymbol(Copy(aBody, i, MaxInt)));
     lFrame.TouchesUses := fClause;
   end else if MatchText(lName, ['ELSE', 'ELSEIF']) then
   begin
     if fFrames.Count = 0 then
       fFacts.UnitUnproved := True
-    else if (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
+    else if (ActivityAt(aFileName, aFirst) = saUnknown) or
+      (not TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody)) or
       (SameText(lName, 'ELSEIF') and TestsUnknownSymbol(Copy(aBody, i, MaxInt))) then
     begin
       fFrames.Last.Unknown := True;
@@ -1227,6 +1267,14 @@ begin
   else if MatchText(lName, ['DEFINE', 'UNDEF']) and
     TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(aBody) then
   begin
+    if (fIncludeFrames.Count = 0) and (ActivityAt(aFileName, aFirst) = saActive) then
+    begin
+      // The shared activity evaluator proves this assignment executes, so it
+      // supersedes an earlier possible write instead of retaining stale taint.
+      lArgument := Trim(Copy(aBody, i, MaxInt));
+      if fUnknownSymbols.IndexOf(lArgument) >= 0 then
+        fUnknownSymbols.Delete(fUnknownSymbols.IndexOf(lArgument));
+    end;
     if fIncludeFrames.Count > 0 then
       fUnknownSymbols.Add(Trim(Copy(aBody, i, MaxInt)));
     for lFrame in fFrames do
@@ -1257,11 +1305,14 @@ begin
   end;
 end;
 
-procedure TDirectiveScanner.Scan(const aText, aFileName: string);
+procedure TDirectiveScanner.Scan(const aText, aFileName, aExpansionId: string);
 var
   i, j, lFirst, lBodyFirst, lBodyLast, lQuotes: Integer;
   lDirective, lBrace, lClosed: Boolean;
+  lParentExpansionId: string;
 begin
+  lParentExpansionId := fExpansionId;
+  fExpansionId := aExpansionId;
   fIncludes.Add(aFileName);
   try
     Inc(fFacts.CharactersScanned, Length(aText));
@@ -1376,6 +1427,7 @@ begin
     end;
   finally
     fIncludes.Delete(fIncludes.Count - 1);
+    fExpansionId := lParentExpansionId;
   end;
 end;
 
@@ -1388,7 +1440,7 @@ begin
   if (fOptions.SourceText = '') and
     fSources.TryGetValue(fOptions.SourceFileName, lSource) then
     fOptions.SourceText := lSource.Source.Text;
-  Scan(fOptions.SourceText, fOptions.SourceFileName);
+  Scan(fOptions.SourceText, fOptions.SourceFileName, '1');
   if fFrames.Count > 0 then
   begin
     fFacts.UnitUnproved := True;
@@ -1627,6 +1679,7 @@ begin
       end else
       begin
         lOutputLineWritten := False;
+        lLineContext.DirectiveOffset := aSourceLineStartOffset + lDirectiveStart - 1;
         if not ProcessDirective(lDirective, aFileName, aLineNumber, aOptions, aDefines,
           aStack, aDiagnostics, lLineOutput, aRegions, aIncludes, aIncludeStack, aSourceCache,
           aOrigins, lLineContext, lOutputLineWritten) then
@@ -1682,6 +1735,7 @@ var
   i: Integer;
   lDirective: string;
   lDirectiveActivity: TDelphiSemanticSourceActivity;
+  lDirectiveContext: TPreprocessOutputContext;
   lDirectiveLines: TStringList;
   lDirectiveStart: Integer;
   lDirectiveStop: Integer;
@@ -1740,9 +1794,11 @@ begin
 
         lDirectiveActivity := CurrentActivity(aStack);
         lOutputLineWritten := False;
+        lDirectiveContext := aContext;
+        lDirectiveContext.DirectiveOffset := lLineStarts[i] + lDirectiveStart - 1;
         if not ProcessDirective(lDirective, aFileName, i + 1, aOptions, aDefines, aStack,
           aDiagnostics, aOutput, aRegions, aIncludes, aIncludeStack, aSourceCache, aOrigins,
-          aContext, lOutputLineWritten) then
+          lDirectiveContext, lOutputLineWritten) then
           aSuccess := False;
         CaptureDirectiveActivity(aContext, lDirectiveActivity, CurrentActivity(aStack),
           aSourceText, aFileName, lLineStarts[i] + lDirectiveStart - 1,
@@ -1810,6 +1866,7 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
 var
   lActive: Boolean;
   lInclude: TDelphiSemanticIncludeFile;
+  lExpansion: TPreprocessExpansion;
   lIncludeContext: TPreprocessOutputContext;
   lIncludeFileName: string;
   lIncludeName: string;
@@ -2014,6 +2071,11 @@ begin
         lIncludeContext := aContext;
         lIncludeContext.BaseOffset := aContext.BaseOffset + aOutput.Length;
         lIncludeContext.ExpansionId := aContext.Capture.NewExpansionId;
+        lExpansion.ParentId := aContext.ExpansionId;
+        lExpansion.DirectiveOffset := aContext.DirectiveOffset;
+        lExpansion.FileName := lIncludeFileName;
+        lExpansion.Id := lIncludeContext.ExpansionId;
+        aContext.Capture.Expansions.Add(lExpansion);
         ProcessLoadedSourceFile(lIncludeFileName, lIncludeText, aOptions, aDefines,
           aStack, aDiagnostics, lIncludeOutput, aRegions, aIncludes, aIncludeStack,
           aSourceCache, lOrigins, lIncludeContext, lSuccess);
@@ -2090,18 +2152,25 @@ end;
 class function TDelphiSemanticPreprocessor.ScanDirectiveFacts(
   const aOptions: TDelphiSemanticPreprocessOptions): TDelphiSemanticDirectiveFacts;
 var
-  lSources: TSourceTextCache;
-  lScanner: TDirectiveScanner;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
 begin
-  lSources := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lScanner := nil;
-  try
-    lScanner := TDirectiveScanner.Create(aOptions, lSources, nil);
-    Result := lScanner.Execute;
-  finally
-    lScanner.Free;
-    lSources.Free;
+  // Text-only callers share the same evaluator, including incomplete evidence.
+  lOptions := aOptions;
+  if lOptions.SourceFileName = '' then
+  begin
+    if lOptions.SourceText = '' then
+    begin
+      Result := Default(TDelphiSemanticDirectiveFacts);
+      Result.Scanned := True;
+      Result.ScanCount := 1;
+      Exit;
+    end;
+    // Coordinate identity for an in-memory source; no file is created or read.
+    lOptions.SourceFileName := TPath.Combine(TDirectory.GetCurrentDirectory, '__ds_in_memory__.pas');
   end;
+  lResult := PreprocessFile(lOptions);
+  Result := lResult.DirectiveFacts;
 end;
 
 class function TDelphiSemanticPreprocessor.PreprocessFile(
@@ -2139,7 +2208,12 @@ begin
   lStack := nil;
   try
     lCapture := TPreprocessCapture.Create;
+    lCapture.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
     lDefines := CreateDefineMap(aOptions.Defines);
+    // Positive -D/source definitions retain precedence over predefined negatives.
+    for var lSymbol in aOptions.PredefinedFalse do
+      if not lDefines.ContainsKey(DefineKey(lSymbol)) then
+        lDefines.Add(DefineKey(lSymbol), False);
     lDiagnostics := TList<TDelphiSemanticPreprocessDiagnostic>.Create;
     lIncludes := TList<TDelphiSemanticIncludeFile>.Create;
     lIncludeStack := TList<string>.Create;
@@ -2151,6 +2225,7 @@ begin
 
     lContext.Capture := lCapture;
     lContext.BaseOffset := 0;
+    lContext.DirectiveOffset := 0;
     lContext.ExpansionId := lCapture.NewExpansionId;
 
     lSuccess := True;
@@ -2164,7 +2239,8 @@ begin
         'Unterminated conditional directive stack.', aOptions.SourceFileName, 0);
       lSuccess := False;
     end;
-    lScanner := TDirectiveScanner.Create(aOptions, lSourceCache, lCapture.ActivitySpans.ToArray);
+    lScanner := TDirectiveScanner.Create(aOptions, lSourceCache,
+      lCapture.ActivitySpans.ToArray, lCapture.Expansions.ToArray);
     try
       Result.DirectiveFacts := lScanner.Execute;
     finally

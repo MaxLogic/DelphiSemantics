@@ -90,6 +90,12 @@ type
     [TestCase('include-body full', 'include-body,False')]
     [TestCase('include-body scan', 'include-body,True')]
     procedure StatementRangeExtraction(const aShape: string; const aLightweight: Boolean);
+    [Category('Fast')]
+    [TestCase('Direct incomplete', 'direct-incomplete')]
+    [TestCase('Direct complete', 'direct-complete')]
+    [TestCase('Cache incomplete', 'cache-incomplete')]
+    [TestCase('Cache complete', 'cache-complete')]
+    procedure DefineEvidencePreprocessingMatchesCachedModels(const aShape: string);
     [TestCase('empty', 'empty')]
     [TestCase('tagless', 'tagless')]
     [TestCase('anonymous-field', 'anonymous-field')]
@@ -122,6 +128,8 @@ type
     [Test]
     procedure MixedBodyOriginRetainsUnitActivityFallback;
     [Category('Fast')]
+    [TestCase('Ordinary omitted body', 'ordinary')]
+    [TestCase('Ordinary selected body', 'ordinary-selected')]
     [TestCase('Unknown omitted body', 'unknown')]
     [TestCase('Unknown selected body', 'selected')]
     [TestCase('Nested unknown body', 'nested')]
@@ -582,9 +590,9 @@ uses
   System.SysUtils,
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
-  DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
+  DelphiSemantics.Cache, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
   DelphiSemantics.WithBinding.Inventory,
-  Test.Support;
+  Test.CompilerDefineEvidence, Test.Support;
 
 var
   GUnitModelTempRoot: string;
@@ -5318,6 +5326,52 @@ begin
     'The nested constant must retain its declaring type.');
 end;
 
+procedure TUnitModelTests.DefineEvidencePreprocessingMatchesCachedModels(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lCache: TDelphiSemanticUnitCache;
+  lComplete: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('define-preprocess-' + aShape + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit Defines; interface type TData = record {$IFDEF REVIEW_FEATURE}Count: Integer;{$ENDIF} end;' +
+    ' implementation end.', TEncoding.ASCII);
+  lComplete := EndsText('-complete', aShape);
+  if lComplete then
+  begin
+    lOptions.CompilerDefineRequest.ProjectFileName := TPath.ChangeExtension(lOptions.SourceFileName, '.dproj');
+    lOptions.CompilerDefineRequest.MainSourceFileName := lOptions.SourceFileName;
+    lOptions.CompilerDefineRequest.Configuration := 'Debug';
+    lOptions.CompilerDefineRequest.Platform := 'Win64';
+    lOptions.CompilerDefineRequest.DelphiVersion := '23.0';
+    // This generated source is the entire closed synthetic universe.
+    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lOptions.CompilerDefineRequest,
+      [lOptions.SourceFileName], nil);
+  end;
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    if StartsText('cache-', aShape) then
+      lModel := lCache.GetOrExtractUnitModel(lOptions)
+    else
+      lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+    Assert.AreEqual(lComplete, lModel.DefineEvidenceComplete);
+    Assert.AreEqual(not lComplete, HasDiagnostic(lModel, 'MEMBERS_ACTIVITY_UNVERIFIED'));
+    Assert.AreEqual(not lComplete, lModel.DirectiveFacts.NameCause('Count') <> '');
+    if StartsText('cache-', aShape) then
+    begin
+      lModel := lCache.GetOrExtractUnitModel(lOptions);
+      Assert.AreEqual(not lComplete, HasDiagnostic(lModel, 'MEMBERS_ACTIVITY_UNVERIFIED'));
+      Assert.AreEqual(not lComplete, lModel.DirectiveFacts.NameCause('Count') <> '');
+    end;
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TUnitModelTests.TypeMemberActivityDiagnostics(const aShape: string);
 var
   lModel, lRestored: TDelphiSemanticUnitModel;
@@ -5331,7 +5385,11 @@ begin
   lOptions.ProjectContextApplied := aShape <> 'no-context';
   lBody := '{$IFDEF LINUX} Count: Integer; {$ENDIF}';
   lExpected := 1;
-  if aShape = 'selected' then
+  if aShape = 'ordinary' then
+    lBody := '{$IFDEF REVIEW_FEATURE} Count: Integer; {$ENDIF}'
+  else if aShape = 'ordinary-selected' then
+    lBody := '{$IFNDEF REVIEW_FEATURE} Count: Integer; {$ENDIF}'
+  else if aShape = 'selected' then
     lBody := '{$IFNDEF LINUX} Count: Integer; {$ENDIF}'
   else if aShape = 'nested' then
   begin
@@ -5344,7 +5402,7 @@ begin
     if aShape = 'active' then
       lBody := '{$IFDEF MSWINDOWS} Count: Integer; {$ENDIF}'
     else
-      lBody := '{$IFDEF NEVER_DEFINED} Count: Integer; {$ENDIF}';
+      lBody := '{$UNDEF NEVER_DEFINED}{$IFDEF NEVER_DEFINED} Count: Integer; {$ENDIF}';
   end else if aShape = 'no-context' then
     lExpected := 0;
   TFile.WriteAllText(lOptions.SourceFileName,
