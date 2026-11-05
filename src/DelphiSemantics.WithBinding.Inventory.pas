@@ -24,7 +24,8 @@ implementation
 uses
   System.Character, System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver,
+  DelphiSemantics.SourceConditionals;
 
 type
   TRelatedInventoryMemberRelation = record
@@ -714,12 +715,12 @@ begin
   lNameEnd := lNameStart;
   while lNameEnd <= Length(lText) do
   begin
-    if InventoryIsIdentifierChar(lText[lNameEnd]) or (lText[lNameEnd] = '.') then
+    if InventoryIsIdentifierChar(lText[lNameEnd]) or CharInSet(lText[lNameEnd], ['.', '&']) then
       Inc(lNameEnd)
     else
       Break;
   end;
-  aName := Copy(lText, lNameStart, lNameEnd - lNameStart);
+  aName := Copy(lText, lNameStart, lNameEnd - lNameStart).Replace('&', '');
   Result := aName <> '';
 end;
 
@@ -2053,7 +2054,7 @@ begin
 end;
 
 procedure ParseDakInventoryRoutines(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
-  const aLines: TArray<string>; const aUnitName, aFileName: string);
+  const aLines, aActiveLines: TArray<string>; const aUnitName, aFileName: string);
 var
   i: Integer;
   lEndLine: Integer;
@@ -2115,6 +2116,10 @@ begin
         Continue;
 
       if (not lTopLevelLine) and (not InventoryIsRoutineStart(lLine)) then
+        Continue;
+      // Ignore wholly inactive routine headers, but keep original body locals.
+      // Rendering still preserves inactive source within an active routine.
+      if (i < Length(aActiveLines)) and (Trim(aActiveLines[i]) = '') then
         Continue;
       lSignature := InventoryCollectDeclarationText(aLines, i, lEndLine);
       if not InventoryTryRoutineName(lSignature, lRoutineName) then
@@ -2183,7 +2188,9 @@ begin
     InventorySourceTextLines(InventoryMaskTrivia(aModel.SourceText, True)),
     aModel.UnitName, aModel.FileName);
   ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
-  ParseDakInventoryRoutines(aSymbols, lLines, aModel.UnitName, aModel.FileName);
+  ParseDakInventoryRoutines(aSymbols, lLines,
+    InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
+      aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName);
 end;
 
 procedure AddDakCompatibleInventorySymbols(const aModel: TDelphiSemanticUnitModel;
@@ -2836,7 +2843,7 @@ end;
 // Returns the scope of the innermost AST routine whose source range holds the
 // line, or '' when no routine of that file encloses it.
 function InventoryInnermostRoutineScopeAt(const aModel: TDelphiSemanticUnitModel;
-  const aFileName: string; const aLine: Integer): string;
+  const aFileName: string; const aLine, aColumn: Integer): string;
 var
   lBestSpan: Integer;
   lRoutine: TDelphiSemanticRoutine;
@@ -2844,7 +2851,9 @@ begin
   Result := '';
   lBestSpan := MaxInt;
   for lRoutine in aModel.Routines do
-    if (lRoutine.ScopeId <> '') and (lRoutine.Line <= aLine) and (aLine <= lRoutine.EndLine) and
+    if (lRoutine.ScopeId <> '') and (lRoutine.Line <= aLine) and
+      ((aLine < lRoutine.EndLine) or ((aLine = lRoutine.EndLine) and
+        (aColumn < lRoutine.EndColumn))) and
       ((lRoutine.FileName = '') or SameText(lRoutine.FileName, aFileName)) and
       (lRoutine.EndLine - lRoutine.Line < lBestSpan) then
     begin
@@ -2853,14 +2862,57 @@ begin
     end;
 end;
 
+// A source-only declaration can retain its lexical location without claiming
+// active declaration authority. Require the same source header and one AST body;
+// an implementation forward does not grant declaration authority, but does not
+// make the body's lexical location ambiguous. Conflicting bodies stay unscoped.
+function InventoryTextRoutineScopeMatches(const aModel: TDelphiSemanticUnitModel;
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>; const aFirstTextIndex: NativeInt;
+  const aSymbol: TDelphiSemanticInventorySymbol; const aScopeId: string): Boolean;
+var
+  i: NativeInt;
+  lBody: TDelphiSemanticRoutine;
+  lBodyCount: Integer;
+  lHeaderLine: Integer;
+  lRoutine: TDelphiSemanticRoutine;
+  lRoutineName: string;
+  lText: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  lHeaderLine := 0;
+  for i := aFirstTextIndex to aSymbols.Count - 1 do
+  begin
+    lText := aSymbols[i];
+    if SameText(lText.SymbolClass, 'routine') and
+      SameText(lText.FileName, aSymbol.FileName) and
+      (lText.Line <= aSymbol.Line) and (aSymbol.Line <= lText.EndLine) and
+      (lText.Line > lHeaderLine) then
+      lHeaderLine := lText.Line;
+  end;
+  lBody := Default(TDelphiSemanticRoutine);
+  lBodyCount := 0;
+  for lRoutine in aModel.Routines do
+    if SameText(lRoutine.ScopeId, aScopeId) and SameText(lRoutine.AstScopeKind, 'body') then
+    begin
+      Inc(lBodyCount);
+      lBody := lRoutine;
+    end;
+  if (lBodyCount <> 1) or (lBody.Line <> lHeaderLine) then
+    Exit;
+  lRoutineName := lBody.Name;
+  if lBody.OwnerName <> '' then
+    lRoutineName := lBody.OwnerName + '.' + lRoutineName;
+  Result := SameText(lRoutineName, aSymbol.RoutineName);
+end;
+
 // Source-text compatibility locals and parameters duplicate AST symbols but
 // carry no routine scope. A text twin takes the scope of the AST symbol that
 // declares the same name at the same file, line and column. A text twin whose
 // position the scanner could not place (for example a name repeated in a
 // comment) is redundant when the innermost AST routine enclosing its line
 // declares a symbol of the same class and name; we drop it rather than guess a
-// scope. Any other text symbol stays scope-less, so a persisted snapshot fails
-// closed on reload and the facts are rebuilt from source.
+// scope. Source-only declarations may take a verified enclosing lexical scope.
+// Unmatched or ambiguous source headers stay unscoped and reload fails closed.
 procedure AssignTextInventoryRoutineScopes(const aModel: TDelphiSemanticUnitModel;
   const aSymbols: TList<TDelphiSemanticInventorySymbol>; const aFirstTextIndex: NativeInt);
 var
@@ -2901,10 +2953,17 @@ begin
         aSymbols[i] := lSymbol;
         Continue;
       end;
-      lScopeId := InventoryInnermostRoutineScopeAt(aModel, lSymbol.FileName, lSymbol.Line);
+      lScopeId := InventoryInnermostRoutineScopeAt(aModel, lSymbol.FileName,
+        lSymbol.Line, lSymbol.Column);
       if (lScopeId <> '') and
         lAstScopedNames.ContainsKey(InventoryRoutineSymbolScopeKey(lSymbol, lScopeId)) then
-        aSymbols.Delete(i);
+        aSymbols.Delete(i)
+      else if (lScopeId <> '') and InventoryTextRoutineScopeMatches(aModel,
+        aSymbols, aFirstTextIndex, lSymbol, lScopeId) then
+      begin
+        lSymbol.RoutineScopeId := lScopeId;
+        aSymbols[i] := lSymbol;
+      end;
     end;
   finally
     lScopes.Free;

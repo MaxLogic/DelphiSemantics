@@ -2720,7 +2720,9 @@ begin
   lRoutineOwners := TList<TSemanticRemoveWithInventorySymbolFact>.Create;
   try
     for lSymbol in aFacts.Symbols do
-      if SameText(lSymbol.SymbolClass, 'routine') or SameText(lSymbol.Kind, 'routine') then
+      // Only a verified body owns a lexical scope. Its header shares the scope
+      // identity, but must not become a second owner on a persisted reload.
+      if SameText(lSymbol.SymbolClass, 'routine') and (lSymbol.RoutineScopeId <> '') then
         lRoutineOwners.Add(SnapshotInventorySymbol(aExactStrings, lSymbol));
     Result.RoutineOwners := lRoutineOwners.ToArray;
   finally

@@ -2682,7 +2682,7 @@ begin
       lMatchedScopeCount := 0;
       lMatchedScopeIndex := -1;
       for lScopeIndex := 0 to Pred(lScopes.Count) do
-        if SameText(lScopes[lScopeIndex].Name,
+        if SameText(lScopes[lScopeIndex].Name.Replace('&', ''),
           QualifiedRoutineName(lRoutine.OwnerName, lRoutine.Name)) and
           (lScopes[lScopeIndex].StartLine = lRoutine.Line) then
         begin
@@ -5011,8 +5011,9 @@ begin
     lLexer.Origin := aText;
     lMatch := TRegEx.Match(aText,
       '^\s*(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
-      '((?:[A-Za-z_][A-Za-z0-9_]*\.)?)' +
-      '([A-Za-z_][A-Za-z0-9_]*)\s*', [roIgnoreCase, roMultiLine]);
+      // Keep the generic owner so the implementation matches its AST scope.
+      '((?:&?[A-Za-z_][A-Za-z0-9_]*(?:<[^;\r\n<>]+>)?\.)?)' +
+      '(&?[A-Za-z_][A-Za-z0-9_]*)\s*', [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
       lNextMatch := lMatch.NextMatch;
@@ -5036,11 +5037,13 @@ begin
         Continue;
       end;
       lPrefix := lMatch.Groups[2].Value;
-      lRoutineName := lMatch.Groups[3].Value;
-      lOwnerName := lPrefix.Trim;
+      lRoutineName := lMatch.Groups[3].Value.Replace('&', '');
+      lOwnerName := TRegEx.Replace(lPrefix, '\s+', '').Replace('&', '');
       if EndsText('.', lOwnerName) then
         lOwnerName := Copy(lOwnerName, 1, Length(lOwnerName) - 1);
-      lNameOffset := lMatch.Index + Pos(lRoutineName, lMatch.Value) - 1;
+      lNameOffset := MatchGroupIndex(lMatch, 3);
+      if StartsText('&', lMatch.Groups[3].Value) then
+        Inc(lNameOffset);
       lSection := SectionForOffset(aText, lMatch.Index + 1);
       AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, lHeader.Signature,
         lHeader.ReturnType, aText, lNameOffset, lHeader.SignatureOffset);

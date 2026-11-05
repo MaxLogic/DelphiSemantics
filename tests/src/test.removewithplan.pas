@@ -1183,6 +1183,17 @@ type
     [Category('Fast')]
     [Test]
     procedure PlannerCachesSourceTextAndHashesPerFile;
+    [TestCase('LocalRecord', '0')]
+    [TestCase('LocalConst', '1')]
+    [TestCase('LocalAlias', '2')]
+    [TestCase('NestedLocalAlias', '3')]
+    [TestCase('GenericDepth1', '4')]
+    [TestCase('GenericDepth2', '5')]
+    [TestCase('RetainedLocalRecord', '6')]
+    [TestCase('InactiveLocal', '7')]
+    [TestCase('UnknownLocal', '8')]
+    [TestCase('ForwardInactiveLocal', '9')]
+    procedure SourceScopePlansSurviveAllCacheRoutes(const aCase: Integer);
   end;
 
 implementation
@@ -1192,7 +1203,7 @@ uses
   Winapi.Windows,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.ScopeResolver,
+  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Resolve.ScopeResolver,
   DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.RootMemberAbsence,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   DelphiSemantics.WithBinding.Inventory,
@@ -26148,6 +26159,166 @@ begin
     end;
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TRemoveWithPlanTests.SourceScopePlansSurviveAllCacheRoutes(const aCase: Integer);
+var
+  i: Integer;
+  lActual: TDelphiSemanticRemoveWithPlan;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSessionOptions: TDelphiSemanticOptions;
+  lExpected: TDelphiSemanticRemoveWithPlan;
+  lFactResult: TDelphiSemanticRemoveWithFactBuildResult;
+  lCombined: TDelphiSemanticRemoveWithCombinedResult;
+  lOptions: TDelphiSemanticApiOptions;
+  lRoot: string;
+  lSource: string;
+  lStatement: TDelphiSemanticRemoveWithFinalStatement;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lFoundHidden: Boolean;
+begin
+  lRoot := TempPath('source-scope-routes-' + IntToStr(aCase));
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses U in ''U.pas''; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DelphiCompile Include="P.dpr"/><DCCReference Include="U.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  lSource := 'unit U;'#13#10'interface'#13#10'procedure Run;'#13#10'implementation'#13#10;
+  case aCase of
+    0, 7, 8: lSource := lSource + 'procedure Run;'#13#10 +
+      'type TLocal = record Value: Integer; end;'#13#10 +
+      'var Item: TLocal;'#13#10'begin'#13#10'  with Item do Value := 1;'#13#10'end;'#13#10;
+    1: lSource := lSource + 'procedure Run;'#13#10 +
+      'type TLocal = record Value: Integer; end;'#13#10 +
+      'const Item: TLocal = (Value: 1);'#13#10 +
+      'begin'#13#10'  with Item do Writeln(Value);'#13#10'end;'#13#10;
+    2, 3: begin
+      lSource := lSource + 'procedure Run;'#13#10 +
+        'type TLocal = record Value: Integer; end;'#13#10 +
+        '  TAlias = TLocal;'#13#10;
+      if aCase = 3 then
+        lSource := lSource + 'procedure Nested;'#13#10;
+      lSource := lSource + 'var Item: TAlias;'#13#10 +
+        'begin'#13#10'  with Item do Value := 1;'#13#10'end;'#13#10;
+      if aCase = 3 then
+        lSource := lSource + 'begin'#13#10'  Nested;'#13#10'end;'#13#10;
+    end;
+    4, 5: begin
+      lSource := 'unit U;'#13#10'interface'#13#10 +
+        'type TMyList<T> = class'#13#10 +
+        '  Value: Integer;'#13#10'  procedure Add(const aValue: T);'#13#10'end;'#13#10 +
+        '  TIntList = class(TMyList<Integer>) end;'#13#10;
+      if aCase = 5 then
+        lSource := lSource + '  TFinalList = class(TIntList) end;'#13#10;
+      lSource := lSource + 'procedure Run;'#13#10'implementation'#13#10 +
+        'procedure TMyList<T>.Add(const aValue: T);'#13#10'begin'#13#10'end;'#13#10 +
+        'procedure Run;'#13#10'var Item: ';
+      if aCase = 5 then
+        lSource := lSource + 'TFinalList;'#13#10
+      else
+        lSource := lSource + 'TIntList;'#13#10;
+      lSource := lSource + 'begin'#13#10'  with Item do Value := 1;'#13#10'end;'#13#10;
+    end;
+  end;
+  if aCase = 9 then
+    lSource := 'unit U;'#13#10'interface'#13#10'implementation'#13#10 +
+      'type TData = record Value: Integer; end;'#13#10 +
+      'procedure Run; forward;'#13#10'procedure Run;'#13#10 +
+      'var'#13#10'  Item: TData;'#13#10 +
+      '{$IF False}'#13#10'  Hidden: Integer;'#13#10'{$ENDIF}'#13#10 +
+      'begin'#13#10'  with Item do Value := 1;'#13#10'end;'#13#10;
+  if aCase = 7 then
+    lSource := StringReplace(lSource, 'var Item: TLocal;',
+      '{$IF False}'#13#10'var'#13#10'  Hidden: Integer;'#13#10'{$ENDIF}'#13#10'var Item: TLocal;', []);
+  if aCase = 7 then
+    lSource := lSource + '{$IF False}'#13#10 +
+      'procedure Dormant(aHidden: Integer);'#13#10'begin'#13#10'end;'#13#10'{$ENDIF}'#13#10;
+  if aCase = 8 then
+    lSource := StringReplace(lSource, 'var Item: TLocal;',
+      '{$IFDEF LINUX}'#13#10'var'#13#10'  Hidden: Integer;'#13#10'{$ENDIF}'#13#10'var Item: TLocal;', []);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'U.pas'), lSource + 'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  if aCase = 6 then
+    lOptions.ProjectFileName := FixturePath('ds719-uses-order\r7-opus-local-type-plain\P.dproj');
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lOptions.DelphiVersion := '23.0';
+  lFactResult := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsResult(lOptions);
+  Assert.IsTrue(lFactResult.Success);
+  lFoundHidden := False;
+  for lSymbol in lFactResult.Facts.Symbols do
+    if SameText(Trim(lSymbol.Name), 'Hidden') and SameText(lSymbol.SymbolClass, 'local') then
+    begin
+      lFoundHidden := True;
+      Assert.AreNotEqual('', lSymbol.RoutineScopeId,
+        'A source-only local keeps its verified enclosing routine identity.');
+    end;
+  if aCase in [7, 8, 9] then
+    Assert.IsTrue(lFoundHidden,
+      'Preserve source-only locals within active routines for unchanged rendering.');
+  if aCase = 7 then
+    for lSymbol in lFactResult.Facts.Symbols do
+      Assert.IsFalse(SameText(lSymbol.RoutineName, 'Dormant'),
+        'A wholly inactive routine cannot invent unscoped parameters.');
+  lExpected := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFactResult.Facts);
+  Assert.AreEqual(1, Integer(Length(lExpected.FinalStatements)));
+  lStatement := lExpected.FinalStatements[0];
+  if aCase in [0, 2, 3, 7, 8] then
+  begin
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    if aCase in [0, 7, 8] then
+      Assert.AreEqual('  lWithLocalPtr := @Item;'#13#10' lWithLocalPtr^.Value := 1;',
+        lStatement.ReplacementText)
+    else
+      Assert.AreEqual(' Item.Value := 1;', lStatement.ReplacementText);
+  end;
+  if aCase in [4, 5] then
+  begin
+    Assert.AreEqual('skipped', lStatement.Status);
+    Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
+  end;
+  AssertStoredPlanningFacts(lFactResult.Facts, TPath.Combine(lRoot, 'standalone.sqlite3'), lExpected);
+  lExpected.Diagnostics := Copy(lFactResult.Diagnostics);
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite3');
+  for i := 0 to 2 do
+  begin
+    lSessionOptions := Default(TDelphiSemanticOptions);
+    lSessionOptions.ProjectPath := lOptions.ProjectFileName;
+    lSessionOptions.Platform := lOptions.Platform;
+    lSessionOptions.Configuration := lOptions.Configuration;
+    lSessionOptions.DelphiVersion := lOptions.DelphiVersion;
+    lSessionOptions.SqliteCacheFileName := lOptions.Cache.SqliteCacheFileName;
+    lSession := TDelphiSemanticProjectSession.Open(lSessionOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lBuild := lSession.Session.PlanRemoveWithResult;
+    finally
+      lSession.Session.Free;
+    end;
+    AssertCompleteCachedPlan(lExpected, lBuild.Plan);
+    Assert.AreEqual(Integer(Ord(i > 0)), lBuild.SnapshotMetrics.SnapshotCacheHits,
+      'A warm session must load its own project facts.');
+    Assert.AreEqual(0, lBuild.SnapshotMetrics.SnapshotCacheInvalidations);
+  end;
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'combined.sqlite3');
+  lOptions.PlanningCacheInputsProvided := True;
+  SetLength(lOptions.PlanningCacheInputs, 1);
+  lOptions.PlanningCacheInputs[0].Name := 'fixture-context';
+  lOptions.PlanningCacheInputs[0].Value := 'source-scope-v1';
+  for i := 0 to 2 do
+  begin
+    lCombined := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lOptions);
+    Assert.IsTrue(lCombined.Success);
+    lActual := lCombined.Plan;
+    AssertCompleteCachedPlan(lExpected, lActual);
+    Assert.AreEqual(Int64(Ord(i > 0)), lCombined.Facts.Metrics.ProjectFactsCacheHits,
+      'The certified combined route must load its own payload.');
   end;
 end;
 

@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // DS-719 0.27 adds caller-certified include frames to persisted directive facts.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.76';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.77';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

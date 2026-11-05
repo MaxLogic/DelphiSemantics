@@ -363,8 +363,8 @@ begin
       lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
       for var i := 0 to 4 do
       begin
-        // DS-763 owns the persisted local-type defect. Its compiler cases
-        // still exercise both in-memory routes, with explicit exclusions.
+        // Explicit exclusions remain visible in the case manifest. Local type
+        // cases now exercise all persisted routes after DS-763.
         if (i > 1) and (lCase.GetValue<TJSONValue>('excluded_routes', nil) <> nil) and
           (GetEnvironmentVariable('DS719_NATIVE_ALL_ROUTES') <> '1') then
           Continue;

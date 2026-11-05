@@ -175,8 +175,7 @@ def r7_cases(repo, root):
         shutil.copytree(repo / 'tests/fixtures/ds719-uses-order' / folder.name, folder)
         case = dict(name=folder.name, root=str(folder), family='r7-retained')
         if name == 'local-type-plain':
-            case.update(routes=[0, 1], excluded_routes={'2': 'DS-763', '3': 'DS-763', '4': 'DS-763'},
-                        private_types={'Unit1.pas': [['TX', 'Unit1.TX']]})
+            case['private_types'] = {'Unit1.pas': [['TX', 'Unit1.TX']]}
         elif name.startswith('silent-'):
             case['private_types'] = {'B.pas': [['TPoint', 'B.TPoint']]}
         elif name.startswith('rev-init-decl-order'):
@@ -509,8 +508,6 @@ def r8_cases(repo, root):
             case=dict(name=name,root=str(folder),family='r8-local-position',expect_plan=control)
             if control:
                 case['private_types'] = {'Unit1.pas': [['TX', 'Unit1.TX']]}
-            if not (temp and control):
-                case.update(routes=[0,1],excluded_routes={'2':'DS-763','3':'DS-763','4':'DS-763'})
             cases.append(case)
     for include in (False, True):
         for control in (False, True):

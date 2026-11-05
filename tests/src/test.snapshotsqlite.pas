@@ -106,9 +106,16 @@ type
     [Category('Fast')]
     [Test]
     procedure SourceRoutineSymbolsReloadWithRoutineScopes;
+    [TestCase('Depth1', '1')]
+    [TestCase('Depth2', '2')]
+    procedure ProjectGenericMethodSymbolsReloadWithScopes(const aDepth: Integer);
     [Category('Fast')]
     [Test]
     procedure ParameterNamedInsideRoutineNameReloadsWithScope;
+    [Test]
+    procedure RoutineBoundaryTextTwinsReloadWithScopes;
+    [Test]
+    procedure EscapedMethodSymbolsReloadWithScopes;
     [Category('Fast')]
     [Test]
     procedure LocalNamedInsideEarlierLocalReloadsWithScope;
@@ -128,6 +135,7 @@ type
     [Test]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
+    [TestCase('Schema24', '24')]
     procedure Schema13PlanningRowsRebuildWholeSnapshotCache(const aOldSchema: string);
     [Category('Fast')]
     [Test]
@@ -163,7 +171,8 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
-  DelphiSemantics.Model, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
+  DelphiSemantics.Model.Json, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
   Test.Support;
@@ -1845,6 +1854,9 @@ procedure TSnapshotSqliteTests.AssertSourceRoutineSymbolsReload(const aName, aSo
   const aExpectedNames: array of string);
 var
   lAstPositions: TDictionary<string, Byte>;
+  lModelCache: TDelphiSemanticSqliteUnitCache;
+  lModelCacheOptions: TDelphiSemanticCacheOptions;
+  lFreshJson: string;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lCacheFileName: string;
   lExpectedName: string;
@@ -1877,6 +1889,21 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName, aSource, TEncoding.ASCII);
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success, 'The routine scope fixture must extract from source.');
+  lFreshJson := ModelToJson(lModel);
+  lModelCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lModelCacheOptions.SqliteCacheFileName := TempPath('model-scope-' + aName + '.sqlite3');
+  for lWarm := 0 to 2 do
+  begin
+    lModelCache := TDelphiSemanticSqliteUnitCache.Create(lModelCacheOptions);
+    try
+      lModel := lModelCache.GetOrExtractUnitModel(lOptions);
+      Assert.AreEqual(lFreshJson, ModelToJson(lModel),
+        'The reloaded unit model must equal the fresh parse byte for byte.');
+      Assert.AreEqual(Integer(Ord(lWarm > 0)), lModelCache.Metrics.CacheHits);
+    finally
+      lModelCache.Free;
+    end;
+  end;
   lFacts := TDelphiSemanticWithBinder.BindProject('Routine-Scope-Context', nil, [lModel]);
   lAstPositions := TDictionary<string, Byte>.Create;
   try
@@ -1946,6 +1973,14 @@ begin
                 lSeen := True;
                 Assert.AreNotEqual(0, Integer(lSymbol.RoutineScopeIdId),
                   lExpectedName + ' must keep its routine scope after reload.');
+                for lInventorySymbol in lFacts.Symbols do
+                  if SameText(lInventorySymbol.Name, lExpectedName) and
+                    SameText(lInventorySymbol.SymbolClass, lSymbolClass) and
+                    (lInventorySymbol.Line = lSymbol.Line) and
+                    (lInventorySymbol.Column = lSymbol.Column) then
+                    Assert.AreEqual(lInventorySymbol.RoutineScopeId,
+                      lLoadedSnapshot.ExactTextOf(lSymbol.RoutineScopeIdId),
+                      'A round trip must preserve the original scope identity.');
               end;
             end;
             Assert.IsTrue(lSeen, lExpectedName + ' must be persisted as a routine symbol.');
@@ -1977,6 +2012,31 @@ begin
   finally
     lSnapshot.Free;
   end;
+end;
+
+procedure TSnapshotSqliteTests.ProjectGenericMethodSymbolsReloadWithScopes(const aDepth: Integer);
+var
+  lDescendant: string;
+begin
+  lDescendant := '  TIntList = class(TMyList<Integer>) end;'#13#10;
+  if aDepth = 2 then
+    lDescendant := lDescendant + '  TFinalList = class(TIntList) end;'#13#10;
+  AssertSourceRoutineSymbolsReload('generic-' + IntToStr(aDepth),
+    'unit RoutineScopeUnit;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TMyList<T> = class'#13#10 +
+    '    procedure Add(const aValue: T);'#13#10 +
+    '  end;'#13#10 + lDescendant +
+    'implementation'#13#10 +
+    'procedure TMyList<T>.Add(const aValue: T);'#13#10 +
+    'var'#13#10 +
+    '  lCopy: T;'#13#10 +
+    'begin'#13#10 +
+    '  lCopy := aValue;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10,
+    ['aValue', 'lCopy']);
 end;
 
 procedure TSnapshotSqliteTests.SourceRoutineSymbolsReloadWithRoutineScopes;
@@ -2030,6 +2090,39 @@ begin
     'end;'#13#10 +
     'end.'#13#10,
     ['Value']);
+end;
+
+procedure TSnapshotSqliteTests.RoutineBoundaryTextTwinsReloadWithScopes;
+begin
+  AssertSourceRoutineSymbolsReload('routine-boundary',
+    'unit RoutineScopeUnit;'#13#10 +
+    'interface'#13#10 +
+    'implementation'#13#10 +
+    'procedure Before;'#13#10'begin'#13#10'end;'#13#10 +
+    'procedure Run(const s: Integer);'#13#10 +
+    'var lCopy: Integer;'#13#10 +
+    'begin'#13#10 +
+    '  lCopy := s;'#13#10 +
+    '  Writeln(lCopy);'#13#10 +
+    'end;'#13#10'end.'#13#10,
+    ['s', 'lCopy']);
+end;
+
+procedure TSnapshotSqliteTests.EscapedMethodSymbolsReloadWithScopes;
+begin
+  AssertSourceRoutineSymbolsReload('escaped-method',
+    'unit RoutineScopeUnit;'#13#10 +
+    'interface'#13#10 +
+    'type TBox = class'#13#10 +
+    '  function &Label(aField, aMode: Integer): Integer; overload;'#13#10 +
+    '  function &Label(const aField: string; aMode: Integer): Integer; overload;'#13#10 +
+    'end;'#13#10'implementation'#13#10 +
+    'function TBox.&Label(aField, aMode: Integer): Integer;'#13#10 +
+    'begin'#13#10'  Result := aField + aMode;'#13#10'end;'#13#10 +
+    'function TBox.&Label(const aField: string; aMode: Integer): Integer;'#13#10 +
+    'begin'#13#10'  Result := Length(aField) + aMode;'#13#10'end;'#13#10 +
+    'end.'#13#10,
+    ['aField', 'aMode']);
 end;
 
 procedure TSnapshotSqliteTests.LocalNamedInsideEarlierLocalReloadsWithScope;
