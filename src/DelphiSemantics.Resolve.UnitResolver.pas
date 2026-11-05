@@ -334,7 +334,8 @@ begin
   Result.Candidates := [aCandidate];
 end;
 
-function PickBestCandidate(const aUnitName: string; const aItems: TList<TUnitCandidateRank>):
+function PickBestCandidate(const aUnitName: string; const aItems: TList<TUnitCandidateRank>;
+  const aCompetingNames: Boolean = False):
   TDelphiSemanticUnitResolutionResult;
 var
   i: Integer;
@@ -353,7 +354,7 @@ begin
   lCandidates := TList<TDelphiSemanticUnitResolutionCandidate>.Create;
   try
     for i := 0 to Pred(aItems.Count) do
-      if aItems[i].Rank = lBestRank then
+      if aCompetingNames or (aItems[i].Rank = lBestRank) then
         lCandidates.Add(aItems[i].Candidate);
 
     if lCandidates.Count > 1 then
@@ -400,10 +401,11 @@ begin
     begin
       lPreviousCount := lItems.Count;
       AddModelCandidates(lItems, lSeen, aUnitModels, lUnitName, lNameInfo, lRank);
-      // Files start at rank 1000; later names cannot beat this project rank.
-      // Keep all same-name models above so compiler-equivalent ambiguity survives.
-      if (lRank < 1000) and (lItems.Count > lPreviousCount) then
-        Exit(PickBestCandidate(lUnitName, lItems));
+      // DS-755: an earlier namespace's source/DCU can compete with this
+      // project model. Inventory membership does not prove compiler selection.
+      // Keep both identities and refuse rather than promote the later model.
+      if lItems.Count > lPreviousCount then
+        Exit(PickBestCandidate(lUnitName, lItems, lPreviousCount > 0));
       AddFileCandidates(lItems, lSeen, aProject, lUnitName, lNameInfo, lRank + 1000);
       Inc(lRank, 100);
     end;

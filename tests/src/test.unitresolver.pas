@@ -38,6 +38,12 @@ type
     [Category('Fast')]
     [Test]
     procedure DottedNameUsesCompilerNamespaceFallback;
+    [TestCase('Earlier source', '.pas,0')]
+    [TestCase('Earlier DCU', '.dcu,0')]
+    [TestCase('Later project namespace source', '.pas,11')]
+    [TestCase('Later project namespace DCU', '.dcu,11')]
+    procedure EarlierNamespaceCandidatePreventsProjectPromotion(const aExtension: string;
+      const aPadding: Integer);
   end;
 
 implementation
@@ -215,6 +221,40 @@ begin
     [ProjectModel('System.Generics.Collections', 'System.Generics.Collections.pas')]);
   Assert.IsTrue(lResult.Found, lResult.Reason);
   Assert.AreEqual('System.Generics.Collections', lResult.CanonicalUnitName);
+end;
+
+procedure TUnitResolverTests.EarlierNamespaceCandidatePreventsProjectPromotion(
+  const aExtension: string; const aPadding: Integer);
+var
+  i: Integer;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticUnitResolutionResult;
+  lRoot, lFileName: string;
+begin
+  lRoot := UnitResolverTempPath('namespace-' + TGUID.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRoot);
+  lFileName := TPath.Combine(lRoot, 'Sdk.Shared' + aExtension);
+  if aExtension = '.pas' then
+    TFile.WriteAllText(lFileName, 'unit Sdk.Shared;'#13#10'interface'#13#10'implementation'#13#10'end.',
+      TEncoding.ASCII)
+  else
+    TFile.WriteAllText(lFileName, 'candidate presence', TEncoding.ASCII);
+  lProject := ProjectInfo;
+  lProject.UnitScopeNames := ['Sdk'];
+  for i := 1 to aPadding do
+    lProject.UnitScopeNames := lProject.UnitScopeNames + ['Unused' + IntToStr(i)];
+  lProject.UnitScopeNames := lProject.UnitScopeNames + ['MyApp'];
+  // Exercise namespace/search-path rank overlap without depending on real files.
+  lProject.SearchPaths := nil;
+  for i := 1 to aPadding * 3 do
+    lProject.SearchPaths := lProject.SearchPaths + [TPath.Combine(lRoot, 'Unused' + IntToStr(i))];
+  lProject.SearchPaths := lProject.SearchPaths + [lRoot];
+  lResult := TDelphiSemanticUnitResolver.Resolve(lProject, 'Shared',
+    [ProjectModel('MyApp.Shared', TPath.Combine(lRoot, 'MyApp.Shared.pas'))]);
+  Assert.IsFalse(lResult.Found, 'A project model cannot override an earlier namespace candidate.');
+  Assert.IsTrue(lResult.Ambiguous);
+  Assert.AreEqual('UNIT_AMBIGUOUS', lResult.ReasonCode);
+  Assert.AreEqual<Integer>(2, Length(lResult.Candidates));
 end;
 
 initialization

@@ -49,6 +49,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before namespace candidate competition', '86')]
     [TestCase('Before SDK-only witness scope', '68')]
     [TestCase('Before unknown capture preservation', '69')]
     [TestCase('Before shared receiver admission and alias conflicts', '70')]
@@ -78,7 +79,9 @@ type
     procedure ProjectSessionOpensFromProjectFileName;
     [Category('Fast')]
     [Test]
-    procedure RebuildsSnapshotBeforeInactiveNestedWithSafety;
+    [TestCase('Before inactive WITH safety', '46')]
+    [TestCase('Before namespace candidate competition', '56')]
+    procedure RebuildsSnapshotBeforeInactiveNestedWithSafety(const aVersion: string);
     [Test]
     [Category('DS731Generations,Fast')]
     procedure RebuildsSnapshotBeforeReceiverValueMembers;
@@ -2242,7 +2245,7 @@ begin
       'update snapshot_units set schema_version = ''project-session-snapshot-v42''');
 end;
 
-procedure TProjectSessionTests.RebuildsSnapshotBeforeInactiveNestedWithSafety;
+procedure TProjectSessionTests.RebuildsSnapshotBeforeInactiveNestedWithSafety(const aVersion: string);
 var
   i: Integer;
   lCacheMetrics: TDelphiSemanticCacheMetrics;
@@ -2255,12 +2258,13 @@ begin
   lRootPath := CreateTypedConstantQueryFixture;
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRootPath, 'TypedValuesProject.dproj');
-  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'ds724-snapshot-v46.sqlite');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRootPath, 'snapshot-generation-v' + aVersion + '.sqlite');
   for i := 0 to 3 do
   begin
     if i = 2 then
       ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
-        'update snapshot_units set schema_version = ''project-session-snapshot-v46''');
+        'update snapshot_units set schema_version = ' +
+        QuotedStr('project-session-snapshot-v' + aVersion));
     lOpened := TDelphiSemanticProjectSession.Open(lOptions);
     try
       Assert.IsTrue(lOpened.Success);
@@ -2268,7 +2272,7 @@ begin
         lExtractionMilliseconds);
       if (i = 0) or (i = 2) then
       begin
-        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Snapshot-v46 must rebuild.');
+        Assert.IsTrue(lCacheMetrics.CacheMisses > 0, 'Snapshot-v' + aVersion + ' must rebuild.');
         Assert.AreEqual(0, lCacheMetrics.CacheHits);
       end else begin
         Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Fresh snapshot must hit.');

@@ -11,6 +11,10 @@ type
   public
     [Test]
     procedure FastCompilerComparison;
+    [Test]
+    procedure InterfaceLifetimeCompilerComparison;
+    [Test]
+    procedure QualifiedFallbackCompilerComparison;
   end;
 
   [TestFixture]
@@ -35,7 +39,8 @@ uses
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   Test.Support;
 
-function RunReference(const aArguments, aLogFile: string): Cardinal;
+function RunReference(const aArguments, aLogFile: string;
+  const aScript: string = 'ds719-native-reference.py'): Cardinal;
 var
   lStartup: TStartupInfo;
   lProcess: TProcessInformation;
@@ -47,7 +52,7 @@ begin
   if lPython = '' then
     lPython := 'python.exe';
   lCommand := '"' + lPython + '" -B "' +
-    TPath.Combine(RepoRoot, 'tests\scripts\ds719-native-reference.py') + '" ' + aArguments;
+    TPath.Combine(RepoRoot, 'tests\scripts\' + aScript) + '" ' + aArguments;
   lSecurity := Default(TSecurityAttributes);
   lSecurity.nLength := SizeOf(lSecurity);
   lSecurity.bInheritHandle := True;
@@ -307,9 +312,9 @@ begin
   end;
 end;
 
-procedure CompareCompiler(const aFull: Boolean);
+procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '');
 var
-  lRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile: string;
+  lRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile, lScript: string;
   lPhase: Integer;
   lCases: TJSONArray;
   lOptions: TDelphiSemanticApiOptions;
@@ -325,6 +330,9 @@ var
   lWatch: TStopwatch;
 begin
   lWatch := TStopwatch.StartNew;
+  lScript := 'ds719-native-reference.py';
+  if aRegression <> '' then
+    lScript := 'ds754-native-reference.py';
   lRoot := GetEnvironmentVariable('DS719_NATIVE_ROOT');
   if lRoot = '' then
     lRoot := CreateTestTempRoot('ds719-native-comparison-temp');
@@ -332,10 +340,16 @@ begin
   lArgument := 'generate "' + lRoot + '" --repo "' + RepoRoot + '"';
   if aFull then
     lArgument := lArgument + ' --full';
+  if aRegression <> '' then
+  begin
+    lBds := TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', '');
+    lArgument := lArgument + ' --only ' + aRegression + ' --bds "' +
+      ExcludeTrailingPathDelimiter(lBds) + '"';
+  end;
   if GetEnvironmentVariable('DS719_NATIVE_ONLY') <> '' then
     lArgument := lArgument + ' --only "' + GetEnvironmentVariable('DS719_NATIVE_ONLY') + '"';
   Assert.AreEqual<Cardinal>(0, RunReference(lArgument,
-    TPath.Combine(lRoot, 'generate.log')), 'Generator failed: ' + lRoot);
+    TPath.Combine(lRoot, 'generate.log'), lScript), 'Generator failed: ' + lRoot);
   lCases := TJSONObject.ParseJSONValue(TFile.ReadAllText(
     TPath.Combine(lRoot, 'cases.json'))) as TJSONArray;
   try
@@ -465,7 +479,7 @@ begin
       ExcludeTrailingPathDelimiter(lBds) + '"', TPath.Combine(lRoot, 'challenge.log')),
       'Comparator non-vacuity failed: ' + TPath.Combine(lRoot, 'comparator-mutations.json'));
   lExit := RunReference('compare "' + lRoot + '" --bds "' +
-    ExcludeTrailingPathDelimiter(lBds) + '"', TPath.Combine(lRoot, 'compare.log'));
+    ExcludeTrailingPathDelimiter(lBds) + '"', TPath.Combine(lRoot, 'compare.log'), lScript);
   Writeln('DS719 compiler comparison: ', lWatch.ElapsedMilliseconds, ' ms; ', lRoot);
   Assert.AreEqual<Cardinal>(0, lExit, 'Compiler comparison failures: ' +
     TPath.Combine(lRoot, 'comparison.json'));
@@ -475,6 +489,16 @@ end;
 procedure TTypeVisibilityNativeTests.FastCompilerComparison;
 begin
   CompareCompiler(False);
+end;
+
+procedure TTypeVisibilityNativeTests.InterfaceLifetimeCompilerComparison;
+begin
+  CompareCompiler(False, 'ds754');
+end;
+
+procedure TTypeVisibilityNativeTests.QualifiedFallbackCompilerComparison;
+begin
+  CompareCompiler(False, 'ds755');
 end;
 
 procedure TTypeVisibilityNativeSlowTests.FullCompilerComparison;
