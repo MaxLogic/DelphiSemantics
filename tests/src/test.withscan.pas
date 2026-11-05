@@ -11,6 +11,10 @@ type
   TWithScanTests = class
   private
   public
+    [TestCase('Unknown', 'False,False')]
+    [TestCase('Certified empty', 'True,False')]
+    [TestCase('Certified present', 'True,True')]
+    procedure ConditionalInventoryRequiresEvidence(const aCertified, aPresent: Boolean);
     [Category('Fast')]
     [Test]
     [TestCase('Scanner Nested parent', '0,True')]
@@ -39,7 +43,7 @@ implementation
 uses
   System.IOUtils, System.SysUtils,
   maxLogic.IOUtils,
-  Test.Support;
+  DelphiSemantics.CompilerDefineEvidence, Test.CompilerDefineEvidence, Test.Support;
 
 
 procedure TWithScanTests.ScannerReturnsWithStatementsWithoutProjectSession;
@@ -53,7 +57,8 @@ begin
 
   lResult := TDelphiSemanticWithScanner.ScanFile(lOptions);
 
-  Assert.IsTrue(lResult.Success);
+  Assert.IsFalse(lResult.Success,
+    'The fixture has an unknown INCLUDE_INACTIVE_WITH arm; entries remain advisory.');
   Assert.IsFalse(lResult.ProjectSessionUsed);
   Assert.AreEqual('WithDiscoveryUnit', lResult.UnitName);
   Assert.AreEqual(5, Integer(Length(lResult.WithStatements)));
@@ -72,7 +77,8 @@ begin
 
   lResult := TDelphiSemanticApi.ScanWithStatements(lOptions);
 
-  Assert.IsTrue(lResult.Success);
+  Assert.IsFalse(lResult.Success,
+    'The fixture has an unknown INCLUDE_INACTIVE_WITH arm; entries remain advisory.');
   Assert.IsFalse(lResult.ProjectSessionUsed);
   Assert.AreEqual(5, Integer(Length(lResult.WithStatements)));
 end;
@@ -129,6 +135,51 @@ begin
     Copy(lLines[cEndLines[aCase] - 1], 1, cEndColumns[aCase]);
   Assert.AreEqual(lExpected, lStatement.Text);
   Assert.AreEqual(Copy(lExpected, Pos(sLineBreak, lExpected), MaxInt), lStatement.BodyText);
+end;
+
+procedure TWithScanTests.ConditionalInventoryRequiresEvidence(const aCertified, aPresent: Boolean);
+var
+  lRoot, lSource: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lRequest: TDelphiSemanticCompilerDefineRequest;
+  lScan: TDelphiSemanticWithScanResult;
+begin
+  lRoot := CreateTestTempRoot('ds772-scan-temp');
+  TDirectory.CreateDirectory(lRoot);
+  lSource := TPath.Combine(lRoot, 'U.pas');
+  TFile.WriteAllText(lSource, 'unit U; interface implementation' + sLineBreak +
+    'procedure Run; var Item: record Count: Integer; end; begin' + sLineBreak +
+    '{$IFDEF FEATURE} with Item do Count := 1; {$ENDIF}' + sLineBreak +
+    'end; end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.SourceFileName := lSource;
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aCertified then
+  begin
+    lRequest := Default(TDelphiSemanticCompilerDefineRequest);
+    lRequest.ProjectFileName := lOptions.ProjectFileName;
+    lRequest.MainSourceFileName := lSource;
+    lRequest.Configuration := 'Debug';
+    lRequest.Platform := 'Win64';
+    lRequest.DelphiVersion := '23.0';
+    if aPresent then
+      lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, [lSource], ['FEATURE'])
+    else
+      lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, [lSource], []);
+  end;
+  lScan := TDelphiSemanticApi.ScanWithStatements(lOptions);
+  Assert.AreEqual(aCertified, lScan.Success,
+    'Only a certified empty set can prove the conditional WITH inventory empty.');
+  if aCertified then
+    Assert.AreEqual<Integer>(Ord(aPresent), Length(lScan.WithStatements))
+  else
+  begin
+    Assert.IsTrue(Length(lScan.Diagnostics) > 0);
+    Assert.AreEqual('UNVERIFIED_PREPROCESS_CONDITION', lScan.Diagnostics[0].Code);
+  end;
 end;
 
 initialization

@@ -226,6 +226,16 @@ begin
   Result.SourceFileName := aOptions.SourceFileName;
   Result.Defines := aOptions.Defines;
   Result.SearchPaths := aOptions.SearchPaths;
+  Result.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
+  Result.CompilerDefineRequest.ProjectFileName := aOptions.ProjectFileName;
+  Result.CompilerDefineRequest.MainSourceFileName := aOptions.SourceFileName;
+  Result.CompilerDefineRequest.Configuration := aOptions.Configuration;
+  Result.CompilerDefineRequest.Platform := aOptions.Platform;
+  Result.CompilerDefineRequest.DelphiVersion := aOptions.DelphiVersion;
+  if aOptions.CompilerIncludeSearchPathProvided then
+    Result.IncludePaths := aOptions.CompilerIncludeSearchPath.Split([';'])
+  else
+    Result.IncludePaths := ['<include-path-unproved>'];
   Result.ProjectContextApplied := aOptions.ProjectContextApplied;
 end;
 

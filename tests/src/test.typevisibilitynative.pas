@@ -42,7 +42,7 @@ uses
   DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
-  Test.Support;
+  Test.CompilerIncludeCapture, Test.Support;
 
 function RunReference(const aArguments, aLogFile: string;
   const aScript: string = 'ds719-native-reference.py'): Cardinal;
@@ -179,6 +179,8 @@ begin
       lModelJson.AddPair('directive_scan_characters', TJSONNumber.Create(lModel.DirectiveFacts.CharactersScanned));
       lModelJson.AddPair('directive_span_count', TJSONNumber.Create(Length(lModel.DirectiveFacts.Spans)));
       lModelJson.AddPair('directive_import_cause', lModel.DirectiveFacts.ImportCause);
+      lModelJson.AddPair('directive_count_cause', lModel.DirectiveFacts.NameCause('Count'));
+      lModelJson.AddPair('define_complete', TJSONBool.Create(lModel.DefineEvidenceComplete));
       lDeclarations := TJSONArray.Create;
       lModelJson.AddPair('declarations', lDeclarations);
       for var lDeclaration in TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel).Declarations do
@@ -321,6 +323,13 @@ begin
   end;
 end;
 
+procedure CaptureNativeDefines(var aOptions: TDelphiSemanticApiOptions);
+begin
+  // Finalize Delphi's managed function-result temporary before native builds
+  // mutate this disposable project's output settings.
+  aOptions.CompilerDefineEvidence := CaptureFixtureCompilerDefines(aOptions.ProjectFileName);
+end;
+
 procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '';
   const aEvidence: string = '');
 var
@@ -399,6 +408,8 @@ begin
           Assert.AreEqual('<include-path-unproved>', lContext.Project.IncludePaths[0], lCaseRoot);
         end;
       end;
+      if lCase.GetValue<string>('define_evidence', 'missing') <> 'missing' then
+        CaptureNativeDefines(lOptions);
       lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCaseRoot, 'session.sqlite');
       lDenialName := lCase.GetValue<string>('denial_reference', '');
       for lPhase := 0 to Ord(lDenialName <> '') do
@@ -501,6 +512,12 @@ begin
   finally
     lCases.Free;
   end;
+  // Native comparison writes only disposable fixture copies after planning.
+  // Release this test's capture locks before compiler output isolation edits.
+  lOptions.CompilerDefineEvidence := nil;
+  lProjectOptions.CompilerDefineEvidence := nil;
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  lContext := Default(TDelphiSemanticContextResult);
   lBds := TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', '');
   Assert.IsTrue(TFile.Exists(TPath.Combine(lBds, 'bin\dcc64.exe')), 'dcc64 unavailable');
   if aFull and (GetEnvironmentVariable('DS719_NATIVE_ONLY') = '') then

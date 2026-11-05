@@ -114,6 +114,8 @@ type
     [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorFindsOnlyCodeTokens;
+    [Test]
+    procedure IdentifierCandidateCollectorKeepsUnknownBranches;
     [Category('Fast')]
     [Test]
     procedure IdentifierCandidateCollectorIncludesLocalAndPrivateDeclarations;
@@ -1343,6 +1345,30 @@ begin
     'The scoped query must reuse the existing full-plus-lean snapshot path.');
 end;
 
+procedure TProjectSessionTests.IdentifierCandidateCollectorKeepsUnknownBranches;
+var
+  lRoot, lFileName: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lResult: TDelphiSemanticIdentifierScopeResult;
+begin
+  lRoot := ProjectSessionTempPath('ds772-identifier-unknown');
+  TDirectory.CreateDirectory(lRoot);
+  lFileName := TPath.Combine(lRoot, 'U.pas');
+  TFile.WriteAllText(lFileName, 'unit U; interface' + sLineBreak +
+    '{$IFDEF FEATURE} const HiddenTarget = 1; {$ENDIF}' + sLineBreak +
+    'implementation end.', TEncoding.ASCII);
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lProject.ProjectDirectory := lRoot;
+  lProject.SourceFileNames := [lFileName];
+  lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
+    lProject.SourceFileNames, 'HiddenTarget');
+  Assert.IsTrue(lResult.FailOpen,
+    'Selected parser output cannot exclude a possible conditional declaration.');
+  Assert.AreEqual('unverified-preprocess-activity', lResult.FailOpenReason);
+  Assert.IsFalse(lResult.UseScopedAnalysis);
+  Assert.AreEqual<Integer>(1, lResult.FullModelCount);
+end;
+
 procedure TProjectSessionTests.IdentifierCandidateCollectorFindsOnlyCodeTokens;
 var
   lCandidateFileName: string;
@@ -1589,6 +1615,7 @@ begin
     TPath.Combine(lRoot, 'AmbiguousOwner.pas'));
   lProject.SearchPaths := TArray<string>.Create(
     TPath.Combine(lRoot, 'include-one'), TPath.Combine(lRoot, 'include-two'));
+  lProject.IncludePaths := Copy(lProject.SearchPaths);
   lResult := TDelphiSemanticIdentifierCandidateCollector.Collect(lProject,
     lProject.SourceFileNames, 'AmbiguousTarget');
   Assert.IsTrue(lResult.FailOpen, 'Ambiguous includes must fail open.');

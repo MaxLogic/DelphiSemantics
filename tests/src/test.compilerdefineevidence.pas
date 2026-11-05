@@ -3,7 +3,7 @@ unit Test.CompilerDefineEvidence;
 interface
 
 uses
-  DUnitX.TestFramework, DelphiSemantics.CompilerDefineEvidence;
+  DUnitX.TestFramework, DelphiSemantics.Api, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model;
 
 type
   [TestFixture]
@@ -48,13 +48,22 @@ type
 
 // Only generated, closed synthetic test universes may use this producer.
 function ClosedTestCompilerDefines(const aRequest: TDelphiSemanticCompilerDefineRequest;
-  const aSources, aDefines: TArray<string>): IDelphiSemanticCompilerDefineEvidence;
+  const aSources, aDefines: TArray<string>;
+  const aPredefinedFalse: TArray<string> = nil): IDelphiSemanticCompilerDefineEvidence;
+
+// Explicit fixture opt-in; never use for native projects, corpora or RTL.
+procedure CertifyClosedGeneratedProject(var aOptions: TDelphiSemanticApiOptions;
+  const aGeneratedRoot: string; const aDefines: TArray<string>;
+  const aPredefinedFalse: TArray<string> = nil);
+
+// A direct model can also describe a deliberately closed generated universe.
+procedure CertifyClosedGeneratedModel(var aOptions: TDelphiSemanticModelOptions);
 
 implementation
 
 uses
   System.Hash, System.IOUtils, System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Model,
+  DelphiSemantics.Cache,
   DelphiSemantics.ProjectContext;
 
 type
@@ -120,7 +129,7 @@ begin
 end;
 
 function ClosedTestCompilerDefines(const aRequest: TDelphiSemanticCompilerDefineRequest;
-  const aSources, aDefines: TArray<string>): IDelphiSemanticCompilerDefineEvidence;
+  const aSources, aDefines, aPredefinedFalse: TArray<string>): IDelphiSemanticCompilerDefineEvidence;
 var
   i: Integer;
   lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
@@ -128,6 +137,12 @@ begin
   lDescriptor := ClosedDescriptor;
   lDescriptor.Invocation := aRequest;
   lDescriptor.Defines := Copy(aDefines);
+  if Length(aPredefinedFalse) > 0 then
+  begin
+    lDescriptor.PredefinedFormat := 'compiler-predefines-23-win64-v1';
+    lDescriptor.PredefinedIdentity := 'explicit-closed-generated-predefined-states-v1';
+    lDescriptor.PredefinedFalse := Copy(aPredefinedFalse);
+  end;
   lDescriptor.OrderedArguments := ['--no-config'];
   SetLength(lDescriptor.Sources, Length(aSources));
   for i := 0 to High(aSources) do
@@ -137,6 +152,43 @@ begin
     lDescriptor.Sources[i].ContentHash := THashSHA2.GetHashStringFromFile(aSources[i]);
   end;
   Result := TTestDefineEvidence.Create(lDescriptor);
+end;
+
+procedure CertifyClosedGeneratedModel(var aOptions: TDelphiSemanticModelOptions);
+begin
+  Assert.IsTrue(TFile.Exists(aOptions.SourceFileName));
+  Assert.IsTrue(aOptions.CompilerDefineEvidence = nil, 'Do not replace an existing witness.');
+  aOptions.CompilerDefineRequest.ProjectFileName := TPath.ChangeExtension(aOptions.SourceFileName, '.dproj');
+  aOptions.CompilerDefineRequest.MainSourceFileName := aOptions.SourceFileName;
+  aOptions.CompilerDefineRequest.Configuration := 'Debug';
+  aOptions.CompilerDefineRequest.Platform := 'Win64';
+  aOptions.CompilerDefineRequest.DelphiVersion := '23.0';
+  aOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(aOptions.CompilerDefineRequest,
+    [aOptions.SourceFileName], aOptions.Defines);
+end;
+
+procedure CertifyClosedGeneratedProject(var aOptions: TDelphiSemanticApiOptions;
+  const aGeneratedRoot: string; const aDefines, aPredefinedFalse: TArray<string>);
+var
+  lContext: TDelphiSemanticContextResult;
+  lRequest: TDelphiSemanticCompilerDefineRequest;
+  lSources: TArray<string>;
+begin
+  Assert.AreEqual(TPath.GetFullPath(aGeneratedRoot),
+    TPath.GetDirectoryName(TPath.GetFullPath(aOptions.ProjectFileName)),
+    'A closed generated fixture must own its entire project source root.');
+  Assert.IsFalse(aOptions.CompilerDefineEvidence <> nil, 'Do not replace an existing witness.');
+  lContext := TDelphiSemanticApi.LoadProjectContext(aOptions.ProjectFileName, aOptions);
+  Assert.IsTrue(lContext.Success);
+  lRequest := Default(TDelphiSemanticCompilerDefineRequest);
+  lRequest.ProjectFileName := lContext.Project.ProjectFileName;
+  lRequest.MainSourceFileName := lContext.Project.MainSourceFileName;
+  lRequest.Configuration := lContext.Project.Configuration;
+  lRequest.Platform := lContext.Project.Platform;
+  lRequest.DelphiVersion := aOptions.DelphiVersion;
+  lSources := TDirectory.GetFiles(aGeneratedRoot, '*.pas', TSearchOption.soTopDirectoryOnly);
+  lSources := lSources + [lRequest.MainSourceFileName];
+  aOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, lSources, aDefines, aPredefinedFalse);
 end;
 
 procedure TCompilerDefineEvidenceTests.AdmitsVerifiedNativeCompilerHost(const aCompilerHash: string);
