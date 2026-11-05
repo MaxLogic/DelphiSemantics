@@ -531,25 +531,31 @@ var
   lAncestor: TDelphiSemanticTypeIdentity;
   lHelper: TDelphiSemanticTypeIdentity;
   lList: TList<TDelphiSemanticTypeIdentity>;
+  lLineage: TDelphiSemanticLineage;
+  lSeen: THashSet<string>;
 begin
   if fExpandedByOwnerType.TryGetValue(aOwner.DeclaredId.Value, Result) then
     Exit(Copy(Result));
 
   lList := TList<TDelphiSemanticTypeIdentity>.Create;
+  lSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
+    lLineage := fTypeIndex.ResolveLineage(aOwner);
     for lAncestor in fTypeIndex.FindAncestors(aOwner) do
       lList.Add(lAncestor);
-    for lHelper in fTypeIndex.FindHelpersForTarget(aOwner.Name) do
-      lList.Add(lHelper);
-    for lHelper in fTypeIndex.FindHelpersForTarget(aOwner.UnitName + '.' + aOwner.Name) do
-      lList.Add(lHelper);
-    for lHelper in fTypeIndex.FindHelpersForTarget(aOwner.CanonicalName) do
-      lList.Add(lHelper);
-    for lHelper in fTypeIndex.FindHelpersForTarget(aOwner.UnderlyingName) do
-      lList.Add(lHelper);
+    for var i := 0 to High(lLineage.Items) do
+    begin
+      if (lLineage.StrongAliasAt >= 0) and (i > lLineage.StrongAliasAt) then
+        Break;
+      lAncestor := lLineage.Items[i];
+      for lHelper in fTypeIndex.FindHelpersForTarget(lAncestor.DeclaredId.Value) do
+        if lSeen.Add(lHelper.DeclaredId.Value) then
+          lList.Add(lHelper);
+    end;
     Result := lList.ToArray;
     fExpandedByOwnerType.AddOrSetValue(aOwner.DeclaredId.Value, Copy(Result));
   finally
+    lSeen.Free;
     lList.Free;
   end;
 end;

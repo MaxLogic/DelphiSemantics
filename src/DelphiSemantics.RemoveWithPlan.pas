@@ -908,28 +908,6 @@ begin
       Exit(lSymbol.TypeName);
 end;
 
-function ConventionalPointerTargetType(const aFacts: TRemoveWithPlanFacts;
-  const aTypeName: string): string;
-var
-  lCandidateTypeName: string;
-  lTypeName: string;
-begin
-  Result := '';
-  lTypeName := Trim(aTypeName);
-  if EndsText('Ptr', lTypeName) and (Length(lTypeName) > Length('Ptr')) then
-  begin
-    lCandidateTypeName := Copy(lTypeName, 1, Length(lTypeName) - Length('Ptr'));
-    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
-      Exit(lCandidateTypeName);
-  end;
-  if StartsText('P', lTypeName) and (Length(lTypeName) > 1) then
-  begin
-    lCandidateTypeName := Copy(lTypeName, 2, MaxInt);
-    if Length(aFacts.LookupIndex.FindDeclarationOrTypeAliasByName(lCandidateTypeName)) > 0 then
-      Exit(lCandidateTypeName);
-  end;
-end;
-
 function SelectorShapeType(const aFacts: TRemoveWithPlanFacts;
   const aBaseTypeName, aSelectorText: string): string;
 var
@@ -944,8 +922,6 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if (lPointerTargetType = '') and (lIndexPos > 0) then
       Exit('')
     else if lPointerTargetType <> '' then
@@ -962,8 +938,6 @@ begin
   if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -985,8 +959,6 @@ begin
   if (lPointerPos > 0) and ((lIndexPos = 0) or (lPointerPos < lIndexPos)) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if (lPointerTargetType = '') and (lIndexPos > 0) then
       Exit('')
     else if lPointerTargetType <> '' then
@@ -1003,8 +975,6 @@ begin
   if (lPointerPos > 0) and (lIndexPos > 0) and (lIndexPos < lPointerPos) then
   begin
     lPointerTargetType := aFacts.LookupIndex.PointerTargetType(Result);
-    if lPointerTargetType = '' then
-      lPointerTargetType := ConventionalPointerTargetType(aFacts, Result);
     if lPointerTargetType = '' then
       Exit('')
     else
@@ -1697,7 +1667,7 @@ begin
       SameText(lSymbol.TypeCategory, 'class') or SameText(lSymbol.TypeCategory, 'interface') then
       Exit(True);
   end;
-  Result := EndsText('Object', aTypeName) or EndsText('Class', aTypeName);
+  // DS-761: a declaration's kind, never its spelling, authorizes a value temp.
 end;
 
 function TypeIsRecordLike(const aFacts: TRemoveWithPlanFacts;
@@ -3468,9 +3438,8 @@ begin
   lBaseName := 'lWith' + RemoveLeadingTypePrefix(aDecision.ReceiverType);
   if TypeIsClassLike(aFacts, aDecision.ReceiverType) then
   begin
-    // 0.10: spelling clearance cannot authorize a value copy or interface AddRef.
-    // TypeIsClassLike's legacy suffix heuristic stays for DS-761, but a reference
-    // temp still requires independently proved class kind at admission.
+    // Spelling clearance cannot authorize a value copy or interface AddRef.
+    // Keep the independent identity-kind check at the admission boundary.
     lKindIdentity := aDecision.ReceiverIdentity;
     // A deliberate receiver-identity omission does not erase proved capture kind.
     // Capture visibility still checks the emitted type independently below.
@@ -4209,6 +4178,17 @@ begin
     if Trim(aDecisions[lMatch].QualifierText) = '' then
       Exit;
     aQualifierText := aDecisions[lMatch].QualifierText;
+    if MatchText(aReference.Kind, ['const', 'typed-const']) and
+      SameText(aDecisions[lMatch].ReceiverIdentity.UnderlyingName, 'class') and
+      (Pos('.', aBinding.RoutineName) > 0) then
+    begin
+      // Delphi permits descendant access through the type, while a base-typed
+      // instance temp cannot qualify a protected constant (E2362).
+      // Reuse the capture-proven type spelling only without new body scopes.
+      if aBinding.HasScopedDeclaration then
+        Exit(TFinalReferenceQualification.NoMatch);
+      aQualifierText := aDecisions[lMatch].ReceiverType;
+    end;
     Exit(TFinalReferenceQualification.QualifiedMember);
   end;
   if IsBinderReceiverMemberReference(aReference) and (aReference.ReceiverTypeName <> '') then
@@ -4261,12 +4241,11 @@ var
   lInBraceComment: Boolean;
   lInLineComment: Boolean;
   lInParenComment: Boolean;
-  lInString: Boolean;
+  lLiteralEnd: Integer;
 begin
   lInBraceComment := False;
   lInLineComment := False;
   lInParenComment := False;
-  lInString := False;
   i := 1;
   while (i < aOffset) and (i <= Length(aText)) do
   begin
@@ -4295,22 +4274,15 @@ begin
       Inc(i);
       Continue;
     end;
-    if lInString then
+    if aText[i] = #39 then
     begin
-      if (aText[i] = '''') and (i < Length(aText)) and (aText[i + 1] = '''') then
-      begin
-        Inc(i, 2);
-        Continue;
-      end;
-      if aText[i] = '''' then
-        lInString := False;
-      Inc(i);
+      lLiteralEnd := i;
+      SkipPascalStringLiteral(aText, lLiteralEnd);
+      if aOffset < lLiteralEnd then
+        Exit(True);
+      i := lLiteralEnd;
       Continue;
-    end;
-
-    if aText[i] = '''' then
-      lInString := True
-    else if (aText[i] = '/') and (i < Length(aText)) and
+    end else if (aText[i] = '/') and (i < Length(aText)) and
       (aText[i + 1] = '/') then
     begin
       lInLineComment := True;
@@ -4327,7 +4299,7 @@ begin
     end;
     Inc(i);
   end;
-  Result := lInString or lInLineComment or lInBraceComment or lInParenComment;
+  Result := lInLineComment or lInBraceComment or lInParenComment;
 end;
 
 function BodyNextNonWhitespaceChar(const aText: string;
@@ -8682,8 +8654,10 @@ begin
           end;
         end;
         if MatchText(lBinding.SkipReason,
-          ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) and
-          (not lBinding.MemberActivityUnverified) then
+          ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) or
+          (MatchText(lBinding.SkipReason,
+            ['MEMBERS_UNVERIFIED', 'MEMBERS_INCOMPLETE', 'SCOPE_UNVERIFIED']) and
+            (not lBinding.MemberActivityUnverified)) then
         begin
           if lSafetyReasons[lBindingIndex] = '' then
             lSafetyReasons[lBindingIndex] := lBinding.SkipReason;
@@ -8715,6 +8689,12 @@ begin
         lParentIndex := lBindingTree.ParentIndexes[lBindingIndex];
         while lParentIndex >= 0 do
         begin
+          if MatchText(lSafetyReasons[lParentIndex],
+            ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) then
+          begin
+            lSafetyReasons[lBindingIndex] := lSafetyReasons[lParentIndex];
+            Break;
+          end;
           if lInactiveNestedWithShadow[lParentIndex] then
           begin
             lInactiveNestedWithShadow[lBindingIndex] := True;
@@ -8793,6 +8773,8 @@ begin
                 SameText(lFinalStatement.SafetyReason, 'ALIAS_RECEIVER_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') or
                 SameText(lFinalStatement.SafetyReason, 'ROUTINE_LOCAL_TYPE_UNSUPPORTED') or
+                SameText(lFinalStatement.SafetyReason, 'INACTIVE_SUBJECT_SHADOWING') or
+                SameText(lFinalStatement.SafetyReason, 'INACTIVE_ASM_BLOCK') or
                 SameText(lFinalStatement.SafetyReason, 'INACTIVE_NESTED_WITH_SHADOW')) and
                 (lFinalStatement.SemanticId = lEdit.StatementId) then
               begin

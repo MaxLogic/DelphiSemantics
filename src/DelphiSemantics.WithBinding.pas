@@ -317,7 +317,7 @@ function BinderDenialCode(const aCode: string): Boolean;
 begin
   Result := MatchText(aCode, ['HELPER_COLLISION_UNVERIFIED', 'RECORD_HELPER_MEMBERS_UNVERIFIED',
     'ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-    'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'SELECTOR_MEMBERS_UNVERIFIED',
+    'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'MEMBER_ACCESS_UNVERIFIED', 'SELECTOR_MEMBERS_UNVERIFIED',
     'TYPE_VISIBILITY_UNPROVED', 'PARENT_SELECTOR_UNRESOLVED']);
 end;
 
@@ -460,6 +460,7 @@ type
 
   TBoundMemberResolution = record
     Cause: string;
+    Visibility: string;
     Value: TDelphiSemanticResolveResult;
     DeclaringUnitName: string;
     OwnerDeclaredId: TDelphiSemanticGraphTypeId;
@@ -538,6 +539,8 @@ type
     procedure BuildOwnerIdentityIndex;
     function OwnerIdentity(const aUnitName, aOwnerName, aScopeId, aSymbolId: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function MemberAccessIsVerified(const aSiteUnitName, aCurrentTypeName: string;
+      const aOwner: TDelphiSemanticTypeIdentity; const aVisibility: string): Boolean;
     procedure BuildHelperTargetIndex;
     function TryResolveAliasTargetSelector(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -548,13 +551,15 @@ type
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
     function TryResolveReceiverValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
-      const aName, aStopDeclaredId: string): TMemberVerdict;
+      const aName, aStopDeclaredId: string; const aCurrentTypeName: string = ''): TMemberVerdict;
     function TryResolveShadowingValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
       const aName: string; const aDirect: TBoundMemberResolution;
       out aResult: TBoundMemberResolution): Boolean;
     function UnindexedRecordHelperMayApply(const aSite: TReceiverLookupSite;
       const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
+    function IndexedRecordHelperMembersAreUnverified(const aModel: TDelphiSemanticUnitModel;
+      const aSite: TReceiverLookupSite; const aLineage: TDelphiSemanticLineage): Boolean;
     procedure BuildMemberSafetyDiagnostics;
     function LineageHasActivityFact(const aLineage: TArray<TDelphiSemanticTypeIdentity>): Boolean;
     function MemberActivityIsUnverified(const aBinding: TDelphiSemanticWithBinding;
@@ -593,6 +598,9 @@ type
     function SelectorTypeLookup(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string):
       TDelphiSemanticTypeLookupResult;
+    function TryClassScopedReceiverType(const aModel: TDelphiSemanticUnitModel;
+      const aResolved: TDelphiSemanticResolveResult; const aCurrentTypeName: string;
+      out aResolution: TDelphiSemanticTypeResolution): Boolean;
     function TryResolveSelectorIdentity(const aOriginModel: TDelphiSemanticUnitModel;
       const aOriginSectionKind, aOriginScopeId, aTypeName: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
@@ -2182,6 +2190,7 @@ begin
   lKey := Key(aUnitName, aMember.OwnerName, aMember.Name);
   lBound := Default(TBoundMemberResolution);
   lBound.Value := MemberResult(aMember);
+  lBound.Visibility := aMember.Visibility;
   lBound.DeclaringUnitName := aUnitName;
   if OwnerIdentity(aUnitName, aMember.OwnerName, aMember.OwnerScopeId,
     aMember.OwnerSymbolId, lOwner) then
@@ -2311,14 +2320,17 @@ function TWithBindingProjectMemberIndex.LookupLegacyHelperMember(
 var
   lContext: TDelphiSemanticMemberLookupContext;
   lHelper: TDelphiSemanticTypeIdentity;
-  lTarget: string;
+  lLineage: TDelphiSemanticLineage;
+  lTarget: TDelphiSemanticTypeIdentity;
 begin
-  // Preserve base's helper inventory and order until 3d. The target spellings
-  // select helpers only; they never re-resolve the held receiver or choose D.
   lContext := aContext;
-  for lTarget in [aOwner.Name, aOwner.UnitName + '.' + aOwner.Name,
-    aOwner.CanonicalName, aOwner.UnderlyingName] do
-    for lHelper in fTypeIndex.FindHelpersForTarget(lTarget) do
+  lLineage := fTypeIndex.ResolveLineage(aOwner);
+  for var i := 0 to High(lLineage.Items) do
+  begin
+    if (lLineage.StrongAliasAt >= 0) and (i > lLineage.StrongAliasAt) then
+      Break;
+    lTarget := lLineage.Items[i];
+    for lHelper in fTypeIndex.FindHelpersForTarget(lTarget.DeclaredId.Value) do
     begin
       Result := fSemanticMemberIndex.ResolveDirectMemberByOwnerId(lHelper.DeclaredId, aName);
       if Length(Result.Candidates) = 0 then
@@ -2329,6 +2341,7 @@ begin
         Result.Status := 'helper';
       Exit;
     end;
+  end;
   Result := Default(TDelphiSemanticMemberLookupResult);
   Result.Status := 'unresolved';
   Result.ReasonCode := 'DIRECT_MEMBER_NOT_FOUND';
@@ -2377,6 +2390,34 @@ begin
     Result.ReasonCode := 'MEMBER_HIDES_INHERITED';
     Result.Reason := 'A direct member hides an inherited or helper-provided member.';
   end;
+end;
+
+function TWithBindingProjectMemberIndex.MemberAccessIsVerified(
+  const aSiteUnitName, aCurrentTypeName: string;
+  const aOwner: TDelphiSemanticTypeIdentity; const aVisibility: string): Boolean;
+var
+  lCaller, lAncestor: TDelphiSemanticTypeIdentity;
+  lLineage: TDelphiSemanticLineage;
+begin
+  if MatchText(aVisibility, ['', 'public', 'published', 'automated']) then
+    Exit(True);
+  if MatchText(aVisibility, ['private', 'protected']) and
+    SameText(aSiteUnitName, aOwner.UnitName) then
+    Exit(True);
+  if not MatchText(aVisibility, ['private', 'strict private', 'protected', 'strict protected']) or
+    (aOwner.DeclaredId.Value = '') or
+    (not OwnerIdentity(aSiteUnitName, aCurrentTypeName, '', '', lCaller)) then
+    Exit(False);
+  if SameText(lCaller.DeclaredId.Value, aOwner.DeclaredId.Value) then
+    Exit(True);
+  if MatchText(aVisibility, ['private', 'strict private']) then
+    Exit(False);
+  // Access is proved by declaration identities, including cross-unit descendants.
+  lLineage := fTypeIndex.ResolveLineage(lCaller);
+  for lAncestor in lLineage.Items do
+    if SameText(lAncestor.DeclaredId.Value, aOwner.DeclaredId.Value) then
+      Exit(True);
+  Result := False;
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
@@ -2428,6 +2469,11 @@ begin
       lInventory) then
     begin
       ResolveMemberList(aOwnerName, aName, lInventory, lBound);
+      if lBound.Value.Found and
+        (not MemberAccessIsVerified(aCurrentUnitName, aCurrentTypeName,
+          aOwnerIdentity, lBound.Visibility)) then
+        Exit(TMemberVerdict.Barrier(noUnproved, 'MEMBER_ACCESS_UNVERIFIED',
+          'Access to the receiver member is not verified.', 'member-access'));
       Exit(MemberVerdictFromBound(lBound));
     end;
     if (not aAllowSemanticFallback) or (not fSemanticMemberIndexAvailable) then
@@ -2665,76 +2711,8 @@ begin
 end;
 
 function SanitizeBodyText(const aText: string): string;
-  procedure BlankAt(const aIndex: Integer);
-  begin
-    if not CharInSet(Result[aIndex], [#10, #13]) then
-      Result[aIndex] := ' ';
-  end;
-
-var
-  i: Integer;
 begin
-  Result := aText;
-  i := 1;
-  while i <= Length(Result) do
-  begin
-    if aText[i] = '''' then
-    begin
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if aText[i] = '''' then
-        begin
-          if (i < Length(aText)) and (aText[i + 1] = '''') then
-          begin
-            Inc(i);
-            BlankAt(i);
-          end else
-            Break;
-        end;
-        Inc(i);
-      end;
-    end else if (aText[i] = '/') and (i < Length(aText)) and (aText[i + 1] = '/') then
-    begin
-      while (i <= Length(Result)) and not CharInSet(Result[i], [#10, #13]) do
-      begin
-        BlankAt(i);
-        Inc(i);
-      end;
-      Continue;
-    end else if aText[i] = '{' then
-    begin
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if aText[i] = '}' then
-          Break;
-        Inc(i);
-      end;
-    end else if (aText[i] = '(') and (i < Length(aText)) and (aText[i + 1] = '*') then
-    begin
-      BlankAt(i);
-      Inc(i);
-      BlankAt(i);
-      Inc(i);
-      while i <= Length(Result) do
-      begin
-        BlankAt(i);
-        if (aText[i] = '*') and (i < Length(aText)) and (aText[i + 1] = ')') then
-        begin
-          Inc(i);
-          BlankAt(i);
-          Break;
-        end;
-        Inc(i);
-      end;
-    end;
-    Inc(i);
-  end;
+  Result := SanitizeCodeText(aText);
 end;
 
 function ExtractWithBodyText(const aStatement: TDelphiSemanticWithStatement;
@@ -3087,19 +3065,18 @@ begin
         end;
   end else if SameText(aResolved.Kind, 'parameter') then
   begin
-    // A resolved parameter carries its routine's coordinates: the routine at those
-    // coordinates plus the parameter name identify the declaration. The resolved
-    // TypeName is the selector's final type, so it cannot identify the parameter.
+    // The parameter token coordinates and name identify its declaration. The
+    // resolved TypeName may be the selector's final type, so it cannot identify
+    // the parameter.
     // Delphi resolves a heading's types in the scope enclosing the routine, so the
     // routine's own local types are not visible there. ScopeId and ParentScopeId come
     // from the uniquely matched AST scope, so an empty parent is a verified top level.
     for lRoutine in aModel.Routines do
-      if SameText(lRoutine.Name, aResolved.OwnerName) and
-        (lRoutine.Line = aResolved.Line) and
-        (lRoutine.Column = aResolved.Column) and (lRoutine.ScopeId <> '') and
+      if SameText(lRoutine.Name, aResolved.OwnerName) and (lRoutine.ScopeId <> '') and
         (lRoutine.AstScopeKind <> '') then
         for lParameter in lRoutine.Parameters do
-          if SameText(lParameter.Name, aResolved.Name) then
+          if SameText(lParameter.Name, aResolved.Name) and
+            (lParameter.Line = aResolved.Line) and (lParameter.Column = aResolved.Column) then
           begin
             Inc(lMatches);
             aScopeId := lRoutine.ParentScopeId;
@@ -3236,6 +3213,7 @@ var
   lCastType: string;
   lCaptureTypeName, lCaptureTypeStatus: string;
   lTypeLookup: TDelphiSemanticTypeLookupResult;
+  lClassTypeResolution: TDelphiSemanticTypeResolution;
   lComplex: Boolean;
   lContext: TDelphiSemanticResolveContext;
   lDereferenced: Boolean;
@@ -3562,7 +3540,21 @@ begin
   if lResult.Found and SameText(lResult.Status, 'resolved') then
     if lVerifiedLocalPointer then
       aIdentity := lPointerIdentity
-    else if ((lWithBase or (not MatchText(lResult.Kind, ['field', 'member', 'property']))) or
+    else if (not lComplex) and (not lWithBase) and
+      aProjectMemberIndex.TryClassScopedReceiverType(aModel, lBaseResult,
+        aCurrentTypeName, lClassTypeResolution) then
+    begin
+      if lClassTypeResolution.Outcome = noResolved then
+        aIdentity := lClassTypeResolution.Identity
+      else if not ((lClassTypeResolution.Outcome = noUnproved) and
+        MatchText(lClassTypeResolution.Cause, ['external-unindexed', 'witness-unknown']) and
+        StartsText('uses:', lClassTypeResolution.DecidingScope)) then
+      begin
+        lResult.Status := 'unsupported';
+        lResult.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+        lResult.Reason := 'The class-scoped receiver type is not proved at its declaration.';
+      end;
+    end else if ((lWithBase or (not MatchText(lResult.Kind, ['field', 'member', 'property']))) or
       TryMemberDeclaringModel(aProjectModels, lResult, lSymbolModel)) and
       aProjectMemberIndex.TryResolveTypeOriginScope(lSymbolModel, lOriginModel,
       lResult, lOriginScopeId, lOwnRoutineScopeId) then
@@ -4190,7 +4182,7 @@ begin
         UpperCase(lHelpers.Levels[i].Cause).Replace('-', '_'),
         'An unsupported conditional leaves helper scope unproved.', lHelpers.Levels[i].Cause));
   lDirect := aDirect;
-  lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '');
+  lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '', aCurrentTypeName);
   lHelper := TMemberVerdict.NotPresent;
   lHelperLevel := -1;
   lValueCollision := False;
@@ -5643,6 +5635,159 @@ begin
   end;
 end;
 
+
+function InactiveSubjectMayShadow(const aModel: TDelphiSemanticUnitModel;
+  const aSource: TWithBindingSourceContext;
+  const aProjectModels: TArray<TDelphiSemanticUnitModel>;
+  const aStatement: TDelphiSemanticWithStatement;
+  const aBinding: TDelphiSemanticWithBinding;
+  const aRoutineName, aCurrentTypeName: string;
+  const aParentRoutineNames: TArray<string>;
+  const aProjectMemberIndex: TWithBindingProjectMemberIndex;
+  const aMemberCache: TDictionary<string, TMemberVerdict>): Boolean;
+var
+  lMatch: TMatch;
+  lHeader, lPart: string;
+  lParts: TArray<string>;
+  lSelectors: TArray<TDelphiSemanticWithSelectorBinding>;
+  lIdentities: TWithSelectorIdentityArray;
+  lReference: TDelphiSemanticBoundReference;
+  lBound: TBoundMemberResolution;
+  lOwnerModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lOwnerSource: TWithBindingSourceContext;
+  lOwnerScan: string;
+  lOffset, lPartOffset, lStart, lFinish, i, j: Integer;
+  lInactive, lActive: Boolean;
+  lVerification: TDelphiSemanticWithBinding;
+begin
+  Result := False;
+  if aBinding.ActivityUnverified then
+    Exit;
+  lMatch := TRegEx.Match(SanitizeCodeText(aStatement.Text),
+    '(?<!&)\bwith\b\s+(.*?)\s+(?<!&)\bdo\b', [roIgnoreCase, roSingleLine]);
+  if not lMatch.Success then
+    Exit;
+  lHeader := lMatch.Groups[1].Value;
+  lOffset := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
+    aStatement.Line, aStatement.Column) + lMatch.Groups[1].Index - 1;
+  if (lOffset <= 0) or (lOffset + Length(lHeader) - 1 > Length(aSource.ReferenceScanText)) then
+    Exit(True);
+  lInactive := False;
+  for i := 1 to Length(lHeader) do
+    if not CharInSet(lHeader[i], [#9, #10, #13, ' ']) and
+      (aSource.ReferenceScanText[lOffset + i - 1] = ' ') then
+    begin
+      lInactive := True;
+      Break;
+    end;
+  if not lInactive then
+    Exit;
+  if not TrySplitTopLevelCommaList(lHeader, lParts) then
+    Exit(True);
+  lVerification := WithBindingForPlanning(aBinding);
+  // Bind the physical subject list with the same lexical/member resolver. These
+  // speculative selectors never become rewrite selectors or persisted edits.
+  lSelectors := nil;
+  lPartOffset := 1;
+  for i := 0 to High(lParts) do
+  begin
+    lPart := lParts[i];
+    j := Pos(lPart, lHeader, lPartOffset);
+    if j = 0 then
+      Exit(True);
+    lPartOffset := j + Length(lPart);
+    lInactive := False;
+    lActive := False;
+    for lStart := j to lPartOffset - 1 do
+      if not CharInSet(lHeader[lStart], [#9, #10, #13, ' ']) then
+      begin
+        if aSource.ReferenceScanText[lOffset + lStart - 1] = ' ' then
+          lInactive := True
+        else
+          lActive := True;
+      end;
+    if not lInactive then
+      Continue;
+    // Optional earlier subjects can change later selector lookup. Nested lists
+    // need their enclosing selector environment before absence is authoritative.
+    if (i <> High(lParts)) or (aStatement.NestingDepth > 0) then
+      Exit(True);
+    // A partially conditional expression is not an independently absent subject.
+    if lActive then
+      Exit(True);
+    if Length(lSelectors) = 0 then
+      lSelectors := BindSelectors(aModel, aSource, aProjectModels, aRoutineName,
+        aCurrentTypeName, lHeader, aParentRoutineNames, nil,
+        aStatement.Line, aStatement.Column, aStatement, aProjectMemberIndex,
+        aMemberCache, lIdentities);
+    if Length(lSelectors) <> Length(lParts) then
+      Exit(True);
+    // Only a closed source-backed record can currently establish absence across
+    // the alternative subject list. Conditional record members cannot prove it.
+    if not SameText(lSelectors[i].TypeIdentity.Kind, 'type') or
+      not SameText(lSelectors[i].TypeIdentity.CanonicalName, 'record') or
+      not aProjectMemberIndex.TrySafetyDeclarationModel(lSelectors[i].TypeIdentity, lOwnerModel) then
+      Exit(True);
+    if not SameText(lSelectors[i].TypeIdentity.SourceRange.FileName, lOwnerModel.FileName) then
+      Exit(True);
+    lOwnerSource := PrepareWithBindingSource(lOwnerModel);
+    lStart := ActivityOffset(lOwnerSource.LineStarts, Length(lOwnerModel.SourceText),
+      lSelectors[i].TypeIdentity.SourceRange.Line, lSelectors[i].TypeIdentity.SourceRange.Column);
+    // Type identity ranges identify the name. The AST body endpoint covers
+    // conditional fields hidden from the selected member inventory.
+    lFinish := 0;
+    for lDeclaration in lOwnerModel.Declarations do
+      if (lDeclaration.Line = lSelectors[i].TypeIdentity.SourceRange.Line) and
+        (lDeclaration.Column = lSelectors[i].TypeIdentity.SourceRange.Column) and
+        SameText(lDeclaration.Name, lSelectors[i].TypeIdentity.Name) then
+      begin
+        lFinish := ActivityOffset(lOwnerSource.LineStarts, Length(lOwnerModel.SourceText),
+          lDeclaration.TypeBodyEndLine, lDeclaration.TypeBodyEndColumn);
+        Break;
+      end;
+    if (lStart <= 0) or (lFinish < lStart) or (lFinish > Length(lOwnerModel.SourceText)) then
+      Exit(True);
+    lOwnerScan := SanitizeCodeText(lOwnerSource.ReferenceScanText);
+    for j := lStart to lFinish do
+      if not CharInSet(lOwnerSource.SanitizedSourceText[j], [#9, #10, #13, ' ']) and
+        (lOwnerScan[j] = ' ') then
+        Exit(True);
+    for lReference in lVerification.References do
+      if SameText(lReference.Classification, 'member') and
+        aProjectMemberIndex.TryResolveVerifiedSimpleMember(aModel,
+          ReceiverLookupSite(aModel, aStatement.Line, aStatement.Column),
+          [lSelectors[i]], aCurrentTypeName, 'inactive-subject:' + aBinding.SemanticId,
+          lReference.Name, aMemberCache, lBound) then
+        Exit(True);
+  end;
+end;
+
+function ContainsInactiveAsm(const aModel: TDelphiSemanticUnitModel;
+  const aStatement: TDelphiSemanticWithStatement;
+  const aSource: TWithBindingSourceContext): Boolean;
+var
+  lMatch: TMatch;
+  lStart, lOffset: Integer;
+begin
+  Result := False;
+  lStart := ActivityOffset(aSource.LineStarts, Length(aModel.SourceText),
+    aStatement.BodyLine, aStatement.BodyColumn);
+  if lStart <= 0 then
+    Exit;
+  lMatch := TRegEx.Match(SanitizeCodeText(aStatement.BodyText), '(?<!&)\basm\b', [roIgnoreCase]);
+  while lMatch.Success do
+  begin
+    lOffset := lStart + lMatch.Index - 1;
+    if (lOffset > 0) and (lOffset <= Length(aSource.ReferenceScanText)) and
+      (aSource.ReferenceScanText[lOffset] = ' ') and
+      not TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+        aModel.VerifiedActiveSourceText, lOffset) then
+      Exit(True);
+    lMatch := lMatch.NextMatch;
+  end;
+end;
+
 function InactiveWithIdentifierChar(const aChar: Char): Boolean;
 begin
   Result := (aChar = '_') or aChar.IsLetterOrDigit;
@@ -5687,19 +5832,9 @@ begin
   i := 1;
   while i <= Length(lText) do
   begin
-    if lText[i] = '''' then
+    if lText[i] = #39 then
     begin
-      Inc(i);
-      while i <= Length(lText) do
-      begin
-        if lText[i] = '''' then
-        begin
-          Inc(i);
-          if (i > Length(lText)) or (lText[i] <> '''') then
-            Break;
-        end;
-        Inc(i);
-      end;
+      SkipPascalStringLiteral(lText, i);
       Continue;
     end;
     if (lText[i] = '/') and (i < Length(lText)) and (lText[i + 1] = '/') then
@@ -6205,6 +6340,56 @@ begin
   else
     Result := fTypeIndex.ResolveVisibleName(aTypeName, aOriginModel.UnitName,
       lVisibleUnits, aOriginSectionKind);
+end;
+
+function TWithBindingProjectMemberIndex.TryClassScopedReceiverType(
+  const aModel: TDelphiSemanticUnitModel; const aResolved: TDelphiSemanticResolveResult;
+  const aCurrentTypeName: string; out aResolution: TDelphiSemanticTypeResolution): Boolean;
+var
+  lClass: TDelphiSemanticTypeIdentity;
+  lSite: TDelphiSemanticNameSite;
+  lSpelling: string;
+  lMatches: Integer;
+begin
+  Result := False;
+  aResolution := Default(TDelphiSemanticTypeResolution);
+  if (aCurrentTypeName = '') or not MatchText(aResolved.Kind, ['local', 'parameter']) or
+    not TRegEx.IsMatch(aResolved.TypeName, '^[A-Za-z_][A-Za-z0-9_]*$') then
+    Exit;
+  Result := True;
+  lMatches := 0;
+  OwnerIdentity(aModel.UnitName, aCurrentTypeName, '', '', lClass);
+  if SameText(aResolved.Kind, 'local') then
+    for var lLocal in aModel.Locals do
+      if SameText(lLocal.Name, aResolved.Name) and (lLocal.Line = aResolved.Line) and
+        (lLocal.Column = aResolved.Column) then
+      begin
+        Inc(lMatches);
+        lSite := TDelphiSemanticNameSites.AtLocal(aModel, lLocal, lClass.DeclaredId);
+        lSpelling := lLocal.TypeName;
+      end;
+  if SameText(aResolved.Kind, 'parameter') then
+    for var lRoutine in aModel.Routines do
+      for var lParameter in lRoutine.Parameters do
+        if SameText(lParameter.Name, aResolved.Name) and (lParameter.Line = aResolved.Line) and
+          (lParameter.Column = aResolved.Column) then
+        begin
+          Inc(lMatches);
+          lSite := TDelphiSemanticNameSites.AtParameter(aModel, lRoutine, lParameter, lClass.DeclaredId);
+          lSpelling := lParameter.TypeName;
+        end;
+  if (lMatches <> 1) or (lClass.DeclaredId.Value = '') or
+    not TRegEx.IsMatch(lSpelling, '^[A-Za-z_][A-Za-z0-9_]*$') then
+  begin
+    aResolution.Outcome := noUnproved;
+    aResolution.ReasonCode := 'TYPE_VISIBILITY_UNPROVED';
+    Exit;
+  end;
+  // A method's class and its ancestors precede unit scope. Resolve at the
+  // variable/parameter token so later local declarations cannot change it.
+  // An unindexed external target retains no identity. Its member lookup will
+  // keep the existing owner barrier; never retry the spelling in unit scope.
+  aResolution := fTypeIndex.ResolveTypeAt(lSite, lSpelling);
 end;
 
 function TWithBindingProjectMemberIndex.TryResolveSelectorIdentity(
@@ -7363,7 +7548,7 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveReceiverValueMember(
   const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
-  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string): TMemberVerdict;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId, aCurrentTypeName: string): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
   lBound: TBoundMemberResolution;
@@ -7401,9 +7586,8 @@ begin
     end;
     if (not fValueVisibility.TryGetValue(lKey, lVisibility)) or
       (Length(lVisibility) <> 1) or
-      (not (MatchText(lVisibility[0], ['', 'public', 'published', 'automated']) or
-      (MatchText(lVisibility[0], ['private', 'protected']) and
-      SameText(lCandidates[0].DeclaringUnitName, aSite.UnitName)))) then
+      (not MemberAccessIsVerified(aSite.UnitName, aCurrentTypeName,
+        lIdentity, lVisibility[0])) then
       Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
         'Access to the type value member is not verified.', 'value-member'));
     if (not lLineage.Complete) or UnindexedRecordHelperMayApply(aSite, lLineage.Items) then
@@ -7570,6 +7754,31 @@ begin
   end;
 end;
 
+function TWithBindingProjectMemberIndex.IndexedRecordHelperMembersAreUnverified(
+  const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
+  const aLineage: TDelphiSemanticLineage): Boolean;
+var
+  lHelpers: TDelphiSemanticHelperResolution;
+  lIdentity: TDelphiSemanticTypeIdentity;
+  lNameSite: TDelphiSemanticNameSite;
+  lStatement: TDelphiSemanticWithStatement;
+begin
+  // Reuse declaration-site target identity, site visibility and helper precedence.
+  // An indexed helper is not a complete member inventory merely because it exists.
+  lStatement := Default(TDelphiSemanticWithStatement);
+  lStatement.Line := aSite.Line;
+  lStatement.Column := aSite.Column;
+  lNameSite := TDelphiSemanticNameSites.AtWithStatement(aModel, lStatement,
+    RoutineScopeAtLine(aModel, aSite.Line), Default(TDelphiSemanticGraphTypeId));
+  lNameSite.FileName := aSite.FileName;
+  lHelpers := fTypeIndex.ResolveHelpersAt(aLineage, lNameSite);
+  for var lLevel in lHelpers.Levels do
+    for lIdentity in lLevel.Chain do
+      if not MembersClosed(lIdentity) then
+        Exit(True);
+  Result := False;
+end;
+
 function TWithBindingProjectMemberIndex.ReceiverMemberAbsenceIsVerified(
   const aModel: TDelphiSemanticUnitModel;
   const aSelector: TDelphiSemanticWithSelectorBinding; const aName: string;
@@ -7634,7 +7843,8 @@ begin
     MatchText(lIdentity.UnderlyingName, ['record', 'packed record']);
   if Result then
   begin
-    if UnindexedRecordHelperMayApply(aSite, lLineage.Items) then
+    if UnindexedRecordHelperMayApply(aSite, lLineage.Items) or
+      IndexedRecordHelperMembersAreUnverified(aModel, aSite, lLineage) then
     begin
       Result := False;
       aRefusalCode := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
@@ -7985,6 +8195,8 @@ var
   j: Integer;
   lBinding: TDelphiSemanticWithBinding;
   lBindingCapacity: Integer;
+  lParentStatementIndexes: TArray<Integer>;
+  lProofStatementIndex: Integer;
   lBindingStopwatch: TStopwatch;
   lBindings: TList<TDelphiSemanticWithBinding>;
   lBindingBuildMs: Int64;
@@ -8102,6 +8314,7 @@ begin
         Continue;
       lSourceContext := PrepareWithBindingSource(lModel);
       lActivityLineStarts := lSourceContext.LineStarts;
+      lParentStatementIndexes := BuildParentStatementIndexes(lModel.WithStatements);
       SetLength(lWithStatementLines, Length(lModel.WithStatements));
       for i := 0 to High(lModel.WithStatements) do
         lWithStatementLines[i] := lModel.WithStatements[i].Line;
@@ -8174,6 +8387,29 @@ begin
         begin
           lBinding.Status := 'skipped';
           lBinding.SkipReason := lSkipReason;
+        end;
+        if not lBinding.ActivityUnverified then
+        begin
+          // A child's qualification can use an inherited outer subject. Check
+          // every covering header against all names that this binding rewrites.
+          lProofStatementIndex := i;
+          while lProofStatementIndex >= 0 do
+          begin
+            if InactiveSubjectMayShadow(lModel, lSourceContext, aModels,
+              lModel.WithStatements[lProofStatementIndex], lBinding,
+              lRoutineLookupName, lCurrentTypeName, lParentRoutineNames,
+              lProjectMemberIndex, lMemberCache) then
+            begin
+              lBinding.SkipReason := 'INACTIVE_SUBJECT_SHADOWING';
+              Break;
+            end;
+            lProofStatementIndex := lParentStatementIndexes[lProofStatementIndex];
+          end;
+          if (lBinding.SkipReason <> 'INACTIVE_SUBJECT_SHADOWING') and
+            ContainsInactiveAsm(lModel, lStatement, lSourceContext) then
+            lBinding.SkipReason := 'INACTIVE_ASM_BLOCK';
+          if MatchText(lBinding.SkipReason, ['INACTIVE_SUBJECT_SHADOWING', 'INACTIVE_ASM_BLOCK']) then
+            lBinding.Status := 'skipped';
         end;
         if ContainsInactiveNestedWith(lModel, lStatement, lSourceContext) then
           // The earlier inactive refusal has already been copied to SkipReason.

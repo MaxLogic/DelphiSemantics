@@ -153,7 +153,10 @@ const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
   // 14: expected identity row count for complete project planning facts.
   // 25: lexical routine owners exclude header twins (DS-743/DS-763).
-  cSnapshotCacheSchemaVersion = '25';
+  // 25: DS-737/739 invalidate planning facts with unsafe conditional WITH ranges.
+  // 26: DS-736/707 retain helper and receiver declaration identity.
+  // 29: integrated lane identities invalidate every merged schema generation.
+  cSnapshotCacheSchemaVersion = '29';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

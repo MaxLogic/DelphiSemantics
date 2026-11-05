@@ -64,3 +64,4 @@ delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdat
 delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdata.typederivesfrom|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
 delphisemantics.resolve.memberresolver.pas|tdelphisemanticmemberidentityindexdata.typederivesfrom|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
 delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindex.findancestors|findancestors|recovery 2.6 reviewed non-binder call; retained F3 behavior
+delphisemantics.resolve.typeresolver.pas|tdelphisemantictypeidentityindexdata.findhelpersfortarget|resolvequalifiedname|DS-736/707 compatibility name input only; held IDs bypass lookup; helper targets are declaration-bound and identity-matched

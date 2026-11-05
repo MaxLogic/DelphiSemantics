@@ -9,6 +9,16 @@
 - SQLite snapshot planning facts reload generic methods, routine-local record types and local aliases without losing their source scopes; older entries rebuild.
 
 - Quoted or unusable compiler search-path entries refuse project context with a named diagnostic instead of raising a path exception (DAK-475).
+
+- WITH binding verifies private field access and permits protected type constants in descendant methods. Type-scoped constants retain their owner in Resolve and no longer appear as unqualified unit declarations. Existing helper-unit and capture-type visibility refusals remain covered across all planner routes.
+
+- WITH binding refuses record-member misses when an applicable indexed helper has an incomplete member inventory, including helper targets through weak aliases and indexed names. Older persisted plans rebuild.
+
+- WITH ranges stop before the enclosing repeat loop condition. WITH fact and body scans preserve Delphi 12 multiline strings, including odd apostrophes and literal WITH text; older cached facts rebuild.
+
+- WITH helper targets retain declaration identity across unit homonyms and weak aliases. Method-local receiver types retain class scope, and name-only overloaded parameter lookup refuses ambiguous declarations.
+- WITH rewrites refuse inactive subjects that may shadow qualified names and inactive assembly blocks; inactive statement terminators no longer truncate active bodies. Older model and planning caches rebuild.
+- WITH receiver temporary kinds use declared type kinds rather than Object/Class suffixes; pointer targets no longer use P prefixes or Ptr suffixes.
 - Combined remove-with facts use the same payload limit for loading and storing. Oversized payloads leave existing cache rows intact and report `payload-too-large` through planning metrics.
 - Combined remove-with planning reuses complete persisted facts only with certified external compiler inputs. Native proof queries replay through a fresh owner, and validated models publish after successful planning. Changed inputs and damaged caches rebuild.
 - Large-project WITH name-witness scans list each lookup directory once instead of probing every imported unit name; tiny SDK lookups retain bounded queries.

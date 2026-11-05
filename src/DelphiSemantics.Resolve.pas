@@ -322,22 +322,44 @@ function TryResolveParameter(const aModel: TDelphiSemanticUnitModel; const aRout
   aSectionKind, aName: string;
   out aResult: TDelphiSemanticResolveResult): Boolean;
 var
-  lParameter: TDelphiSemanticParameter;
-  lRoutine: TDelphiSemanticRoutine;
+  lFound: Boolean;
+  lParameter, lSelectedParameter: TDelphiSemanticParameter;
+  lRoutine, lSelectedRoutine: TDelphiSemanticRoutine;
 begin
+  lFound := False;
   for lRoutine in aModel.Routines do
     if RoutineNameMatches(lRoutine, aRoutineName) and IsVisibleSection(aSectionKind,
       lRoutine.SectionKind) then
       for lParameter in lRoutine.Parameters do
         if SameText(lParameter.Name, aName) then
         begin
-          aResult := ResolvedResult(lParameter.Name, 'parameter', lParameter.TypeName,
-            lRoutine.Name, lRoutine.SectionKind, lRoutine.Line, lRoutine.Column);
-          Exit(True);
+          // The public context supplies a name, not an overload identity. Only
+          // verified header/body facts for the same signature may coalesce.
+          if lFound and ((lRoutine.AstSemanticSignature = '') or
+            not SameText(lRoutine.AstSemanticSignature, lSelectedRoutine.AstSemanticSignature) or
+            not SameText(lRoutine.ParentScopeId, lSelectedRoutine.ParentScopeId) or
+            not SameText(lRoutine.OwnerName, lSelectedRoutine.OwnerName) or
+            not SameText(lParameter.TypeName, lSelectedParameter.TypeName) or
+            not SameText(lParameter.Modifier, lSelectedParameter.Modifier)) then
+          begin
+            aResult := AmbiguousResult(aName, 'MULTIPLE_PARAMETER_DECLARATIONS',
+              'The routine name does not identify one parameter declaration.');
+            Exit(True);
+          end;
+          if not lFound or SameText(lRoutine.AstScopeKind, 'body') then
+          begin
+            lSelectedRoutine := lRoutine;
+            lSelectedParameter := lParameter;
+          end;
+          lFound := True;
         end;
 
   aResult := Default(TDelphiSemanticResolveResult);
-  Result := False;
+  if lFound then
+    aResult := ResolvedResult(lSelectedParameter.Name, 'parameter', lSelectedParameter.TypeName,
+      lSelectedRoutine.Name, lSelectedRoutine.SectionKind,
+      lSelectedParameter.Line, lSelectedParameter.Column);
+  Result := lFound;
 end;
 
 function TryResolveLexicalParameter(const aModel: TDelphiSemanticUnitModel;
@@ -392,6 +414,7 @@ begin
   for lDeclaration in aModel.Declarations do
     if SameText(lDeclaration.Name, aName) and
       not IsRoutineVariableDeclaration(lDeclaration) and
+      (not SameText(lDeclaration.ScopeKind, 'type')) and
       IsVisibleSection(aContext.SectionKind, lDeclaration.SectionKind) then
     begin
       lKey := LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.TypeName);
@@ -434,6 +457,7 @@ begin
     for lDeclaration in lModel.Declarations do
       if SameText(lDeclaration.Name, aName) and
         not IsRoutineVariableDeclaration(lDeclaration) and
+        (not SameText(lDeclaration.ScopeKind, 'type')) and
         SameText(lDeclaration.SectionKind, 'interface') then
       begin
         Inc(lCount);
@@ -612,10 +636,10 @@ begin
     end;
   if SameText(aResolved.Kind, 'parameter') then
     for lRoutine in aModel.Routines do
-      if SameText(lRoutine.Name, aResolved.OwnerName) and
-        (lRoutine.Line = aResolved.Line) and (lRoutine.Column = aResolved.Column) then
+      if SameText(lRoutine.Name, aResolved.OwnerName) then
         for lParameter in lRoutine.Parameters do
           if SameText(lParameter.Name, aResolved.Name) and
+            (lParameter.Line = aResolved.Line) and (lParameter.Column = aResolved.Column) and
             CheckReference(lParameter.TypeName, lRoutine.SectionKind,
             lParameter.FileName, lRoutine.ParentScopeId,
             lParameter.Line, lParameter.Column, 0) then
@@ -922,6 +946,16 @@ begin
       if (aConformanceLevel < 2) and lMember.IsDefault then
         Exit(UnsupportedResult(aName, 'DEFAULT_PROPERTY_UNSUPPORTED',
           'Default property member resolution is not part of Level 1.'));
+      Inc(lCount);
+      Result := ResolvedResult(lMember.Name, lMember.Kind, lMember.TypeName, lMember.OwnerName,
+        '', lMember.Line, lMember.Column);
+    end;
+
+  for lMember in aModel.TypeValueMembers do
+    if (SameText(lMember.OwnerName, aOwnerName) or ((aConformanceLevel >= 2) and
+      SameText(lMember.OwnerName, ResolveTypeAlias(aModel, aOwnerName)))) and
+      SameText(lMember.Name, aName) then
+    begin
       Inc(lCount);
       Result := ResolvedResult(lMember.Name, lMember.Kind, lMember.TypeName, lMember.OwnerName,
         '', lMember.Line, lMember.Column);

@@ -213,8 +213,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // DS-719 0.27 adds caller-certified include frames to persisted directive facts.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.77';
+  // Integrated include-frame, WITH range and inactive-subject facts require fresh extraction.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.79';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

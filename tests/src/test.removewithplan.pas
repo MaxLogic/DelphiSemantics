@@ -543,6 +543,8 @@ type
     [TestCase('unimported homonym', '1')]
     [TestCase('imported homonym', '2')]
     [TestCase('routine-local type', '3')]
+    [TestCase('unindexed imports without capture proof', '4')]
+    [TestCase('legacy name-only receiver without capture proof', '5')]
     procedure FinalDtoChecksReceiverWithoutDeclaredIdentityByUniqueUnitDeclaration(
       const aCase: Integer);
     [Test]
@@ -8560,6 +8562,8 @@ begin
   lUses := '{ no imports }';
   if aCase = 2 then
     lUses := 'uses BUnit;';
+  if aCase = 4 then
+    lUses := 'uses System.Types;';
   TFile.WriteAllText(TPath.Combine(lRoot, 'AUnit.pas'),
     'unit AUnit;'#13#10'interface'#13#10 + lUses + #13#10'type'#13#10 +
     '  TC = class'#13#10'  public'#13#10'    X: Integer;'#13#10'  end;'#13#10 +
@@ -8592,6 +8596,13 @@ begin
         Assert.AreEqual('routine', lFacts.Bindings[i].Selectors[0].TypeIdentity.ScopeKind);
       // The planner must decide visibility without the binder's declaration identity.
       lFacts.Bindings[i].Selectors[0].TypeIdentity := Default(TDelphiSemanticTypeIdentity);
+      if aCase in [4, 5] then
+      begin
+        // A legacy caller has no positional witness for the emitted type name.
+        lFacts.Bindings[i].Selectors[0].CaptureTypeName := '';
+        lFacts.Bindings[i].Selectors[0].CaptureTypeStatus := '';
+        lFacts.Bindings[i].Selectors[0].CaptureTypeIdentity := Default(TDelphiSemanticTypeIdentity);
+      end;
     end;
   Assert.AreEqual(1, lBlankedCount, 'Expected one selected receiver binding.');
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);

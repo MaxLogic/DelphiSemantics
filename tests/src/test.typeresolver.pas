@@ -15,6 +15,10 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel(const aUnitName: string): TDelphiSemanticUnitModel;
   public
+    [TestCase('own class', 'class-own')]
+    [TestCase('ancestor class', 'class-ancestor')]
+    [TestCase('earlier variable', 'declaration-order')]
+    procedure DeclarationSitesKeepClassAndOrderIdentity(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure ResolvesSimpleQualifiedAndVisibleTypeNames;
@@ -2760,6 +2764,59 @@ begin
   Assert.IsFalse(lAccess.CacheHit, 'Editing skipped source invalidates the model');
   GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lAccess.Model]), g);
   Assert.IsFalse(lGraph.Units[0].HelperScopeKnown, 'Edited skipped file cannot close scope');
+end;
+
+procedure TTypeResolverTests.DeclarationSitesKeepClassAndOrderIdentity(const aShape: string);
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lIndex: TDelphiSemanticTypeIdentityIndex;
+  lOwner: TDelphiSemanticGraphTypeId;
+  lSite: TDelphiSemanticNameSite;
+  lResult: TDelphiSemanticTypeResolution;
+  lSeen: Integer;
+begin
+  for var lFile in [FixturePath('BindingSafety', aShape + '\Unit1.pas'),
+    FixturePath('BindingSafety', 'common\ClassBase.pas')] do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lOptions.ProjectContextApplied := True;
+    lModels := lModels + [TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions)];
+    Assert.IsTrue(lModels[High(lModels)].Success);
+  end;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, lModels);
+  try
+    lIndex := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lOwner := Default(TDelphiSemanticGraphTypeId);
+    if aShape = 'class-own' then
+      lOwner := lIndex.ResolveQualifiedName('Unit1.TOuter').Identity.DeclaredId
+    else if aShape = 'class-ancestor' then
+      lOwner := lIndex.ResolveQualifiedName('Unit1.TChild').Identity.DeclaredId;
+    lSeen := 0;
+    for var lLocal in lModels[0].Locals do
+      if lLocal.Name = 'lRec' then
+      begin
+        Inc(lSeen);
+        lSite := TDelphiSemanticNameSites.AtLocal(lModels[0], lLocal, lOwner);
+        lResult := lIndex.ResolveTypeAt(lSite, lLocal.TypeName);
+        Assert.AreEqual(noResolved, lResult.Outcome, lResult.Cause);
+        if aShape = 'declaration-order' then
+        begin
+          Assert.AreNotEqual('routine', lResult.Identity.ScopeKind);
+          Assert.AreEqual('TFoo', lResult.Identity.Name);
+        end else begin
+          Assert.AreEqual('type', lResult.Identity.ScopeKind);
+          Assert.AreEqual('TInner', lResult.Identity.Name);
+          if aShape = 'class-ancestor' then
+            Assert.AreEqual('ClassBase', lResult.Identity.UnitName);
+        end;
+      end;
+    Assert.AreEqual(1, lSeen);
+  finally
+    lGraph.Free;
+  end;
 end;
 
 initialization

@@ -50,6 +50,7 @@ type
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
     [TestCase('Before namespace candidate competition', '86')]
+    [TestCase('Before indexed record helper completeness', '88')]
     [TestCase('Before SDK-only witness scope', '68')]
     [TestCase('Before unknown capture preservation', '69')]
     [TestCase('Before shared receiver admission and alias conflicts', '70')]
