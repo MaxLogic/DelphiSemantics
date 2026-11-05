@@ -2544,6 +2544,7 @@ class function TDelphiSemanticProjectSession.Open(const aOptions: TDelphiSemanti
   TDelphiSemanticProjectSessionResult;
 var
   lContext: TDelphiSemanticContextResult;
+  lDiagnostic: TDelphiSemanticDiagnostic;
   lProfileAccepted: Boolean;
   lProfileReason: string;
   lProfileValidator: IDelphiSemanticProjectProfileValidator;
@@ -2554,6 +2555,14 @@ begin
   lContext := TDelphiSemanticProject.Load(aOptions.ProjectPath, aOptions);
   if not lContext.Success then
     Exit(SessionFailure(lContext));
+
+  // A partial lookup context cannot establish safe semantic rewrite proofs.
+  for lDiagnostic in lContext.Diagnostics do
+    if SameText(lDiagnostic.Code, 'COMPILER_SEARCH_PATH_UNPROVED') then
+    begin
+      lContext.Success := False;
+      Exit(SessionFailure(lContext));
+    end;
 
   if Supports(aOptions.ImplicitRootMemberAbsence, IDelphiSemanticProjectProfileValidator,
     lProfileValidator) then

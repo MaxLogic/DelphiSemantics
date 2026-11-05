@@ -1457,6 +1457,23 @@ begin
   end;
 end;
 
+function ExpandSearchPathProperty(const aValue, aPropertyName: string;
+  const aProperties: TPropertyMap): string;
+var
+  lPass: Integer;
+  lPrevious: string;
+begin
+  Result := aValue;
+  // Keep unknown tokens intact so a partial path cannot become a different directory.
+  for lPass := 1 to 64 do
+  begin
+    lPrevious := Result;
+    Result := ExpandPropertiesPreservingUnresolved(Result, aPropertyName, aProperties);
+    if Result = lPrevious then
+      Exit;
+  end;
+end;
+
 procedure AddUniqueText(const aItems: TList<string>; const aValue: string);
 var
   lItem: string;
@@ -1548,6 +1565,24 @@ begin
     if IsXmlElement(lChild) and not IsSemanticProjectProperty(XmlNodeName(lChild)) then
       InvalidateNonSemanticProperty(aProperties, XmlNodeName(lChild));
   end;
+end;
+
+procedure AddPartialSearchPath(const aItems: TList<string>; const aBaseDirectory,
+  aValue: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
+var
+  lPath, lError: string;
+begin
+  if not TryResolveCompilerSearchPathEntry(aBaseDirectory, aValue, lPath, lError) then
+  begin
+    if (Pos('$(', aValue) > 0) and (Pos('"', aValue) = 0) then
+    begin
+      AddDiagnostic(aDiagnostics, CreateWarningDiagnostic('COMPILER_SEARCH_PATH_UNPROVED',
+        lError + ' The path list is unproved; using partial paths.', aBaseDirectory));
+      Exit;
+    end;
+    raise ECompilerSearchPathError.Create(lError);
+  end;
+  AddUniquePath(aItems, aBaseDirectory, lPath);
 end;
 
 procedure AddDelimitedPaths(const aItems: TList<string>; const aBaseDirectory, aValue: string);
@@ -2314,11 +2349,11 @@ begin
         GetPropertyValue(aProperties, 'DSCompilerIncludePaths'))
     else
       lIncludePaths.Add('<include-path-unproved>');
-    AddDelimitedPaths(lSearchPaths, aProject.ProjectDirectory,
-      GetPropertyValue(aProperties, 'DCC_UnitSearchPath'));
+    for lSearchPath in GetPropertyValue(aProperties, 'DCC_UnitSearchPath').Split([';']) do
+      AddPartialSearchPath(lSearchPaths, aProject.ProjectDirectory, lSearchPath, aDiagnostics);
     for lSearchPath in aOptions.SearchPaths do
-      AddUniquePath(lSearchPaths, aProject.ProjectDirectory,
-        ExpandProperties(lSearchPath, aProject.ProjectFileName, aProperties, aDiagnostics));
+      AddPartialSearchPath(lSearchPaths, aProject.ProjectDirectory,
+        ExpandSearchPathProperty(lSearchPath, '', aProperties), aDiagnostics);
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_UnitScopeNames'));
     AddDelimitedTexts(lUnitScopeNames, GetPropertyValue(aProperties, 'DCC_Namespace'));
     AddDelimitedTexts(lUnitAliases, GetPropertyValue(aProperties, 'DCC_UnitAlias'));

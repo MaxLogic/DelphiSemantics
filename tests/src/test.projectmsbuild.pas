@@ -19,6 +19,8 @@ type
     [Category('Fast')]
     [Test]
     procedure DebugContextAppliesOptsetAndNormalizesPaths;
+    [Test]
+    procedure UnresolvedSearchPathKeepsPartialContextButRefusesSession;
     [Category('Fast')]
     [Test]
     procedure ContextFingerprintChangesWithSemanticInputs;
@@ -97,6 +99,7 @@ uses
   System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
+  DelphiSemantics.ProjectSession,
   Test.CompilerIncludeCapture, Test.Support;
 
 var
@@ -112,6 +115,25 @@ begin
   Result := TPath.Combine(GProjectMsBuildTempRoot, aName);
 end;
 
+
+procedure TProjectMsBuildTests.UnresolvedSearchPathKeepsPartialContextButRefusesSession;
+var
+  lOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
+  lSession: TDelphiSemanticProjectSessionResult;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := FixturePath('ProjectContext\MsBuild\MsBuildProject.dproj');
+  lOptions.SearchPaths := ['$(DAK475_MISSING)\units', 'usable'];
+  lContext := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
+  Assert.IsTrue(lContext.Success, 'Partial lookup must remain available');
+  Assert.IsTrue(ContainsPath(lContext.Project.SearchPaths,
+    TPath.Combine(TPath.GetDirectoryName(lOptions.ProjectPath), 'usable')));
+  Assert.IsTrue(HasDiagnostic(lContext, 'COMPILER_SEARCH_PATH_UNPROVED'));
+  Assert.IsFalse(HasUnresolvedMacro(lContext.Project.SearchPaths));
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsFalse(lSession.Success, 'An unproved search list must refuse semantic planning');
+end;
 
 function TProjectMsBuildTests.ContainsPath(const aItems: TArray<string>;
   const aExpectedPath: string): Boolean;

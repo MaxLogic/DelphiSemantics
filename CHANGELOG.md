@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Project contexts retain usable search paths and report unresolved entries as unproved; semantic rewrite sessions refuse these partial lists. Quoted or invalid entries still return diagnostics (DAK-475).
+
 - WITH planning refuses competing SDK/project namespace candidates instead of qualifying a call through a project unit the compiler may not select. Older snapshot and planning-fact caches rebuild (DS-755).
 
 - SQLite snapshot planning facts reload generic methods, routine-local record types and local aliases without losing their source scopes; older entries rebuild.
