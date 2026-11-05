@@ -141,3 +141,18 @@ tests/src only.
 Fast is smoke coverage, not acceptance of every method or route. A slice still
 runs the owning fixture for every area it touches. Fast never replaces the
 complete default suite at batch or final gates.
+## Native MaxTdb context
+
+MaxTdbProof and the native FlipMark comparison require
+`DELPHISEMANTICS_MAXTDB_FIXTURE_ROOT` to name a fresh, writable MaxTdb fixture
+copy containing `src/maxtdb.dproj`. Preserve its native dependency topology,
+including the three Foundation units selected by explicit relative DPR paths.
+Copying only the MaxTdb folder leaves those paths unresolved and cannot certify
+the other sources. Keep DPR/DPROJ/source bytes unchanged when preparing the
+topology; use the retained native-fixture recipe for the selected proof run.
+
+The tests capture real Debug/Win64/Delphi 23.0 define and include evidence in
+that owned copy. A missing source-applicability witness remains incomplete;
+the fixture helper never converts a caller define list into a certificate.
+The ordinary sharded runner continues to exclude MaxTdbProof. Run that category
+explicitly with the existing test executable and retain its 205-case XML report.
