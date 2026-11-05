@@ -732,7 +732,7 @@ def msbuild_include_invocation(root, bds, target, tag):
     return run(['cmd', '/d', '/c', command], root, root / (tag + '-compile.json'))
 
 
-def generate(repo, root, full, only=""):
+def generate(repo, root, full, only="", include_evidence="certified"):
     cases = []
     for si, shape in enumerate(SHAPES):
         for mi, mode in enumerate(MODES):
@@ -902,6 +902,20 @@ def generate(repo, root, full, only=""):
             case['compiler_include_search_path'] = compiler_include_search_path(folder)
         else:
             case['compiler_include_search_path'] = ';'.join(raw_compiler_include_search_path(folder))
+    if include_evidence != "certified":
+        # DS-778/779: every planner route must withhold include-dependent proof
+        # when its caller cannot certify MSBuild's exact ordered include list.
+        assert only and all(case['name'] in ('msbuild-include-P1', 'msbuild-include-P2')
+                            for case in cases), "Evidence variants require the bounded P1/P2 rows"
+        for case in cases:
+            if include_evidence == "absent":
+                del case['compiler_include_search_path']
+            else:
+                case['compiler_include_search_path'] = '$(DS719PROBEDIR);s1'
+            case.pop('expect_refusal')
+            case.pop('require_identity')
+            case['expect_directive_cause'] = 'UNIT_DIRECTIVE_UNPROVED'
+            case['expect_directive_fact'] = dict(unit='Unit1', cause='UNIT_DIRECTIVE_UNPROVED')
     # DS-719 A-367: these exact positives require the exact listed refusal.
     for case in cases:
         if case['name'] in ('r7-later-var-indexed-1', 'r7-later-field-indexed-1'):
@@ -1671,13 +1685,14 @@ if __name__ == "__main__":
     parser.add_argument("--bds", type=Path)
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--only", default="")
+    parser.add_argument("--include-evidence", choices=("certified", "absent", "unresolved"), default="certified")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--allowed-changes", type=Path)
     parser.add_argument("--stop-runtime", action="store_true")
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=True)
     if args.operation == "generate":
-        generate(args.repo, args.root, args.full, args.only)
+        generate(args.repo, args.root, args.full, args.only, args.include_evidence)
     elif args.operation == "challenge":
         raise SystemExit(challenge(args.root, args.bds))
     else:

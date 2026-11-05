@@ -15,6 +15,11 @@ type
     procedure InterfaceLifetimeCompilerComparison;
     [Test]
     procedure QualifiedFallbackCompilerComparison;
+    [Test]
+    [TestCase('MSBuild certificate', 'certified')]
+    [TestCase('Missing certificate', 'absent')]
+    [TestCase('Unexpanded certificate', 'unresolved')]
+    procedure IncludePathEvidenceSafety(const aEvidence: string);
   end;
 
   [TestFixture]
@@ -312,7 +317,8 @@ begin
   end;
 end;
 
-procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '');
+procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '';
+  const aEvidence: string = '');
 var
   lRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile, lScript: string;
   lPhase: Integer;
@@ -324,6 +330,7 @@ var
   lStored, lLoaded: TDelphiProjectSnapshot;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lProjectOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
   lSession: TDelphiSemanticProjectSessionResult;
   lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
   lExit: Cardinal;
@@ -336,6 +343,8 @@ begin
   lRoot := GetEnvironmentVariable('DS719_NATIVE_ROOT');
   if lRoot = '' then
     lRoot := CreateTestTempRoot('ds719-native-comparison-temp');
+  if aEvidence <> '' then
+    lRoot := TPath.Combine(lRoot, aEvidence);
   TDirectory.CreateDirectory(lRoot);
   lArgument := 'generate "' + lRoot + '" --repo "' + RepoRoot + '"';
   if aFull then
@@ -346,7 +355,9 @@ begin
     lArgument := lArgument + ' --only ' + aRegression + ' --bds "' +
       ExcludeTrailingPathDelimiter(lBds) + '"';
   end;
-  if GetEnvironmentVariable('DS719_NATIVE_ONLY') <> '' then
+  if aEvidence <> '' then
+    lArgument := lArgument + ' --only "msbuild-include-P1,msbuild-include-P2" --include-evidence ' + aEvidence
+  else if GetEnvironmentVariable('DS719_NATIVE_ONLY') <> '' then
     lArgument := lArgument + ' --only "' + GetEnvironmentVariable('DS719_NATIVE_ONLY') + '"';
   Assert.AreEqual<Cardinal>(0, RunReference(lArgument,
     TPath.Combine(lRoot, 'generate.log'), lScript), 'Generator failed: ' + lRoot);
@@ -369,6 +380,20 @@ begin
       begin
         lOptions.CompilerIncludeSearchPathProvided := True;
         lOptions.CompilerIncludeSearchPath := lCase.GetValue<string>('compiler_include_search_path');
+      end;
+      if aEvidence <> '' then
+      begin
+        lProjectOptions := ProjectOptionsFromApiOptions(lOptions);
+        lContext := TDelphiSemanticProject.Load(lOptions.ProjectFileName, lProjectOptions);
+        Assert.IsTrue(lContext.Success, lCaseRoot);
+        if aEvidence = 'certified' then
+          Assert.AreEqual('True', lContext.Project.PropertyValue('DSCompilerIncludePathsKnown'), lCaseRoot)
+        else
+        begin
+          Assert.AreEqual('False', lContext.Project.PropertyValue('DSCompilerIncludePathsKnown'), lCaseRoot);
+          Assert.AreEqual<Integer>(1, Length(lContext.Project.IncludePaths), lCaseRoot);
+          Assert.AreEqual('<include-path-unproved>', lContext.Project.IncludePaths[0], lCaseRoot);
+        end;
       end;
       lOptions.Cache.SqliteCacheFileName := TPath.Combine(lCaseRoot, 'session.sqlite');
       lDenialName := lCase.GetValue<string>('denial_reference', '');
@@ -499,6 +524,11 @@ end;
 procedure TTypeVisibilityNativeTests.QualifiedFallbackCompilerComparison;
 begin
   CompareCompiler(False, 'ds755');
+end;
+
+procedure TTypeVisibilityNativeTests.IncludePathEvidenceSafety(const aEvidence: string);
+begin
+  CompareCompiler(False, '', aEvidence);
 end;
 
 procedure TTypeVisibilityNativeSlowTests.FullCompilerComparison;
