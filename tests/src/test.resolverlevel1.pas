@@ -12,6 +12,10 @@ type
   private
     function LoadModel: TDelphiSemanticUnitModel;
   public
+    [TestCase('unit', 'unit')]
+    [TestCase('import', 'import')]
+    [TestCase('member', 'member')]
+    procedure TypeScopedConstantsKeepTheirOwner(const aShape: string);
     [Test]
     procedure OverloadedParameterWithoutRoutineIdentityRefuses;
     [Test]
@@ -313,6 +317,48 @@ begin
           (lParameter.Column = lResult.Column) then
           Inc(lSeen);
   Assert.AreEqual(1, lSeen, 'Coordinates must identify the parameter, never the routine heading.');
+end;
+
+procedure TResolverLevel1Tests.TypeScopedConstantsKeepTheirOwner(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel, lSite: TDelphiSemanticUnitModel;
+  lContext: TDelphiSemanticResolveContext;
+  lResult: TDelphiSemanticResolveResult;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('BindingVisibility', 'resolve\Unit1.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lContext := Default(TDelphiSemanticResolveContext);
+  lContext.SectionKind := 'implementation';
+  if aShape = 'member' then
+  begin
+    lResult := TDelphiSemanticResolver.ResolveMember(lModel, 'TC', 'OnlyMember');
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual('TC', lResult.OwnerName);
+    Assert.AreEqual('const', lResult.Kind);
+    Exit;
+  end;
+  lSite := lModel;
+  if aShape = 'import' then
+  begin
+    lSite := Default(TDelphiSemanticUnitModel);
+    lSite.Success := True;
+    lSite.UnitName := 'Site';
+    lContext.ConformanceLevel := 3;
+    lContext.IndexedUnitModels := [lModel];
+  end;
+  lResult := TDelphiSemanticResolver.ResolveName(lSite, lContext, 'OnlyMember');
+  Assert.IsFalse(lResult.Found, 'A type constant is not an unqualified unit declaration.');
+  lResult := TDelphiSemanticResolver.ResolveName(lSite, lContext, 'Count');
+  Assert.IsTrue(lResult.Found);
+  Assert.AreEqual('Integer', lResult.TypeName, 'The unit constant must win over type constants.');
+  if aShape = 'import' then
+    Assert.AreEqual('Unit1', lResult.OwnerName)
+  else
+    Assert.AreEqual('', lResult.OwnerName);
 end;
 
 initialization

@@ -317,7 +317,7 @@ function BinderDenialCode(const aCode: string): Boolean;
 begin
   Result := MatchText(aCode, ['HELPER_COLLISION_UNVERIFIED', 'RECORD_HELPER_MEMBERS_UNVERIFIED',
     'ALIAS_RECEIVER_MEMBERS_UNVERIFIED', 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-    'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'SELECTOR_MEMBERS_UNVERIFIED',
+    'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED', 'MEMBER_ACCESS_UNVERIFIED', 'SELECTOR_MEMBERS_UNVERIFIED',
     'TYPE_VISIBILITY_UNPROVED', 'PARENT_SELECTOR_UNRESOLVED']);
 end;
 
@@ -460,6 +460,7 @@ type
 
   TBoundMemberResolution = record
     Cause: string;
+    Visibility: string;
     Value: TDelphiSemanticResolveResult;
     DeclaringUnitName: string;
     OwnerDeclaredId: TDelphiSemanticGraphTypeId;
@@ -538,6 +539,8 @@ type
     procedure BuildOwnerIdentityIndex;
     function OwnerIdentity(const aUnitName, aOwnerName, aScopeId, aSymbolId: string;
       out aIdentity: TDelphiSemanticTypeIdentity): Boolean;
+    function MemberAccessIsVerified(const aSiteUnitName, aCurrentTypeName: string;
+      const aOwner: TDelphiSemanticTypeIdentity; const aVisibility: string): Boolean;
     procedure BuildHelperTargetIndex;
     function TryResolveAliasTargetSelector(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -548,7 +551,7 @@ type
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
     function TryResolveReceiverValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
-      const aName, aStopDeclaredId: string): TMemberVerdict;
+      const aName, aStopDeclaredId: string; const aCurrentTypeName: string = ''): TMemberVerdict;
     function TryResolveShadowingValueMember(const aModel: TDelphiSemanticUnitModel;
       const aSite: TReceiverLookupSite; const aSelector: TDelphiSemanticWithSelectorBinding;
       const aName: string; const aDirect: TBoundMemberResolution;
@@ -2187,6 +2190,7 @@ begin
   lKey := Key(aUnitName, aMember.OwnerName, aMember.Name);
   lBound := Default(TBoundMemberResolution);
   lBound.Value := MemberResult(aMember);
+  lBound.Visibility := aMember.Visibility;
   lBound.DeclaringUnitName := aUnitName;
   if OwnerIdentity(aUnitName, aMember.OwnerName, aMember.OwnerScopeId,
     aMember.OwnerSymbolId, lOwner) then
@@ -2388,6 +2392,34 @@ begin
   end;
 end;
 
+function TWithBindingProjectMemberIndex.MemberAccessIsVerified(
+  const aSiteUnitName, aCurrentTypeName: string;
+  const aOwner: TDelphiSemanticTypeIdentity; const aVisibility: string): Boolean;
+var
+  lCaller, lAncestor: TDelphiSemanticTypeIdentity;
+  lLineage: TDelphiSemanticLineage;
+begin
+  if MatchText(aVisibility, ['', 'public', 'published', 'automated']) then
+    Exit(True);
+  if MatchText(aVisibility, ['private', 'protected']) and
+    SameText(aSiteUnitName, aOwner.UnitName) then
+    Exit(True);
+  if not MatchText(aVisibility, ['private', 'strict private', 'protected', 'strict protected']) or
+    (aOwner.DeclaredId.Value = '') or
+    (not OwnerIdentity(aSiteUnitName, aCurrentTypeName, '', '', lCaller)) then
+    Exit(False);
+  if SameText(lCaller.DeclaredId.Value, aOwner.DeclaredId.Value) then
+    Exit(True);
+  if MatchText(aVisibility, ['private', 'strict private']) then
+    Exit(False);
+  // Access is proved by declaration identities, including cross-unit descendants.
+  lLineage := fTypeIndex.ResolveLineage(lCaller);
+  for lAncestor in lLineage.Items do
+    if SameText(lAncestor.DeclaredId.Value, aOwner.DeclaredId.Value) then
+      Exit(True);
+  Result := False;
+end;
+
 function TWithBindingProjectMemberIndex.TryResolveDirectMember(const aCurrentUnitName,
   aCurrentTypeName, aOwnerName, aName: string; const aAllowSemanticFallback: Boolean;
   out aResult: TDelphiSemanticResolveResult): Boolean;
@@ -2437,6 +2469,11 @@ begin
       lInventory) then
     begin
       ResolveMemberList(aOwnerName, aName, lInventory, lBound);
+      if lBound.Value.Found and
+        (not MemberAccessIsVerified(aCurrentUnitName, aCurrentTypeName,
+          aOwnerIdentity, lBound.Visibility)) then
+        Exit(TMemberVerdict.Barrier(noUnproved, 'MEMBER_ACCESS_UNVERIFIED',
+          'Access to the receiver member is not verified.', 'member-access'));
       Exit(MemberVerdictFromBound(lBound));
     end;
     if (not aAllowSemanticFallback) or (not fSemanticMemberIndexAvailable) then
@@ -4145,7 +4182,7 @@ begin
         UpperCase(lHelpers.Levels[i].Cause).Replace('-', '_'),
         'An unsupported conditional leaves helper scope unproved.', lHelpers.Levels[i].Cause));
   lDirect := aDirect;
-  lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '');
+  lValue := TryResolveReceiverValueMember(aModel, aSite, aOriginalSelector, aName, '', aCurrentTypeName);
   lHelper := TMemberVerdict.NotPresent;
   lHelperLevel := -1;
   lValueCollision := False;
@@ -7511,7 +7548,7 @@ end;
 
 function TWithBindingProjectMemberIndex.TryResolveReceiverValueMember(
   const aModel: TDelphiSemanticUnitModel; const aSite: TReceiverLookupSite;
-  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId: string): TMemberVerdict;
+  const aSelector: TDelphiSemanticWithSelectorBinding; const aName, aStopDeclaredId, aCurrentTypeName: string): TMemberVerdict;
 var
   lBinding: TDelphiSemanticWithBinding;
   lBound: TBoundMemberResolution;
@@ -7549,9 +7586,8 @@ begin
     end;
     if (not fValueVisibility.TryGetValue(lKey, lVisibility)) or
       (Length(lVisibility) <> 1) or
-      (not (MatchText(lVisibility[0], ['', 'public', 'published', 'automated']) or
-      (MatchText(lVisibility[0], ['private', 'protected']) and
-      SameText(lCandidates[0].DeclaringUnitName, aSite.UnitName)))) then
+      (not MemberAccessIsVerified(aSite.UnitName, aCurrentTypeName,
+        lIdentity, lVisibility[0])) then
       Exit(TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
         'Access to the type value member is not verified.', 'value-member'));
     if (not lLineage.Complete) or UnindexedRecordHelperMayApply(aSite, lLineage.Items) then

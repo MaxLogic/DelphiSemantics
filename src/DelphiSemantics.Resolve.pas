@@ -414,6 +414,7 @@ begin
   for lDeclaration in aModel.Declarations do
     if SameText(lDeclaration.Name, aName) and
       not IsRoutineVariableDeclaration(lDeclaration) and
+      (not SameText(lDeclaration.ScopeKind, 'type')) and
       IsVisibleSection(aContext.SectionKind, lDeclaration.SectionKind) then
     begin
       lKey := LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.TypeName);
@@ -456,6 +457,7 @@ begin
     for lDeclaration in lModel.Declarations do
       if SameText(lDeclaration.Name, aName) and
         not IsRoutineVariableDeclaration(lDeclaration) and
+        (not SameText(lDeclaration.ScopeKind, 'type')) and
         SameText(lDeclaration.SectionKind, 'interface') then
       begin
         Inc(lCount);
@@ -944,6 +946,16 @@ begin
       if (aConformanceLevel < 2) and lMember.IsDefault then
         Exit(UnsupportedResult(aName, 'DEFAULT_PROPERTY_UNSUPPORTED',
           'Default property member resolution is not part of Level 1.'));
+      Inc(lCount);
+      Result := ResolvedResult(lMember.Name, lMember.Kind, lMember.TypeName, lMember.OwnerName,
+        '', lMember.Line, lMember.Column);
+    end;
+
+  for lMember in aModel.TypeValueMembers do
+    if (SameText(lMember.OwnerName, aOwnerName) or ((aConformanceLevel >= 2) and
+      SameText(lMember.OwnerName, ResolveTypeAlias(aModel, aOwnerName)))) and
+      SameText(lMember.Name, aName) then
+    begin
       Inc(lCount);
       Result := ResolvedResult(lMember.Name, lMember.Kind, lMember.TypeName, lMember.OwnerName,
         '', lMember.Line, lMember.Column);

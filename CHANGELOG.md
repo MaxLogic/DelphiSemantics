@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- WITH binding verifies private field access and permits protected type constants in descendant methods. Type-scoped constants retain their owner in Resolve and no longer appear as unqualified unit declarations. Existing helper-unit and capture-type visibility refusals remain covered across all planner routes.
+
 - WITH binding refuses record-member misses when an applicable indexed helper has an incomplete member inventory, including helper targets through weak aliases and indexed names. Older persisted plans rebuild.
 
 - WITH ranges stop before the enclosing repeat loop condition. WITH fact and body scans preserve Delphi 12 multiline strings, including odd apostrophes and literal WITH text; older cached facts rebuild.

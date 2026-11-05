@@ -4178,6 +4178,17 @@ begin
     if Trim(aDecisions[lMatch].QualifierText) = '' then
       Exit;
     aQualifierText := aDecisions[lMatch].QualifierText;
+    if MatchText(aReference.Kind, ['const', 'typed-const']) and
+      SameText(aDecisions[lMatch].ReceiverIdentity.UnderlyingName, 'class') and
+      (Pos('.', aBinding.RoutineName) > 0) then
+    begin
+      // Delphi permits descendant access through the type, while a base-typed
+      // instance temp cannot qualify a protected constant (E2362).
+      // Reuse the capture-proven type spelling only without new body scopes.
+      if aBinding.HasScopedDeclaration then
+        Exit(TFinalReferenceQualification.NoMatch);
+      aQualifierText := aDecisions[lMatch].ReceiverType;
+    end;
     Exit(TFinalReferenceQualification.QualifiedMember);
   end;
   if IsBinderReceiverMemberReference(aReference) and (aReference.ReceiverTypeName <> '') then

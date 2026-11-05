@@ -35,6 +35,62 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [TestCase('private-field-import route 0', 'private-field-import,0')]
+    [TestCase('private-field-import route 1', 'private-field-import,1')]
+    [TestCase('private-field-import route 2', 'private-field-import,2')]
+    [TestCase('private-field-import route 3', 'private-field-import,3')]
+    [TestCase('private-field-import route 4', 'private-field-import,4')]
+    [TestCase('strict-private-field-same route 0', 'strict-private-field-same,0')]
+    [TestCase('strict-private-field-same route 1', 'strict-private-field-same,1')]
+    [TestCase('strict-private-field-same route 2', 'strict-private-field-same,2')]
+    [TestCase('strict-private-field-same route 3', 'strict-private-field-same,3')]
+    [TestCase('strict-private-field-same route 4', 'strict-private-field-same,4')]
+    [TestCase('private-field-same route 0', 'private-field-same,0')]
+    [TestCase('private-field-same route 1', 'private-field-same,1')]
+    [TestCase('private-field-same route 2', 'private-field-same,2')]
+    [TestCase('private-field-same route 3', 'private-field-same,3')]
+    [TestCase('private-field-same route 4', 'private-field-same,4')]
+    [TestCase('protected-constant-descendant route 0', 'protected-constant-descendant,0')]
+    [TestCase('protected-constant-descendant route 1', 'protected-constant-descendant,1')]
+    [TestCase('protected-constant-descendant route 2', 'protected-constant-descendant,2')]
+    [TestCase('protected-constant-descendant route 3', 'protected-constant-descendant,3')]
+    [TestCase('protected-constant-descendant route 4', 'protected-constant-descendant,4')]
+    [TestCase('strict-protected-constant-descendant route 0', 'strict-protected-constant-descendant,0')]
+    [TestCase('strict-protected-constant-descendant route 1', 'strict-protected-constant-descendant,1')]
+    [TestCase('strict-protected-constant-descendant route 2', 'strict-protected-constant-descendant,2')]
+    [TestCase('strict-protected-constant-descendant route 3', 'strict-protected-constant-descendant,3')]
+    [TestCase('strict-protected-constant-descendant route 4', 'strict-protected-constant-descendant,4')]
+    [TestCase('protected-constant-outsider route 0', 'protected-constant-outsider,0')]
+    [TestCase('protected-constant-outsider route 1', 'protected-constant-outsider,1')]
+    [TestCase('protected-constant-outsider route 2', 'protected-constant-outsider,2')]
+    [TestCase('protected-constant-outsider route 3', 'protected-constant-outsider,3')]
+    [TestCase('protected-constant-outsider route 4', 'protected-constant-outsider,4')]
+    [TestCase('public-constant-import route 0', 'public-constant-import,0')]
+    [TestCase('public-constant-import route 1', 'public-constant-import,1')]
+    [TestCase('public-constant-import route 2', 'public-constant-import,2')]
+    [TestCase('public-constant-import route 3', 'public-constant-import,3')]
+    [TestCase('public-constant-import route 4', 'public-constant-import,4')]
+    [TestCase('helper-unused route 0', 'helper-unused,0')]
+    [TestCase('helper-unused route 1', 'helper-unused,1')]
+    [TestCase('helper-unused route 2', 'helper-unused,2')]
+    [TestCase('helper-unused route 3', 'helper-unused,3')]
+    [TestCase('helper-unused route 4', 'helper-unused,4')]
+    [TestCase('helper-visible route 0', 'helper-visible,0')]
+    [TestCase('helper-visible route 1', 'helper-visible,1')]
+    [TestCase('helper-visible route 2', 'helper-visible,2')]
+    [TestCase('helper-visible route 3', 'helper-visible,3')]
+    [TestCase('helper-visible route 4', 'helper-visible,4')]
+    [TestCase('nested-type-shadow route 0', 'nested-type-shadow,0')]
+    [TestCase('nested-type-shadow route 1', 'nested-type-shadow,1')]
+    [TestCase('nested-type-shadow route 2', 'nested-type-shadow,2')]
+    [TestCase('nested-type-shadow route 3', 'nested-type-shadow,3')]
+    [TestCase('nested-type-shadow route 4', 'nested-type-shadow,4')]
+    [TestCase('sdk-type-shadow route 0', 'sdk-type-shadow,0')]
+    [TestCase('sdk-type-shadow route 1', 'sdk-type-shadow,1')]
+    [TestCase('sdk-type-shadow route 2', 'sdk-type-shadow,2')]
+    [TestCase('sdk-type-shadow route 3', 'sdk-type-shadow,3')]
+    [TestCase('sdk-type-shadow route 4', 'sdk-type-shadow,4')]
+    procedure BindingVisibilityRoutes(const aShape: string; const aRoute: Integer);
     [TestCase('unknown-local route 0', 'unknown-local,0')]
     [TestCase('unknown-local route 1', 'unknown-local,1')]
     [TestCase('unknown-local route 2', 'unknown-local,2')]
@@ -19550,8 +19606,7 @@ begin
   if StartsText('vt-', aShape) then
     lExpectedKind := 'variant-tag';
   lExpectedCode := '';
-  if MatchText(aShape, ['cc-private-import', 'cc-strict-private-same-unit',
-    'cc-protected-descendant']) then
+  if MatchText(aShape, ['cc-private-import', 'cc-strict-private-same-unit']) then
     lExpectedCode := 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED';
   if MatchText(aShape, ['rc-helper-const', 'lost-constant']) then
     lExpectedCode := 'TYPE_VALUE_MEMBERS_UNVERIFIED';
@@ -21662,6 +21717,129 @@ begin
     Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'member'));
   if aShape = 'unknown-local' then
     Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.Bindings[0].Selectors[0].ReasonCode);
+end;
+
+procedure TWithBinderTests.BindingVisibilityRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot, lProjectReferences: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+  lContext: TDelphiSemanticContextResult;
+begin
+  lRoot := WithBinderTempPath('visibility-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFile in TDirectory.GetFiles(FixturePath('BindingVisibility', aShape), '*.pas') do
+    TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  lProjectReferences := '';
+  for var lFile in TDirectory.GetFiles(lRoot, '*.pas') do
+    lProjectReferences := lProjectReferences + '<DCCReference Include="' + ExtractFileName(lFile) + '"/>';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource><DCC_Namespace>System</DCC_Namespace>' +
+    '</PropertyGroup><ItemGroup>' + lProjectReferences + '</ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'helper-safety';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'helper-safety';
+      lIdentity.SchemaVersion := 'helper-safety';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  if aShape = 'helper-unused' then
+    for var lReference in lFacts.Bindings[0].References do
+      if SameText(lReference.Name, 'Foo') then
+        Assert.AreEqual('lexical', lReference.Classification,
+          'An unused helper unit cannot supply the bound member.');
+  // Retain the actual published edits for independent dcc64 runtime comparison.
+  lProofRoot := GetEnvironmentVariable('DS_BINDING_VISIBILITY_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    lContext := TDelphiSemanticApi.LoadProjectContext(lOptions.ProjectFileName, lOptions);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'context.json'),
+      lSerializer.Serialize<TDelphiSemanticContextResult>(lContext), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  if MatchText(aShape, ['private-field-same', 'protected-constant-descendant',
+    'strict-protected-constant-descendant', 'public-constant-import', 'helper-visible']) then
+    Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+      aShape + ':' + lPlan.FinalStatements[0].SafetyReason);
+  if MatchText(aShape, ['protected-constant-descendant',
+    'strict-protected-constant-descendant']) then
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('TC.Count'),
+      'Protected constants require the capture-proven type qualifier.');
+  if MatchText(aShape, ['sdk-type-shadow', 'nested-type-shadow']) then
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status,
+      'Unproved capture-site names cannot authorize a temporary.');
+  if lPlan.FinalStatements[0].Status = 'planned' then
+  begin
+    Assert.AreNotEqual('', lPlan.FinalStatements[0].ReplacementText);
+    if MatchText(aShape, ['private-field-import', 'strict-private-field-same']) then
+      Assert.IsFalse(lPlan.FinalStatements[0].ReplacementText.Contains('.Count'),
+        'An inaccessible field cannot be qualified.');
+    if aShape = 'helper-unused' then
+      Assert.IsFalse(lPlan.FinalStatements[0].ReplacementText.Contains('^.Foo'),
+        'An unused helper unit cannot supply Foo.');
+  end else begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+  end;
 end;
 
 initialization
