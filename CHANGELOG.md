@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- WITH planning preserves independent nested rewrites beneath partial receiver refusals. Member inventories cover active anonymous-record tags, verified helper constants and inline simple type aliases; inactive tags no longer produce invalid member qualifications. Existing caches rebuild.
+
 - WITH binding verifies private field access and permits protected type constants in descendant methods. Type-scoped constants retain their owner in Resolve and no longer appear as unqualified unit declarations. Existing helper-unit and capture-type visibility refusals remain covered across all planner routes.
 
 - WITH binding refuses record-member misses when an applicable indexed helper has an incomplete member inventory, including helper targets through weak aliases and indexed names. Older persisted plans rebuild.

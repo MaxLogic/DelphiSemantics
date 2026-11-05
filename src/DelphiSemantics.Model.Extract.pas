@@ -1849,6 +1849,24 @@ begin
   lDeclaration.EndOffset := lOffset + Length(lName);
   aDeclarations.Add(lDeclaration);
 end;
+procedure EnsureUnitAliasDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lRange: TOffsetRange;
+  lText: string;
+begin
+  lRange := AstNodeRange(aText, aNode);
+  lText := SanitizeCodeText(Copy(aText, lRange.StartOffset,
+    lRange.EndOffset - lRange.StartOffset));
+  // Compound headers retain their existing declaration and inventory paths.
+  if TRegEx.IsMatch(lText,
+    '^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*' +
+    '(?!(?:class|record|object|interface|dispinterface|procedure|function|array|set|file|packed)\b)' +
+    '[A-Za-z_][A-Za-z0-9_.]*\s*;?\s*$',
+    [roIgnoreCase]) then
+    EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
+end;
+
 procedure EnsureUnitConstantDeclaration(const aText: string; const aNode: TSyntaxNode;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 var
@@ -2003,6 +2021,35 @@ procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: stri
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>); forward;
+
+function AnonymousRecordHasVariant(const aText: string; const aTypeNode: TSyntaxNode): Boolean;
+var
+  lDepth: Integer;
+  lLexer: TmwBasePasLex;
+begin
+  Result := False;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Copy(aText, OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col), MaxInt);
+    lDepth := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          Exit;
+      end else if (lDepth = 1) and (lLexer.TokenID = ptCase) then
+        Exit(True);
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
 
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
@@ -2182,8 +2229,13 @@ var
         lFact.TypeOwnerPath := aTypeOwnerPath;
       if aNode.Typ = ntTypeDecl then
       begin
-        if (lCurrentScopeIndex >= 0) and (aTypeOwnerPath = '') then
-          EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
+        if aTypeOwnerPath = '' then
+        begin
+          if lCurrentScopeIndex >= 0 then
+            EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations)
+          else
+            EnsureUnitAliasDeclaration(aText, aNode, aDeclarations);
+        end;
         lFact.TypeOwnerPath := aTypeOwnerPath;
         lTypeNode := aNode.FindNode(ntType);
         if Assigned(lTypeNode) then
@@ -2256,10 +2308,11 @@ var
 
     // Inline records have no type identifier. Their declaration token and AST
     // member tree establish the synthetic type used by the existing binder.
-    if aAnonymousAbsenceOnly and (aNode.Typ in [ntVariable, ntField, ntParameter]) then
+    if aNode.Typ in [ntVariable, ntField, ntParameter] then
     begin
       lTypeNode := aNode.FindNode(ntType);
-      if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') then
+      if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') and
+        (aAnonymousAbsenceOnly or AnonymousRecordHasVariant(aText, lTypeNode)) then
       begin
         lName := AstNodeName(aNode);
         if aTypeOwnerPath <> '' then

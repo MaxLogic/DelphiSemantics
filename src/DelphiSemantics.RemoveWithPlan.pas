@@ -8174,7 +8174,6 @@ procedure AddFinalStatementTree(var aPlan: TDelphiSemanticRemoveWithPlan;
   const aLineCache: TDelphiSemanticSourceContextCache;
   const aInheritedDecisions: TArray<TFinalSelectorDecision>);
 var
-  lPartialIndexedReceiver: Boolean;
   lProvisionalNames: TDictionary<string, Integer>;
   lReservedName: TPair<string, Integer>;
   lChildIndex: Integer;
@@ -8280,22 +8279,8 @@ begin
     Exit;
   end;
 
-  lPartialIndexedReceiver := False;
-  if SameText(lStatement.SafetyReason, 'OWNER_INHERITED_MEMBERS_UNVERIFIED') then
-    for lSelector in lBinding.Selectors do
-      if aFacts.LookupIndex.UnverifiedReceiverMemberMayApply(lSelector.TypeName, '',
-        lSelector.TypeIdentity) then
-        lPartialIndexedReceiver := True;
-  // A missing indexed ancestor body retains DS-731's descendant barrier even
-  // when DS-742 detects the failure first and changes its refusal reason.
-  if SameText(lStatement.SafetyReason, 'RECEIVER_MEMBERS_PARTIALLY_VERIFIED') or
-    lPartialIndexedReceiver then
-  begin
-    AddPartiallyVerifiedDescendants(aPlan, aBindingSource, aBindingTree, aBindingIndex,
-      lStatement.Reason, lStatement.SafetyReason);
-    Exit;
-  end;
-
+  // DS-744: each child proves its own receiver and body against the retained
+  // parent context. A partial member set alone does not overwrite its outcome.
   lChildInheritedDecisions := Copy(aInheritedDecisions);
   // Preserve the denied parent's indexed context independently of its label.
   if (SameText(lStatement.Reason, cAbsoluteSelectorRefusal) or

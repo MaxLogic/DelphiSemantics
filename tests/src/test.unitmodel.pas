@@ -6654,10 +6654,13 @@ begin
   if aShape = 'tagless' then
     lBody := 'type TRec = record case Integer of 0: (Value: Integer); end;';
   if aShape = 'anonymous-field' then
+  begin
     lBody := 'type TRec = record Inner: record case Count: Integer of 0: (Value: Integer); end; end;';
+    lExpectedOwner := 'TRec.Inner';
+  end;
   if aShape = 'inactive' then
     lBody := 'type TRec = record {$IFDEF DS731_NEVER} const Count = 5; {$ENDIF} var Value: Integer; end;';
-  if MatchText(aShape, ['empty', 'tagless', 'anonymous-field', 'inactive']) then
+  if MatchText(aShape, ['empty', 'tagless', 'inactive']) then
     lExpectedCount := 0;
   if aShape = 'private' then
   begin

@@ -4115,6 +4115,7 @@ var
   lOpen, lValueCollision, lStrong: Boolean;
   lProfileMembers: TArray<string>;
   lProfileType: string;
+  lValueVisibility: TArray<string>;
 
   function CandidateOpen(const aMember: TBoundMemberResolution;
     const aKnownLevel: Integer): Boolean;
@@ -4218,8 +4219,17 @@ begin
         if lHelperLevel < 0 then
         begin
           lHelperLevel := i;
-          lHelper := TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
-            'A helper value member is not verified.', 'value-member');
+          if Length(lCandidates) <> 1 then
+            lHelper := TMemberVerdict.Barrier(noAmbiguous, 'TYPE_VALUE_MEMBERS_UNVERIFIED',
+              'The helper value member is ambiguous.', 'value-member')
+          else if (not fValueVisibility.TryGetValue(lIdentity.DeclaredId.Value + #31 + aName,
+            lValueVisibility)) or (Length(lValueVisibility) <> 1) or
+            (not MemberAccessIsVerified(aSite.UnitName, aCurrentTypeName,
+              lIdentity, lValueVisibility[0])) then
+            lHelper := TMemberVerdict.Barrier(noUnproved, 'TYPE_VALUE_MEMBER_ACCESS_UNVERIFIED',
+              'Access to the helper value member is not verified.', 'value-member')
+          else
+            lHelper := MemberVerdictFromBound(lCandidates[0]);
         end;
       end;
     end;
@@ -4256,8 +4266,10 @@ begin
     Exit(lHelper);
   if lHelper.Outcome = noResolved then
   begin
-    // Helper ownership is provenance; receiver spelling normalization is for values.
+    // Preserve helper identity while value qualification names its receiver.
     lBound := lHelper.Member;
+    if MatchText(lBound.Value.Kind, ['const', 'typed-const', 'variant-tag']) then
+      lBound.Value.OwnerName := aOriginalSelector.TypeName;
     Exit(TMemberVerdict.Present(lBound, CandidateOpen(lBound, lHelperLevel)));
   end;
   if lDirect.Outcome = noResolved then
@@ -6402,6 +6414,19 @@ var
 begin
   aIdentity := Default(TDelphiSemanticTypeIdentity);
   lLookup := SelectorTypeLookup(aOriginModel, aOriginSectionKind, aOriginScopeId, aTypeName);
+  if (not lLookup.Found) and (not lLookup.Ambiguous) and (aOriginScopeId = '') and
+    StartsText(aOriginModel.UnitName + '.', aTypeName) then
+  begin
+    // An inline unit record uses a synthetic <unit>.<variable> name. It is
+    // still owned by that unit, unlike a source-qualified named declaration.
+    lLookup := Default(TDelphiSemanticTypeLookupResult);
+    lLookup.Found := OwnerIdentity(aOriginModel.UnitName, aTypeName, '', '', lLookup.Identity);
+    if not (lLookup.Found and (not lLookup.Ambiguous) and
+      SameText(lLookup.Identity.UnitName, aOriginModel.UnitName) and
+      SameText(lLookup.Identity.Name, aTypeName) and
+      AnonymousRecordDeclarationIsVerified(aOriginModel, lLookup.Identity)) then
+      lLookup := Default(TDelphiSemanticTypeLookupResult);
+  end;
   Result := lLookup.Found and not lLookup.Ambiguous and
     TrySafetyDeclarationModel(lLookup.Identity, lModel);
   if Result then
@@ -7476,6 +7501,12 @@ begin
         lOwner := fTypeIndex.ResolveQualifiedName(lModel.UnitName + '.' + lMember.OwnerName);
         lMatched := lOwner.Found and (not lOwner.Ambiguous) and
           SameText(lOwner.Identity.ScopeKind, 'unit');
+        if (not lOwner.Found) and (not lOwner.Ambiguous) then
+        begin
+          lOwner.Found := OwnerIdentity(lModel.UnitName, lMember.OwnerName, '', '', lOwner.Identity);
+          lMatched := lOwner.Found and lOwner.Identity.Synthetic and
+            AnonymousRecordDeclarationIsVerified(lModel, lOwner.Identity);
+        end;
       end;
       if (not lMatched) or (lOwner.Identity.DeclaredId.Value = '') then
       begin
