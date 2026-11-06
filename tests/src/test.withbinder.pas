@@ -19296,6 +19296,13 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
   lOptions.DelphiVersion := '23.0';
+  if MatchText(lShape, ['anonymous-include', 'anonymous-include-paren']) then
+  begin
+    // DS-772: these positive fixtures own the local include and supply the
+    // native empty -I witness; other unproved-include controls stay explicit.
+    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
+    lOptions.CompilerIncludeSearchPathProvided := True;
+  end;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
   // This generated universe deliberately closes RELEASE_TRACE and other ordinary names.
   CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
