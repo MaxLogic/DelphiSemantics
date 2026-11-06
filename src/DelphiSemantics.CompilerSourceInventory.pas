@@ -6,6 +6,12 @@ uses
   DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ProjectContext;
 
 type
+  TDelphiSemanticCompilerSourceRewrite = record
+    SourceFileName: string;
+    OriginalHash: string;
+    ReplacementHash: string;
+  end;
+
   TDelphiSemanticCompilerSourceInventory = record
     Files: TArray<TDelphiSemanticCompilerSourceWitness>;
     Identity: string;
@@ -13,6 +19,9 @@ type
     ConsoleSafe: Boolean;
     Cause: string;
     class function Build(const aProject: TDelphiSemanticProjectInfo):
+      TDelphiSemanticCompilerSourceInventory; static;
+    class function BuildForApply(const aProject: TDelphiSemanticProjectInfo;
+      const aRewrites: TArray<TDelphiSemanticCompilerSourceRewrite>):
       TDelphiSemanticCompilerSourceInventory; static;
     class function ProjectLookupIdentity(const aProject: TDelphiSemanticProjectInfo): string; static;
   end;
@@ -31,6 +40,7 @@ type
   TInventoryBuilder = class
   private
     fProject: TDelphiSemanticProjectInfo;
+    fRewrites: TArray<TDelphiSemanticCompilerSourceRewrite>;
     fVisited: TStringList;
     fExpansions: TStringList;
     fImports: TStringList;
@@ -47,7 +57,8 @@ type
     procedure ScanImports(const aText, aFileName: string);
     procedure AddImport(const aName, aExplicitPath, aFileName: string);
   public
-    constructor Create(const aProject: TDelphiSemanticProjectInfo);
+    constructor Create(const aProject: TDelphiSemanticProjectInfo;
+      const aRewrites: TArray<TDelphiSemanticCompilerSourceRewrite>);
     destructor Destroy; override;
     function Build: TDelphiSemanticCompilerSourceInventory;
   end;
@@ -74,10 +85,12 @@ begin
   end;
 end;
 
-constructor TInventoryBuilder.Create(const aProject: TDelphiSemanticProjectInfo);
+constructor TInventoryBuilder.Create(const aProject: TDelphiSemanticProjectInfo;
+  const aRewrites: TArray<TDelphiSemanticCompilerSourceRewrite>);
 begin
   inherited Create;
   fProject := aProject;
+  fRewrites := Copy(aRewrites);
   fVisited := TStringList.Create;
   fVisited.Sorted := True;
   fVisited.CaseSensitive := False;
@@ -123,6 +136,8 @@ var
   lSource, lToken, lArgument, lChild, lFileName, lExpansion: string;
   lOptions: TDelphiSemanticPreprocessOptions;
   lWitness: TDelphiSemanticCompilerSourceWitness;
+  lRewrite: TDelphiSemanticCompilerSourceRewrite;
+  lActualHash: string;
   lBytes: TBytes;
   lStream: TFileStream;
   lHash: THashSHA2;
@@ -157,7 +172,17 @@ begin
     lHash.Update(lBytes);
     lWitness := Default(TDelphiSemanticCompilerSourceWitness);
     lWitness.SourceFileName := lFileName;
-    lWitness.ContentHash := lHash.HashAsString;
+    lActualHash := lHash.HashAsString;
+    lWitness.ContentHash := lActualHash;
+    for lRewrite in fRewrites do
+      if SameText(lRewrite.SourceFileName, lFileName) then
+      begin
+        if lActualHash <> lRewrite.ReplacementHash then
+          raise EInvalidOpException.Create('authorized rewrite bytes changed');
+        // Scan the actual replacement, including all directives and imports.
+        // Only its exact recorded content-hash contribution is normalized.
+        lWitness.ContentHash := lRewrite.OriginalHash;
+      end;
     if fVisited.IndexOf(lFileName) < 0 then
     begin
       fVisited.Add(lFileName);
@@ -165,7 +190,7 @@ begin
     end;
     // ReadAllText uses the same Delphi BOM/default decoding as project models.
     lSource := TFile.ReadAllText(lFileName);
-    if THashSHA2.GetHashStringFromFile(lFileName) <> lWitness.ContentHash then
+    if THashSHA2.GetHashStringFromFile(lFileName) <> lActualHash then
       raise EInvalidOpException.Create('source changed during inventory');
     fIdentity.AppendLine(LowerCase(lFileName)).AppendLine(lWitness.ContentHash);
   except
@@ -433,10 +458,17 @@ end;
 
 class function TDelphiSemanticCompilerSourceInventory.Build(const aProject: TDelphiSemanticProjectInfo):
   TDelphiSemanticCompilerSourceInventory;
+begin
+  Result := BuildForApply(aProject, nil);
+end;
+
+class function TDelphiSemanticCompilerSourceInventory.BuildForApply(
+  const aProject: TDelphiSemanticProjectInfo;
+  const aRewrites: TArray<TDelphiSemanticCompilerSourceRewrite>): TDelphiSemanticCompilerSourceInventory;
 var
   lBuilder: TInventoryBuilder;
 begin
-  lBuilder := TInventoryBuilder.Create(aProject);
+  lBuilder := TInventoryBuilder.Create(aProject, aRewrites);
   try
     Result := lBuilder.Build;
   finally
