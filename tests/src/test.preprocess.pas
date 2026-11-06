@@ -86,6 +86,10 @@ type
     [Test]
     procedure MissingPossibleIncludeKeepsTheModelAndTaintsLaterConditions;
     [Category('Fast')]
+    [TestCase('Possible inline directive', 'False')]
+    [TestCase('Possible included directive', 'True')]
+    procedure UnsupportedPossibleDirectiveKeepsModelAndUncertainty(const aInclude: Boolean);
+    [Category('Fast')]
     [TestCase('Earlier UNDEF invalidated', 'False')]
     [TestCase('Later UNDEF restores witness', 'True')]
     procedure GlobalTaintInvalidatesEarlierWitness(const aRestore: Boolean);
@@ -586,6 +590,43 @@ begin
         lSpan.EndOffset - lSpan.StartOffset)) > 0) then
       lUnknown := True;
   Assert.IsTrue(lUnknown, 'A possible include can define FOO, so the later region is unknown.');
+end;
+
+procedure TPreprocessTests.UnsupportedPossibleDirectiveKeepsModelAndUncertainty(
+  const aInclude: Boolean);
+var
+  lModel: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lEvidence: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('unsupported-possible'), 'Unit1.pas');
+  lOptions.SourceText := 'unit Unit1; interface'#13#10 + '{$IFDEF FPC}';
+  if aInclude then
+  begin
+    TFile.WriteAllText(TPath.ChangeExtension(lOptions.SourceFileName, '.inc'),
+      '{$ASMMODE att}', TEncoding.UTF8);
+    lOptions.SourceText := lOptions.SourceText + '{$I Unit1.inc}';
+  end else
+    lOptions.SourceText := lOptions.SourceText + '{$ASMMODE att}';
+  lOptions.SourceText := lOptions.SourceText + '{$ENDIF}'#13#10 +
+    '{$IFDEF LATER}type TPossible = Integer;{$ENDIF}'#13#10 + 'implementation end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'An unsupported possible directive must retain a usable model.');
+  Assert.IsTrue(HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+  Assert.IsTrue(lResult.ActivityEvidenceAvailable);
+  Assert.IsTrue(lResult.HasUnknownActivity);
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity(lOptions.SourceText,
+    lOptions.SourceFileName, lResult.ActivitySpans);
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lOptions.SourceText,
+    lEvidence, Pos('TPossible', lOptions.SourceText)), 'Later declarations must stay unproved.');
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lOptions.SourceFileName;
+  TFile.WriteAllText(lOptions.SourceFileName, lOptions.SourceText, TEncoding.UTF8);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  Assert.IsTrue(lModel.Success, 'Uncertainty must not become model-construction failure.');
 end;
 
 procedure TPreprocessTests.GlobalTaintInvalidatesEarlierWitness(const aRestore: Boolean);

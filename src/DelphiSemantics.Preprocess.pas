@@ -2144,7 +2144,9 @@ begin
     end;
     AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
       'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);
-    Exit(False);
+    // Possible branches supply no AST output. Keep their diagnostic and symbol
+    // taint without turning uncertainty into failure of the selected model.
+    Exit(CurrentActivity(aStack) = saUnknown);
   finally
     // Observe even empty unknown branches before their frame is popped.
     if CurrentActivity(aStack) = saUnknown then
