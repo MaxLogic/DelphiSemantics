@@ -332,6 +332,10 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aMember.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aMember.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aMember.EndOffset));
+  Result.AddPair('HeadingLine', TJSONNumber.Create(aMember.HeadingLine));
+  Result.AddPair('HeadingColumn', TJSONNumber.Create(aMember.HeadingColumn));
+  Result.AddPair('HeadingEndLine', TJSONNumber.Create(aMember.HeadingEndLine));
+  Result.AddPair('HeadingEndColumn', TJSONNumber.Create(aMember.HeadingEndColumn));
   AddFactFileName(Result, aMember.FileName);
 end;
 
@@ -353,6 +357,10 @@ begin
   Result.Column := JsonInt(aObject, 'Column');
   Result.Offset := JsonInt(aObject, 'Offset');
   Result.EndOffset := JsonInt(aObject, 'EndOffset');
+  Result.HeadingLine := JsonInt(aObject, 'HeadingLine');
+  Result.HeadingColumn := JsonInt(aObject, 'HeadingColumn');
+  Result.HeadingEndLine := JsonInt(aObject, 'HeadingEndLine');
+  Result.HeadingEndColumn := JsonInt(aObject, 'HeadingEndColumn');
   Result.FileName := JsonString(aObject, 'FileName');
 end;
 
@@ -443,6 +451,10 @@ begin
   Result.AddPair('Column', TJSONNumber.Create(aRoutine.Column));
   Result.AddPair('Offset', TJSONNumber.Create(aRoutine.Offset));
   Result.AddPair('EndOffset', TJSONNumber.Create(aRoutine.EndOffset));
+  Result.AddPair('HeadingLine', TJSONNumber.Create(aRoutine.HeadingLine));
+  Result.AddPair('HeadingColumn', TJSONNumber.Create(aRoutine.HeadingColumn));
+  Result.AddPair('HeadingEndLine', TJSONNumber.Create(aRoutine.HeadingEndLine));
+  Result.AddPair('HeadingEndColumn', TJSONNumber.Create(aRoutine.HeadingEndColumn));
   Result.AddPair('EndLine', TJSONNumber.Create(aRoutine.EndLine));
   Result.AddPair('EndColumn', TJSONNumber.Create(aRoutine.EndColumn));
   Result.AddPair('ScopeId', aRoutine.ScopeId);
@@ -479,6 +491,10 @@ begin
   Result.AstSourceSignature := JsonString(aObject, 'AstSourceSignature');
   Result.AstSourceSignatureVerified := JsonBool(aObject, 'AstSourceSignatureVerified');
   Result.Parameters := JsonToParameters(aObject.GetValue('Parameters') as TJSONArray);
+  Result.HeadingLine := JsonInt(aObject, 'HeadingLine');
+  Result.HeadingColumn := JsonInt(aObject, 'HeadingColumn');
+  Result.HeadingEndLine := JsonInt(aObject, 'HeadingEndLine');
+  Result.HeadingEndColumn := JsonInt(aObject, 'HeadingEndColumn');
   Result.FileName := JsonString(aObject, 'FileName');
 end;
 

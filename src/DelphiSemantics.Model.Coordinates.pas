@@ -230,6 +230,32 @@ begin
     Result := 0;
 end;
 
+procedure MapRoutineHeading(const aMapper: TLineOriginMapper; const aFileName: string;
+  var aLine, aColumn, aEndLine, aEndColumn: Integer);
+var
+  lFileName: string;
+  lLine, lColumn: Integer;
+begin
+  if (aLine <= 0) or (aEndLine < aLine) then
+    Exit;
+  for lLine := aLine to aEndLine do
+    if (lLine > Length(aMapper.fOrigins)) or aMapper.fOrigins[lLine - 1].Mixed or
+      (aMapper.MapEndLine(aFileName, lLine) <= 0) then
+    begin
+      aLine := 0;
+      aColumn := 0;
+      aEndLine := 0;
+      aEndColumn := 0;
+      Exit;
+    end;
+  lLine := aLine;
+  lColumn := aColumn;
+  aMapper.Map(lFileName, lLine, lColumn);
+  aEndLine := aMapper.MapEndLine(aFileName, aEndLine);
+  aLine := lLine;
+  aColumn := lColumn;
+end;
+
 function AttributeLineOrigins(const aRootFileName: string;
   const aOrigins: TArray<TDelphiSemanticSourceLineOrigin>;
   const aMembers: TList<TDelphiSemanticMember>): Boolean; overload;
@@ -246,6 +272,8 @@ begin
   begin
     lMember := aMembers[i];
     lMapper.Map(lMember.FileName, lMember.Line, lMember.Column);
+    MapRoutineHeading(lMapper, lMember.FileName, lMember.HeadingLine, lMember.HeadingColumn,
+      lMember.HeadingEndLine, lMember.HeadingEndColumn);
     if lMember.FileName <> '' then
     begin
       lMember.Offset := 0;
@@ -309,6 +337,8 @@ begin
   begin
     lRoutine := aRoutines[i];
     lMapper.Map(lRoutine.FileName, lRoutine.Line, lRoutine.Column);
+    MapRoutineHeading(lMapper, lRoutine.FileName, lRoutine.HeadingLine, lRoutine.HeadingColumn,
+      lRoutine.HeadingEndLine, lRoutine.HeadingEndColumn);
     lRoutine.EndLine := lMapper.MapEndLine(lRoutine.FileName, lRoutine.EndLine);
     if lRoutine.EndLine <= 0 then
       lRoutine.EndColumn := 0;

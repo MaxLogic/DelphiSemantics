@@ -77,6 +77,10 @@ type
     AccessOwnerSectionKind: string;
     AccessOwnerLine: Integer;
     AccessOwnerColumn: Integer;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticWithBinding = record
@@ -751,7 +755,13 @@ begin
   Result.OwnerName := aMember.OwnerName;
   Result.OwnerType := aMember.OwnerName;
   Result.UnitName := aModel.UnitName;
-  Result.FileName := aModel.FileName;
+  Result.FileName := aMember.FileName;
+  if Result.FileName = '' then
+    Result.FileName := aModel.FileName;
+  Result.HeadingLine := aMember.HeadingLine;
+  Result.HeadingColumn := aMember.HeadingColumn;
+  Result.HeadingEndLine := aMember.HeadingEndLine;
+  Result.HeadingEndColumn := aMember.HeadingEndColumn;
   Result.Line := aMember.Line;
   Result.Column := aMember.Column;
   Result.EndLine := aMember.Line;

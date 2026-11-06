@@ -166,7 +166,8 @@ const
   // 29: integrated lane identities invalidate every merged schema generation.
   // 31: DS-655 retains implementation owner type references.
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
-  cSnapshotCacheSchemaVersion = '32';
+  // 33: integrate package witnesses, AST headings and implementation references.
+  cSnapshotCacheSchemaVersion = '33';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -437,6 +438,10 @@ begin
   Result.SectionKind := aExactStrings.TextOf(aSymbol.SectionKindId);
   Result.Line := aSymbol.Line;
   Result.Column := aSymbol.Column;
+  Result.HeadingLine := aSymbol.HeadingLine;
+  Result.HeadingColumn := aSymbol.HeadingColumn;
+  Result.HeadingEndLine := aSymbol.HeadingEndLine;
+  Result.HeadingEndColumn := aSymbol.HeadingEndColumn;
   Result.EndLine := aSymbol.EndLine;
   Result.EndColumn := aSymbol.EndColumn;
   Result.UnsupportedReason := aExactStrings.TextOf(aSymbol.UnsupportedReasonId);
@@ -490,6 +495,10 @@ begin
   Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
   Result.Line := aSymbol.Line;
   Result.Column := aSymbol.Column;
+  Result.HeadingLine := aSymbol.HeadingLine;
+  Result.HeadingColumn := aSymbol.HeadingColumn;
+  Result.HeadingEndLine := aSymbol.HeadingEndLine;
+  Result.HeadingEndColumn := aSymbol.HeadingEndColumn;
   Result.EndLine := aSymbol.EndLine;
   Result.EndColumn := aSymbol.EndColumn;
   Result.UnsupportedReasonId := aExactStrings.Intern(aSymbol.UnsupportedReason);
@@ -821,6 +830,8 @@ begin
       'access_owner_section_kind_id integer not null, ' +
       'access_owner_line integer not null, ' +
       'access_owner_column integer not null, ' +
+      'heading_line integer not null, heading_column integer not null, ' +
+      'heading_end_line integer not null, heading_end_column integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_symbols (' +
       'cache_key text not null, item_index integer not null, name_id integer not null, ' +
@@ -838,6 +849,8 @@ begin
       'access_owner_section_kind_id integer not null, ' +
       'access_owner_line integer not null, ' +
       'access_owner_column integer not null, ' +
+      'heading_line integer not null, heading_column integer not null, ' +
+      'heading_end_line integer not null, heading_end_column integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_bindings (' +
       'cache_key text not null, binding_index integer not null, semantic_id_id integer not null, ' +
@@ -1752,7 +1765,7 @@ begin
     'access_owner_file_name_id, ' +
     'access_owner_section_kind_id, ' +
     'access_owner_line, ' +
-    'access_owner_column ' +
+    'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column ' +
     'from snapshot_remove_with_routine_owners ' +
     'where cache_key = ? order by item_index');
   try
@@ -1798,6 +1811,10 @@ begin
       lFacts.RoutineOwners[lItemIndex].AccessOwnerSectionKindId := TSemanticStringId(lFields[28].AsInteger);
       lFacts.RoutineOwners[lItemIndex].AccessOwnerLine := lFields[29].AsInteger;
       lFacts.RoutineOwners[lItemIndex].AccessOwnerColumn := lFields[30].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].HeadingLine := lFields[31].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].HeadingColumn := lFields[32].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].HeadingEndLine := lFields[33].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].HeadingEndColumn := lFields[34].AsInteger;
       Inc(lLoadedRoutineOwnerCount);
       lQuery.Next;
     end;
@@ -1817,7 +1834,7 @@ begin
     'access_owner_file_name_id, ' +
     'access_owner_section_kind_id, ' +
     'access_owner_line, ' +
-    'access_owner_column ' +
+    'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column ' +
     'from snapshot_remove_with_symbols ' +
     'where cache_key = ? order by item_index');
   try
@@ -1859,6 +1876,10 @@ begin
       lFacts.Symbols[lItemIndex].AccessOwnerSectionKindId := TSemanticStringId(lFields[28].AsInteger);
       lFacts.Symbols[lItemIndex].AccessOwnerLine := lFields[29].AsInteger;
       lFacts.Symbols[lItemIndex].AccessOwnerColumn := lFields[30].AsInteger;
+      lFacts.Symbols[lItemIndex].HeadingLine := lFields[31].AsInteger;
+      lFacts.Symbols[lItemIndex].HeadingColumn := lFields[32].AsInteger;
+      lFacts.Symbols[lItemIndex].HeadingEndLine := lFields[33].AsInteger;
+      lFacts.Symbols[lItemIndex].HeadingEndColumn := lFields[34].AsInteger;
       if SameText(aBuilder.ExactStrings.TextOf(lFacts.Symbols[lItemIndex].SymbolClassId),
         'local') or SameText(aBuilder.ExactStrings.TextOf(
         lFacts.Symbols[lItemIndex].SymbolClassId), 'parameter') then
@@ -2586,11 +2607,11 @@ var
       'access_owner_file_name_id, ' +
       'access_owner_section_kind_id, ' +
       'access_owner_line, ' +
-      'access_owner_column) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     try
       lInventoryQuery.Params[0].DataType := ftWideString;
-      for lParamIndex := 1 to 31 do
+      for lParamIndex := 1 to 35 do
         lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
       lInventoryQuery.Prepare;
       for lIndex := 0 to High(aSymbols) do
@@ -2628,6 +2649,10 @@ var
         lInventoryQuery.Params[29].AsInteger := Integer(lStoredSymbol.AccessOwnerSectionKindId);
         lInventoryQuery.Params[30].AsInteger := lStoredSymbol.AccessOwnerLine;
         lInventoryQuery.Params[31].AsInteger := lStoredSymbol.AccessOwnerColumn;
+        lInventoryQuery.Params[32].AsInteger := lStoredSymbol.HeadingLine;
+        lInventoryQuery.Params[33].AsInteger := lStoredSymbol.HeadingColumn;
+        lInventoryQuery.Params[34].AsInteger := lStoredSymbol.HeadingEndLine;
+        lInventoryQuery.Params[35].AsInteger := lStoredSymbol.HeadingEndColumn;
         lInventoryQuery.ExecSQL;
       end;
     finally

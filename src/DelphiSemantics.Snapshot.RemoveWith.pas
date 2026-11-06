@@ -62,6 +62,10 @@ type
     AccessOwnerSectionKindId: TSemanticStringId;
     AccessOwnerLine: Integer;
     AccessOwnerColumn: Integer;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TSemanticRemoveWithSelectorBindingFact = record

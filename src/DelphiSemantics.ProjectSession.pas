@@ -229,7 +229,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v65';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v66';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v96';
 
@@ -1054,8 +1054,8 @@ begin
         Exit;
       if not lEvidenceOwner.ValidatePlanningCacheEvidence(lPayload.NativeEvidence) then
       begin
-        // The owner has consumed replay callbacks. Do not use it for a cold
-        // retry; the caller must create a fresh owner, retaining this failed run.
+        // Replay callbacks may have consumed native proof. Never publish these
+        // cached facts; cold planning must validate its own inputs and proof.
         lCache.DeleteCombinedFactsPayload(aIdentity);
         raise EInvalidOpException.Create('PLANNING_CACHE_NATIVE_EVIDENCE_CHANGED');
       end;

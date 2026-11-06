@@ -481,8 +481,8 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.84', lIdentity.ParserVersion,
-      'Integrated model extraction and conditional WITH safety require fresh extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.85', lIdentity.ParserVersion,
+      'Integrated heading and implementation-owner facts require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');

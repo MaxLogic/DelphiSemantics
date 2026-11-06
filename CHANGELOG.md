@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
+
 ### Fixed
 
 - WITH planning treats active runtime-package units as unknown and includes caller-supplied search paths in its unit-name witness.

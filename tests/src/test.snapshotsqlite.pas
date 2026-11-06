@@ -1961,6 +1961,23 @@ begin
             'Warm load ' + lWarm.ToString + ' must not miss.');
           Assert.AreEqual(0, lCache.Metrics.Invalidations,
             'Warm load ' + lWarm.ToString + ' must not invalidate.');
+          // SQLite retains the lookup inventory in item_index order. Compare
+          // exact rows: compatibility twins can share names and coordinates.
+          Assert.AreEqual<NativeInt>(Length(lFacts.Symbols), lLoadedSnapshot.RemoveWithPlanningSymbolCount);
+          for i := 0 to High(lFacts.Symbols) do
+          begin
+            lInventorySymbol := lFacts.Symbols[i];
+            lSymbol := lLoadedSnapshot.RemoveWithPlanningSymbolByIndex(i);
+            Assert.AreEqual(lInventorySymbol.Name, lLoadedSnapshot.ExactTextOf(lSymbol.NameId));
+            Assert.AreEqual(lInventorySymbol.SymbolClass, lLoadedSnapshot.ExactTextOf(lSymbol.SymbolClassId));
+            Assert.AreEqual(lInventorySymbol.RoutineScopeId, lLoadedSnapshot.ExactTextOf(lSymbol.RoutineScopeIdId));
+            Assert.AreEqual(lInventorySymbol.Line, lSymbol.Line);
+            Assert.AreEqual(lInventorySymbol.Column, lSymbol.Column);
+            Assert.AreEqual(lInventorySymbol.HeadingLine, lSymbol.HeadingLine);
+            Assert.AreEqual(lInventorySymbol.HeadingColumn, lSymbol.HeadingColumn);
+            Assert.AreEqual(lInventorySymbol.HeadingEndLine, lSymbol.HeadingEndLine);
+            Assert.AreEqual(lInventorySymbol.HeadingEndColumn, lSymbol.HeadingEndColumn);
+          end;
           for lExpectedName in aExpectedNames do
           begin
             lSeen := False;

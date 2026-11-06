@@ -92,6 +92,10 @@ type
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
     // Line and Column then refer to that file (Line 0: the position is unknown).
     FileName: string;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticParameter = record
@@ -132,6 +136,10 @@ type
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
     // Line and Column then refer to that file (Line 0: the position is unknown).
     FileName: string;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticLocal = record
