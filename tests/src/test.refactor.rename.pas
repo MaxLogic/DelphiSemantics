@@ -77,6 +77,10 @@ type
     procedure PlansClassMethodRenameFromInterfaceHeaderPosition;
     [Category('Fast')]
     [Test]
+    procedure EnumRenameIgnoresItsDeclarationAsAReference;
+
+    [Category('Fast')]
+    [Test]
     procedure PlansClassMethodRenameFromQualifiedCallPosition;
     [Category('Fast')]
     [Test]
@@ -1049,6 +1053,45 @@ begin
   Assert.AreEqual(2, lLine23Count, 'Expected interface parameter and return type edits.');
   Assert.AreEqual(2, lLine27Count, 'Expected implementation parameter and return type edits.');
   Assert.AreEqual(1, lLine29Count, 'Expected local variable type reference edit.');
+end;
+
+procedure TRenamePlannerTests.EnumRenameIgnoresItsDeclarationAsAReference;
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lPath := RenameTempPath('EnumRename.pas');
+  TFile.WriteAllText(lPath, 'unit EnumRename;'#13#10'interface'#13#10 +
+    'type TChoice = (evUsed, evUnused);'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'  WriteLn(Ord(evUsed));'#13#10 +
+    'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := lPath;
+  lModelOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lOptions.ResolveReferenceTargets := True;
+  lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+  try
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lPath, 3, 17, 'evChosen');
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual<Integer>(2, Length(lPlan.Edits), 'One declaration and one real use.');
+    Assert.AreEqual<Integer>(0, Length(lPlan.UnresolvedReferences));
+    lPlan := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext, lPath, 7, 15, 'evChosen');
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual<Integer>(2, Length(lPlan.Edits), 'A real use selects the same enum value.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TRenamePlannerTests.PlansClassMethodRenameFromInterfaceHeaderPosition;

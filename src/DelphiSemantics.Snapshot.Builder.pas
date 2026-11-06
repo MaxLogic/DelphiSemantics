@@ -1090,7 +1090,7 @@ begin
     SameText(aSymbol.Kind, cSnapshotDeclarationKindTypeAlias) or
     SameText(aSymbol.Kind, 'var') or SameText(aSymbol.Kind, 'threadvar') or
     SameText(aSymbol.Kind, 'const') or SameText(aSymbol.Kind, 'typed-const') or
-    SameText(aSymbol.Kind, 'resourcestring') or SameText(aSymbol.Kind,
+    SameText(aSymbol.Kind, 'enum-value') or SameText(aSymbol.Kind, 'resourcestring') or SameText(aSymbol.Kind,
     cSnapshotSymbolKindRoutine)) then
     Exit(False);
 

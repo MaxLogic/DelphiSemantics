@@ -20,13 +20,31 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
+  // Stable slots survive enum replacement until AST collection has finished. This keeps
+  // coordinate lookups valid while avoiding a full scan and array shift for every value.
+  TDeclarationCandidateIndex = class
+  private
+    fDeclarations: TList<TDelphiSemanticDeclaration>;
+    fByToken: TObjectDictionary<string, TList<Integer>>;
+    fEnumsByType: TObjectDictionary<string, TList<Integer>>;
+    fRemoved: TDictionary<Integer, Boolean>;
+    fIndexedCount: Integer;
+    procedure Synchronize;
+  public
+    constructor Create(const aDeclarations: TList<TDelphiSemanticDeclaration>);
+    destructor Destroy; override;
+    function Contains(const aOffset: Integer; const aName: string): Boolean;
+    procedure RemoveEnumValues(const aLine: Integer; const aTypeName: string);
+    procedure Compact;
+  end;
+
   TPendingUnindexedHelper = record
     Fact: TDelphiSemanticUnindexedHelperFact;
     OutputOffset: Integer;
@@ -156,6 +174,114 @@ var
 
 threadvar
   GExtractionContext: TDelphiSemanticExtractionContext;
+
+function DeclarationCandidateKey(const aPosition: Integer; const aName: string): string;
+begin
+  Result := IntToStr(aPosition) + '|' + UpperCase(aName);
+end;
+
+constructor TDeclarationCandidateIndex.Create(
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+begin
+  inherited Create;
+  fDeclarations := aDeclarations;
+  fByToken := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
+  fEnumsByType := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
+  fRemoved := TDictionary<Integer, Boolean>.Create;
+end;
+
+destructor TDeclarationCandidateIndex.Destroy;
+begin
+  fRemoved.Free;
+  fEnumsByType.Free;
+  fByToken.Free;
+  inherited;
+end;
+
+procedure TDeclarationCandidateIndex.Synchronize;
+var
+  lCandidates: TList<Integer>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lKey: string;
+begin
+  while fIndexedCount < fDeclarations.Count do
+  begin
+    lDeclaration := fDeclarations[fIndexedCount];
+    lKey := DeclarationCandidateKey(lDeclaration.Offset, lDeclaration.Name);
+    if not fByToken.TryGetValue(lKey, lCandidates) then
+    begin
+      lCandidates := TList<Integer>.Create;
+      fByToken.Add(lKey, lCandidates);
+    end;
+    lCandidates.Add(fIndexedCount);
+    if SameText(lDeclaration.Kind, 'enum-value') then
+    begin
+      lKey := DeclarationCandidateKey(lDeclaration.Line, lDeclaration.TypeName);
+      if not fEnumsByType.TryGetValue(lKey, lCandidates) then
+      begin
+        lCandidates := TList<Integer>.Create;
+        fEnumsByType.Add(lKey, lCandidates);
+      end;
+      lCandidates.Add(fIndexedCount);
+    end;
+    Inc(fIndexedCount);
+  end;
+end;
+
+function TDeclarationCandidateIndex.Contains(const aOffset: Integer;
+  const aName: string): Boolean;
+var
+  lCandidates: TList<Integer>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lIndex: Integer;
+begin
+  Synchronize;
+  if fByToken.TryGetValue(DeclarationCandidateKey(aOffset, aName), lCandidates) then
+    for lIndex in lCandidates do
+    begin
+      lDeclaration := fDeclarations[lIndex];
+      if (lDeclaration.Offset = aOffset) and SameText(lDeclaration.Name, aName) then
+        Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TDeclarationCandidateIndex.RemoveEnumValues(const aLine: Integer;
+  const aTypeName: string);
+var
+  lCandidates: TList<Integer>;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lIndex: Integer;
+begin
+  Synchronize;
+  if fEnumsByType.TryGetValue(DeclarationCandidateKey(aLine, aTypeName), lCandidates) then
+    for lIndex in lCandidates do
+    begin
+      lDeclaration := fDeclarations[lIndex];
+      if SameText(lDeclaration.Kind, 'enum-value') and
+        SameText(lDeclaration.TypeName, aTypeName) and (lDeclaration.Line = aLine) then
+      begin
+        // Removed entries cannot match later AST lookups; compact once, in source order.
+        fDeclarations[lIndex] := Default(TDelphiSemanticDeclaration);
+        fRemoved.AddOrSetValue(lIndex, True);
+      end;
+    end;
+end;
+
+procedure TDeclarationCandidateIndex.Compact;
+var
+  lRead, lWrite: Integer;
+begin
+  lWrite := 0;
+  for lRead := 0 to fDeclarations.Count - 1 do
+    if not fRemoved.ContainsKey(lRead) then
+    begin
+      if lWrite <> lRead then
+        fDeclarations[lWrite] := fDeclarations[lRead];
+      Inc(lWrite);
+    end;
+  fDeclarations.Count := lWrite;
+end;
 
 procedure ExtractMembers(const aText, aFileName: string; const aNode: TSyntaxNode;
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
@@ -1918,7 +2044,8 @@ begin
 end;
 
 procedure EnsureUnitConstantDeclaration(const aText: string; const aNode: TSyntaxNode;
-  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aCandidates: TDeclarationCandidateIndex);
 var
   lDeclaration: TDelphiSemanticDeclaration;
   lName: string;
@@ -1937,9 +2064,8 @@ begin
   if (lName = '') or (lOffset < 1) or
     not SameText(Copy(aText, lOffset, Length(lName)), lName) then
     raise EInvalidOpException.Create('Constant identifier does not match source');
-  for lDeclaration in aDeclarations do
-    if (lDeclaration.Offset = lOffset) and SameText(lDeclaration.Name, lName) then
-      Exit;
+  if aCandidates.Contains(lOffset, lName) then
+    Exit;
   lDeclaration := Default(TDelphiSemanticDeclaration);
   lDeclaration.Name := lName;
   lDeclaration.Kind := 'const';
@@ -1971,24 +2097,19 @@ end;
 procedure CollectEnumDeclarations(const aText: string; const aTypeDeclaration: TSyntaxNode;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aFacts: TList<TAstDeclarationScopeFact>; const aScopeIndex: Integer;
-  const aTypeOwnerPath: string);
+  const aTypeOwnerPath: string; const aCandidates: TDeclarationCandidateIndex);
 var
   lTypeNode, lNode: TSyntaxNode;
   lName: string;
   lDeclaration: TDelphiSemanticDeclaration;
   lFact: TAstDeclarationScopeFact;
-  i: NativeInt;
 begin
   lTypeNode := aTypeDeclaration.FindNode(ntType);
   if not Assigned(lTypeNode) or not SameText(lTypeNode.GetAttribute(anName), 'enum') then
     Exit;
   lName := AstNodeName(aTypeDeclaration);
   // Replace only this declaration's legacy line-based enum entries.
-  for i := aDeclarations.Count - 1 downto 0 do
-    if SameText(aDeclarations[i].Kind, 'enum-value') and
-      SameText(aDeclarations[i].TypeName, lName) and
-      (aDeclarations[i].Line = aTypeDeclaration.Line) then
-      aDeclarations.Delete(i);
+  aCandidates.RemoveEnumValues(aTypeDeclaration.Line, lName);
   for lNode in lTypeNode.ChildNodes do
     if lNode.Typ = ntIdentifier then
     begin
@@ -2130,6 +2251,10 @@ var
   lDeclaration: TDelphiSemanticDeclaration;
   lDeclarationCount: Integer;
   lDeclarationFacts: TList<TAstDeclarationScopeFact>;
+  lDeclarationCandidates: TDeclarationCandidateIndex;
+  lFactCandidates: TObjectDictionary<string, TList<Integer>>;
+  lCandidateIndices: TList<Integer>;
+  lCandidateKey: string;
   lDiagnosticCount: Integer;
   lFact: TAstDeclarationScopeFact;
   lHeader: TRoutineHeader;
@@ -2276,7 +2401,7 @@ var
         end;
       end;
       if (aNode.Typ = ntConstant) and (lCurrentScopeIndex < 0) and (aTypeOwnerPath = '') then
-        EnsureUnitConstantDeclaration(aText, aNode, aDeclarations);
+        EnsureUnitConstantDeclaration(aText, aNode, aDeclarations, lDeclarationCandidates);
       lFact := Default(TAstDeclarationScopeFact);
       lFact.Name := AstNodeName(aNode);
       lFact.Kind := SyntaxNodeNames[aNode.Typ];
@@ -2365,7 +2490,7 @@ var
       begin
         lChildTypeOwnerPath := AppendTypeOwnerPath(aTypeOwnerPath, lFact.Name);
         CollectEnumDeclarations(aText, aNode, aDeclarations, lDeclarationFacts, lCurrentScopeIndex,
-          aTypeOwnerPath);
+          aTypeOwnerPath, lDeclarationCandidates);
       end;
     end;
 
@@ -2441,11 +2566,15 @@ var
     out aFact: TAstDeclarationScopeFact; out aFactIndex: Integer): Boolean;
   var
     lIndex: Integer;
+    lCandidates: TList<Integer>;
   begin
     aFact := Default(TAstDeclarationScopeFact);
     aFactIndex := -1;
     Result := False;
-    for lIndex := 0 to Pred(lDeclarationFacts.Count) do
+    if not lFactCandidates.TryGetValue(
+      DeclarationCandidateKey(aDeclaration.Line, aDeclaration.Name), lCandidates) then
+      Exit;
+    for lIndex in lCandidates do
       if SameText(lDeclarationFacts[lIndex].Name, aDeclaration.Name) and
         (lDeclarationFacts[lIndex].Line = aDeclaration.Line) and
         ((lDeclarationFacts[lIndex].Column = aDeclaration.Column) or
@@ -2616,6 +2745,8 @@ begin
     aDeclarations[i] := lDeclaration;
     Inc(aModel.RejectedDeclarationCount);
   end;
+  lDeclarationCandidates := nil;
+  lFactCandidates := nil;
   lAnonymousRecords := TList<TAstAnonymousRecord>.Create;
   lDeclarationFacts := TList<TAstDeclarationScopeFact>.Create;
   lScopes := TList<TAstRoutineScope>.Create;
@@ -2632,12 +2763,15 @@ begin
   lValueMemberCount := ActiveExtractionContext.TypeValueMembers.Count;
   lReferenceCount := aReferences.Count;
   try
+    lDeclarationCandidates := TDeclarationCandidateIndex.Create(aDeclarations);
+    lFactCandidates := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
     try
       lSyntaxTree := BuildModelSyntaxTree(aText, aOptions.SkipBodyAnalysis, lComplete,
         lOriginalError);
       if lComplete then
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
       CollectFacts(lSyntaxTree, nil, -1, '');
+      lDeclarationCandidates.Compact;
       ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
         lMemberReferences);
       // Named extraction may also emit nested anonymous declarations. Reconcile
@@ -2703,6 +2837,18 @@ begin
       end;
     end;
 
+    // Index candidates once; retain the original predicate and uniqueness refusal below.
+    for i := 0 to lDeclarationFacts.Count - 1 do
+    begin
+      lFact := lDeclarationFacts[i];
+      lCandidateKey := DeclarationCandidateKey(lFact.Line, lFact.Name);
+      if not lFactCandidates.TryGetValue(lCandidateKey, lCandidateIndices) then
+      begin
+        lCandidateIndices := TList<Integer>.Create;
+        lFactCandidates.Add(lCandidateKey, lCandidateIndices);
+      end;
+      lCandidateIndices.Add(i);
+    end;
     for i := 0 to Pred(aDeclarations.Count) do
     begin
       lDeclaration := aDeclarations[i];
@@ -2867,6 +3013,8 @@ begin
     lScopes.Free;
     lAnonymousRecords.Free;
     lDeclarationFacts.Free;
+    lFactCandidates.Free;
+    lDeclarationCandidates.Free;
   end;
 end;
 
@@ -3297,9 +3445,11 @@ begin
           begin
             lName := lMatch.Groups[1].Value;
             lTypeText := lMatch.Groups[2].Value;
-            AddTypeReferences(aReferences, '', lTypeText, aText, TextOffsetInLine(lLines[i],
-              lTypeText, lOffset));
             lTypeName := NormalizeTypeName(lTypeText);
+            // Enum identifiers declare values; AST expression extraction retains assigned values.
+            if lTypeName <> 'enum' then
+              AddTypeReferences(aReferences, '', lTypeText, aText, TextOffsetInLine(lLines[i],
+                lTypeText, lOffset));
             lSection := SectionForOffset(aText, lOffset + 1);
             if not SameText(lName, 'Result') then
               AddTypeDeclaration(aDeclarations, aText, lLines[i], lName, lTypeName, lTypeText, lOffset);
@@ -3415,12 +3565,14 @@ var
   i: Integer;
   j: Integer;
   lBlockKind: string;
+  lConstantPattern: TRegEx;
   lDeclarationKind: string;
   lDeclaredType: string;
   lEndLine: Integer;
   lHasInitializer: Boolean;
   lHeaderDepth: Integer;
   lHeaderOffset: Integer;
+  lHeaderPattern: TRegEx;
   lHeaderText: string;
   lInImplementation: Boolean;
   lInRoutine: Boolean;
@@ -3433,6 +3585,7 @@ var
   lNameOffset: Integer;
   lOffset: Integer;
   lSection: string;
+  lSectionPattern: TRegEx;
   lSkipUntilLine: Integer;
   lSyntheticTypeName: string;
   lTypeDepth: Integer;
@@ -3442,6 +3595,11 @@ var
 begin
   lLines := TStringList.Create;
   try
+    // Reuse each compiled pattern across physical lines of this extraction.
+    lHeaderPattern := TRegEx.Create(
+      '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]);
+    lSectionPattern := TRegEx.Create('^(const|resourcestring|var|threadvar|type)\b\s*', [roIgnoreCase]);
+    lConstantPattern := TRegEx.Create('^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=', [roIgnoreCase]);
     lLines.Text := aText;
     lHeaderText := SanitizeCodeText(aText);
     lBlockKind := '';
@@ -3472,8 +3630,7 @@ begin
       begin
         lInImplementation := False;
         lBlockKind := '';
-      end else if TRegEx.IsMatch(Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim,
-        '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]) then
+      end else if lHeaderPattern.IsMatch(Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim) then
       begin
         lBlockKind := '';
         // Header exclusion preserves the existing body-declaration inventory.
@@ -3505,8 +3662,7 @@ begin
         lBlockKind := '';
       end else if not lInRoutine then
       begin
-        lMatch := TRegEx.Match(lLine, '^(const|resourcestring|var|threadvar|type)\b\s*',
-          [roIgnoreCase]);
+        lMatch := lSectionPattern.Match(lLine);
         if lMatch.Success then
         begin
           lBlockKind := LowerCase(lMatch.Groups[1].Value);
@@ -3517,8 +3673,7 @@ begin
         end;
         if MatchText(lBlockKind, ['const', 'resourcestring']) then
         begin
-          lMatch := TRegEx.Match(lLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=',
-            [roIgnoreCase]);
+          lMatch := lConstantPattern.Match(lLine);
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
@@ -4147,27 +4302,71 @@ var
   lMatched: TArray<Boolean>;
   lMember: TDelphiSemanticMember;
   lMissing: TList<TAstMemberFact>;
+  lByName: TObjectDictionary<string, TList<Integer>>;
+  lCandidates: TList<Integer>;
+  lLow, lHigh, lMiddle, lCandidate: Integer;
+  lKey: string;
+  lOrder: IComparer<Integer>;
   lRebuilt: Integer;
 begin
   Result := True;
   aUnscanned := '';
   SetLength(lMatched, aMembers.Count - aFirstMember);
   lMissing := TList<TAstMemberFact>.Create;
+  lByName := nil;
   try
+    lByName := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
+    for j := aFirstMember to aMembers.Count - 1 do
+    begin
+      lMember := aMembers[j];
+      lKey := UpperCase(lMember.Name) + '|' + MemberCategory(lMember.Kind);
+      if not lByName.TryGetValue(lKey, lCandidates) then
+      begin
+        lCandidates := TList<Integer>.Create;
+        lByName.Add(lKey, lCandidates);
+      end;
+      lCandidates.Add(j);
+    end;
+    lOrder := TComparer<Integer>.Construct(
+      function(const aLeft, aRight: Integer): Integer
+      begin
+        Result := aMembers[aLeft].Offset - aMembers[aRight].Offset;
+        if Result = 0 then
+          Result := aLeft - aRight;
+      end);
+    for lCandidates in lByName.Values do
+      lCandidates.Sort(lOrder);
     for lFact in aFacts do
     begin
       lEnd := NextSplitOffset(aSplitOffsets, lFact.Offset);
       lFound := -1;
-      for j := aFirstMember to Pred(aMembers.Count) do
+      if lByName.TryGetValue(UpperCase(lFact.Name) + '|' + lFact.Category,
+        lCandidates) then
       begin
-        lMember := aMembers[j];
-        if not lMatched[j - aFirstMember] and (lMember.Offset >= lFact.Offset) and
-          (lMember.Offset < lEnd) and SameText(lMember.OwnerName, aOwnerName) and
-          SameText(lMember.Name, lFact.Name) and
-          (MemberCategory(lMember.Kind) = lFact.Category) then
+        // Seek the AST interval without assuming lexical member order or AST split shape.
+        lLow := 0;
+        lHigh := lCandidates.Count;
+        while lLow < lHigh do
         begin
-          lFound := j;
-          Break;
+          lMiddle := lLow + (lHigh - lLow) div 2;
+          if aMembers[lCandidates[lMiddle]].Offset < lFact.Offset then
+            lLow := lMiddle + 1
+          else
+            lHigh := lMiddle;
+        end;
+        lCandidate := lLow;
+        while lCandidate < lCandidates.Count do
+        begin
+          j := lCandidates[lCandidate];
+          lMember := aMembers[j];
+          if lMember.Offset >= lEnd then
+            Break;
+          if not lMatched[j - aFirstMember] and SameText(lMember.OwnerName, aOwnerName) and
+            SameText(lMember.Name, lFact.Name) and
+            (MemberCategory(lMember.Kind) = lFact.Category) and
+            ((lFound < 0) or (j < lFound)) then
+            lFound := j;
+          Inc(lCandidate);
         end;
       end;
       if lFound < 0 then
@@ -4221,6 +4420,7 @@ begin
       end;
     end;
   finally
+    lByName.Free;
     lMissing.Free;
   end;
 end;
@@ -5168,7 +5368,7 @@ begin
         lLexer.NextNoJunk;
       if (lLexer.TokenPos + 1 <> MatchGroupIndex(lMatch, 1)) or
         (not (lLexer.TokenID in [ptProcedure, ptFunction, ptConstructor, ptDestructor])) or
-        IsOffsetInsideTypeBlock(aText, lMatch.Index + 1) then
+        IsOffsetInsideTypeBlock(aText, MatchGroupIndex(lMatch, 1)) then
       begin
         lMatch := lNextMatch;
         Continue;

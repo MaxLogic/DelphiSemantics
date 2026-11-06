@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Method headings inside types no longer add standalone routine symbols after blank lines. Enum values no longer reference themselves at their declarations, preserving rename and unused-value reporting. Older model and snapshot caches rebuild.
+- Constant, enum and member extraction uses indexed candidate lookups to avoid repeated full-list scans on large units.
+
 - SQLite planning caches preserve alias access-owner provenance across reloads, keeping warm inventories identical to cold inventories. Older snapshot and planning-fact entries rebuild.
 
 - Project contexts retain usable search paths and report unresolved entries as unproved; semantic rewrite sessions refuse these partial lists. Quoted or invalid entries still return diagnostics (DAK-475).

@@ -562,6 +562,17 @@ type
     [Category('Fast')]
     [Test]
     procedure DeclarationExpressionsAreReferences;
+    [Category('Fast')]
+    [Test]
+    [TestCase('Ordinary method after blank line', 'ordinary')]
+    [TestCase('Class method after blank line', 'class')]
+    [TestCase('Nested class method after blank line', 'nested')]
+    [TestCase('Operator heading control', 'operator')]
+    procedure TypeMethodHeadingsHaveNoStandaloneRoutine(const aShape: string);
+    [Category('Fast')]
+    [Test]
+    procedure EnumDeclarationTokensAreNotReferences;
+
   end;
 
 implementation
@@ -6555,14 +6566,98 @@ begin
     for lKey in ['GBase@17:28', 'GBase@18:21', 'MaxItems@13:21', 'MaxItems@20:12',
       'TSizeKind@11:26', 'skSmall@11:38', 'TResultKind@11:48', 'TItem@13:34'] do
       Assert.IsTrue(lKeys.IndexOf(lKey) >= 0, 'Missing ' + lKey + ' in ' + lFacts);
-    // The enum type scan already records its values as type references (not this slice).
-    for lKey in ['GBase@16:3', 'MaxItems@7:3', 'TItem@10:3'] do
+    for lKey in ['GBase@16:3', 'MaxItems@7:3', 'TItem@10:3', 'skSmall@4:16'] do
       Assert.IsTrue(lKeys.IndexOf(lKey) < 0, 'A declaration is no reference: ' + lKey);
     for i := 1 to lKeys.Count - 1 do
       Assert.AreNotEqual(lKeys[i - 1], lKeys[i], 'Duplicate reference in ' + lFacts);
   finally
     lKeys.Free;
   end;
+end;
+
+// DS-658: a blank line must not move the type-exclusion query off the heading token.
+procedure TUnitModelTests.TypeMethodHeadingsHaveNoStandaloneRoutine(const aShape: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lHeader: string;
+  lHeadingLine: Integer;
+  lMember: TDelphiSemanticMember;
+  lMemberCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOwner: string;
+  lRoutine: TDelphiSemanticRoutine;
+  lSource: string;
+begin
+  lOwner := 'TSubject';
+  lHeadingLine := 6;
+  lHeader := '    procedure Execute;';
+  if aShape = 'class' then
+    lHeader := '    class procedure Execute;';
+  if aShape = 'operator' then
+    lHeader := '    class operator Add(const aLeft, aRight: TSubject): TSubject;';
+  lSource := 'unit TypeHeadings;'#13#10'interface'#13#10'type'#13#10;
+  if aShape = 'nested' then
+  begin
+    lOwner := 'TOuter.TSubject';
+    lHeadingLine := 8;
+    lSource := lSource + '  TOuter = class'#13#10'  public type'#13#10;
+  end;
+  if aShape = 'operator' then
+    lSource := lSource + '  TSubject = record'#13#10
+  else
+    lSource := lSource + '  TSubject = class'#13#10;
+  lSource := lSource + #13#10 + lHeader + #13#10'  end;'#13#10;
+  if aShape = 'nested' then
+    lSource := lSource + '  end;'#13#10;
+  // A same-named unit routine remains a genuine standalone declaration.
+  lSource := lSource + 'procedure Execute;'#13#10'implementation'#13#10 +
+    'procedure Execute;'#13#10'begin end;'#13#10'end.'#13#10;
+  lModel := ExtractUnitSource('type-heading-' + aShape + '.pas', lSource, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  for lDeclaration in lModel.Declarations do
+    if SameText(lDeclaration.Kind, 'routine') then
+      Assert.IsTrue(lDeclaration.Line <> lHeadingLine,
+        'A type heading became a standalone routine at ' + IntToStr(lDeclaration.Line));
+  for lRoutine in lModel.Routines do
+    Assert.IsTrue(lRoutine.Line <> lHeadingLine,
+      'A type heading became an unowned routine at ' + IntToStr(lRoutine.Line));
+  lMemberCount := 0;
+  for lMember in lModel.Members do
+    if SameText(lMember.OwnerName, lOwner) and SameText(lMember.Name, 'Execute') then
+      Inc(lMemberCount);
+  if aShape <> 'operator' then
+    Assert.AreEqual(1, lMemberCount, 'The method retains exactly one member declaration.');
+  Assert.IsTrue(HasDeclaration(lModel, 'Execute', 'routine', 'interface'));
+  Assert.IsTrue(HasDeclaration(lModel, 'Execute', 'routine', 'implementation'));
+end;
+
+// DS-661: declaration tokens are absent, while an actual enum use remains visible.
+procedure TUnitModelTests.EnumDeclarationTokensAreNotReferences;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel: TDelphiSemanticUnitModel;
+  lReference: TDelphiSemanticReference;
+  lUseCount: Integer;
+begin
+  lModel := ExtractUnitSource('enum-declaration-references.pas',
+    'unit EnumReferences;'#13#10'interface'#13#10'type'#13#10 +
+    '  TChoice = (evUsed, evUnused);'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10 +
+    'begin'#13#10'  WriteLn(Ord(evUsed));'#13#10'end;'#13#10'end.'#13#10, False);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lUseCount := 0;
+  for lReference in lModel.References do
+    if MatchText(lReference.Name, ['evUsed', 'evUnused']) then
+    begin
+      for lDeclaration in lModel.Declarations do
+        if SameText(lDeclaration.Kind, 'enum-value') then
+          Assert.AreNotEqual(lDeclaration.Offset, lReference.Offset,
+            'An enum declaration must not reference itself.');
+      Assert.AreEqual('evUsed', lReference.Name);
+      Assert.AreEqual(8, lReference.Line);
+      Inc(lUseCount);
+    end;
+  Assert.AreEqual(1, lUseCount, 'Keep the real enum use exactly once.');
 end;
 
 procedure TUnitModelTests.HelperDeclarationsCarryAstKindAndTarget(

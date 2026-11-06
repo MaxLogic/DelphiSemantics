@@ -35,6 +35,10 @@ type
     procedure ReportsConservativeDeadCodeStatuses;
     [Category('Fast')]
     [Test]
+    procedure UnusedEnumValueHasNoDeclarationSelfUse;
+
+    [Category('Fast')]
+    [Test]
     procedure UnresolvedReferenceBlockersStayInSourceUnit;
     [Category('Fast')]
     [Test]
@@ -618,6 +622,39 @@ begin
     'UnresolvedUseUnit', 'unresolved-reference'), DescribeCandidates(lReport));
   Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'SharedHook', 'UnresolvedUseUnit',
     'unresolved-reference', 'unresolved-reference'), DescribeCandidates(lReport));
+end;
+
+procedure TDeadCodeTests.UnusedEnumValueHasNoDeclarationSelfUse;
+var
+  lCandidate: TDelphiSemanticDeadCodeCandidate;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFound: Boolean;
+  lOptions: TDelphiSemanticModelOptions;
+  lPath: string;
+  lReport: TDelphiSemanticDeadCodeReport;
+begin
+  lPath := DeadCodeTempPath('enum-unused.pas');
+  TFile.WriteAllText(lPath, 'unit EnumUnused;'#13#10'interface'#13#10 +
+    'implementation'#13#10'type TChoice = (evUsed, evUnused);'#13#10 +
+    'procedure Run;'#13#10'var lChoice: TChoice;'#13#10'begin'#13#10 +
+    '  lChoice := evUsed;'#13#10 +
+    'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  lReport := TDelphiSemanticApi.ReportDeadCode(lContext, 'audit');
+  lFound := False;
+  for lCandidate in lReport.Candidates do
+    if SameText(lCandidate.Name, 'evUnused') then
+    begin
+      lFound := True;
+      Assert.AreEqual(0, lCandidate.ReferenceCount);
+      Assert.AreEqual('maybe-unused', lCandidate.Status);
+      Assert.AreEqual<Integer>(0, Length(lCandidate.Blockers));
+    end;
+  Assert.IsTrue(lFound, 'The unused enum value remains reportable.');
 end;
 
 procedure TDeadCodeTests.SafetyGuardsUseModelSourceTextAfterDiskChanges;

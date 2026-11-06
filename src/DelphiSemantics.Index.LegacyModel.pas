@@ -212,7 +212,8 @@ begin
 
   if not (SameText(aSymbol.Kind, 'unit') or SameText(aSymbol.Kind, 'type') or
     SameText(aSymbol.Kind, 'type-alias') or SameText(aSymbol.Kind, 'var') or
-    SameText(aSymbol.Kind, 'const') or SameText(aSymbol.Kind, 'routine')) then
+    SameText(aSymbol.Kind, 'const') or SameText(aSymbol.Kind, 'enum-value') or
+    SameText(aSymbol.Kind, 'routine')) then
     Exit(False);
 
   if SameText(aReferenceModel.UnitName, aSymbol.UnitName) then
