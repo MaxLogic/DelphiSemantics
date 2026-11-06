@@ -167,7 +167,8 @@ const
   // 31: DS-655 retains implementation owner type references.
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
-  cSnapshotCacheSchemaVersion = '33';
+  // 34: integrate DS-650/662/656 extraction with all previous schema identities.
+  cSnapshotCacheSchemaVersion = '34';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

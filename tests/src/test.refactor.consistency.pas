@@ -21,6 +21,17 @@ type
     function AncestryModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
     function AliasContextModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
   public
+    [Test]
+    [Category('DS727,RefactoringLightConsistency')]
+    [TestCase('Interface forward and full', 'forward,True')]
+    [TestCase('Implementation local', 'implementation,True')]
+    [TestCase('Implementation forward and full', 'implementation-forward,True')]
+    [TestCase('Implementation imported ancestor', 'implementation-import,True')]
+    [TestCase('Two full declarations', 'duplicate,False')]
+    [TestCase('Cross section homonyms', 'cross-section,False')]
+    [TestCase('Two forward declarations', 'two-forward,False')]
+    procedure ClassAncestrySelectsCompleteDeclaration(const aShape: string;
+      const aComplete: Boolean);
     [Category('DS703Slice,RefactoringLightConsistency')]
     [TestCase('Plain generic', 'T,class')]
     [TestCase('Constrained generic', 'T: class; U: record,class')]
@@ -186,7 +197,7 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.Consistency.EventBindings, DelphiSemantics.Consistency.EventSignatures,
   DelphiSemantics.Consistency.Types,
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
@@ -475,6 +486,60 @@ begin
     lGraph.Free;
   end;
 end;
+procedure TRefactorConsistencyTests.ClassAncestrySelectsCompleteDeclaration(
+  const aShape: string; const aComplete: Boolean);
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lProject: TDelphiSemanticProjectInfo;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lResult: TDelphiSemanticClassAncestry;
+  lInterface, lImplementation: string;
+begin
+  lInterface := 'type TChild = class;'#13#10'TChild = class end;';
+  lImplementation := '';
+  if aShape = 'duplicate' then
+    lInterface := 'type TChild = class end;'#13#10'TChild = class end;'
+  else if aShape = 'two-forward' then
+    lInterface := 'type TChild = class;'#13#10'TChild = class;'#13#10'TChild = class end;'
+  else if aShape = 'cross-section' then
+  begin
+    lInterface := 'type TChild = class end;';
+    lImplementation := 'type TChild = class end;';
+  end else if StartsText('implementation', aShape) then
+  begin
+    lInterface := '';
+    lImplementation := 'type TChild = class end;';
+    if aShape = 'implementation-forward' then
+      lImplementation := 'type TChild = class;'#13#10'TChild = class end;'
+    else if aShape = 'implementation-import' then
+      lImplementation := 'uses BaseUnit;'#13#10'type TChild = class(TBase) end;';
+  end;
+  lModels := [ExtractModel('ChildUnit', 'unit ChildUnit;'#13#10'interface'#13#10 +
+    lInterface + #13#10'implementation'#13#10 + lImplementation + #13#10'end.'),
+    ExtractModel('BaseUnit', 'unit BaseUnit;'#13#10'interface'#13#10 +
+      'type TBase = class end;'#13#10'implementation'#13#10'end.')];
+  lProject := Default(TDelphiSemanticProjectInfo);
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(lProject, lModels);
+  try
+    lResult := TDelphiSemanticEventBindingResolver.InspectClassAncestry(lModels,
+      TDelphiSemanticTypeResolver.BuildIndex(lGraph), 'ChildUnit', 'TChild');
+    Assert.AreEqual(aComplete, lResult.Complete, aShape + ': ' + lResult.Reason);
+    if aComplete then
+    begin
+      Assert.AreEqual('ancestry.complete', lResult.Reason);
+      Assert.AreEqual('TChild', lResult.Classes[0].Name);
+      Assert.AreEqual<Integer>(1 + Ord(aShape = 'implementation-import'), Length(lResult.Classes));
+      if StartsText('implementation', aShape) then
+        Assert.AreEqual('implementation', lResult.Classes[0].SectionKind)
+      else
+        Assert.AreEqual(4, lResult.Classes[0].SourceRange.Line,
+          'The full declaration, not the forward, is the starting identity.');
+    end;
+  finally
+    lGraph.Free;
+  end;
+end;
+
 function TRefactorConsistencyTests.AncestryModels(const aShape: string):
   TArray<TDelphiSemanticUnitModel>;
 var
