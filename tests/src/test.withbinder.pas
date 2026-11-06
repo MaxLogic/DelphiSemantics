@@ -62,6 +62,23 @@ type
     [TestCase('same-line-helper route 3', 'same-line-helper,3')]
     [TestCase('same-line-helper route 4', 'same-line-helper,4')]
     procedure ModelExtractionRoutes(const aShape: string; const aRoute: Integer);
+    [Category('DS786Slice')]
+    [TestCase('nested-alias-global route 0', 'nested-alias-global,0')]
+    [TestCase('nested-alias-global route 1', 'nested-alias-global,1')]
+    [TestCase('nested-alias-global route 2', 'nested-alias-global,2')]
+    [TestCase('nested-alias-global route 3', 'nested-alias-global,3')]
+    [TestCase('nested-alias-global route 4', 'nested-alias-global,4')]
+    [TestCase('nested-alias-no-global route 0', 'nested-alias-no-global,0')]
+    [TestCase('nested-alias-no-global route 1', 'nested-alias-no-global,1')]
+    [TestCase('nested-alias-no-global route 2', 'nested-alias-no-global,2')]
+    [TestCase('nested-alias-no-global route 3', 'nested-alias-no-global,3')]
+    [TestCase('nested-alias-no-global route 4', 'nested-alias-no-global,4')]
+    [TestCase('nested-nonalias-global route 0', 'nested-nonalias-global,0')]
+    [TestCase('nested-nonalias-global route 1', 'nested-nonalias-global,1')]
+    [TestCase('nested-nonalias-global route 2', 'nested-nonalias-global,2')]
+    [TestCase('nested-nonalias-global route 3', 'nested-nonalias-global,3')]
+    [TestCase('nested-nonalias-global route 4', 'nested-nonalias-global,4')]
+    procedure NestedAliasSelectorRoutes(const aShape: string; const aRoute: Integer);
     [Category('DS744Slice')]
     [TestCase('partial-independent route 0', 'partial-independent,0')]
     [TestCase('partial-independent route 1', 'partial-independent,1')]
@@ -21658,6 +21675,15 @@ begin
     lSource := TFile.ReadAllText(TPath.Combine(FixturePath('WithPartial', aShape), 'Unit1.pas'), TEncoding.ASCII);
     TFile.Copy(TPath.Combine(FixturePath('WithPartial', aShape), 'BaseUnit.pas'), TPath.Combine(lRoot, 'BaseUnit.pas'));
   end;
+  if MatchText(aShape, ['nested-alias-global', 'nested-alias-no-global', 'nested-nonalias-global']) then
+  begin
+    lSource := TFile.ReadAllText(FixturePath('NestedAliasSelector', 'Unit1.pas'), TEncoding.ASCII);
+    if aShape = 'nested-alias-no-global' then
+      lSource := lSource.Replace('  Other: TOther;'#13#10, '').Replace(' Other.B := 0;', '').Replace(
+        ', '' '', Other.B', '');
+    if aShape = 'nested-nonalias-global' then
+      lSource := lSource.Replace('Item: TAlias;', 'Item: TItem;');
+  end;
   TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'), lSource, TEncoding.ASCII);
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
@@ -21714,6 +21740,22 @@ begin
       lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
       lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  if MatchText(aShape, ['nested-alias-global', 'nested-alias-no-global', 'nested-nonalias-global']) then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+    lStatement := lPlan.FinalStatements[0];
+    Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
+    Assert.AreEqual('', lStatement.Reason);
+    Assert.AreEqual('', lStatement.SafetyReason);
+    lExpected := 'lWithFooPtr := @Item.Other;';
+    if aShape = 'nested-nonalias-global' then
+      lExpected := 'lWithFooPtr := @lWithItemPtr^.Other;';
+    Assert.IsTrue(lStatement.ReplacementText.Contains(lExpected), lStatement.ReplacementText);
+    Assert.IsFalse(lStatement.ReplacementText.Contains(':= @Other;'),
+      'Removing the parent must preserve the nested receiver storage.');
+    Assert.IsTrue(lStatement.ReplacementText.Contains('lWithFooPtr^.B := 2;'));
+    Exit;
   end;
   if StartsText('partial-', aShape) then
   begin
@@ -21822,6 +21864,11 @@ begin
     'compound-class-helper']) then
     Assert.IsTrue(lFound > 0, aShape + ':' + lPlan.FinalStatements[0].Reason + ':' +
       lPlan.FinalStatements[0].SafetyReason);
+end;
+
+procedure TWithBinderTests.NestedAliasSelectorRoutes(const aShape: string; const aRoute: Integer);
+begin
+  InventoryCoverageRoutes(aShape, aRoute);
 end;
 
 procedure TWithBinderTests.ModelExtractionRoutes(const aShape: string; const aRoute: Integer);

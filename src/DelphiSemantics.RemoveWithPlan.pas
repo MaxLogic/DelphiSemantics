@@ -6822,6 +6822,24 @@ begin
   Result := False;
 end;
 
+function DecisionHasSelectorMember(const aFacts: TRemoveWithPlanFacts;
+  const aDecision: TFinalSelectorDecision; const aName: string): Boolean;
+var
+  lMember: TDelphiSemanticInventorySymbol;
+begin
+  Result := OwnerHasMemberNamed(aFacts, aDecision.ReceiverType, aName);
+  if Result or (not SameText(aDecision.ReceiverIdentity.Kind, 'type-alias')) or
+    (not TypeIdentityHasVerifiedOrigin(aDecision.ReceiverIdentity)) then
+    Exit;
+  // Alias members retain their declaring owner's name. Follow the verified
+  // declaration lineage before emitting a capture outside the removed WITH.
+  for lMember in aFacts.LookupIndex.FindSymbolsByName(aName) do
+    if MatchText(lMember.SymbolClass, ['field', 'property', 'member']) and
+      aFacts.LookupIndex.ReceiverLineageDeclaresMember(aDecision.ReceiverIdentity,
+        lMember.OwnerType, aName) then
+      Exit(True);
+end;
+
 function SelectorTextWithDependentQualifiers(
   const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>;
@@ -6868,7 +6886,7 @@ begin
         lDecision := aDecisions[lDecisionIndex];
         if (Trim(lDecision.QualifierText) = '') or
           (Trim(lDecision.ReceiverType) = '') or
-          (not OwnerHasMemberNamed(aFacts, lDecision.ReceiverType, lName)) then
+          (not DecisionHasSelectorMember(aFacts, lDecision, lName)) then
           Continue;
         if not DecisionKeepsWithMemberScope(lDecision) then
           lReplacementText := lDecision.QualifierText + '.' + lName;

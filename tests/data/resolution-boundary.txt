@@ -16,7 +16,7 @@ delphisemantics.removewithplan.pas|qualifierformembername|ownerhasmembernamed|st
 delphisemantics.removewithplan.pas|qualifierforreference|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
 delphisemantics.removewithplan.pas|referencehaslineagedenial|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
 delphisemantics.removewithplan.pas|selectorhasdependentselector|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
-delphisemantics.removewithplan.pas|selectortextwithdependentqualifiers|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
+delphisemantics.removewithplan.pas|decisionhasselectormember|ownerhasmembernamed|DS-786: existing spelling lookup before verified alias-lineage fallback
 delphisemantics.removewithplan.pas|simpleselectorhasmember|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
 delphisemantics.removewithplan.pas|skippedparentcontexthasmember|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
 delphisemantics.removewithplan.pas|tryresolvedependentselectortype|ownerhasmembernamed|step 4 transition; final refusal-only inventory checks
