@@ -428,7 +428,8 @@ begin
     Exit;
 
   lPrefix := Copy(lText, 1, lOpenPos - 1);
-  if ContainsText(lPrefix, 'procedure') or ContainsText(lPrefix, 'function') then
+  // Only an opening parenthesis immediately after '=' starts an enumeration.
+  if Trim(Copy(lPrefix, lEqualsPos + 1, MaxInt)) <> '' then
     Exit;
 
   lList := TList<string>.Create;
@@ -1069,15 +1070,45 @@ end;
 function InventoryFindTypeEndLine(const aLines: TArray<string>; const aStartIndex: Integer):
   Integer;
 var
-  i: Integer;
-  lLine: string;
+  lDepth, lHeaderPos, lLine: Integer;
+  lLexer: TmwBasePasLex;
+  lText: string;
+  lStarted: Boolean;
 begin
   Result := aStartIndex + 1;
-  for i := aStartIndex + 1 to High(aLines) do
-  begin
-    lLine := LowerCase(InventoryCleanLine(aLines[i]));
-    if SameText(lLine, 'end;') or SameText(lLine, 'end') or StartsText('end ', lLine) then
-      Exit(i + 1);
+  lText := string.Join(sLineBreak, aLines, aStartIndex, Length(aLines) - aStartIndex);
+  lHeaderPos := Pos('=', aLines[aStartIndex]);
+  if lHeaderPos = 0 then
+    lHeaderPos := Pos(':', aLines[aStartIndex]);
+  // Constraints precede '=', so their RECORD keyword cannot open the body.
+  lText := StringOfChar(' ', lHeaderPos) + Copy(lText, lHeaderPos + 1, MaxInt);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lText;
+    lDepth := 0;
+    lLine := aStartIndex + 1;
+    lStarted := False;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptCRLF then
+        Inc(lLine)
+      else if (not lStarted) and MatchText(lLexer.Token, ['class', 'record', 'object', 'interface']) then
+      begin
+        lStarted := True;
+        lDepth := 1;
+      end else if lStarted and (lLexer.TokenID = ptRecord) then
+        Inc(lDepth)
+      else if lStarted and (lLexer.TokenID = ptEnd) then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          Exit(lLine);
+      end;
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
   end;
 end;
 
@@ -2181,9 +2212,15 @@ end;
 procedure AddModelSourceCompatibilitySymbols(
   const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
-  lLines: TArray<string>;
+  i, lFirst: Integer;
+  lActiveLines, lLines: TArray<string>;
+  lMember: TDelphiSemanticMember;
+  lRoutine: TDelphiSemanticRoutine;
+  lDuplicate: Boolean;
+  lSymbol: TDelphiSemanticInventorySymbol;
 begin
   lLines := InventorySourceTextLines(aModel.SourceText);
+  lFirst := aSymbols.Count;
   ParseDakInventoryTypeMembers(aSymbols,
     InventorySourceTextLines(InventoryMaskTrivia(aModel.SourceText, True)),
     aModel.UnitName, aModel.FileName);
@@ -2191,6 +2228,41 @@ begin
   ParseDakInventoryRoutines(aSymbols, lLines,
     InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
       aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName);
+  lActiveLines := InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
+    aModel.SourceText, aModel.VerifiedActiveSourceText));
+  // Preserve the scanner's source-layout refusals. Remove only member tokens
+  // that the compiler activity evidence positively identifies as inactive.
+  for i := aSymbols.Count - 1 downto lFirst do
+  begin
+    lSymbol := aSymbols[i];
+    lDuplicate := False;
+    if SameText(lSymbol.SymbolClass, 'field') then
+      for lMember in aModel.Members do
+        if (lMember.OwnerScopeId <> '') and (lMember.OwnerSymbolId <> '') and
+          (lMember.FileName = '') and (lMember.Line = lSymbol.Line) and
+          (lMember.Column = lSymbol.Column) and SameText(lMember.Name, lSymbol.Name) then
+        begin
+          for lRoutine in aModel.Routines do
+            if SameText(lRoutine.ScopeId, lMember.OwnerScopeId) then
+            begin
+              lDuplicate := True;
+              Break;
+            end;
+          if lDuplicate then
+            Break;
+        end;
+    if lDuplicate then
+    begin
+      aSymbols.Delete(i);
+      Continue;
+    end;
+    if MatchText(lSymbol.SymbolClass, ['field', 'constant']) and
+      (lSymbol.Line > 0) and (lSymbol.Line <= Length(lActiveLines)) and
+      (lSymbol.Column > 0) and
+      SameText(Copy(lLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name)), lSymbol.Name) and
+      (Trim(Copy(lActiveLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name))) = '') then
+      aSymbols.Delete(i);
+  end;
 end;
 
 procedure AddDakCompatibleInventorySymbols(const aModel: TDelphiSemanticUnitModel;
@@ -2971,6 +3043,49 @@ begin
   end;
 end;
 
+procedure AddMissingAliasInventorySymbols(const aModel: TDelphiSemanticUnitModel;
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lExisting, lSymbol: TDelphiSemanticInventorySymbol;
+  lFound: Boolean;
+begin
+  for lDeclaration in aModel.Declarations do
+  begin
+    if not SameText(lDeclaration.Kind, 'type-alias') or
+      not SameText(lDeclaration.DeclarationRole, 'declaration') or
+      not MatchText(lDeclaration.ScopeKind, ['unit', 'routine']) or
+      not TRegEx.IsMatch(lDeclaration.TypeName, '^[A-Za-z_][A-Za-z0-9_.]*$') then
+      Continue;
+    lFound := False;
+    for lExisting in aSymbols do
+      if SameText(lExisting.SymbolClass, 'type-member') and
+        SameText(lExisting.Name, lDeclaration.Name) and
+        (lExisting.Line = lDeclaration.Line) and
+        (lExisting.Column = lDeclaration.Column) then
+        lFound := True;
+    if lFound then
+      Continue;
+    lSymbol := Default(TDelphiSemanticInventorySymbol);
+    lSymbol.Name := lDeclaration.Name;
+    lSymbol.SymbolClass := 'type-member';
+    lSymbol.Kind := 'type-member';
+    lSymbol.TypeName := lDeclaration.TypeName;
+    lSymbol.RelatedTypeName := InventorySimpleTypeName(lDeclaration.TypeName);
+    lSymbol.UnitName := aModel.UnitName;
+    lSymbol.FileName := aModel.FileName;
+    lSymbol.SectionKind := lDeclaration.SectionKind;
+    lSymbol.RoutineScopeId := lDeclaration.OwnerScopeId;
+    lSymbol.OwnerScopeId := lDeclaration.OwnerScopeId;
+    lSymbol.OwnerSymbolId := lDeclaration.SymbolId;
+    lSymbol.Line := lDeclaration.Line;
+    lSymbol.Column := lDeclaration.Column;
+    lSymbol.EndLine := lDeclaration.Line;
+    lSymbol.EndColumn := lDeclaration.Column + Length(lDeclaration.Name);
+    AddInventorySymbol(aSymbols, lSymbol);
+  end;
+end;
+
 class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
   TArray<TDelphiSemanticInventorySymbol>;
 var
@@ -2978,6 +3093,7 @@ var
   lFirstTextIndex: NativeInt;
   lLocal: TDelphiSemanticLocal;
   lMember: TDelphiSemanticMember;
+  lProjectValue: Boolean;
   lParameter: TDelphiSemanticParameter;
   lRoutine: TDelphiSemanticRoutine;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -3079,6 +3195,41 @@ begin
       end;
     end;
 
+    // Verified AST value members share the ordinary inventory expansion path.
+    for lMember in aModel.TypeValueMembers do
+    begin
+      lProjectValue := False;
+      for lDeclaration in aModel.Declarations do
+        if SameText(lDeclaration.Name, lMember.OwnerName) and
+          ((lDeclaration.HelperTargetName <> '') or
+          ((Pos('.', lDeclaration.Name) > 0) and
+          MatchText(lDeclaration.ScopeKind, ['unit', 'routine']))) then
+          lProjectValue := True;
+      if not lProjectValue then
+        Continue;
+      lSymbol := Default(TDelphiSemanticInventorySymbol);
+      lSymbol.Name := lMember.Name;
+      if SameText(lMember.Kind, 'variant-tag') then
+        lSymbol.SymbolClass := 'field'
+      else
+        lSymbol.SymbolClass := 'constant';
+      lSymbol.Kind := lSymbol.SymbolClass;
+      lSymbol.TypeName := lMember.TypeName;
+      lSymbol.OwnerName := lMember.OwnerName;
+      lSymbol.OwnerType := lMember.OwnerName;
+      lSymbol.OwnerScopeId := lMember.OwnerScopeId;
+      lSymbol.OwnerSymbolId := lMember.OwnerSymbolId;
+      lSymbol.UnitName := aModel.UnitName;
+      lSymbol.FileName := lMember.FileName;
+      if lSymbol.FileName = '' then
+        lSymbol.FileName := aModel.FileName;
+      lSymbol.Line := lMember.Line;
+      lSymbol.Column := lMember.Column;
+      lSymbol.EndLine := lMember.Line;
+      lSymbol.EndColumn := lMember.Column + Length(lMember.Name);
+      AddInventorySymbol(lSymbols, lSymbol);
+    end;
+
     for lRoutine in aModel.Routines do
     begin
       lSymbol := Default(TDelphiSemanticInventorySymbol);
@@ -3156,6 +3307,7 @@ begin
 
     lFirstTextIndex := lSymbols.Count;
     AddDakCompatibleInventorySymbols(aModel, lSymbols);
+    AddMissingAliasInventorySymbols(aModel, lSymbols);
     AssignTextInventoryRoutineScopes(aModel, lSymbols, lFirstTextIndex);
     Result := lSymbols.ToArray;
   finally

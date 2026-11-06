@@ -67,6 +67,7 @@ type
     HelperParentName: string;
     IsHelper: Boolean;
     HelperCovered: Boolean;
+    GenericArity: Integer;
     TypeBodyEndLine: Integer;
     TypeBodyEndColumn: Integer;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
@@ -267,6 +268,16 @@ begin
   Delete(aLine, 1, lMatch.Length);
 end;
 
+function AnonymousRecordDepthDelta(const aLine: string): Integer;
+var
+  lText: string;
+begin
+  lText := SanitizeCodeText(aLine);
+  Result := TRegEx.Matches(lText, ':\s*(?:packed\s+)?record\b', [roIgnoreCase]).Count;
+  if Result > 0 then
+    Dec(Result, TRegEx.Matches(lText, '\bend\b', [roIgnoreCase]).Count);
+end;
+
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>;
 var
   i: Integer;
@@ -292,6 +303,8 @@ begin
     begin
       lLine := lLines[i].Trim;
       lScopeLine := StripTrailingDeclarationComment(lLine);
+      if lTypeDepth > 0 then
+        Inc(lTypeDepth, AnonymousRecordDepthDelta(lScopeLine));
       ConsumeTypeKeyword(lScopeLine, lBlockKind);
       if lTypeDepth > 0 then
       begin
@@ -314,7 +327,7 @@ begin
         lBlockKind := '';
       end else if lBlockKind = 'type' then
       begin
-        lTypeMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
+        lTypeMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^=]+>)?\s*=\s*([^;\r\n]+)',
           [roIgnoreCase]);
         if lTypeMatch.Success then
         begin
@@ -1849,6 +1862,61 @@ begin
   lDeclaration.EndOffset := lOffset + Length(lName);
   aDeclarations.Add(lDeclaration);
 end;
+procedure EnsureHelperDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lHeader: TMatch;
+  lName: string;
+  lOffset: Integer;
+  lTypeNode: TSyntaxNode;
+begin
+  lTypeNode := aNode.FindNode(ntType);
+  if not Assigned(lTypeNode) or not Assigned(lTypeNode.FindNode(ntHelper)) then
+    Exit;
+  lOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  lHeader := TRegEx.Match(Copy(aText, lOffset, MaxInt),
+    '^&?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(?:class|record)\s+helper\b', [roIgnoreCase]);
+  if not lHeader.Success then
+    Exit;
+  lName := lHeader.Groups[1].Value;
+  if not SameText(lName, StringReplace(AstNodeName(aNode), '&', '', [rfReplaceAll])) then
+    Exit;
+  for lDeclaration in aDeclarations do
+    if (lDeclaration.Offset = lOffset) and SameText(lDeclaration.Name, lName) then
+      Exit;
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := lName;
+  lDeclaration.Kind := 'type';
+  lDeclaration.TypeName := lTypeNode.GetAttribute(anType);
+  lDeclaration.SectionKind := SectionForOffset(aText, lOffset);
+  // Keep the AST token coordinate for fact matching; final reconciliation locates
+  // the identifier after its optional ampersand in the original source.
+  lDeclaration.Line := aNode.Line;
+  lDeclaration.Column := aNode.Col;
+  lDeclaration.Offset := lOffset;
+  lDeclaration.EndOffset := lOffset + Length(lName);
+  aDeclarations.Add(lDeclaration);
+end;
+
+procedure EnsureUnitAliasDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>);
+var
+  lRange: TOffsetRange;
+  lText: string;
+begin
+  lRange := AstNodeRange(aText, aNode);
+  lText := SanitizeCodeText(Copy(aText, lRange.StartOffset,
+    lRange.EndOffset - lRange.StartOffset));
+  // Compound headers retain their existing declaration and inventory paths.
+  if TRegEx.IsMatch(lText,
+    '^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*' +
+    '(?!(?:class|record|object|interface|dispinterface|procedure|function|array|set|file|packed)\b)' +
+    '[A-Za-z_][A-Za-z0-9_.]*\s*;?\s*$',
+    [roIgnoreCase]) then
+    EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
+end;
+
 procedure EnsureUnitConstantDeclaration(const aText: string; const aNode: TSyntaxNode;
   const aDeclarations: TList<TDelphiSemanticDeclaration>);
 var
@@ -2003,6 +2071,43 @@ procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: stri
   const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>); forward;
+
+function AnonymousRecordNeedsModel(const aText: string; const aTypeNode: TSyntaxNode;
+  const aVariable: Boolean): Boolean;
+var
+  lDepth: Integer;
+  lLexer: TmwBasePasLex;
+begin
+  Result := False;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Copy(aText, OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col), MaxInt);
+    lDepth := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+        begin
+          // Only the requested one-line variables gain ordinary model facts.
+          // Other plain anonymous layouts retain their existing binding refusals.
+          Result := aVariable and (LineOfOffset(aText,
+            OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col) + lLexer.TokenPos) =
+            aTypeNode.Line);
+          Exit;
+        end;
+      end else if (lDepth = 1) and (lLexer.TokenID = ptCase) then
+        Exit(True);
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
 
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
@@ -2182,9 +2287,19 @@ var
         lFact.TypeOwnerPath := aTypeOwnerPath;
       if aNode.Typ = ntTypeDecl then
       begin
-        if (lCurrentScopeIndex >= 0) and (aTypeOwnerPath = '') then
-          EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations);
+        EnsureHelperDeclaration(aText, aNode, aDeclarations);
+        lFact.Name := StringReplace(lFact.Name, '&', '', [rfReplaceAll]);
+        if aTypeOwnerPath = '' then
+        begin
+          if lCurrentScopeIndex >= 0 then
+            EnsureRoutineTypeDeclaration(aText, aNode, aDeclarations)
+          else
+            EnsureUnitAliasDeclaration(aText, aNode, aDeclarations);
+        end;
         lFact.TypeOwnerPath := aTypeOwnerPath;
+        for lChild in aNode.ChildNodes do
+          if lChild.Typ = ntTypeParams then
+            lFact.GenericArity := Length(lChild.ChildNodes);
         lTypeNode := aNode.FindNode(ntType);
         if Assigned(lTypeNode) then
         begin
@@ -2256,10 +2371,12 @@ var
 
     // Inline records have no type identifier. Their declaration token and AST
     // member tree establish the synthetic type used by the existing binder.
-    if aAnonymousAbsenceOnly and (aNode.Typ in [ntVariable, ntField, ntParameter]) then
+    if aNode.Typ in [ntVariable, ntField, ntParameter] then
     begin
       lTypeNode := aNode.FindNode(ntType);
-      if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') then
+      if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') and
+        (aAnonymousAbsenceOnly or AnonymousRecordNeedsModel(aText, lTypeNode,
+          aNode.Typ = ntVariable)) then
       begin
         lName := AstNodeName(aNode);
         if aTypeOwnerPath <> '' then
@@ -2608,6 +2725,7 @@ begin
           LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.Name);
         lDeclaration.InterfaceGuid := lFact.InterfaceGuid;
         lDeclaration.AstHelperKind := lFact.AstHelperKind;
+        lDeclaration.GenericArity := lFact.GenericArity;
         if lFact.AstHelperKind <> '' then
         begin
           lDeclaration.HelperTargetName := lFact.HelperTargetName;
@@ -2632,7 +2750,7 @@ begin
       aDeclarations[i] := lDeclaration;
     end;
 
-    // DS-716: the line scanner can omit escaped or same-line helper declarations.
+    // DS-716: unsupported helper headers can still be omitted by declaration indexing.
     // Count their active AST facts as rejected rather than infer a helper-free context.
     for lFact in lDeclarationFacts do
       if lFact.IsHelper then
@@ -3129,6 +3247,8 @@ begin
     begin
       lLine := lLines[i].Trim;
       lScopeLine := StripTrailingDeclarationComment(lLine);
+      if lTypeDepth > 0 then
+        Inc(lTypeDepth, AnonymousRecordDepthDelta(lScopeLine));
       if lPendingEnumName <> '' then
       begin
         lPendingEnumText := lPendingEnumText + ' ' + lScopeLine;
@@ -3171,7 +3291,7 @@ begin
           lBlockKind := ''
         else if lBlockKind = 'type' then
         begin
-          lMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)',
+          lMatch := TRegEx.Match(lScopeLine, '^([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^=]+>)?\s*=\s*([^;\r\n]+)',
             [roIgnoreCase]);
           if lMatch.Success then
           begin
@@ -3224,13 +3344,31 @@ end;
 
 function FindAnonymousRecordEndLine(const aLines: TStringList; const aStartIndex: Integer): Integer;
 var
-  i: Integer;
+  lDepth: Integer;
+  lLexer: TmwBasePasLex;
+  lText: string;
 begin
   Result := aStartIndex;
-  for i := aStartIndex + 1 to Pred(aLines.Count) do
-  begin
-    if SameText(aLines[i].Trim, 'end;') or SameText(aLines[i].Trim, 'end') then
-      Exit(i);
+  lText := string.Join(sLineBreak, aLines.ToStringArray, aStartIndex, aLines.Count - aStartIndex);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lText;
+    lDepth := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          Exit(aStartIndex + LineOfOffset(lText, lLexer.TokenPos + 1) - 1);
+      end;
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
   end;
 end;
 
@@ -3436,6 +3574,8 @@ begin
                 lSkipUntilLine := LineOfOffset(aText, lHeaderOffset);
             end;
           end;
+          if TryAnonymousRecordVarStart(lLine, lName) then
+            lMatch := Default(TMatch);
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
@@ -4452,11 +4592,16 @@ begin
     TCompoundSyntaxNode(aNode).EndCol);
   lText := Copy(aText, lStart, lEnd - lStart);
   lHeader := TRegEx.Match(lText,
-    '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:class|record)\s+helper\s+for\s+' +
+    '^\s*&?([A-Za-z_][A-Za-z0-9_]*)(\s*<[^=]+>)?\s*=\s*((?:class|record)\s+helper\s+for\s+' +
     '[A-Za-z_][A-Za-z0-9_.]*|(?:class|interface)(?:\s*\([^)]+\))?|' +
     '(?:packed\s+)?record)\b', [roIgnoreCase]);
-  // An unreadable header (a generic type, for example) has no type declaration either.
+  // Unsupported headers retain incomplete member evidence rather than inferred members.
   if not lHeader.Success then
+    Exit;
+  // Generic class/interface specialization is not modelled. Keep its declaration
+  // indexed without publishing unspecialized members as inherited bindings.
+  if (lHeader.Groups[2].Value <> '') and
+    not SameText(lTypeNode.GetAttribute(anType), 'record') then
     Exit;
   lOwnerName := lHeader.Groups[1].Value;
   if aOwnerPrefix <> '' then

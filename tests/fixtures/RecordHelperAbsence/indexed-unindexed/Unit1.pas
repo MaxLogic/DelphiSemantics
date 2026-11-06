@@ -4,7 +4,8 @@ type
   TRec = record
     Value: Integer;
   end;
-  &THelp = record helper for TRec
+  &THelp =
+    record helper for TRec
     function GetItem(aIndex: Integer): Integer;
     procedure SetItem(aIndex, aValue: Integer);
     property lArr[aIndex: Integer]: Integer read GetItem write SetItem;

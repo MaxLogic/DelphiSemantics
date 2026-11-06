@@ -213,8 +213,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated include-frame, WITH range and inactive-subject facts require fresh extraction.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.79';
+  // Integrated model extraction and conditional WITH safety require fresh extraction.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.82';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

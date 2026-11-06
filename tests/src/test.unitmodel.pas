@@ -56,6 +56,15 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Category('DS703Slice')]
+    [TestCase('Nested record owner', 'nested')]
+    [TestCase('Nested array record owner', 'array')]
+    [TestCase('One-line global record', 'global')]
+    [TestCase('Routine record inventory', 'local')]
+    [TestCase('Class heritage is not enumeration', 'heritage')]
+    [TestCase('Generic class inventory', 'generic')]
+    [TestCase('Constrained generic class inventory', 'constrained')]
+    procedure ModelInventoryOwnership(const aShape: string);
     [TestCase('repeat-one full', 'repeat-one,False')]
     [TestCase('repeat-one scan', 'repeat-one,True')]
     [TestCase('repeat-multi full', 'repeat-multi,False')]
@@ -346,6 +355,14 @@ type
     [TestCase('Record constant', 'record')]
     [TestCase('Class constant', 'class')]
     procedure NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
+    [TestCase('generic-record', 'generic-record')]
+    [TestCase('nested-record-const', 'nested-record-const')]
+    [TestCase('nested-record-var', 'nested-record-var')]
+    [TestCase('generic-const', 'generic-const')]
+    [TestCase('generic-var', 'generic-var')]
+    [TestCase('escaped-helper', 'escaped-helper')]
+    [TestCase('same-line-helper', 'same-line-helper')]
+    procedure ComplexTypeSectionDeclarations(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure MultilineVarParametersAreNotUnitVariables;
@@ -1821,6 +1838,120 @@ begin
 
   Assert.IsTrue(HasDeclaration(lModel, 'IGuidInline', 'type', 'interface'));
   Assert.IsTrue(HasRoutine(lModel, 'RoutineAfterGuidInterface', 'interface'));
+end;
+
+procedure TUnitModelTests.ModelInventoryOwnership(const aShape: string);
+var
+  lSource, lPath, lTypes, lVariables, lRoutines, lPrefix: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lCount: Integer;
+begin
+  lTypes := '';
+  lVariables := '';
+  lRoutines := '';
+  if (aShape = 'nested') or (aShape = 'array') then
+  begin
+    lPrefix := '';
+    if aShape = 'array' then
+      lPrefix := 'array[0..1] of ';
+    lTypes := 'type'#13#10'  TOuter = record'#13#10 +
+      '    Struktur: record'#13#10'      Inner: ' + lPrefix + 'record'#13#10 +
+      '        Value: Integer;'#13#10'      end;'#13#10 +
+      '      Count: Integer;'#13#10'    end;'#13#10 +
+      '    Own: Integer;'#13#10'  end;'#13#10;
+  end else if aShape = 'global' then
+    lVariables := 'var'#13#10'  X: record A: Integer; end;'#13#10 +
+      '  Following: Integer;'#13#10
+  else if aShape = 'local' then
+    lRoutines := 'procedure Run;'#13#10'type'#13#10'  TLocal = record'#13#10 +
+      '    Value: Integer;'#13#10'  end;'#13#10'var'#13#10 +
+      '  X: record A: Integer; end;'#13#10'  Following: Integer;'#13#10 +
+      'begin end;'#13#10
+  else if aShape = 'heritage' then
+    lTypes := 'type'#13#10'  TBase = class end;'#13#10 +
+      '  TChild = class(TBase)'#13#10'  end;'#13#10
+  else
+  begin
+    lPrefix := 'T';
+    if aShape = 'constrained' then
+      lPrefix := 'T: class, constructor; U: record';
+    lTypes := 'type'#13#10'  TGen<' + lPrefix + '> = class(Vcl.Forms.TForm)'#13#10 +
+      '  end;'#13#10;
+  end;
+  lSource := 'unit OwnershipUnit;'#13#10'interface'#13#10 + lTypes + lVariables +
+    'implementation'#13#10 + lRoutines + 'end.'#13#10;
+  lPath := UnitModelTempPath('ownership-' + aShape + '.pas');
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, ModelToJson(lModel));
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel);
+  if (aShape = 'nested') or (aShape = 'array') then
+  begin
+    Assert.IsFalse(HasMember(lModel, 'TOuter', 'Count', 'field', 'Integer'),
+      'The outer record has no Count field');
+    Assert.IsTrue(HasMember(lModel, 'TOuter', 'Own', 'field', 'Integer'), 'Outer Own');
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'TOuter') and
+        SameText(lSymbol.Name, 'Count'), 'The text inventory must not invent TOuter.Count');
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.OwnerType, 'TOuter.Struktur') and SameText(lSymbol.Name, 'Count') then
+        Inc(lCount);
+    Assert.IsTrue(lCount > 0, 'The inventory retains Count under its actual owner');
+  end else if aShape = 'global' then
+  begin
+    Assert.IsTrue(HasDeclaration(lModel, 'Following', 'var', 'interface'), 'Following declaration');
+    Assert.IsTrue(HasMember(lModel, 'OwnershipUnit.X', 'A', 'field', 'Integer'));
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'OwnershipUnit.X') and
+        SameText(lSymbol.Name, 'Following'), 'A later variable is not an inline record field');
+  end else if aShape = 'local' then
+  begin
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.SymbolClass, 'field') and SameText(lSymbol.Name, 'Value') then
+      begin
+        Inc(lCount);
+        Assert.IsTrue(lSymbol.OwnerScopeId <> '', 'Every routine field must retain its scope');
+        Assert.AreEqual('TLocal', lSymbol.OwnerType);
+      end;
+    Assert.AreEqual(1, lCount, 'A routine record field must occur exactly once');
+    Assert.IsTrue(HasMember(lModel, 'Run.X', 'A', 'field', 'Integer'));
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'Run.X') and
+        SameText(lSymbol.Name, 'Following'));
+  end else if aShape = 'heritage' then
+  begin
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.SymbolClass, 'constant') and
+        SameText(lSymbol.Name, 'TBase'), 'Class heritage cannot create an enum constant');
+  end else
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration),
+      'A generic class must be inventoried');
+    Assert.AreEqual('class', lDeclaration.TypeName);
+    Assert.AreEqual('Vcl.Forms.TForm', lDeclaration.BaseTypeName);
+    if aShape = 'generic' then
+      Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":1'), 'Generic arity one')
+    else
+      Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":2'), 'Constraint commas are not parameters');
+    lModel := JsonToModel(ModelToJson(lModel));
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration));
+    Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":'), 'Generic arity survives JSON');
+
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.Name, 'TGen') and SameText(lSymbol.SymbolClass, 'declaration') then
+        Inc(lCount);
+    Assert.AreEqual(1, lCount);
+  end;
 end;
 
 procedure TUnitModelTests.ExtractsAnonymousNestedRecordMembers;
@@ -5048,6 +5179,90 @@ begin
     end;
 end;
 
+procedure TUnitModelTests.ComplexTypeSectionDeclarations(const aShape: string);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel, lDecoded: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSource, lOwner, lSection: string;
+begin
+  lSource := 'unit ComplexTypes;'#13#10'interface'#13#10'type'#13#10 +
+    '  TItem = record Value: Integer; end;'#13#10;
+  if aShape = 'generic-record' then
+    lSource := lSource + '  TGen<T> = record'#13#10'    Data: T;'#13#10'  end;'#13#10 +
+      '  TPad = record Pad: Integer; end;'#13#10'  TX = TItem;'#13#10
+  else if aShape = 'escaped-helper' then
+    lSource := lSource + '  &THelp = record helper for TItem'#13#10 +
+      '    function Get: Integer;'#13#10'  end;'#13#10
+  else if aShape = 'same-line-helper' then
+    lSource := lSource + '  TPad = record Pad: Integer; end; ' +
+      'THelp = record helper for TItem function Get: Integer; end;'#13#10
+  else
+  begin
+    lOwner := 'TR = record';
+    if StartsText('generic-', aShape) then
+      lOwner := 'TG<T> = class';
+    lSource := lSource + '  ' + lOwner + #13#10;
+    if StartsText('nested-record-', aShape) then
+      lSource := lSource + '    Inner: record'#13#10'      Value: Integer;'#13#10'    end;'#13#10;
+    lSection := 'const'#13#10'      cValue = 1;';
+    if EndsText('-var', aShape) then
+      lSection := 'var'#13#10'      Data: Integer;';
+    lSource := lSource + '    ' + lSection + #13#10'  end;'#13#10 +
+      '  TC = class'#13#10'    function Get: Integer;'#13#10'  end;'#13#10 +
+      'const'#13#10'  UnitValue = 2;'#13#10;
+  end;
+  lSource := lSource + 'implementation'#13#10;
+  if EndsText('helper', aShape) then
+    lSource := lSource + 'function THelp.Get: Integer; begin Result := Value; end;'#13#10
+  else if aShape <> 'generic-record' then
+    lSource := lSource + 'function TC.Get: Integer; begin Result := UnitValue; end;'#13#10;
+  lSource := lSource + 'end.'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('complex-' + aShape + '.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.AreEqual('ast', lModel.ScopeModelStatus);
+  lDecoded := JsonToModel(ModelToJson(lModel));
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(lDecoded));
+  if aShape = 'generic-record' then
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration),
+      'The generic record must be indexed.');
+    Assert.AreEqual('record', lDeclaration.TypeName);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'TGen', 'Data'));
+    Assert.IsTrue(HasDeclaration(lModel, 'TPad', 'type', 'interface'));
+    Assert.IsTrue(FindDeclaration(lModel, 'TX', 'type-alias', 'interface', lDeclaration));
+    Assert.AreEqual('TItem', lDeclaration.TypeName);
+  end else if EndsText('helper', aShape) then
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'THelp', 'type', 'interface', lDeclaration),
+      'Escaped and same-line helpers must have real declarations.');
+    Assert.AreEqual('record', lDeclaration.AstHelperKind);
+    Assert.AreEqual('TItem', lDeclaration.HelperTargetName);
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'THelp', 'Get'));
+    Assert.AreEqual<Integer>(0, Length(lModel.UnindexedHelpers));
+    Assert.IsFalse(HasDiagnostic(lModel, 'AST_HELPER_DECLARATION_UNINDEXED'));
+  end else begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TC', 'type', 'interface', lDeclaration),
+      'The enclosing type section must resume after the owner.');
+    Assert.AreEqual('class', lDeclaration.TypeName);
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'TC', 'Get'));
+    Assert.IsFalse(HasDeclaration(lModel, 'TC', 'const', 'interface'));
+    Assert.IsTrue(FindDeclaration(lModel, 'UnitValue', 'const', 'interface', lDeclaration));
+    Assert.AreEqual('unit', lDeclaration.ScopeKind);
+    if EndsText('-const', aShape) then
+    begin
+      Assert.IsTrue(FindDeclaration(lModel, 'cValue', 'const', 'interface', lDeclaration));
+      Assert.AreEqual('type', lDeclaration.ScopeKind);
+    end;
+  end;
+end;
+
 procedure TUnitModelTests.NestedConstSectionKeepsFollowingTypeDeclaration(const aOwnerType: string);
 var
   lDeclaration: TDelphiSemanticDeclaration;
@@ -6511,7 +6726,7 @@ begin
     lSection := 'implementation';
   end;
   if aShape <> 'none' then
-    lSource := lSource + 'type'#13#10'  &THelp = ' + lKind + ' helper for ' + lTarget + #13#10 +
+    lSource := lSource + 'type'#13#10'  &THelp ='#13#10'    ' + lKind + ' helper for ' + lTarget + #13#10 +
       '    function Count: Integer;'#13#10'  end;'#13#10;
   if aShape <> 'implementation' then
     lSource := lSource + 'implementation'#13#10;
@@ -6654,10 +6869,13 @@ begin
   if aShape = 'tagless' then
     lBody := 'type TRec = record case Integer of 0: (Value: Integer); end;';
   if aShape = 'anonymous-field' then
+  begin
     lBody := 'type TRec = record Inner: record case Count: Integer of 0: (Value: Integer); end; end;';
+    lExpectedOwner := 'TRec.Inner';
+  end;
   if aShape = 'inactive' then
     lBody := 'type TRec = record {$IFDEF DS731_NEVER} const Count = 5; {$ENDIF} var Value: Integer; end;';
-  if MatchText(aShape, ['empty', 'tagless', 'anonymous-field', 'inactive']) then
+  if MatchText(aShape, ['empty', 'tagless', 'inactive']) then
     lExpectedCount := 0;
   if aShape = 'private' then
   begin
