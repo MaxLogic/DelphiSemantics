@@ -94,7 +94,7 @@ uses
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   maxLogic.IOUtils,
-  Test.Support;
+  Test.CompilerDefineEvidence, Test.CompilerIncludeCapture, Test.Support;
 
 var
   GDeadCodeTempRoot: string;
@@ -1108,6 +1108,7 @@ end;
 
 procedure TDeadCodeTests.DeclaringUnitIncludesRemainOccurrenceBlockers(const aSnapshot: Boolean);
 var
+  lApiOptions: TDelphiSemanticApiOptions;
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lContext: TDelphiSemanticSymbolQueryContext;
   lExtractionMilliseconds: Int64;
@@ -1140,9 +1141,27 @@ begin
     TEncoding.ASCII);
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  // This closed synthetic fixture proves the ordinary symbol absent in ULocal.
+  // The native empty -I witness allows its owned include to be captured.
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lApiOptions := Default(TDelphiSemanticApiOptions);
+  lApiOptions.ProjectFileName := lOptions.ProjectPath;
+  lApiOptions.Configuration := lOptions.Configuration;
+  lApiOptions.Platform := lOptions.Platform;
+  lApiOptions.DelphiVersion := lOptions.DelphiVersion;
+  lApiOptions.CompilerIncludeSearchPath := lOptions.CompilerIncludeSearchPath;
+  lApiOptions.CompilerIncludeSearchPathProvided := True;
+  CertifyClosedGeneratedProject(lApiOptions, lRoot, []);
+  lOptions.CompilerDefineEvidence := lApiOptions.CompilerDefineEvidence;
   lSession := TDelphiSemanticProjectSession.Open(lOptions);
   Assert.IsTrue(lSession.Success);
   try
+    Assert.IsTrue(lSession.Session.Project.DefineEvidenceComplete,
+      'The generated fixture must prove ordinary-symbol absence.');
     if aSnapshot then
       lContext := lSession.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
         lExtractionMilliseconds)
