@@ -231,7 +231,7 @@ uses
 const
   cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v65';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v95';
+    'project-session-remove-with-facts-v96';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -2230,6 +2230,7 @@ function TDelphiSemanticProjectSession.BuildRemoveWithFactsAndPlanResult(
   TDelphiSemanticRemoveWithFactsAndPlanBuildResult;
 var
   lCoreResult: TProjectWithBindingFactsCoreResult;
+  lPublicationDiagnostic: TDelphiSemanticDiagnostic;
   lSnapshot: TDelphiProjectSnapshot;
   lSnapshotBuildMilliseconds: Int64;
   lSnapshotStopwatch: TStopwatch;
@@ -2280,8 +2281,25 @@ begin
     RequireCombinedProjectCurrent(fProject);
     RequireCombinedModelsCurrent(Result.Facts.UnitModels);
     if SameText(Result.Plan.Status, 'planned') then
-      Result.Facts.Metrics.ProjectFactsCacheStoreOutcome :=
-        PublishCombinedPlanningCaches(fOptions, lCoreResult);
+    begin
+      try
+        Result.Facts.Metrics.ProjectFactsCacheStoreOutcome :=
+          PublishCombinedPlanningCaches(fOptions, lCoreResult);
+      except
+        on E: ECombinedFactsCachePublication do
+        begin
+          // The plan is already validated. A cache write cannot change its edits
+          // or turn a successful plan into a combined-build failure.
+          Result.Facts.Metrics.ProjectFactsCacheStoreOutcome := 'cache-publication-error';
+          lPublicationDiagnostic := Default(TDelphiSemanticDiagnostic);
+          lPublicationDiagnostic.Code := 'COMBINED_FACTS_CACHE_PUBLICATION_FAILED';
+          lPublicationDiagnostic.Message := E.Message;
+          lPublicationDiagnostic.FileName := fOptions.SqliteCacheFileName;
+          lPublicationDiagnostic.Severity := dsWarning;
+          Result.Plan.Diagnostics := Result.Plan.Diagnostics + [lPublicationDiagnostic];
+        end;
+      end;
+    end;
   end;
   Result.ModelExtractionPassCount :=
     fLastRemoveWithFactsAndPlanBuildMetrics.ModelExtractionPassCount;

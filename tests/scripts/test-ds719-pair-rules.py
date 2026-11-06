@@ -70,5 +70,26 @@ class PairRules(unittest.TestCase):
                 self.assertEqual('fail', reference.pair_route_result(plan, 'control')['result'])
 
 
+    def test_covered_child_requires_a_planned_containing_parent(self):
+        folder = Path.cwd()
+        path = str(folder / 'Unit1.pas')
+        targets = [dict(file='Unit1.pas', line=10, column=3, context=[]),
+                   dict(file='Unit1.pas', line=12, column=5, context=[])]
+        parent = dict(id='outer', file=path, sl=10, sc=3, el=16, ec=6, status='planned')
+        child = dict(file=path, sl=12, sc=5, el=15, ec=7,
+                     parent='outer', reason='covered-by-parent-rewrite')
+        variants = [({}, {}, True), ({'status': 'skipped'}, {}, False),
+                    ({'el': 11}, {}, False), ({}, {'parent': 'missing'}, False),
+                    ({}, {'reason': 'not-covered'}, False)]
+        for parent_change, child_change, valid in variants:
+            with self.subTest(parent=parent_change, child=child_change):
+                plan = dict(statements=[dict(parent, **parent_change)],
+                            covered=[dict(child, **child_change)], selectors=[])
+                statements, _, errors = reference.check_coverage(plan, targets, folder)
+                self.assertEqual(valid, not errors, errors)
+                if valid:
+                    self.assertIs(statements[('unit1.pas', 12, 5)], plan['statements'][0])
+
+
 if __name__ == '__main__':
     unittest.main()

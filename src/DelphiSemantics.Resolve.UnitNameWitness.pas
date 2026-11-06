@@ -693,6 +693,18 @@ begin
   aFileName := '';
   aResolvedName := '';
   aReason := 'no-source';
+  // Package membership is not indexed. Even an SDK pair cannot exclude an
+  // alternative unit supplied through a runtime package.
+  // CodeGear.Delphi.Targets activates the saved list only for these switches.
+  if ((SameText(fProject.PropertyValue('UsePackages'), 'true') or
+    SameText(fProject.PropertyValue('DCC_EnabledPackages'), 'true')) and
+    (Trim(fProject.PropertyValue('DCC_UsePackage')) <> '')) or
+    (Trim(fProject.PropertyValue('_UsePackage')) <> '') or
+    (Pos('-LU', UpperCase(fProject.PropertyValue('DCC_AdditionalSwitches'))) > 0) then
+  begin
+    aReason := 'runtime-packages-unmodelled';
+    Exit;
+  end;
   if not fLocationsKnown then
   begin
     aReason := 'profile-locations-unproved';

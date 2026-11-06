@@ -132,6 +132,13 @@ type
     [Test]
     [Category('DS719Review2')]
     procedure ProfileFileCandidatesChangeWitnessIdentity;
+    [Test]
+    procedure CallerSearchPathsJoinWitnessCandidates;
+    [Test]
+    procedure DcpOnlyUnitStaysUnknown;
+    [TestCase('Active runtime packages', 'true')]
+    [TestCase('Dormant IDE package list', 'false')]
+    procedure RuntimePackagesCannotProveSdkAbsence(const aEnabled: Boolean);
     [TestCase('SDK pair', 'pair')]
     [TestCase('SDK pair plus project source', 'project-source')]
     [TestCase('SDK pair plus second SDK source', 'second-sdk-source')]
@@ -910,6 +917,49 @@ begin
   lSecond := Witness;
   Assert.AreNotEqual(lFirst.IdentityText, lSecond.IdentityText);
   Assert.IsFalse(lSecond.MayDeclare('U', 'TX'));
+end;
+
+procedure TUnitNameWitnessTests.CallerSearchPathsJoinWitnessCandidates;
+var
+  lOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  WriteSource('P.dpr', 'program P; begin end.');
+  WriteSource('P.dproj', '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup></Project>');
+  WriteSource('thirdlib\U.dcu', 'command-line-only candidate');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.SearchPaths := [TPath.Combine(fRoot, 'thirdlib'),
+    TPath.Combine(fRoot, '..\lib\win64\release')];
+  lContext := TDelphiSemanticProject.Load(TPath.Combine(fRoot, 'P.dproj'), lOptions);
+  Assert.IsTrue(lContext.Success);
+  lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(lContext.Project, fModels, fRoot);
+  Assert.IsTrue(lWitness.MayDeclare('U', 'Absent'), lWitness.IdentityText);
+  Assert.IsTrue(lWitness.IdentityText.Contains('|unknown|ambiguous-source'), lWitness.IdentityText);
+end;
+
+procedure TUnitNameWitnessTests.DcpOnlyUnitStaysUnknown;
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  fModels[0].DependencyFacts.InterfaceImports := ['PackageUnit'];
+  WriteSource('thirdlib\CustomPackage.dcp', 'package contains PackageUnit');
+  fProject.SearchPaths := [TPath.Combine(fRoot, 'thirdlib')];
+  lWitness := Witness;
+  Assert.IsTrue(lWitness.MayDeclare('PackageUnit', 'TX'), lWitness.IdentityText);
+end;
+
+procedure TUnitNameWitnessTests.RuntimePackagesCannotProveSdkAbsence(const aEnabled: Boolean);
+var
+  lWitness: IDelphiSemanticUnitNameWitness;
+begin
+  SetLength(fProject.Properties, 2);
+  fProject.Properties[0].Name := 'DCC_UsePackage';
+  fProject.Properties[0].Value := 'CustomPackage';
+  fProject.Properties[1].Name := 'DCC_EnabledPackages';
+  fProject.Properties[1].Value := BoolToStr(aEnabled, True);
+  lWitness := Witness;
+  Assert.AreEqual(aEnabled, lWitness.MayDeclare('U', 'Absent'), lWitness.IdentityText);
 end;
 
 procedure TUnitNameWitnessTests.ProfileFileCandidatesChangeWitnessIdentity;
