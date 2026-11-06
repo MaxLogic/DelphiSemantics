@@ -6359,6 +6359,8 @@ begin
   // Only session routes share their owned cold/warm cache within this case.
   if aRoute >= 3 then
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   case aRoute of
     0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
@@ -22616,6 +22618,8 @@ begin
   lOptions.CompilerIncludeSearchPathProvided := True;
   if aRoute >= 3 then
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lCacheable := not StartsText('include-', aShape);
   case aRoute of
@@ -22772,6 +22776,8 @@ begin
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
   lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
   lOptions.CompilerIncludeSearchPathProvided := True;
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   case aRoute of
     0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
@@ -22831,7 +22837,7 @@ begin
   lRefused := MatchText(aShape, ['unknown-local', 'unknown-import', 'incomplete-local',
     'incomplete-import', 'alias-incomplete', 'indexed-incomplete', 'indexed-unindexed']);
   lExpectedStatus := 'planned';
-  if lRefused or MatchText(aShape, ['active-local', 'private-incomplete', 'after-incomplete']) then
+  if lRefused or MatchText(aShape, ['private-incomplete', 'after-incomplete']) then
     lExpectedStatus := 'skipped';
   Assert.AreEqual(lExpectedStatus, lPlan.FinalStatements[0].Status,
     aShape + ':' + lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
@@ -22869,6 +22875,13 @@ begin
     Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'lexical'));
   if MatchText(aShape, ['active-local', 'complete-local']) then
     Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'member'));
+  if aShape = 'active-local' then
+  begin
+    // Explicit completeness plus the source DEFINE proves the helper active.
+    // The rewrite must preserve helper-property binding over the lexical local.
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.lCount'));
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.Value'));
+  end;
   if aShape = 'unknown-local' then
     Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.Bindings[0].Selectors[0].ReasonCode);
 end;

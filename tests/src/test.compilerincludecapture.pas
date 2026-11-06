@@ -3,7 +3,7 @@ unit Test.CompilerIncludeCapture;
 interface
 
 uses
-  DelphiSemantics.CompilerDefineEvidence;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ProjectContext;
 
 function CaptureFixtureCompilerDefines(const aProjectFileName: string):
   IDelphiSemanticCompilerDefineEvidence;
@@ -14,7 +14,10 @@ function CaptureTestCompilerIncludePath(const aRoot: string;
 function CaptureFixtureCompilerIncludePath(const aProjectFileName: string): string;
 
 function CaptureFixtureCompilerDefineContext(const aProjectFileName: string;
-  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence overload;
+
+function CaptureFixtureCompilerDefineContext(const aPlanningOptions: TDelphiSemanticOptions;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence; overload;
 
 implementation
 
@@ -139,6 +142,16 @@ end;
 function CaptureFixtureCompilerDefineContext(const aProjectFileName: string;
   out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence;
 var
+  lOptions: TDelphiSemanticOptions;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := aProjectFileName;
+  Result := CaptureFixtureCompilerDefineContext(lOptions, aIncludePath);
+end;
+
+function CaptureFixtureCompilerDefineContext(const aPlanningOptions: TDelphiSemanticOptions;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence;
+var
   lInvocation: TDakNativeCompilerInvocation;
   lContext: IDakNativeCompilerContext;
   lSettings: IDakNativeCompilerSettingsContext;
@@ -146,10 +159,11 @@ var
   lReason: string;
 begin
   lInvocation := Default(TDakNativeCompilerInvocation);
+  lInvocation.fPlanningOptions := aPlanningOptions;
   lInvocation.fSettingsEvidenceRequested := True;
   lInvocation.fDelphiVersion := '23.0';
   lInvocation.fBuildTarget := 'Build';
-  lInvocation.fProjectFileName := aProjectFileName;
+  lInvocation.fProjectFileName := aPlanningOptions.ProjectPath;
   lInvocation.fSdkRoot := ExcludeTrailingPathDelimiter(
     TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', ''));
   lInvocation.fCompilerFileName := TPath.Combine(lInvocation.fSdkRoot, 'bin\dcc64.exe');
@@ -157,8 +171,8 @@ begin
     'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe');
   lInvocation.fPropertyArguments := '/p:Config=Debug /p:Platform=Win64 /p:BDS="' +
     lInvocation.fSdkRoot + '"';
-  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aProjectFileName),
-    '.dak\' + TPath.GetFileNameWithoutExtension(aProjectFileName) + '\defines');
+  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aPlanningOptions.ProjectPath),
+    '.dak\' + TPath.GetFileNameWithoutExtension(aPlanningOptions.ProjectPath) + '\defines');
   lRunner := TIncludeCaptureProcessRunner.Create;
   lContext := TryCaptureNativeCompilerContext(lInvocation, lRunner, lReason);
   if (lContext = nil) or not Supports(lContext, IDakNativeCompilerSettingsContext, lSettings) then

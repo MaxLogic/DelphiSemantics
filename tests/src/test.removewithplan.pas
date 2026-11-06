@@ -24168,8 +24168,8 @@ begin
   lOptions.AdditionalSourceFileNames := TDirectory.GetFiles(TPath.GetDirectoryName(lProjectPath),
     '*.pas', TSearchOption.soAllDirectories);
   lOptions.Platform := 'Win64';
-  lOptions.CompilerDefineEvidence := CaptureFixtureCompilerDefineContext(lProjectPath,
-    lOptions.CompilerIncludeSearchPath);
+  lOptions.CompilerDefineEvidence := CaptureFixtureCompilerDefineContext(
+    ProjectOptionsFromApiOptions(lOptions), lOptions.CompilerIncludeSearchPath);
   lOptions.CompilerIncludeSearchPathProvided := True;
   lRequest.Options := lOptions;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lRequest);

@@ -2267,7 +2267,10 @@ begin
     InventorySourceTextLines(InventoryMaskTrivia(lSource, True)),
     aModel.UnitName, aModel.FileName);
   ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
-  ParseDakInventoryRoutines(aSymbols, lLines,
+  // Rendering retains inactive locals inside an active routine. Keep their
+  // lexical scope from raw source while active headers remain independently
+  // checked; these symbols do not claim active declaration authority.
+  ParseDakInventoryRoutines(aSymbols, InventorySourceTextLines(aModel.SourceText),
     InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
       aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName);
   lActiveLines := InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(

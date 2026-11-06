@@ -23,7 +23,7 @@ uses
   System.Classes, System.Generics.Collections, System.Hash, System.IOUtils,
   System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver;
+  DelphiSemantics.Model.Text, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver;
 
 type
   // This is a possible-source inventory, not a selected-branch parse. Both
@@ -32,13 +32,17 @@ type
   private
     fProject: TDelphiSemanticProjectInfo;
     fVisited: TStringList;
+    fExpansions: TStringList;
     fImports: TStringList;
+    fSourcePaths: TArray<string>;
+    fPascalSourceNames: TStringList;
     fFiles: TList<TDelphiSemanticCompilerSourceWitness>;
     fIdentity: TStringBuilder;
     fConsoleSafe: Boolean;
     fCause: string;
     procedure Unproved(const aCause: string);
     function Expand(const aFileName, aUnitFileName: string; const aDepth: Integer): string;
+    procedure IndexSourcePaths;
     procedure ScanUnit(const aFileName: string);
     procedure ScanImports(const aText, aFileName: string);
     procedure AddImport(const aName, aExplicitPath, aFileName: string);
@@ -78,10 +82,18 @@ begin
   fVisited.Sorted := True;
   fVisited.CaseSensitive := False;
   fVisited.Duplicates := dupIgnore;
+  fExpansions := TStringList.Create;
+  fExpansions.Sorted := True;
+  fExpansions.CaseSensitive := False;
+  fExpansions.Duplicates := dupIgnore;
   fImports := TStringList.Create;
   fImports.Sorted := True;
   fImports.CaseSensitive := False;
   fImports.Duplicates := dupIgnore;
+  fPascalSourceNames := TStringList.Create(True);
+  fPascalSourceNames.Sorted := True;
+  fPascalSourceNames.CaseSensitive := False;
+  fPascalSourceNames.Duplicates := dupIgnore;
   fFiles := TList<TDelphiSemanticCompilerSourceWitness>.Create;
   fIdentity := TStringBuilder.Create;
   fConsoleSafe := True;
@@ -91,7 +103,9 @@ destructor TInventoryBuilder.Destroy;
 begin
   fIdentity.Free;
   fFiles.Free;
+  fPascalSourceNames.Free;
   fImports.Free;
+  fExpansions.Free;
   fVisited.Free;
   inherited;
 end;
@@ -106,7 +120,7 @@ end;
 function TInventoryBuilder.Expand(const aFileName, aUnitFileName: string;
   const aDepth: Integer): string;
 var
-  lSource, lToken, lArgument, lChild, lCandidate, lPath, lFileName: string;
+  lSource, lToken, lArgument, lChild, lCandidate, lPath, lFileName, lExpansion: string;
   lWitness: TDelphiSemanticCompilerSourceWitness;
   lBytes: TBytes;
   lStream: TFileStream;
@@ -117,14 +131,18 @@ var
 begin
   Result := '';
   lFileName := TPath.GetFullPath(aFileName);
-  if (aDepth > 64) or (fVisited.Count > 10000) then
+  if (aDepth > 64) or (fExpansions.Count > 10000) then
   begin
     Unproved('compiler-source-inventory-limit: ' + lFileName);
     Exit;
   end;
-  if fVisited.IndexOf(lFileName) >= 0 then
+  // The same include can resolve nested names differently in each owning
+  // unit, including wildcard names. Visit expansion contexts, not just files.
+  lExpansion := TPath.GetFullPath(aUnitFileName) + #10 + lFileName;
+  if fExpansions.IndexOf(lExpansion) >= 0 then
     Exit;
-  fVisited.Add(lFileName);
+  fExpansions.Add(lExpansion);
+  fIdentity.AppendLine('expansion').AppendLine(LowerCase(lExpansion));
   try
     lStream := TFileStream.Create(lFileName, fmOpenRead or fmShareDenyWrite);
     try
@@ -139,7 +157,11 @@ begin
     lWitness := Default(TDelphiSemanticCompilerSourceWitness);
     lWitness.SourceFileName := lFileName;
     lWitness.ContentHash := lHash.HashAsString;
-    fFiles.Add(lWitness);
+    if fVisited.IndexOf(lFileName) < 0 then
+    begin
+      fVisited.Add(lFileName);
+      fFiles.Add(lWitness);
+    end;
     // ReadAllText uses the same Delphi BOM/default decoding as project models.
     lSource := TFile.ReadAllText(lFileName);
     if THashSHA2.GetHashStringFromFile(lFileName) <> lWitness.ContentHash then
@@ -160,18 +182,14 @@ begin
       lStart := i;
       if lSource[i] = '''' then
       begin
-        Inc(i);
-        while i <= Length(lSource) do
-        begin
-          if lSource[i] = '''' then
-          begin
-            Inc(i);
-            if (i > Length(lSource)) or (lSource[i] <> '''') then
-              Break;
-          end;
-          Inc(i);
-        end;
-        lText.Append(Copy(lSource, lStart, i - lStart));
+        SkipPascalStringLiteral(lSource, i);
+        lToken := Copy(lSource, lStart, i - lStart);
+        // The import lexer predates multiline literals. Preserve ordinary
+        // quoted IN paths, but give it a neutral literal for multiline text.
+        if ContainsStr(lToken, #10) or ContainsStr(lToken, #13) then
+          lText.Append('''''')
+        else
+          lText.Append(lToken);
         Continue;
       end;
       if (lSource[i] = '/') and (i < Length(lSource)) and (lSource[i + 1] = '/') then
@@ -253,10 +271,44 @@ begin
   end;
 end;
 
+procedure TInventoryBuilder.IndexSourcePaths;
+var
+  lFileName, lPath, lName: string;
+  lPaths: TStringList;
+  lIndex: Integer;
+begin
+  // Rebuild this index for every inventory, including currentness checkpoints.
+  // This avoids a filesystem query for every namespace/path combination while
+  // retaining newly appearing sources and the original ordered lookup.
+  fSourcePaths := [fProject.ProjectDirectory] + fProject.SourceLookupPaths;
+  for lPath in fSourcePaths do
+    try
+      if TDirectory.Exists(lPath) then
+        for lFileName in TDirectory.GetFiles(lPath, '*.pas', TSearchOption.soTopDirectoryOnly) do
+        begin
+          lName := TPath.GetFileName(lFileName);
+          if fPascalSourceNames.Find(lName, lIndex) then
+            lPaths := TStringList(fPascalSourceNames.Objects[lIndex])
+          else
+          begin
+            lPaths := TStringList.Create;
+            fPascalSourceNames.AddObject(lName, lPaths);
+          end;
+          lPaths.Add(lPath);
+        end;
+    except
+      on E: Exception do
+        Unproved('compiler-source-directory-unavailable: ' + lPath + ': ' + E.Message);
+    end;
+end;
+
 procedure TInventoryBuilder.AddImport(const aName, aExplicitPath, aFileName: string);
 var
   lName: TUnitCandidateName;
+  lNames: TArray<TUnitCandidateName>;
+  lUnaliased: TDelphiSemanticProjectInfo;
   lPath, lCandidate: string;
+  lIndex: Integer;
 begin
   if aExplicitPath <> '' then
   begin
@@ -268,13 +320,24 @@ begin
   fImports.Add(aName);
   // Source anywhere in the planning lookup can be rebuilt by -B. A DCU alone
   // is not source and is deliberately never opened by this inventory.
-  for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aName) do
-    for lPath in [fProject.ProjectDirectory] + fProject.SourceLookupPaths do
+  lNames := TDelphiSemanticUnitResolver.CandidateNames(fProject, aName);
+  if Length(lNames) = 0 then
+    Unproved('compiler-source-inventory-alias-conflict: ' + aName);
+  // Planning and native aliases can differ. Scan the unaliased planning name
+  // as well; conflicting aliases cannot establish a common CONSOLE state.
+  lUnaliased := fProject;
+  lUnaliased.UnitAliases := nil;
+  lNames := lNames + TDelphiSemanticUnitResolver.CandidateNames(lUnaliased, aName);
+  for lName in lNames do
+  begin
+    if not fPascalSourceNames.Find(lName.TargetName + '.pas', lIndex) then
+      Continue;
+    for lPath in TStringList(fPascalSourceNames.Objects[lIndex]) do
     begin
       lCandidate := TPath.GetFullPath(TPath.Combine(lPath, lName.TargetName + '.pas'));
-      if TFile.Exists(lCandidate) then
-        ScanUnit(lCandidate);
+      ScanUnit(lCandidate);
     end;
+  end;
 end;
 
 procedure TInventoryBuilder.ScanImports(const aText, aFileName: string);
@@ -334,7 +397,7 @@ procedure TInventoryBuilder.ScanUnit(const aFileName: string);
 var
   lText: string;
 begin
-  if fVisited.IndexOf(TPath.GetFullPath(aFileName)) >= 0 then
+  if fExpansions.IndexOf(TPath.GetFullPath(aFileName) + #10 + TPath.GetFullPath(aFileName)) >= 0 then
     Exit;
   lText := Expand(aFileName, aFileName, 0);
   ScanImports(lText, aFileName);
@@ -349,6 +412,7 @@ begin
   fIdentity.AppendLine(Result.LookupIdentity);
   for lFileName in fProject.IncludePaths do
     fIdentity.AppendLine('include').AppendLine(LowerCase(lFileName));
+  IndexSourcePaths;
   ScanUnit(fProject.MainSourceFileName);
   AddImport('System', '', fProject.MainSourceFileName);
   AddImport('SysInit', '', fProject.MainSourceFileName);

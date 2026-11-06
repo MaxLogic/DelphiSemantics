@@ -776,10 +776,10 @@ def ds772_define_cases(root):
 
 def ds772_apptype_cases(root):
     cases = []
-    for shape in ('console', 'gui', 'include'):
+    for shape in ('console', 'gui', 'include', 'shared-console', 'shared-gui'):
         name = f'ds772-apptype-field-{shape}'
         folder = root / name
-        directive = '{$APPTYPE GUI}' if shape == 'gui' else '{$APPTYPE CONSOLE}'
+        directive = '{$APPTYPE GUI}' if shape in ('gui', 'shared-gui') else '{$APPTYPE CONSOLE}'
         if shape == 'include':
             write(folder / 'kind.inc', directive + '\n')
             directive = '{$I kind.inc}'
@@ -791,13 +791,20 @@ def ds772_apptype_cases(root):
               'with Item do Count := Count + 1;\n'
               '{$IFDEF CONSOLE} Write(Item.Count); {$ELSE} Write(Item.Other); {$ENDIF}\n'
               "Writeln('/', Count);\nend;\nend.\n")
-        project(folder, ['u0', 'Unit1'], msbuild_properties={'DCC_ConsoleTarget': 'true' if shape == 'gui' else 'false'})
+        project(folder, ['u0', 'Unit1'], msbuild_properties={'DCC_ConsoleTarget': 'true' if shape in ('gui', 'shared-gui') else 'false'})
         # The unit directive, rather than the DPR or switch, changes the state
         # seen by the later unit. Keep the compilation order explicit.
         write(folder / 'P.dpr', "program P; uses u0 in 'u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
+        if shape.startswith('shared-'):
+            write(folder / 'shared.inc', '{$I local.kind}\n')
+            write(folder / 'first/local.kind', '')
+            write(folder / 'local.kind', directive + '\n')
+            write(folder / 'first/first.pas', 'unit first; interface implementation {$I shared.inc} end.\n')
+            write(folder / 'u0.pas', 'unit u0; interface implementation {$I shared.inc} end.\n')
+            write(folder / 'P.dpr', "program P; uses first in 'first/first.pas', u0 in 'u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
         cases.append(dict(name=name, root=str(folder), family='ds772-compiler-defines',
             define_evidence='present', console_unknown=True,
-            expected_native_output='1/101\r\n' if shape == 'gui' else '2/100\r\n',
+            expected_native_output='1/101\r\n' if shape in ('gui', 'shared-gui') else '2/100\r\n',
             identity_names=['TRec'], identity_probe_interface_import=True,
             expect_plan=False, require_named_refusal=True, routes=list(range(5))))
     return cases
