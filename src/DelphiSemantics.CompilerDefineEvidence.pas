@@ -35,6 +35,8 @@ type
     Sources: TArray<TDelphiSemanticCompilerSourceWitness>;
     PredefinedFormat: string;
     PredefinedIdentity: string;
+    PredefinedSourceLookupIdentity: string;
+    PredefinedSources: TArray<TDelphiSemanticCompilerSourceWitness>;
     PredefinedTrue: TArray<string>;
     PredefinedFalse: TArray<string>;
   end;
@@ -136,6 +138,7 @@ begin
   Result.Defines := Copy(aDescriptor.Defines);
   Result.OrderedArguments := Copy(aDescriptor.OrderedArguments);
   Result.Sources := Copy(aDescriptor.Sources);
+  Result.PredefinedSources := Copy(aDescriptor.PredefinedSources);
   Result.PredefinedTrue := Copy(aDescriptor.PredefinedTrue);
   Result.PredefinedFalse := Copy(aDescriptor.PredefinedFalse);
 end;
@@ -222,11 +225,15 @@ begin
       aDescriptor.WorkingDirectory, aDescriptor.CompilerFileName, aDescriptor.CompilerHash,
       aDescriptor.CompilerVersion, aDescriptor.BuildTarget, aDescriptor.RebuildMode,
       aDescriptor.ProducerInputIdentity, aDescriptor.SourceApplicabilityIdentity,
-      aDescriptor.PredefinedFormat, aDescriptor.PredefinedIdentity]);
+      aDescriptor.PredefinedFormat, aDescriptor.PredefinedIdentity,
+      aDescriptor.PredefinedSourceLookupIdentity]);
     AppendValues(lBuilder, aDescriptor.Defines);
     AppendValues(lBuilder, aDescriptor.OrderedArguments);
     AppendValues(lBuilder, aDescriptor.PredefinedTrue);
     AppendValues(lBuilder, aDescriptor.PredefinedFalse);
+    lBuilder.Append(Length(aDescriptor.PredefinedSources)).Append(':');
+    for lSource in aDescriptor.PredefinedSources do
+      AppendValues(lBuilder, [lSource.SourceFileName, lSource.ContentHash]);
     lBuilder.Append(Length(aDescriptor.Sources)).Append(':');
     for lSource in aDescriptor.Sources do
       AppendValues(lBuilder, [lSource.UnitName, lSource.SourceFileName, lSource.ContentHash]);

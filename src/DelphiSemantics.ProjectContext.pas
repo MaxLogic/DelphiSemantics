@@ -159,7 +159,7 @@ uses
   System.Win.ComObj, System.Win.Registry, Xml.omnixmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom,
   Winapi.ActiveX, Winapi.KnownFolders, Winapi.ShlObj, Winapi.Windows,
   MaxLogic.IOUtils, MaxLogic.StrUtils,
-  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Lsp;
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.CompilerSourceInventory, DelphiSemantics.Lsp;
 
 const
   cOptionalCompilerIncludeProperties: array[0..9] of string = ('BDSLIB', 'DelphiLibraryPath', 'DCC_UnitSearchPath',
@@ -2966,6 +2966,30 @@ begin
   end;
 end;
 
+function CompilerSourceInventoryCoversProject(const aProject: TDelphiSemanticProjectInfo;
+  const aDescriptor: TDelphiSemanticCompilerDefineDescriptor): Boolean;
+var
+  lFileName: string;
+  lSource: TDelphiSemanticCompilerSourceWitness;
+  lFound: Boolean;
+begin
+  for lFileName in aProject.SourceFileNames do
+  begin
+    if not SameText(TPath.GetExtension(lFileName), '.pas') then
+      Continue;
+    lFound := False;
+    for lSource in aDescriptor.PredefinedSources do
+      if SameText(TPath.GetFullPath(lFileName), lSource.SourceFileName) then
+      begin
+        lFound := True;
+        Break;
+      end;
+    if not lFound then
+      Exit(False);
+  end;
+  Result := True;
+end;
+
 procedure AdmitProjectCompilerDefines(var aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aDiagnostics: TList<TDelphiSemanticDiagnostic>);
 var
@@ -2991,7 +3015,14 @@ begin
   if TDelphiSemanticCompilerDefines.TryAdmit(aOptions.CompilerDefineEvidence,
     lRequest, lEvidence, lReason) then
   begin
-    if aOptions.CallerDefinesProvided and not TDelphiSemanticCompilerDefines.SameDefines(
+    if (lEvidence.Descriptor.PredefinedSourceLookupIdentity <> '') and
+      (lEvidence.Descriptor.PredefinedSourceLookupIdentity <>
+      TDelphiSemanticCompilerSourceInventory.ProjectLookupIdentity(aProject)) then
+      lReason := 'compiler predefined source lookup differs from the planning context'
+    else if (lEvidence.Descriptor.PredefinedSourceLookupIdentity <> '') and
+      not CompilerSourceInventoryCoversProject(aProject, lEvidence.Descriptor) then
+      lReason := 'planning source is outside the compiler predefined source inventory'
+    else if aOptions.CallerDefinesProvided and not TDelphiSemanticCompilerDefines.SameDefines(
       aOptions.CallerDefines, TDelphiSemanticCompilerDefines.EffectiveDefines(lEvidence)) then
       lReason := 'legacy caller defines conflict with certified effective defines'
     else begin

@@ -774,6 +774,35 @@ def ds772_define_cases(root):
     return cases
 
 
+def ds772_apptype_cases(root):
+    cases = []
+    for shape in ('console', 'gui', 'include'):
+        name = f'ds772-apptype-field-{shape}'
+        folder = root / name
+        directive = '{$APPTYPE GUI}' if shape == 'gui' else '{$APPTYPE CONSOLE}'
+        if shape == 'include':
+            write(folder / 'kind.inc', directive + '\n')
+            directive = '{$I kind.inc}'
+        write(folder / 'u0.pas', 'unit u0;\ninterface\nimplementation\n' + directive + '\nend.\n')
+        write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\ntype TRec = record\n'
+              '{$IFDEF CONSOLE} Count: Integer; {$ELSE} Other: Integer; {$ENDIF}\nend;\n'
+              'procedure Run;\nimplementation\nprocedure Run;\nvar Item: TRec; Count: Integer;\nbegin\n'
+              'Count := 100; {$IFDEF CONSOLE} Item.Count := 1; {$ELSE} Item.Other := 1; {$ENDIF}\n'
+              'with Item do Count := Count + 1;\n'
+              '{$IFDEF CONSOLE} Write(Item.Count); {$ELSE} Write(Item.Other); {$ENDIF}\n'
+              "Writeln('/', Count);\nend;\nend.\n")
+        project(folder, ['u0', 'Unit1'], msbuild_properties={'DCC_ConsoleTarget': 'true' if shape == 'gui' else 'false'})
+        # The unit directive, rather than the DPR or switch, changes the state
+        # seen by the later unit. Keep the compilation order explicit.
+        write(folder / 'P.dpr', "program P; uses u0 in 'u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
+        cases.append(dict(name=name, root=str(folder), family='ds772-compiler-defines',
+            define_evidence='present', console_unknown=True,
+            expected_native_output='1/101\r\n' if shape == 'gui' else '2/100\r\n',
+            identity_names=['TRec'], identity_probe_interface_import=True,
+            expect_plan=False, require_named_refusal=True, routes=list(range(5))))
+    return cases
+
+
 def generate(repo, root, full, only="", include_evidence="certified"):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -894,6 +923,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
     cases.extend(msbuild_include_cases(repo, root))
     if full:
         cases.extend(ds772_define_cases(root))
+        cases.extend(ds772_apptype_cases(root))
     # Recovery design 0.24: native regressions for B1, M1 and Fix D follow-ups.
     for retained in json.loads((repo / 'tests/fixtures/ds719-freeze-findings.json').read_text()):
         case = {key: value for key, value in retained.items() if key not in ('files', 'refs')}
@@ -973,7 +1003,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 678 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 681 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1431,16 +1461,16 @@ def ds772_fact_errors(case, plan):
     models = [m for m in plan.get('models', []) if m['unit'] == 'Unit1']
     if len(models) != 1 or models[0].get('define_complete') != (evidence != 'missing'):
         errors.append('native-define-completeness-required')
-    if evidence == 'missing' and len(models) == 1:
+    if (evidence == 'missing' or case.get('console_unknown')) and len(models) == 1:
         key = 'directive_count_cause' if '-field-' in case['name'] else 'directive_import_cause'
         expected = 'DECLARATIONS_DIRECTIVE_UNPROVED' if '-field-' in case['name'] else 'IMPORTS_DIRECTIVE_UNPROVED'
         if models[0].get(key) != expected:
             errors.append('native-directive-denial-required')
     references = [r for r in plan.get('references', []) if r['name'].casefold() == 'count']
-    expected = {'missing': 'unsupported', 'present': 'member', 'empty': 'lexical'}[evidence]
+    expected = 'unsupported' if case.get('console_unknown') else {'missing': 'unsupported', 'present': 'member', 'empty': 'lexical'}[evidence]
     if len(references) != 2 or any(r['classification'] != expected for r in references):
         errors.append('native-reference-classification-required')
-    if evidence == 'missing':
+    if evidence == 'missing' or case.get('console_unknown'):
         if any(r.get('code') != 'SELECTOR_MEMBERS_UNVERIFIED' for r in references):
             errors.append('native-persisted-member-denial-required')
         for statement in plan.get('statements', []):
