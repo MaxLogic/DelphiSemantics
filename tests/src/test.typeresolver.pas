@@ -2650,9 +2650,10 @@ begin
     'Model cache reload must preserve define evidence.');
   if MatchText(aShape, ['escaped', 'same-line']) then
   begin
-    Assert.AreEqual(1, Integer(Length(lReloaded.UnindexedHelpers)));
-    Assert.IsTrue(lReloaded.UnindexedHelpers[0].TypeBodyEndLine > 0);
-    Assert.IsTrue(lReloaded.UnindexedHelpers[0].TypeBodyEndColumn > 0);
+    Assert.AreEqual(0, Integer(Length(lReloaded.UnindexedHelpers)),
+      'DS-732 indexed helper declarations must not regain unindexed facts on reload.');
+    Assert.AreEqual(ModelToJson(lModel), ModelToJson(lReloaded),
+      'The indexed helper and its source endpoints survive model reload unchanged.');
     lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lReloaded]);
     try
       Assert.IsTrue(lGraph.Units[0].HelperScopeKnown, 'Reload retains helper endpoint proof');

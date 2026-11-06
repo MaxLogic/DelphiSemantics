@@ -394,13 +394,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-own-control",
@@ -419,13 +419,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-own-control",
@@ -444,13 +444,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-own-control",
@@ -469,13 +469,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-own-control",
@@ -494,13 +494,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-unindexed-control",
@@ -520,12 +520,13 @@
           "el": 17,
           "ec": 25,
           "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "reason": "symbol-not-found",
           "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
           "edit_count": 0,
           "refusal_payload_empty": true
         }
-      ]
+      ],
+      "integration_justification": "The active tag is now indexed, but the imported U source is unindexed. DS retains TYPE_VALUE_MEMBERS_UNVERIFIED safety and an empty refusal payload; the failed lookup reason is symbol-not-found. Planning remains refused."
     },
     {
       "case": "r8-count-anonymous-include-tag-unindexed-control",
@@ -545,12 +546,13 @@
           "el": 17,
           "ec": 25,
           "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "reason": "symbol-not-found",
           "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
           "edit_count": 0,
           "refusal_payload_empty": true
         }
-      ]
+      ],
+      "integration_justification": "The active tag is now indexed, but the imported U source is unindexed. DS retains TYPE_VALUE_MEMBERS_UNVERIFIED safety and an empty refusal payload; the failed lookup reason is symbol-not-found. Planning remains refused."
     },
     {
       "case": "r8-count-anonymous-include-tag-unindexed-control",
@@ -570,12 +572,13 @@
           "el": 17,
           "ec": 25,
           "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "reason": "symbol-not-found",
           "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
           "edit_count": 0,
           "refusal_payload_empty": true
         }
-      ]
+      ],
+      "integration_justification": "The active tag is now indexed, but the imported U source is unindexed. DS retains TYPE_VALUE_MEMBERS_UNVERIFIED safety and an empty refusal payload; the failed lookup reason is symbol-not-found. Planning remains refused."
     },
     {
       "case": "r8-count-anonymous-include-tag-unindexed-control",
@@ -595,12 +598,13 @@
           "el": 17,
           "ec": 25,
           "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "reason": "symbol-not-found",
           "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
           "edit_count": 0,
           "refusal_payload_empty": true
         }
-      ]
+      ],
+      "integration_justification": "The active tag is now indexed, but the imported U source is unindexed. DS retains TYPE_VALUE_MEMBERS_UNVERIFIED safety and an empty refusal payload; the failed lookup reason is symbol-not-found. Planning remains refused."
     },
     {
       "case": "r8-count-anonymous-include-tag-unindexed-control",
@@ -620,12 +624,13 @@
           "el": 17,
           "ec": 25,
           "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "reason": "symbol-not-found",
           "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
           "edit_count": 0,
           "refusal_payload_empty": true
         }
-      ]
+      ],
+      "integration_justification": "The active tag is now indexed, but the imported U source is unindexed. DS retains TYPE_VALUE_MEMBERS_UNVERIFIED safety and an empty refusal payload; the failed lookup reason is symbol-not-found. Planning remains refused."
     },
     {
       "case": "r8-count-anonymous-include-tag-used-control",
@@ -644,13 +649,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-used-control",
@@ -669,13 +674,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-used-control",
@@ -694,13 +699,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-used-control",
@@ -719,13 +724,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-anonymous-include-tag-used-control",
@@ -744,13 +749,13 @@
           "sc": 3,
           "el": 17,
           "ec": 25,
-          "status": "skipped",
-          "reason": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
-          "edit_count": 0,
-          "refusal_payload_empty": true
+          "status": "planned",
+          "reason": "",
+          "safety": "",
+          "edit_count": 1
         }
-      ]
+      ],
+      "integration_justification": "DS-744/746 now index the active anonymous-record variant tag. The collision-absent control binds Count to Rec.Count; it must publish one edit and compile/run equal to the original on this route."
     },
     {
       "case": "r8-count-named-include-tag-unindexed-control",
@@ -8899,6 +8904,136 @@
           "reason": "",
           "safety": "",
           "edit_count": 1
+        }
+      ]
+    },
+    {
+      "case": "r8-count-anonymous-root-tag-unindexed-control",
+      "route": 0,
+      "cause": "positive-control-refused",
+      "target": [
+        "unit1.pas",
+        18,
+        3
+      ],
+      "approval": "tr1107 integration adjudication",
+      "integration_justification": "The unindexed imported U source prevents closed lexical lookup even though the anonymous tag itself is indexed. Require symbol-not-found with TYPE_VALUE_MEMBERS_UNVERIFIED safety and no published edits or captures. The blanket positive-control expectation was stale for this open-world case.",
+      "statements": [
+        {
+          "file": "unit1.pas",
+          "sl": 18,
+          "sc": 3,
+          "el": 18,
+          "ec": 25,
+          "status": "skipped",
+          "reason": "symbol-not-found",
+          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "edit_count": 0,
+          "refusal_payload_empty": true
+        }
+      ]
+    },
+    {
+      "case": "r8-count-anonymous-root-tag-unindexed-control",
+      "route": 1,
+      "cause": "positive-control-refused",
+      "target": [
+        "unit1.pas",
+        18,
+        3
+      ],
+      "approval": "tr1107 integration adjudication",
+      "integration_justification": "The unindexed imported U source prevents closed lexical lookup even though the anonymous tag itself is indexed. Require symbol-not-found with TYPE_VALUE_MEMBERS_UNVERIFIED safety and no published edits or captures. The blanket positive-control expectation was stale for this open-world case.",
+      "statements": [
+        {
+          "file": "unit1.pas",
+          "sl": 18,
+          "sc": 3,
+          "el": 18,
+          "ec": 25,
+          "status": "skipped",
+          "reason": "symbol-not-found",
+          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "edit_count": 0,
+          "refusal_payload_empty": true
+        }
+      ]
+    },
+    {
+      "case": "r8-count-anonymous-root-tag-unindexed-control",
+      "route": 2,
+      "cause": "positive-control-refused",
+      "target": [
+        "unit1.pas",
+        18,
+        3
+      ],
+      "approval": "tr1107 integration adjudication",
+      "integration_justification": "The unindexed imported U source prevents closed lexical lookup even though the anonymous tag itself is indexed. Require symbol-not-found with TYPE_VALUE_MEMBERS_UNVERIFIED safety and no published edits or captures. The blanket positive-control expectation was stale for this open-world case.",
+      "statements": [
+        {
+          "file": "unit1.pas",
+          "sl": 18,
+          "sc": 3,
+          "el": 18,
+          "ec": 25,
+          "status": "skipped",
+          "reason": "symbol-not-found",
+          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "edit_count": 0,
+          "refusal_payload_empty": true
+        }
+      ]
+    },
+    {
+      "case": "r8-count-anonymous-root-tag-unindexed-control",
+      "route": 3,
+      "cause": "positive-control-refused",
+      "target": [
+        "unit1.pas",
+        18,
+        3
+      ],
+      "approval": "tr1107 integration adjudication",
+      "integration_justification": "The unindexed imported U source prevents closed lexical lookup even though the anonymous tag itself is indexed. Require symbol-not-found with TYPE_VALUE_MEMBERS_UNVERIFIED safety and no published edits or captures. The blanket positive-control expectation was stale for this open-world case.",
+      "statements": [
+        {
+          "file": "unit1.pas",
+          "sl": 18,
+          "sc": 3,
+          "el": 18,
+          "ec": 25,
+          "status": "skipped",
+          "reason": "symbol-not-found",
+          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "edit_count": 0,
+          "refusal_payload_empty": true
+        }
+      ]
+    },
+    {
+      "case": "r8-count-anonymous-root-tag-unindexed-control",
+      "route": 4,
+      "cause": "positive-control-refused",
+      "target": [
+        "unit1.pas",
+        18,
+        3
+      ],
+      "approval": "tr1107 integration adjudication",
+      "integration_justification": "The unindexed imported U source prevents closed lexical lookup even though the anonymous tag itself is indexed. Require symbol-not-found with TYPE_VALUE_MEMBERS_UNVERIFIED safety and no published edits or captures. The blanket positive-control expectation was stale for this open-world case.",
+      "statements": [
+        {
+          "file": "unit1.pas",
+          "sl": 18,
+          "sc": 3,
+          "el": 18,
+          "ec": 25,
+          "status": "skipped",
+          "reason": "symbol-not-found",
+          "safety": "TYPE_VALUE_MEMBERS_UNVERIFIED",
+          "edit_count": 0,
+          "refusal_payload_empty": true
         }
       ]
     }

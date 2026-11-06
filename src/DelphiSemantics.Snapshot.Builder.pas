@@ -2618,6 +2618,11 @@ begin
   Result.OwnerIdentity := SnapshotTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
   Result.AccessOwnerIdentity := SnapshotTypeIdentity(aExactStrings,
     aSymbol.AccessOwnerIdentity);
+  Result.AccessOwnerUnitNameId := aExactStrings.Intern(aSymbol.AccessOwnerUnitName);
+  Result.AccessOwnerFileNameId := aExactStrings.Intern(aSymbol.AccessOwnerFileName);
+  Result.AccessOwnerSectionKindId := aExactStrings.Intern(aSymbol.AccessOwnerSectionKind);
+  Result.AccessOwnerLine := aSymbol.AccessOwnerLine;
+  Result.AccessOwnerColumn := aSymbol.AccessOwnerColumn;
 end;
 
 function SnapshotSelectorBinding(const aExactStrings: TSemanticStringPool;

@@ -57,6 +57,11 @@ type
     TypeCategoryId: TSemanticStringId;
     OwnerIdentity: TSemanticRemoveWithTypeIdentityFact;
     AccessOwnerIdentity: TSemanticRemoveWithTypeIdentityFact;
+    AccessOwnerUnitNameId: TSemanticStringId;
+    AccessOwnerFileNameId: TSemanticStringId;
+    AccessOwnerSectionKindId: TSemanticStringId;
+    AccessOwnerLine: Integer;
+    AccessOwnerColumn: Integer;
   end;
 
   TSemanticRemoveWithSelectorBindingFact = record

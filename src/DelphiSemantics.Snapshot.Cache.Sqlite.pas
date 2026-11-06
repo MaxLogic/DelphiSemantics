@@ -156,7 +156,7 @@ const
   // 25: DS-737/739 invalidate planning facts with unsafe conditional WITH ranges.
   // 26: DS-736/707 retain helper and receiver declaration identity.
   // 29: integrated lane identities invalidate every merged schema generation.
-  cSnapshotCacheSchemaVersion = '29';
+  cSnapshotCacheSchemaVersion = '30';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -427,6 +427,11 @@ begin
   Result.OwnerIdentity := LoadedTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
   Result.AccessOwnerIdentity := LoadedTypeIdentity(aExactStrings,
     aSymbol.AccessOwnerIdentity);
+  Result.AccessOwnerUnitName := aExactStrings.TextOf(aSymbol.AccessOwnerUnitNameId);
+  Result.AccessOwnerFileName := aExactStrings.TextOf(aSymbol.AccessOwnerFileNameId);
+  Result.AccessOwnerSectionKind := aExactStrings.TextOf(aSymbol.AccessOwnerSectionKindId);
+  Result.AccessOwnerLine := aSymbol.AccessOwnerLine;
+  Result.AccessOwnerColumn := aSymbol.AccessOwnerColumn;
 end;
 
 function LoadedInventorySymbols(const aExactStrings: TSemanticStringPool;
@@ -479,6 +484,11 @@ begin
   Result.OwnerIdentity := StoredTypeIdentity(aExactStrings, aSymbol.OwnerIdentity);
   Result.AccessOwnerIdentity := StoredTypeIdentity(aExactStrings,
     aSymbol.AccessOwnerIdentity);
+  Result.AccessOwnerUnitNameId := aExactStrings.Intern(aSymbol.AccessOwnerUnitName);
+  Result.AccessOwnerFileNameId := aExactStrings.Intern(aSymbol.AccessOwnerFileName);
+  Result.AccessOwnerSectionKindId := aExactStrings.Intern(aSymbol.AccessOwnerSectionKind);
+  Result.AccessOwnerLine := aSymbol.AccessOwnerLine;
+  Result.AccessOwnerColumn := aSymbol.AccessOwnerColumn;
 end;
 
 function StoredInventorySymbols(const aExactStrings: TSemanticStringPool;
@@ -784,6 +794,11 @@ begin
       'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
       'routine_scope_id_id integer not null, parent_scope_id_id integer not null, ' +
       'owner_scope_id_id integer not null, owner_symbol_id_id integer not null, ' +
+      'access_owner_unit_name_id integer not null, ' +
+      'access_owner_file_name_id integer not null, ' +
+      'access_owner_section_kind_id integer not null, ' +
+      'access_owner_line integer not null, ' +
+      'access_owner_column integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_symbols (' +
       'cache_key text not null, item_index integer not null, name_id integer not null, ' +
@@ -796,6 +811,11 @@ begin
       'flags integer not null, index_parameter_count integer not null, type_category_id integer not null, ' +
       'routine_scope_id_id integer not null, parent_scope_id_id integer not null, ' +
       'owner_scope_id_id integer not null, owner_symbol_id_id integer not null, ' +
+      'access_owner_unit_name_id integer not null, ' +
+      'access_owner_file_name_id integer not null, ' +
+      'access_owner_section_kind_id integer not null, ' +
+      'access_owner_line integer not null, ' +
+      'access_owner_column integer not null, ' +
       'primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_bindings (' +
       'cache_key text not null, binding_index integer not null, semantic_id_id integer not null, ' +
@@ -1705,7 +1725,12 @@ begin
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
     'index_parameter_count, type_category_id, item_index, routine_scope_id_id, ' +
-    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id ' +
+    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id, ' +
+    'access_owner_unit_name_id, ' +
+    'access_owner_file_name_id, ' +
+    'access_owner_section_kind_id, ' +
+    'access_owner_line, ' +
+    'access_owner_column ' +
     'from snapshot_remove_with_routine_owners ' +
     'where cache_key = ? order by item_index');
   try
@@ -1746,6 +1771,11 @@ begin
       lFacts.RoutineOwners[lItemIndex].ParentScopeIdId := TSemanticStringId(lFields[23].AsInteger);
       lFacts.RoutineOwners[lItemIndex].OwnerScopeIdId := TSemanticStringId(lFields[24].AsInteger);
       lFacts.RoutineOwners[lItemIndex].OwnerSymbolIdId := TSemanticStringId(lFields[25].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].AccessOwnerUnitNameId := TSemanticStringId(lFields[26].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].AccessOwnerFileNameId := TSemanticStringId(lFields[27].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].AccessOwnerSectionKindId := TSemanticStringId(lFields[28].AsInteger);
+      lFacts.RoutineOwners[lItemIndex].AccessOwnerLine := lFields[29].AsInteger;
+      lFacts.RoutineOwners[lItemIndex].AccessOwnerColumn := lFields[30].AsInteger;
       Inc(lLoadedRoutineOwnerCount);
       lQuery.Next;
     end;
@@ -1760,7 +1790,12 @@ begin
     'related_type_name_id, routine_name_id, unit_name_id, file_name_id, section_kind_id, ' +
     'line, column, end_line, end_column, unsupported_reason_id, flags, ' +
     'index_parameter_count, type_category_id, item_index, routine_scope_id_id, ' +
-    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id ' +
+    'parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id, ' +
+    'access_owner_unit_name_id, ' +
+    'access_owner_file_name_id, ' +
+    'access_owner_section_kind_id, ' +
+    'access_owner_line, ' +
+    'access_owner_column ' +
     'from snapshot_remove_with_symbols ' +
     'where cache_key = ? order by item_index');
   try
@@ -1797,6 +1832,11 @@ begin
       lFacts.Symbols[lItemIndex].ParentScopeIdId := TSemanticStringId(lFields[23].AsInteger);
       lFacts.Symbols[lItemIndex].OwnerScopeIdId := TSemanticStringId(lFields[24].AsInteger);
       lFacts.Symbols[lItemIndex].OwnerSymbolIdId := TSemanticStringId(lFields[25].AsInteger);
+      lFacts.Symbols[lItemIndex].AccessOwnerUnitNameId := TSemanticStringId(lFields[26].AsInteger);
+      lFacts.Symbols[lItemIndex].AccessOwnerFileNameId := TSemanticStringId(lFields[27].AsInteger);
+      lFacts.Symbols[lItemIndex].AccessOwnerSectionKindId := TSemanticStringId(lFields[28].AsInteger);
+      lFacts.Symbols[lItemIndex].AccessOwnerLine := lFields[29].AsInteger;
+      lFacts.Symbols[lItemIndex].AccessOwnerColumn := lFields[30].AsInteger;
       if SameText(aBuilder.ExactStrings.TextOf(lFacts.Symbols[lItemIndex].SymbolClassId),
         'local') or SameText(aBuilder.ExactStrings.TextOf(
         lFacts.Symbols[lItemIndex].SymbolClassId), 'parameter') then
@@ -2519,11 +2559,16 @@ var
       'modifier_id, owner_name_id, owner_type_id, source_owner_type_id, related_type_name_id, ' +
       'routine_name_id, unit_name_id, file_name_id, section_kind_id, line, column, end_line, ' +
       'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id, ' +
-      'routine_scope_id_id, parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id) ' +
-      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      'routine_scope_id_id, parent_scope_id_id, owner_scope_id_id, owner_symbol_id_id, ' +
+      'access_owner_unit_name_id, ' +
+      'access_owner_file_name_id, ' +
+      'access_owner_section_kind_id, ' +
+      'access_owner_line, ' +
+      'access_owner_column) ' +
+      'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     try
       lInventoryQuery.Params[0].DataType := ftWideString;
-      for lParamIndex := 1 to 26 do
+      for lParamIndex := 1 to 31 do
         lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
       lInventoryQuery.Prepare;
       for lIndex := 0 to High(aSymbols) do
@@ -2556,6 +2601,11 @@ var
         lInventoryQuery.Params[24].AsInteger := Integer(lStoredSymbol.ParentScopeIdId);
         lInventoryQuery.Params[25].AsInteger := Integer(lStoredSymbol.OwnerScopeIdId);
         lInventoryQuery.Params[26].AsInteger := Integer(lStoredSymbol.OwnerSymbolIdId);
+        lInventoryQuery.Params[27].AsInteger := Integer(lStoredSymbol.AccessOwnerUnitNameId);
+        lInventoryQuery.Params[28].AsInteger := Integer(lStoredSymbol.AccessOwnerFileNameId);
+        lInventoryQuery.Params[29].AsInteger := Integer(lStoredSymbol.AccessOwnerSectionKindId);
+        lInventoryQuery.Params[30].AsInteger := lStoredSymbol.AccessOwnerLine;
+        lInventoryQuery.Params[31].AsInteger := lStoredSymbol.AccessOwnerColumn;
         lInventoryQuery.ExecSQL;
       end;
     finally

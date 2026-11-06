@@ -9023,6 +9023,11 @@ begin
   Result.OwnerIdentity := SnapshotTypeIdentity(aSnapshot, aSymbol.OwnerIdentity);
   Result.AccessOwnerIdentity := SnapshotTypeIdentity(aSnapshot,
     aSymbol.AccessOwnerIdentity);
+  Result.AccessOwnerUnitName := aSnapshot.ExactTextOf(aSymbol.AccessOwnerUnitNameId);
+  Result.AccessOwnerFileName := aSnapshot.ExactTextOf(aSymbol.AccessOwnerFileNameId);
+  Result.AccessOwnerSectionKind := aSnapshot.ExactTextOf(aSymbol.AccessOwnerSectionKindId);
+  Result.AccessOwnerLine := aSymbol.AccessOwnerLine;
+  Result.AccessOwnerColumn := aSymbol.AccessOwnerColumn;
 end;
 
 function SnapshotSelectorBinding(const aSnapshot: TDelphiProjectSnapshot;

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- SQLite planning caches preserve alias access-owner provenance across reloads, keeping warm inventories identical to cold inventories. Older snapshot and planning-fact entries rebuild.
+
 - Project contexts retain usable search paths and report unresolved entries as unproved; semantic rewrite sessions refuse these partial lists. Quoted or invalid entries still return diagnostics (DAK-475).
 
 - WITH planning refuses competing SDK/project namespace candidates instead of qualifying a call through a project unit the compiler may not select. Older snapshot and planning-fact caches rebuild (DS-755).
