@@ -5,6 +5,7 @@
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed
+- Source-text include scans require an owning source path instead of borrowing the process current directory; unresolved includes report INCLUDE_SOURCE_ORIGIN_UNPROVED (DS-777).
 - Unsupported directives in possible conditional branches retain diagnostics and unproved activity without failing semantic-model construction. Active unsupported directives still fail; older parser caches rebuild.
 - Invalid include names remain unresolved during preprocessing, including inactive conditional branches, instead of raising path exceptions (DS-772).
 - Compiler predefined evidence identifies the possible project-source and include inventory; a planning context outside that inventory cannot reuse its certificate (DS-772).

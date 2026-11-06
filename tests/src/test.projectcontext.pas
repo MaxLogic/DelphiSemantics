@@ -186,6 +186,11 @@ type
     [TestCase('Order identity', 'identity')]
     [TestCase('Unresolved supplied macro', 'unresolved')]
     procedure CallerEvaluatedIncludeEvidence(const aKind: string);
+    [TestCase('Additional I remains unproved', 'additional-I')]
+    [TestCase('Optset directory evaluated by MSBuild', 'optset')]
+    [TestCase('Project directory evaluated by MSBuild', 'project')]
+    [TestCase('Raw IncludePath is not the compiler list', 'raw')]
+    procedure NativeIncludeInputsRemainCertifiedOrUnproved(const aShape: string);
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitSelfReferentialSearchPathRemainsEffective;
@@ -248,10 +253,11 @@ implementation
 
 uses
   System.Classes, System.Hash, System.IOUtils, System.Rtti, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Preprocess, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
-  DelphiSemantics.Source, Test.CompilerDefineEvidence, Test.Support;
+  DelphiSemantics.Source, Test.CompilerDefineEvidence, Test.CompilerIncludeCapture, Test.Support;
 
 const
   // Increasing precedence for these fixtures: project properties precede the
@@ -2338,6 +2344,91 @@ begin
     end;
   finally
     lSessionResult.Session.Free;
+  end;
+end;
+
+procedure TProjectContextTests.NativeIncludeInputsRemainCertifiedOrUnproved(const aShape: string);
+var
+  lOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
+  lPreprocessOptions: TDelphiSemanticPreprocessOptions;
+  lPreprocessed: TDelphiSemanticPreprocessResult;
+  lEvidence: IDelphiSemanticCompilerDefineEvidence;
+  lRoot, lProject, lProperties, lImport, lCapturedPath, lReason: string;
+begin
+  lProject := ContextEvidenceTempPath('NativeIncludes-' + aShape + '.dproj');
+  lRoot := ExtractFilePath(lProject);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'options\inc'));
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'options\inc\native.inc'),
+    'type TSelected = record Value: Integer; end;');
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'Main.dpr'),
+    'program Main; {$I native.inc} begin Writeln(SizeOf(TSelected)); end.');
+  lImport := '';
+  if aShape = 'additional-I' then
+    lProperties := '<DCC_AdditionalSwitches>-I&quot;options\inc&quot;</DCC_AdditionalSwitches>'
+  else if aShape = 'raw' then
+    lProperties := '<DCC_IncludePath>options\inc</DCC_IncludePath>'
+  else if aShape = 'project' then
+    lProperties := '<DCC_UnitSearchPath>$(MSBuildProjectDirectory)\options\inc</DCC_UnitSearchPath>'
+  else begin
+    lProperties := '';
+    lImport := '<Import Project="options\Local.optset"/>';
+    WriteUtf8Bytes(TPath.Combine(lRoot, 'options\Local.optset'),
+      '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+      '<DCC_UnitSearchPath>$(MSBuildThisFileDirectory)inc</DCC_UnitSearchPath>' +
+      '</PropertyGroup></Project>');
+  end;
+  WriteUtf8Bytes(lProject, '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Main.dpr</MainSource><FrameworkType>None</FrameworkType>' +
+    '<ImportEnvOptions>false</ImportEnvOptions>' + lProperties + '</PropertyGroup>' + lImport +
+    '<ItemGroup><DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource>' +
+    '</DelphiCompile></ItemGroup><Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lContext := TDelphiSemanticProject.Load(lProject, lOptions);
+  Assert.IsTrue(lContext.Success, DiagnosticSummary(lContext));
+  Assert.AreEqual('<include-path-unproved>', lContext.Project.IncludePaths[0],
+    'DS-780: emulated paths never certify the include list.');
+  lPreprocessOptions := Default(TDelphiSemanticPreprocessOptions);
+  lPreprocessOptions.SourceFileName := TPath.Combine(lRoot, 'Main.dpr');
+  lPreprocessOptions.SourceText := TFile.ReadAllText(lPreprocessOptions.SourceFileName);
+  lPreprocessOptions.SearchPaths := [lRoot] + lContext.Project.IncludePaths;
+  lPreprocessed := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
+  Assert.IsFalse(lPreprocessed.Success, 'Uncaptured include input must refuse before planning.');
+  Assert.AreEqual<Integer>(0, Length(lPreprocessed.Includes));
+  if aShape = 'additional-I' then
+  begin
+    lReason := '';
+    try
+      lEvidence := CaptureFixtureCompilerDefineContext(lOptions, lCapturedPath);
+    except
+      on E: EInvalidOpException do
+        lReason := E.Message;
+    end;
+    Assert.IsNull(lEvidence);
+    Assert.IsTrue(ContainsText(lReason, 'Additional compiler option is outside the verified settings grammar'),
+      'DS-780: additional -I must withhold the certificate with a named cause: ' + lReason);
+    Exit;
+  end;
+  lEvidence := CaptureFixtureCompilerDefineContext(lOptions, lCapturedPath);
+  Assert.IsNotNull(lEvidence);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := lCapturedPath;
+  lContext := TDelphiSemanticProject.Load(lProject, lOptions);
+  Assert.IsTrue(lContext.Success, DiagnosticSummary(lContext));
+  Assert.AreEqual('True', lContext.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  lPreprocessOptions.SearchPaths := [lRoot] + lContext.Project.IncludePaths;
+  lPreprocessed := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
+  Assert.AreEqual(aShape <> 'raw', lPreprocessed.Success,
+    'Only the evaluated native task IncludePath supplies the compiler directory.');
+  if aShape <> 'raw' then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lPreprocessed.Includes));
+    Assert.AreEqual(TPath.Combine(lRoot, 'options\inc\native.inc'), lPreprocessed.Includes[0].FileName);
+    Assert.IsTrue(ContainsText(lPreprocessed.OutputText, 'type TSelected = record'));
   end;
 end;
 

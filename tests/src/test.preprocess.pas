@@ -37,6 +37,8 @@ type
     [Category('Fast')]
     [TestCase('Less than inactive', 'a<b.inc,False')]
     [TestCase('Pipe active', 'a|b.inc,True')]
+    [TestCase('Double quote active DS-781', '"e1",True')]
+    [TestCase('Double quote inactive DS-781', '"e1",False')]
     procedure InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
     [Category('Fast')]
     [TestCase('Less than', 'a<b.inc')]
@@ -67,6 +69,18 @@ type
     [Category('Fast')]
     [Test]
     procedure NestedIncludesUseUnitDirectoryBeforeSearchPaths;
+    [Category('Fast')]
+    [TestCase('Directive facts', 'facts')]
+    [TestCase('Preprocessing', 'preprocess')]
+    [TestCase('Drive-relative facts', 'facts-drive')]
+    [TestCase('Drive-relative preprocessing', 'preprocess-drive')]
+    [TestCase('Absolute name still needs owning source', 'preprocess-absolute')]
+    procedure SourceTextIncludesRequireAnOrigin(const aRoute: string);
+    [Category('Fast')]
+    [TestCase('Project directory before I', 'project')]
+    [TestCase('I directory before include directory', 'search')]
+    [TestCase('Include directory alone is not searched', 'missing')]
+    procedure NestedIncludeFallbackMatchesCompiler(const aTier: string);
     [Category('Fast')]
     [Test]
     procedure UnprovedIncludePathIsNotASkippedIncludeDirectory;
@@ -469,6 +483,101 @@ begin
   lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
   Assert.AreEqual(2, Integer(Length(lResult.Includes)));
   Assert.AreEqual(TPath.Combine(lRoot, 'd.inc'), lResult.Includes[1].FileName);
+end;
+
+procedure TPreprocessTests.SourceTextIncludesRequireAnOrigin(const aRoute: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lFirst, lSecond: TDelphiSemanticPreprocessResult;
+  lFirstFacts, lSecondFacts: TDelphiSemanticDirectiveFacts;
+  lRoot, lOldDirectory, lIncludeName: string;
+begin
+  lRoot := PreprocessTempRoot('source-text-origin-' + aRoute);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'first'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'second'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first\entry.inc'), ', B', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'second\entry.inc'),
+    '{$IFOPT R-}, C{$ENDIF}', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lIncludeName := 'entry.inc';
+  if EndsText('-drive', aRoute) then
+    lIncludeName := ExtractFileDrive(lRoot) + lIncludeName
+  else if EndsText('-absolute', aRoute) then
+    lIncludeName := TPath.Combine(lRoot, 'first\entry.inc');
+  if EndsText('-absolute', aRoute) then
+    // Parentheses keep the fixture's GUID braces inside the include name.
+    lOptions.SourceText := 'unit Unit1; interface uses A (*$I ' + lIncludeName + '*); implementation end.'
+  else
+    lOptions.SourceText := 'unit Unit1; interface uses A {$I ' + lIncludeName + '}; implementation end.';
+  lOldDirectory := TDirectory.GetCurrentDirectory;
+  try
+    TDirectory.SetCurrentDirectory(TPath.Combine(lRoot, 'first'));
+    if StartsText('facts', aRoute) then
+      lFirstFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions)
+    else
+      lFirst := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+    TDirectory.SetCurrentDirectory(TPath.Combine(lRoot, 'second'));
+    if StartsText('facts', aRoute) then
+      lSecondFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions)
+    else
+      lSecond := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  finally
+    TDirectory.SetCurrentDirectory(lOldDirectory);
+  end;
+  if StartsText('facts', aRoute) then
+  begin
+    Assert.AreEqual(lFirstFacts.UnitUnproved or lFirstFacts.ImportsUnproved,
+      lSecondFacts.UnitUnproved or lSecondFacts.ImportsUnproved,
+      'DS-777: changing CWD cannot change source-text include facts.');
+    Assert.IsTrue(lFirstFacts.UnitUnproved or lFirstFacts.ImportsUnproved,
+      'An unnamed source has no compiler include origin.');
+  end else begin
+    Assert.IsFalse(lFirst.Success);
+    Assert.IsFalse(lSecond.Success);
+    Assert.AreEqual<Integer>(0, Length(lFirst.Includes));
+    Assert.AreEqual<Integer>(0, Length(lSecond.Includes));
+    Assert.IsTrue(HasDiagnostic(lFirst, 'INCLUDE_SOURCE_ORIGIN_UNPROVED'));
+    Assert.IsTrue(HasDiagnostic(lSecond, 'INCLUDE_SOURCE_ORIGIN_UNPROVED'));
+    Assert.AreEqual(lFirst.OutputText, lSecond.OutputText);
+    Assert.AreEqual(lFirst.Diagnostics[0].FileName, lSecond.Diagnostics[0].FileName);
+  end;
+end;
+
+procedure TPreprocessTests.NestedIncludeFallbackMatchesCompiler(const aTier: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lRoot, lExpected: string;
+begin
+  lRoot := PreprocessTempRoot('nested-fallback-' + aTier);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'unitdir\sub'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'search'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'unitdir\sub\nest.inc'), '{$I deep.inc}', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'unitdir\sub\deep.inc'), 'WRONG_INCLUDE_DIR', TEncoding.ASCII);
+  if aTier = 'project' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'deep.inc'), 'PROJECT_SELECTED', TEncoding.ASCII);
+  if aTier <> 'missing' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'search\deep.inc'), 'SEARCH_SELECTED', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'unitdir\Unit1.pas');
+  lOptions.SourceText := '{$I sub\nest.inc}';
+  lOptions.SearchPaths := [lRoot, TPath.Combine(lRoot, 'search')];
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  if aTier = 'missing' then
+  begin
+    Assert.IsFalse(lResult.Success);
+    Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'));
+    Assert.AreEqual<Integer>(1, Length(lResult.Includes));
+    Exit;
+  end;
+  Assert.IsTrue(lResult.Success);
+  Assert.AreEqual<Integer>(2, Length(lResult.Includes));
+  if aTier = 'project' then
+    lExpected := TPath.Combine(lRoot, 'deep.inc')
+  else
+    lExpected := TPath.Combine(lRoot, 'search\deep.inc');
+  Assert.AreEqual(lExpected, lResult.Includes[1].FileName);
+  Assert.IsFalse(ContainsText(lResult.OutputText, 'WRONG_INCLUDE_DIR'));
 end;
 
 procedure TPreprocessTests.MultilineStringsCannotHideFollowingDirectives(const aQuotes: Integer);

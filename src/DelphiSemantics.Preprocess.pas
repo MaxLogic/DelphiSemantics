@@ -703,6 +703,16 @@ begin
   aRegions.Add(lRegion);
 end;
 
+function PreprocessSourceFileName(const aOptions: TDelphiSemanticPreprocessOptions): string;
+begin
+  if (aOptions.SourceFileName = '') and (aOptions.SourceText <> '') then
+    // Coordinate identity only. The resolver refuses includes without
+    // an owning source; this path is never a filesystem lookup origin.
+    Result := TPath.Combine(ExtractFilePath(ParamStr(0)), '__ds_in_memory__.pas')
+  else
+    Result := TPath.GetFullPath(aOptions.SourceFileName);
+end;
+
 function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
   const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean;
 var
@@ -723,11 +733,18 @@ begin
     lIncludeName := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aIncludeName);
     if lIncludeName = '' then
       Exit(False);
+    // Source text without an owning path cannot borrow CWD as compiler input.
+    if (aOptions.SourceText <> '') and
+      (aOptions.SourceFileName = '') then
+      Exit(False);
     if TPath.IsPathRooted(lIncludeName) then
     begin
       aFileName := TPath.GetFullPath(lIncludeName);
       Exit(TFile.Exists(aFileName));
     end;
+
+    if (aOptions.SourceFileName = '') and not TPath.IsPathRooted(aCurrentDirectory) then
+      Exit(False);
 
     // dcc64 resolves every nesting level from the original unit, not from
     // the including .inc. Project and explicit -I directories follow in order.
@@ -779,6 +796,8 @@ var
   lSource: TDelphiSemanticSourceLoadResult;
   lMatch: TMatch;
 begin
+  if (aOptions.SourceText <> '') and (aOptions.SourceFileName = '') then
+    Exit; // An unnamed source supplies no skipped-file filesystem origin.
   if aCapture.SkippedIncludes.Count >= 256 then
     Exit; // Bounded recursion fails closed when the child is not recorded.
   lCandidates := TList<string>.Create;
@@ -1456,20 +1475,22 @@ end;
 function TDirectiveScanner.Execute: TDelphiSemanticDirectiveFacts;
 var
   lSource: TDelphiSemanticSourceLoadResult;
+  lFileName: string;
 begin
+  lFileName := PreprocessSourceFileName(fOptions);
   fFacts.Scanned := True;
   fFacts.ScanCount := 1;
   if (fOptions.SourceText = '') and
-    fSources.TryGetValue(fOptions.SourceFileName, lSource) then
+    fSources.TryGetValue(lFileName, lSource) then
     fOptions.SourceText := lSource.Source.Text;
-  Scan(fOptions.SourceText, fOptions.SourceFileName, '1');
+  Scan(fOptions.SourceText, lFileName, '1');
   if fFrames.Count > 0 then
   begin
     fFacts.UnitUnproved := True;
     while fFrames.Count > 0 do
     begin
       fFrames.Last.Unknown := True;
-      CloseFrame(fOptions.SourceFileName, Length(fOptions.SourceText) + 1);
+      CloseFrame(lFileName, Length(fOptions.SourceText) + 1);
     end;
   end;
   fFacts.Spans := fSpans.ToArray;
@@ -1582,7 +1603,7 @@ function ProcessDirective(const aDirective, aFileName: string; const aLine: Inte
 function IsRootSourceFile(const aFileName: string;
   const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
 begin
-  Result := SameText(TPath.GetFullPath(aOptions.SourceFileName), aFileName);
+  Result := SameText(PreprocessSourceFileName(aOptions), aFileName);
 end;
 
 function FindNextDirectiveStart(const aLine: string; const aStart: Integer): Integer;
@@ -2053,8 +2074,12 @@ begin
       if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
         lIncludeFileName) then
       begin
-        AddDiagnostic(aDiagnostics, 'INCLUDE_FILE_NOT_FOUND', 'Include file not found: ' +
-          lIncludeName, aFileName, aLine);
+        if (aOptions.SourceText <> '') and (aOptions.SourceFileName = '') then
+          AddDiagnostic(aDiagnostics, 'INCLUDE_SOURCE_ORIGIN_UNPROVED',
+            'Include requires an owning source path: ' + lIncludeName, aFileName, aLine)
+        else
+          AddDiagnostic(aDiagnostics, 'INCLUDE_FILE_NOT_FOUND', 'Include file not found: ' +
+            lIncludeName, aFileName, aLine);
         if CurrentActivity(aStack) = saUnknown then
         begin
           // A possible include may define any symbol; keep its local uncertainty and taint
@@ -2193,8 +2218,7 @@ begin
       Result.ScanCount := 1;
       Exit;
     end;
-    // Coordinate identity for an in-memory source; no file is created or read.
-    lOptions.SourceFileName := TPath.Combine(TDirectory.GetCurrentDirectory, '__ds_in_memory__.pas');
+    // Keep the missing origin visible to the shared resolver.
   end;
   lResult := PreprocessFile(lOptions);
   Result := lResult.DirectiveFacts;
@@ -2256,7 +2280,7 @@ begin
     lContext.ExpansionId := lCapture.NewExpansionId;
 
     lSuccess := True;
-    ProcessSourceFile(TPath.GetFullPath(aOptions.SourceFileName), aOptions, lDefines, lStack,
+    ProcessSourceFile(PreprocessSourceFileName(aOptions), aOptions, lDefines, lStack,
       lDiagnostics, lOutput, lRegions, lIncludes, lIncludeStack, lSourceCache, lOrigins,
       lContext, lSuccess);
     if lStack.Count > 0 then
@@ -2274,7 +2298,7 @@ begin
       lScanner.Free;
     end;
     for lSourceLoad in lSourceCache.Values do
-      if not SameText(lSourceLoad.Source.FileName, TPath.GetFullPath(aOptions.SourceFileName)) then
+      if not SameText(lSourceLoad.Source.FileName, PreprocessSourceFileName(aOptions)) then
       begin
         lIncluded := False;
         for lInclude in lIncludes do
@@ -2288,7 +2312,7 @@ begin
     for lSourceLoad in lSourceCache.Values do
     begin
       lRole := 'include';
-      if SameText(lSourceLoad.Source.FileName, TPath.GetFullPath(aOptions.SourceFileName)) then
+      if SameText(lSourceLoad.Source.FileName, PreprocessSourceFileName(aOptions)) then
         lRole := 'source'
       else if MatchText(lSourceLoad.Source.FileName, lCapture.SkippedIncludes.ToArray) then
       begin
