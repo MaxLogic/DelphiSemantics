@@ -120,7 +120,8 @@ end;
 function TInventoryBuilder.Expand(const aFileName, aUnitFileName: string;
   const aDepth: Integer): string;
 var
-  lSource, lToken, lArgument, lChild, lCandidate, lPath, lFileName, lExpansion: string;
+  lSource, lToken, lArgument, lChild, lFileName, lExpansion: string;
+  lOptions: TDelphiSemanticPreprocessOptions;
   lWitness: TDelphiSemanticCompilerSourceWitness;
   lBytes: TBytes;
   lStream: TFileStream;
@@ -244,19 +245,15 @@ begin
             lArgument := Copy(lArgument, 2, Length(lArgument) - 2);
           if lArgument.StartsWith('*.') then
             lArgument := TPath.GetFileNameWithoutExtension(aUnitFileName) + Copy(lArgument, 2, MaxInt);
-          lArgument := TDelphiSemanticPreprocessor.CompilerIncludeFileName(lArgument);
-          lChild := '';
-          for lPath in [ExtractFilePath(aUnitFileName)] + fProject.IncludePaths do
-          begin
-            lCandidate := TPath.GetFullPath(TPath.Combine(lPath, lArgument));
-            fIdentity.AppendLine('include-candidate').AppendLine(LowerCase(lCandidate))
-              .AppendLine(BoolToStr(TFile.Exists(lCandidate), True));
-            if TFile.Exists(lCandidate) then
-            begin
-              lChild := lCandidate;
-              Break;
-            end;
-          end;
+          lOptions := Default(TDelphiSemanticPreprocessOptions);
+          lOptions.SourceFileName := aUnitFileName;
+          lOptions.SearchPaths := [fProject.ProjectDirectory] + fProject.IncludePaths;
+          // Reuse native include order at capture and every checkpoint. The
+          // selected path (or absence) changes if a higher-priority file appears.
+          TDelphiSemanticPreprocessor.ResolveIncludeFileName(lArgument,
+            ExtractFilePath(aUnitFileName), lOptions, lChild);
+          fIdentity.AppendLine('include-selection').AppendLine(lArgument)
+            .AppendLine(LowerCase(lChild));
           if lChild = '' then
             Unproved('console-include-unresolved: ' + lFileName + ': ' + lArgument)
           else
@@ -412,13 +409,21 @@ begin
   fIdentity.AppendLine(Result.LookupIdentity);
   for lFileName in fProject.IncludePaths do
     fIdentity.AppendLine('include').AppendLine(LowerCase(lFileName));
-  IndexSourcePaths;
-  ScanUnit(fProject.MainSourceFileName);
-  AddImport('System', '', fProject.MainSourceFileName);
-  AddImport('SysInit', '', fProject.MainSourceFileName);
-  for lFileName in fProject.SourceFileNames do
-    if SameText(TPath.GetExtension(lFileName), '.pas') then
-      ScanUnit(lFileName);
+  fIdentity.AppendLine('project-directory').AppendLine(LowerCase(fProject.ProjectDirectory));
+  try
+    IndexSourcePaths;
+    ScanUnit(fProject.MainSourceFileName);
+    AddImport('System', '', fProject.MainSourceFileName);
+    AddImport('SysInit', '', fProject.MainSourceFileName);
+    for lFileName in fProject.SourceFileNames do
+      if SameText(TPath.GetExtension(lFileName), '.pas') then
+        ScanUnit(lFileName);
+  except
+    on E: Exception do
+      // Invalid paths can arrive between admission and a checkpoint. Retain
+      // an unproved inventory identity so currentness refuses normally.
+      Unproved('compiler-source-inventory-unavailable: ' + E.Message);
+  end;
   Result.Files := fFiles.ToArray;
   Result.ConsoleSafe := fConsoleSafe;
   Result.Cause := fCause;
