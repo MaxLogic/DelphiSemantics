@@ -24262,10 +24262,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lCanonicalPlan, 'tdbutils.pas', 1134, 3,
     lCanonicalStatement), 'Expected canonical maxTdb FlipMark statement.');
   Assert.AreEqual('skipped', lCanonicalStatement.Status);
-  // DS-785: matching routine-end ranges expose the same late admission refusal
-  // as compatibility planning; the separate Win32 control above stays planned.
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.Reason);
-  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.SafetyReason);
+  // DS-785 reaches late admission; DS-772 leaves this uncertified request's
+  // conditional declarations unproved. The certified Win64 control stays planned.
+  Assert.AreEqual('selector-type-not-resolved', lCanonicalStatement.Reason);
+  Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lCanonicalStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Temps)));
   Assert.AreEqual('', lCanonicalStatement.ReplacementText);
