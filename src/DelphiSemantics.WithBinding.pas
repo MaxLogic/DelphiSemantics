@@ -2886,20 +2886,29 @@ begin
 end;
 
 function RoutineScopeAtLine(const aModel: TDelphiSemanticUnitModel;
-  const aLine: Integer): string;
+  const aLine: Integer; const aFileName: string = ''): string;
 var
   lBestLine: Integer;
+  lFileName, lRoutineFileName: string;
   lRoutine: TDelphiSemanticRoutine;
 begin
   Result := '';
   lBestLine := 0;
+  lFileName := aFileName;
+  if lFileName = '' then
+    lFileName := aModel.FileName;
   for lRoutine in aModel.Routines do
-    if (lRoutine.Line < aLine) and (lRoutine.EndLine >= aLine) and
+  begin
+    lRoutineFileName := lRoutine.FileName;
+    if lRoutineFileName = '' then
+      lRoutineFileName := aModel.FileName;
+    if SameText(lFileName, lRoutineFileName) and (lRoutine.Line < aLine) and (lRoutine.EndLine >= aLine) and
       (lRoutine.Line > lBestLine) then
     begin
       lBestLine := lRoutine.Line;
       Result := lRoutine.ScopeId;
     end;
+  end;
 end;
 
 function ScopeEncloses(const aScope, aChildScope: string): Boolean;
@@ -2976,7 +2985,7 @@ begin
         (lDeclaration.Column <> lAlias.Identity.SourceRange.Column) then
         Continue;
       // Only a direct source pointer declaration establishes storage identity.
-      if RoutineScopeAtLine(lAliasModel, lDeclaration.Line) <> '' then
+      if RoutineScopeAtLine(lAliasModel, lDeclaration.Line, lDeclaration.FileName) <> '' then
         Exit;
       lTargetName := Trim(lDeclaration.TypeName);
       if not StartsText('^', lTargetName) then
@@ -3003,7 +3012,7 @@ begin
           Continue;
         if lSymbol.Line > aLine then
           Continue;
-        lSymbolScope := RoutineScopeAtLine(aModel, lSymbol.Line);
+        lSymbolScope := RoutineScopeAtLine(aModel, lSymbol.Line, lSymbol.FileName);
         if ScopeEncloses(lSymbolScope, lScope) then
           Exit;
         if (lSymbolScope = '') and SameText(lSymbol.Name, aName) and
@@ -3093,8 +3102,8 @@ begin
         aDeclaredTypeName := lMember.TypeName;
         // A member inside a routine body whose local owner was not uniquely found is
         // not proven unit-level.
-        if (aScopeId = '') and (lMember.FileName = '') and
-          (RoutineScopeAtLine(aModel, lMember.Line) <> '') then
+        if (aScopeId = '') and
+          (RoutineScopeAtLine(aModel, lMember.Line, lMember.FileName) <> '') then
           Inc(lMatches);
       end;
   Result := lMatches = 1;
