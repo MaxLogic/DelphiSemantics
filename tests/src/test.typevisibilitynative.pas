@@ -210,6 +210,8 @@ begin
           lSelector.AddPair('file', aSnapshot.ExactTextOf(lBinding.FileNameId));
           lSelector.AddPair('line', TJSONNumber.Create(lBinding.Line));
           lSelector.AddPair('column', TJSONNumber.Create(lBinding.Column));
+          lSelector.AddPair('type_name', aSnapshot.ExactTextOf(lItem.TypeNameId));
+          lSelector.AddPair('source_unit', aSnapshot.ExactTextOf(lBinding.UnitNameId));
           lSelector.AddPair('name', aSnapshot.ExactTextOf(lItem.TypeIdentity.NameId));
           lSelector.AddPair('unit', aSnapshot.ExactTextOf(lItem.TypeIdentity.UnitNameId));
           lSelector.AddPair('status', aSnapshot.ExactTextOf(lItem.StatusId));
@@ -231,6 +233,8 @@ begin
         lSelector.AddPair('file', lBinding.FileName);
         lSelector.AddPair('line', TJSONNumber.Create(lBinding.Line));
         lSelector.AddPair('column', TJSONNumber.Create(lBinding.Column));
+        lSelector.AddPair('type_name', lItem.TypeName);
+        lSelector.AddPair('source_unit', lBinding.UnitName);
         lSelector.AddPair('name', lItem.TypeIdentity.Name);
         lSelector.AddPair('unit', lItem.TypeIdentity.UnitName);
         lSelector.AddPair('status', lItem.Status);

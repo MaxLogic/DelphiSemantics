@@ -929,6 +929,23 @@ def generate(repo, root, full, only="", include_evidence="certified"):
         for case in cases:
             case.pop('excluded_routes', None)
             case['routes'] = list(range(5))
+    # DS-788: fixture-owned declarations, never exported planner identities.
+    # These bounded corpus shapes declare either a unit variable Rec or a
+    # routine-local Sub. Generic inference obtains their anonymous TypeInfo.
+    for case in cases:
+        source = Path(case['root']) / 'Unit1.pas'
+        if not source.exists():
+            continue
+        text = source.read_text(encoding='utf-8-sig')
+        catalog = []
+        if re.search(r'\bRec\s*:\s*record\b', text, re.I):
+            catalog.append(['Unit1.Rec', 'Unit1.Unit1.Rec'])
+        if case['name'].startswith('r8-anon-dotted-homonym-'):
+            depth = int(case['name'].split('-')[4])
+            expression = '.'.join(['Sub'] * depth)
+            catalog.append([expression, 'Unit1.TOuter.' + expression])
+        if catalog:
+            case['anonymous_types'] = {'Unit1.pas': catalog}
     (root / "cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
     print(f"Generated {len(cases)} cases")
 
@@ -1168,10 +1185,15 @@ interface
 uses System.Rtti, System.TypInfo;
 type
   TProbe = class
+    class function Identity<T>(const aValue: T): PTypeInfo; static;
     class procedure Emit<T>(const aValue: T; const aKey: string;
       const aPrivateTypes: array of PTypeInfo; const aNames: array of string); static;
   end;
 implementation
+class function TProbe.Identity<T>(const aValue: T): PTypeInfo;
+begin
+  Result := TypeInfo(T);
+end;
 class procedure TProbe.Emit<T>(const aValue: T; const aKey: string;
   const aPrivateTypes: array of PTypeInfo; const aNames: array of string);
 var
@@ -1222,8 +1244,11 @@ def native_identity(case, bds, targets):
             originals[path] = path.read_bytes()
         private = (case.get('private_types', {}).get(target['file'], []) +
                    case.get('alias_types', []))
-        handles = ', '.join('System.TypeInfo(' + name + ')' for name, _ in private)
-        names = ', '.join("'" + identity + "'" for _, identity in private)
+        anonymous = case.get('anonymous_types', {}).get(target['file'], [])
+        handles = ', '.join(['System.TypeInfo(' + name + ')' for name, _ in private] +
+                            ['Ds719NativeProbe.TProbe.Identity(' + expression + ')'
+                             for expression, _ in anonymous])
+        names = ', '.join("'" + identity + "'" for _, identity in [*private, *anonymous])
         prefix = 'begin '
         for index, expression in enumerate(target['selectors']):
             key = f"{target['file'].lower()}:{target['line']}:{target['column']}:{index}"
@@ -1503,6 +1528,15 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                 origin = target['context'][key[3]]['origin'] if target and 0 <= key[3] < len(target['context']) else key
                 identity = identities.get(':'.join(map(str, origin)))
                 actual = selector['unit'] + '.' + selector['name']
+                if not selector['unit'] and not selector['name']:
+                    # Legacy anonymous bindings expose TypeName rather than a
+                    # declared identity. Compare that spelling only against the
+                    # independent, compiled declaration catalog, fail closed.
+                    actual = selector.get('source_unit', '') + '.' + selector.get('type_name', '')
+                    catalog = case.get('anonymous_types', {}).get(target['file'], []) if target else []
+                    if actual.lower() not in {name.lower() for _, name in catalog}:
+                        actual = '<missing-declaration-identity>'
+
                 if (not identity or identity == '<unidentified>' or actual.lower() not in identity.lower().split('|')):
                     row.setdefault('identity_refusals', []).append(dict(target=key, compiler=identity, ds=actual))
                     if statement['status'] == 'planned' or case.get('require_identity'):
@@ -1589,9 +1623,11 @@ def challenge(root, bds):
     output = root/'comparator-challenges'; output.mkdir()
     for mutation in ('baseline', 'wrong-name', 'deleted-dto', 'missing-selector',
                      'alias-wrong-unit', 'wrong-unit', 'runtime', 'monotonicity', 'route-loss',
-                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused'):
+                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused', 'anonymous-wrong-binding'):
         folder = output/mutation; folder.mkdir()
-        subject = (next(c for c in cases if c['name'] == 'r8-helper-collision-p9-weak-alias')
+        subject = (next(c for c in cases if c['name'] == 'anon-partial-field')
+                   if mutation == 'anonymous-wrong-binding' else
+                   next(c for c in cases if c['name'] == 'r8-helper-collision-p9-weak-alias')
                    if mutation == 'approved-plan-refused' else
                    next(c for c in cases if c['name'] == 'generated-nested-none-after-intf')
                    if mutation == 'nested-context-loss' else
@@ -1600,6 +1636,13 @@ def challenge(root, bds):
         row = json.loads(json.dumps(subject)); row['root'] = str(folder/'subject'); row['name']=subject['name'] if mutation == 'approved-plan-refused' else 'subject'
         row.pop('known_absent', None)
         shutil.copytree(subject['root'], row['root'], ignore=shutil.ignore_patterns('native', '*.sqlite*', '*-compile.json', '*-runtime.json'))
+        if mutation == 'anonymous-wrong-binding':
+            source = Path(row['root']) / 'Unit1.pas'
+            text = source.read_text(encoding='ascii')
+            # Preserve line/column identity of every existing WITH target.
+            text = text.replace('  lOutside: Integer;', '  lOutside: Integer; Other: record A: Integer; end;')
+            write(source, text)
+            row['anonymous_types']['Unit1.pas'].append(['Other', 'Unit1.Run.Other'])
         for route in range(5):
             path = Path(row['root'])/f'route-{route}.json'
             raw = path.read_text(encoding='utf-8-sig').replace(json.dumps(subject['root'])[1:-1], json.dumps(row['root'])[1:-1])
@@ -1614,6 +1657,8 @@ def challenge(root, bds):
                 assert len(matches) == 1, ('Missing inherited-selector mutation target', key)
                 plan['selectors'].remove(matches[0])
             if mutation=='wrong-name': plan['selectors'][0]['name']='TWrong'
+            if mutation == 'anonymous-wrong-binding':
+                plan['selectors'][0].update(unit='Unit1', name='Run.Other')
             if mutation=='deleted-dto': plan['statements']=[]; plan['selectors']=[]
             if mutation=='missing-selector': plan['selectors']=[]
             if mutation in ('alias-wrong-unit','wrong-unit'):
@@ -1661,7 +1706,7 @@ def challenge(root, bds):
         import sys
         process=run([sys.executable,'-B',*command],folder,folder/'receipt.json')
         result=json.loads((folder/'comparison.json').read_text())
-        expected = { 'baseline': None, 'wrong-name': 'compiler-identity',
+        expected = { 'baseline': None, 'anonymous-wrong-binding': 'compiler-identity', 'wrong-name': 'compiler-identity',
             'deleted-dto': 'statement-coverage', 'missing-selector': 'selector-coverage',
             'alias-wrong-unit': 'compiler-identity', 'wrong-unit': 'compiler-identity',
             'runtime': 'runtime-output', 'monotonicity': 'monotonicity',
@@ -1669,7 +1714,8 @@ def challenge(root, bds):
             'binding-flip': 'runtime-output', 'refuse-all': 'positive-control-refused',
             'approved-plan-refused': 'approved-batch-contract'}[mutation]
         detected = (process['exit']==0 and not result['failures']) if expected is None else (
-            process['exit']==1 and any(f['cause']==expected for f in result['failures']))
+            process['exit']==1 and any(f['cause']==expected and
+                (mutation != 'anonymous-wrong-binding' or f['field'] == 3) for f in result['failures']))
         results.append(dict(mutation=mutation,exit=process['exit'],detected=detected,
                             expected=expected,failures=len(result['failures']),seconds=process['seconds']))
     (root/'comparator-mutations.json').write_text(json.dumps(results,indent=2))
