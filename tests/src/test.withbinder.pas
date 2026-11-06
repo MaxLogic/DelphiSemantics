@@ -35,6 +35,18 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [Category('DS718Routes')]
+    [TestCase('constant-class route 0', 'constant-class,0')]
+    [TestCase('constant-class route 1', 'constant-class,1')]
+    [TestCase('constant-class route 2', 'constant-class,2')]
+    [TestCase('constant-class route 3', 'constant-class,3')]
+    [TestCase('constant-class route 4', 'constant-class,4')]
+    [TestCase('constant-record route 0', 'constant-record,0')]
+    [TestCase('constant-record route 1', 'constant-record,1')]
+    [TestCase('constant-record route 2', 'constant-record,2')]
+    [TestCase('constant-record route 3', 'constant-record,3')]
+    [TestCase('constant-record route 4', 'constant-record,4')]
+    procedure TypeScopedConstantRoutes(const aShape: string; const aRoute: Integer);
     [Category('DS703Routes')]
     [TestCase('missing route 0', 'missing,0')]
     [TestCase('missing route 1', 'missing,1')]
@@ -21908,6 +21920,11 @@ begin
   InventoryCoverageRoutes(aShape, aRoute);
 end;
 
+procedure TWithBinderTests.TypeScopedConstantRoutes(const aShape: string; const aRoute: Integer);
+begin
+  ModelExtractionRoutes(aShape, aRoute);
+end;
+
 procedure TWithBinderTests.ModelExtractionRoutes(const aShape: string; const aRoute: Integer);
 var
   g: TGarbos;
@@ -21993,8 +22010,12 @@ begin
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
   Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
-  Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Get', 'member'),
-    'The extracted method must bind as a receiver member.');
+  if StartsText('constant-', aShape) then
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Limit', 'member'),
+      'The type constant must bind to its receiver instead of a homonymous local.')
+  else
+    Assert.IsTrue(HasReference(lFacts.Bindings[0], 'Get', 'member'),
+      'The extracted method must bind as a receiver member.');
   if aShape = 'same-line-helper' then
   begin
     // Model binding is now complete. The independent source inventory still
@@ -22008,7 +22029,13 @@ begin
   end;
   Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
     lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
-  if aShape = 'generic-record' then
+  if StartsText('constant-', aShape) then
+  begin
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('.Limit + 1;'),
+      lPlan.FinalStatements[0].ReplacementText);
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('.Value :='),
+      lPlan.FinalStatements[0].ReplacementText);
+  end else if aShape = 'generic-record' then
     Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('G := Item.Get + 1;'),
       lPlan.FinalStatements[0].ReplacementText)
   else if MatchText(aShape, ['nested-record', 'generic-const']) then

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Snapshot-backed find-usages and rename retain class and record constants by declaration identity, including WITH references. Older snapshots rebuild.
+- Rename remains incomplete when a missing conditional include may contain references, even if later directives restore known activity.
+
 - Anonymous record variables close at their own END, including one-line and nested bodies. Nested fields no longer appear on the containing named record, routine-local field duplicates are removed, and class heritage no longer creates enum constants.
 - Generic declarations retain their parameter count through model serialization. Consistency reports generic specialization as unknown rather than certifying an incomplete class; older model caches rebuild.
 

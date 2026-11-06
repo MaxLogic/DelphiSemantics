@@ -1574,8 +1574,9 @@ var
   lOffset: Integer;
   lCount: Integer;
 begin
-  lPath := TPath.Combine(ExtractFilePath(ParamStr(0)),
-    '..\.dak\delphiSemanticsTests\refactoring-light-default-references\' + aShape + '.pas');
+  // Full and lean cases may execute in separate shards at the same time.
+  lPath := UnitModelTempPath('default-references-' + aShape + '-' +
+    BoolToStr(aLean, True) + '.pas');
   TDirectory.CreateDirectory(TPath.GetDirectoryName(lPath));
   lText := DefaultParameterSource(aShape);
   TFile.WriteAllText(lPath, lText, TEncoding.ASCII);

@@ -577,7 +577,8 @@ begin
   lUsage.Line := aLine;
   lUsage.Column := aColumn;
   lUsage.EndLine := aLine;
-  lUsage.EndColumn := aColumn + Length(aName) - 1;
+  if aColumn > 0 then
+    lUsage.EndColumn := aColumn + Length(aName) - 1;
   lUsage.Reason := aReason;
   aUnresolved.Add(lUsage);
 end;
@@ -784,6 +785,20 @@ begin
     for lUsage in aUsages do
       lCovered.AddOrSetValue(SnapshotPositionKey(lUsage.FileName, lUsage.Line, lUsage.Column), 0);
     lName := aSymbol.Name;
+    // A missing possible include has no known token to put in the name index.
+    // It can hide this symbol's uses regardless of the text in its parent unit.
+    for i := 0 to Pred(aSnapshot.UnitCount) do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      for var j := 1 to lUnit.ReferenceCount do
+      begin
+        lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
+        if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
+          cSnapshotReferenceClassificationUnseenSource) then
+          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, '', '', '',
+            lReference.Line, 0, SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
+      end;
+    end;
     lNameKnown := aSnapshot.TryFindStringId(lName, lNameId);
     if lNameKnown then
       AddPossibleOverrideUsages(lUnresolved, aSnapshot, aSymbol, aEquivalentRefs, lNameId);

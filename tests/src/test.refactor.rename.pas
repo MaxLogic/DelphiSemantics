@@ -97,6 +97,22 @@ type
   [TestFixture]
   TRenameCompletenessTests = class
   public
+    [Test]
+    [TestCase('Class constant', 'class')]
+    [TestCase('Record constant', 'record')]
+    procedure PlansTypeScopedConstantByIdentity(const aKind: string);
+    [Test]
+    [TestCase('Class WITH constant', 'class')]
+    [TestCase('Record WITH constant', 'record')]
+    procedure PlansTypeScopedWithConstantByIdentity(const aKind: string);
+    [Test]
+    [TestCase('Unknown target missing include', 'missing')]
+    [TestCase('Unknown option missing include', 'ifopt')]
+    [TestCase('Known false missing include', 'inactive')]
+    [TestCase('Found unknown include reference', 'found')]
+    [TestCase('Found unknown include unrelated control', 'unrelated')]
+    [TestCase('No include control', 'none')]
+    procedure MissingPossibleIncludePreventsCompleteRename(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure PlansQualifiedMemberReferencesInConsumerUnit;
@@ -246,9 +262,9 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
-  maxLogic.IOUtils,
+  AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
   Test.Support;
@@ -1307,6 +1323,28 @@ begin
     '</ItemGroup></Project>', TEncoding.ASCII);
 end;
 
+// Retain actual plans and inputs for the independent native compiler proof.
+procedure RetainCompletenessRenameProof(const aRoot, aNewName: string;
+  const aPlan: TDelphiSemanticRenamePlan);
+var
+  g: TGarbos;
+  lFileName: string;
+  lProofRoot: string;
+  lSerializer: TJsonSerializer;
+begin
+  lProofRoot := GetEnvironmentVariable('DS_RENAME_PROOF_ROOT');
+  if lProofRoot = '' then
+    Exit;
+  lProofRoot := TPath.Combine(lProofRoot, ExtractFileName(aRoot) + '-' + aNewName);
+  TDirectory.CreateDirectory(lProofRoot);
+  for lFileName in TDirectory.GetFiles(aRoot) do
+    if MatchText(ExtractFileExt(lFileName), ['.pas', '.dpr', '.dproj', '.inc']) then
+      TFile.Copy(lFileName, TPath.Combine(lProofRoot, ExtractFileName(lFileName)), True);
+  GC(lSerializer, TJsonSerializer.Create, g);
+  TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+    lSerializer.Serialize<TDelphiSemanticRenamePlan>(aPlan), TEncoding.UTF8);
+end;
+
 function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aColumn: Integer;
   const aNewName: string; const aCacheFileName: string = '';
   const aExpectCacheHit: Boolean = False; const aPlatform: string = ''): TDelphiSemanticRenamePlan;
@@ -1332,6 +1370,7 @@ begin
       Assert.IsNotNull(lContext.ProjectSnapshot, 'Rename must run on the project snapshot.');
       Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
         TPath.Combine(aRoot, aFileName), aLine, aColumn, aNewName);
+      RetainCompletenessRenameProof(aRoot, aNewName, Result);
     finally
       lContext.ProjectSnapshot := nil;
     end;
@@ -1424,6 +1463,101 @@ begin
 end;
 
 // DS-667: effective directives determine whether the same-line call belongs in the plan.
+procedure TRenameCompletenessTests.PlansTypeScopedConstantByIdentity(const aKind: string);
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lWarmPlan: TDelphiSemanticRenamePlan;
+begin
+  lRoot := WriteCompletenessProject('type-constant-' + aKind,
+    'program P;'#13#10'uses UProv, UCons;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+    'const Limit = 99;'#13#10'type'#13#10'  TBox = ' + aKind + #13#10 +
+    '  public'#13#10'  const'#13#10'    Limit = 5;'#13#10'  public'#13#10 +
+    '    class function Value: Integer; static;'#13#10'  end;'#13#10 +
+    'implementation'#13#10'class function TBox.Value: Integer;'#13#10 +
+    'begin'#13#10'  Result := Limit;'#13#10'end;'#13#10'end.'#13#10),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10'interface'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'uses UProv;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 +
+    '  WriteLn(TBox.Limit, UProv.Limit, TBox.Value);'#13#10'end;'#13#10'end.'#13#10)]);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'Capacity',
+    TPath.Combine(lRoot, 'constant.sqlite3'));
+  AssertCompletePlan(lPlan, ['uprov.pas:8:5', 'uprov.pas:15:13', 'ucons.pas:8:16'], 3);
+  lWarmPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'Capacity',
+    TPath.Combine(lRoot, 'constant.sqlite3'), True);
+  AssertCompletePlan(lWarmPlan, ['uprov.pas:8:5', 'uprov.pas:15:13', 'ucons.pas:8:16'], 3);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 7, 'UnitLimit');
+  AssertCompletePlan(lPlan, ['uprov.pas:3:7', 'ucons.pas:8:29'], 2);
+end;
+
+procedure TRenameCompletenessTests.PlansTypeScopedWithConstantByIdentity(const aKind: string);
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('with-constant-' + aKind,
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10,
+    [CompletenessFile('Unit1.pas', TFile.ReadAllText(CombinePath([FixturePath('ModelExtraction'),
+      'constant-' + aKind, 'Unit1.pas'])))]);
+  lPlan := PlanCompletenessRename(lRoot, 'Unit1.pas', 16, 5, 'Capacity');
+  AssertCompletePlan(lPlan, ['unit1.pas:16:5', 'unit1.pas:30:14'], 2);
+end;
+
+procedure TRenameCompletenessTests.MissingPossibleIncludePreventsCompleteRename(const aShape: string);
+var
+  lBlock: string;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lWarmPlan: TDelphiSemanticRenamePlan;
+begin
+  lBlock := '{$IFDEF LINUX}{$I Missing.inc}{$ENDIF}';
+  if aShape = 'ifopt' then
+    lBlock := '{$IFOPT R+}{$I Missing.inc}{$ENDIF}'
+  else if aShape = 'inactive' then
+    lBlock := '{$IF False}{$I Missing.inc}{$ENDIF}'
+  else if MatchText(aShape, ['found', 'unrelated']) then
+    lBlock := '{$IFDEF LINUX}{$I Found.inc}{$ENDIF}'
+  else if aShape = 'none' then
+    lBlock := '';
+  lRoot := WriteCompletenessProject('possible-include-' + aShape,
+    'program P;'#13#10'uses UProv, UCons;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+    'function Fetch: Integer;'#13#10'implementation'#13#10 +
+    'function Fetch: Integer;'#13#10'begin Result := 1; end;'#13#10'end.'#13#10),
+    CompletenessFile('UCons.pas', 'unit UCons;'#13#10'interface'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'uses UProv;'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10 + lBlock + #13#10'end;'#13#10'end.'#13#10)]);
+  if aShape = 'found' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Found.inc'), 'WriteLn(Fetch);'#13#10, TEncoding.ASCII)
+  else if aShape = 'unrelated' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Found.inc'), 'WriteLn(0);'#13#10, TEncoding.ASCII);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'include.sqlite3'));
+  lWarmPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'include.sqlite3'), True);
+  Assert.AreEqual(lPlan.Status, lWarmPlan.Status, 'Persisted snapshot keeps completeness.');
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)),
+    SortedKeysText(PlanUnresolvedKeys(lWarmPlan)));
+  if MatchText(aShape, ['inactive', 'unrelated', 'none']) then
+  begin
+    AssertCompletePlan(lPlan, ['uprov.pas:3:10', 'uprov.pas:5:10'], 2);
+    Exit;
+  end;
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('uprov.pas:3:10 uprov.pas:5:10', SortedKeysText(PlanEditKeys(lPlan)));
+  Assert.AreEqual<Integer>(1, Length(lPlan.UnresolvedReferences));
+  if aShape = 'found' then
+  begin
+    Assert.AreEqual('found.inc:1:9', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('unclassified-occurrence', lPlan.UnresolvedReferences[0].Reason);
+  end else begin
+    Assert.AreEqual('ucons.pas:8:0', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('include-file-not-found', lPlan.UnresolvedReferences[0].Reason);
+  end;
+  Assert.AreEqual('', lPlan.ContextFingerprint, 'Unseen possible references cannot authorize apply.');
+end;
+
 procedure TRenameCompletenessTests.PlansConditionalSameLineFunctionReference(const aShape: string);
 var
   lDefine: string;
@@ -1575,7 +1709,13 @@ begin
     SortedKeysText(PlanUnresolvedKeys(lWarmPlan)));
   if aShape = 'restored-witness' then
   begin
-    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10'], 2);
+    // UNDEF restores later activity, but cannot expose references in the missing include.
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
+    Assert.AreEqual('uprov.pas:10:0', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual<Integer>(1, Length(lPlan.UnresolvedReferences));
+    Assert.AreEqual('include-file-not-found', lPlan.UnresolvedReferences[0].Reason);
+    Assert.AreEqual('', lPlan.ContextFingerprint);
     Exit;
   end;
   if aShape = 'windows-else' then
@@ -1601,13 +1741,25 @@ begin
     end;
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
-  if MatchText(aShape, ['include-target', 'include-escaped']) then
-    Assert.AreEqual('unknown.inc:1:9', SortedKeysText(PlanUnresolvedKeys(lPlan)))
-  else
-    Assert.AreEqual('uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
+  if MatchText(aShape, ['earlier-witness', 'missing-include']) then
+  begin
+    Assert.AreEqual('uprov.pas:10:0 uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
       SortedKeysText(PlanUnresolvedKeys(lPlan)));
-  Assert.AreEqual(1, Integer(Length(lPlan.UnresolvedReferences)));
-  Assert.AreEqual('unclassified-occurrence', lPlan.UnresolvedReferences[0].Reason);
+    Assert.AreEqual<Integer>(2, Length(lPlan.UnresolvedReferences));
+    for var lUsage in lPlan.UnresolvedReferences do
+      if lUsage.Column = 0 then
+        Assert.AreEqual('include-file-not-found', lUsage.Reason)
+      else
+        Assert.AreEqual('unclassified-occurrence', lUsage.Reason);
+  end else begin
+    if MatchText(aShape, ['include-target', 'include-escaped']) then
+      Assert.AreEqual('unknown.inc:1:9', SortedKeysText(PlanUnresolvedKeys(lPlan)))
+    else
+      Assert.AreEqual('uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
+        SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual(1, Integer(Length(lPlan.UnresolvedReferences)));
+    Assert.AreEqual('unclassified-occurrence', lPlan.UnresolvedReferences[0].Reason);
+  end;
   Assert.AreEqual('', lPlan.ContextFingerprint, 'Unknown activity cannot authorize apply.');
 end;
 
@@ -2201,9 +2353,9 @@ begin
   AssertCompletePlan(lPlan, lLocalKeys, 3);
 end;
 
-// DS-652/DS-699: snapshots do not retain class constants yet (DS-710). Renaming
-// the local must list both the unclassified member declaration and the with-body
-// occurrence instead of editing either; without such a member the plan is complete.
+// The same-line public const form has no proven declaration owner. Renaming
+// the local must still list the unclassified declaration and WITH occurrence;
+// without such a member, the local plan is complete.
 procedure TRenameCompletenessTests.ListsWithBodyNameThatMayBeAnUnmodelledMember(
   const aHasConstant: Boolean);
 var

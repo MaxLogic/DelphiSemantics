@@ -8,6 +8,8 @@ uses
 
 const
   cSnapshotSymbolFlagImmutableTypedConstant = 4;
+  // A source gap can contain references to any symbol; it has no invented name or target.
+  cSnapshotReferenceClassificationUnseenSource = 'unseen-source';
 
 type
   TSemanticStringId = Cardinal;
