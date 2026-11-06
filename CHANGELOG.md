@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Class rename plans include method implementation owners, including escaped identifiers and wrapped headers. Selecting an implementation owner resolves to its type; older model and snapshot caches rebuild.
+
 - Method headings inside types no longer add standalone routine symbols after blank lines. Enum values no longer reference themselves at their declarations, preserving rename and unused-value reporting. Older model and snapshot caches rebuild.
 - Constant, enum and member extraction uses indexed candidate lookups to avoid repeated full-list scans on large units.
 

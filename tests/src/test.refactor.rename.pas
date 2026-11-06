@@ -102,6 +102,22 @@ type
   TRenameCompletenessTests = class
   public
     [Test]
+    [TestCase('Plain declaration', 'plain,False')]
+    [TestCase('Plain owner position', 'plain,True')]
+    [TestCase('Escaped declaration', 'escaped,False')]
+    [TestCase('Escaped owner position', 'escaped,True')]
+    [TestCase('Wrapped declaration', 'wrapped,False')]
+    [TestCase('Wrapped owner position', 'wrapped,True')]
+    procedure PlansClassRenameAcrossImplementationOwners(const aShape: string;
+      const aFromHeader: Boolean);
+    [Test]
+    [TestCase('Implicit root', 'root')]
+    [TestCase('Nested type shadow', 'nested')]
+    [TestCase('Unproved ancestor', 'external')]
+    procedure PlansTypeInImplementationParameterBeforeInheritedLookup(const aShape: string);
+    [Test]
+    procedure DoesNotBindGenericOwnerParameterToUnitType;
+    [Test]
     [TestCase('Class constant', 'class')]
     [TestCase('Record constant', 'record')]
     procedure PlansTypeScopedConstantByIdentity(const aKind: string);
@@ -1503,6 +1519,104 @@ begin
   Assert.AreEqual(SortedKeysText(aExpectedKeys), SortedKeysText(PlanEditKeys(aPlan)));
   Assert.AreEqual(0, Integer(Length(aPlan.UnresolvedReferences)),
     'A complete plan lists no unresolved references: ' + SortedKeysText(PlanUnresolvedKeys(aPlan)));
+end;
+
+// DS-655: every implementation owner is a type use, including constructor/destructor,
+// class methods and wrapped/escaped tokens. Position lookup must choose that same type.
+procedure TRenameCompletenessTests.PlansClassRenameAcrossImplementationOwners(
+  const aShape: string; const aFromHeader: Boolean);
+var
+  lColumn, lLine: Integer;
+  lOwner, lRoot, lSource: string;
+  lPlan: TDelphiSemanticRenamePlan;
+begin
+  lOwner := 'TA';
+  if aShape = 'escaped' then
+    lOwner := '&TA'
+  else if aShape = 'wrapped' then
+    lOwner := 'TA' + #13#10 + '  ';
+  lSource := 'unit OwnerHeaders;'#13#10'interface'#13#10'type'#13#10 +
+    '  TA = class'#13#10'  public'#13#10 +
+    '    constructor Create;'#13#10'    destructor Destroy; override;'#13#10 +
+    '    procedure Bump;'#13#10'    function ReadValue: Integer;'#13#10 +
+    '    class function DefaultValue: Integer; static;'#13#10'  end;'#13#10 +
+    'implementation'#13#10 +
+    'constructor ' + lOwner + '.Create;'#13#10'begin inherited Create; end;'#13#10 +
+    'destructor ' + lOwner + '.Destroy;'#13#10'begin inherited Destroy; end;'#13#10 +
+    'procedure ' + lOwner + '.Bump;'#13#10'begin end;'#13#10 +
+    'function ' + lOwner + '.ReadValue: Integer;'#13#10'begin Result := 7; end;'#13#10 +
+    'class function ' + lOwner + '.DefaultValue: Integer;'#13#10 +
+    'begin Result := 9; end;'#13#10'end.'#13#10;
+  lRoot := WriteCompletenessProject('owner-headers-' + aShape,
+    'program P;'#13#10'uses OwnerHeaders;'#13#10'begin end.'#13#10,
+    [CompletenessFile('OwnerHeaders.pas', lSource)]);
+  lLine := 4;
+  lColumn := 3;
+  if aFromHeader then
+  begin
+    lLine := 13;
+    lColumn := 13;
+    if aShape = 'escaped' then
+      Inc(lColumn);
+  end;
+  lPlan := PlanCompletenessRename(lRoot, 'OwnerHeaders.pas', lLine, lColumn, 'TRenamed');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['OwnerHeaders.pas'], 'TA'), 6);
+end;
+
+// DS-655 real-project prerequisite: type references in implementation headings must
+// retain class-scope shadows and unproved ancestors while permitting a closed root.
+procedure TRenameCompletenessTests.PlansTypeInImplementationParameterBeforeInheritedLookup(
+  const aShape: string);
+var
+  lDeclaration: string;
+  lEdit: TDelphiSemanticTextEdit;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lDeclaration := '  TConsumer = class public';
+  if aShape = 'nested' then
+    lDeclaration := '  TConsumer = class public type TA = string;'
+  else if aShape = 'external' then
+    lDeclaration := '  TConsumer = class(TInterfacedObject) public';
+  lRoot := WriteCompletenessProject('owner-header-parameter-' + aShape,
+    'program P;'#13#10'uses HeaderParameter;'#13#10'begin end.'#13#10,
+    [CompletenessFile('HeaderParameter.pas',
+    'unit HeaderParameter;'#13#10'interface'#13#10'type'#13#10 +
+    '  TA = class end;'#13#10 + lDeclaration + #13#10 +
+    '    procedure Accept(aValue: TA);'#13#10'  end;'#13#10 +
+    'implementation'#13#10'procedure TConsumer.Accept(aValue: TA);'#13#10 +
+    'begin end;'#13#10'end.'#13#10)]);
+  lPlan := PlanCompletenessRename(lRoot, 'HeaderParameter.pas', 4, 3, 'TRenamed');
+  if aShape = 'root' then
+    AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['HeaderParameter.pas'], 'TA'), 3)
+  else begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    for lEdit in lPlan.Edits do
+      Assert.AreNotEqual(9, lEdit.StartLine,
+        'A shadowed or unproved implementation parameter must never bind to the unit type.');
+  end;
+end;
+
+// Generic parameters in an owner prefix are declarations in the generic type's scope.
+// They must never be emitted as references to a same-named unit type.
+procedure TRenameCompletenessTests.DoesNotBindGenericOwnerParameterToUnitType;
+var
+  lEdit: TDelphiSemanticTextEdit;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('owner-generic-parameter',
+    'program P;'#13#10'uses GenericOwner;'#13#10'begin end.'#13#10,
+    [CompletenessFile('GenericOwner.pas',
+    'unit GenericOwner;'#13#10'interface'#13#10'type'#13#10 +
+    '  T = class end;'#13#10'  TBox<T> = class public'#13#10 +
+    '    procedure Run;'#13#10'  end;'#13#10'implementation'#13#10 +
+    'procedure TBox<T>.Run;'#13#10'begin end;'#13#10'end.'#13#10)]);
+  lPlan := PlanCompletenessRename(lRoot, 'GenericOwner.pas', 4, 3, 'TRenamed');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  for lEdit in lPlan.Edits do
+    Assert.AreNotEqual(9, lEdit.StartLine,
+      'A generic owner parameter must never bind to a same-named unit type.');
 end;
 
 // DS-667: effective directives determine whether the same-line call belongs in the plan.
