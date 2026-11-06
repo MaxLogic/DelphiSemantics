@@ -34,6 +34,10 @@ type
     [Category('Fast')]
     [Test]
     procedure KnownActiveWriteRestoresScannerCertainty;
+    [Category('Fast')]
+    [TestCase('Less than inactive', 'a<b.inc,False')]
+    [TestCase('Pipe active', 'a|b.inc,True')]
+    procedure InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
 
     [Category('Fast')]
     [Test]
@@ -271,6 +275,27 @@ begin
   Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lOptions.SourceText,
     lEvidence, Pos('Alternative;', lOptions.SourceText)), 'The opposite reachable arm is also unknown.');
   Assert.IsTrue(HasDiagnostic(lResult, 'UNVERIFIED_PREPROCESS_CONDITION'));
+end;
+
+procedure TPreprocessTests.InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lResolved: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('invalid-include'), 'Unit1.pas');
+  Assert.IsFalse(TDelphiSemanticPreprocessor.ResolveIncludeFileName(aName,
+    TPath.GetDirectoryName(lOptions.SourceFileName), lOptions, lResolved));
+  Assert.AreEqual('', lResolved);
+  lOptions.SourceText := '{$I ' + aName + '}';
+  if not aActive then
+    lOptions.SourceText := '{$IFDEF NEVER_X}' + lOptions.SourceText + '{$ENDIF}';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  if aActive then
+    Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'))
+  else
+    Assert.IsTrue(lResult.Success, 'An unresolved possible include must retain the model.');
 end;
 
 procedure TPreprocessTests.IncompleteDefinesOpenDeclarationAndImportFacts(const aShape: string);

@@ -710,50 +710,61 @@ var
   lIncludeName: string;
   lSearchPath: string;
 begin
-  if (aIncludeName = '<include-unclassified>') or
-    (aCurrentDirectory = '<include-path-unproved>') then
-  begin
-    aFileName := '';
-    Exit(False);
-  end;
-  // dcc64 always supplies .pas when an include has no extension; it never
-  // probes the extensionless file or an implicit .inc (native MSBuild matrix).
-  lIncludeName := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aIncludeName);
-  if TPath.IsPathRooted(lIncludeName) then
-  begin
-    aFileName := TPath.GetFullPath(lIncludeName);
-    Exit(TFile.Exists(aFileName));
-  end;
-
-  // dcc64 resolves every nesting level from the original unit, not from
-  // the including .inc. Project and explicit -I directories follow in order.
-  if aOptions.SourceFileName <> '' then
-    lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), lIncludeName))
-  else
-    lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, lIncludeName));
-  if TFile.Exists(lPath) then
-  begin
-    aFileName := lPath;
-    Exit(True);
-  end;
-
-  for lSearchPath in aOptions.SearchPaths do
-  begin
-    if lSearchPath = '<include-path-unproved>' then
+  aFileName := '';
+  try
+    if (aIncludeName = '<include-unclassified>') or
+      (aCurrentDirectory = '<include-path-unproved>') then
     begin
       aFileName := '';
       Exit(False);
     end;
-    lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, lIncludeName));
+    // dcc64 always supplies .pas when an include has no extension; it never
+    // probes the extensionless file or an implicit .inc (native MSBuild matrix).
+    lIncludeName := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aIncludeName);
+    if TPath.IsPathRooted(lIncludeName) then
+    begin
+      aFileName := TPath.GetFullPath(lIncludeName);
+      Exit(TFile.Exists(aFileName));
+    end;
+
+    // dcc64 resolves every nesting level from the original unit, not from
+    // the including .inc. Project and explicit -I directories follow in order.
+    if aOptions.SourceFileName <> '' then
+      lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), lIncludeName))
+    else
+      lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, lIncludeName));
     if TFile.Exists(lPath) then
     begin
       aFileName := lPath;
       Exit(True);
     end;
-  end;
 
-  aFileName := '';
-  Result := False;
+    for lSearchPath in aOptions.SearchPaths do
+    begin
+      if lSearchPath = '<include-path-unproved>' then
+      begin
+        aFileName := '';
+        Exit(False);
+      end;
+      lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, lIncludeName));
+      if TFile.Exists(lPath) then
+      begin
+        aFileName := lPath;
+        Exit(True);
+      end;
+    end;
+
+    aFileName := '';
+    Result := False;
+  except
+    on E: EArgumentException do
+    begin
+      // Invalid names remain unresolved, including in inactive arms. Callers
+      // retain the named INCLUDE_FILE_NOT_FOUND/inventory diagnostic.
+      aFileName := '';
+      Result := False;
+    end;
+  end;
 end;
 
 procedure RecordSkippedInclude(const aName, aDirectory: string;

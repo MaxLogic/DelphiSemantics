@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Invalid include names remain unresolved during preprocessing, including inactive conditional branches, instead of raising path exceptions (DS-772).
 - Compiler predefined evidence identifies the possible project-source and include inventory; a planning context outside that inventory cannot reuse its certificate (DS-772).
 - Compiler define currentness is checked at session admission, result publication and cache reuse, avoiding repeated native evaluation for each model (DS-772).
 - Conditional declarations, imports and WITH activity retain uncertainty when compiler defines are incomplete. Scans report incomplete inventories, and rewrites exclude only proved-inactive references.
