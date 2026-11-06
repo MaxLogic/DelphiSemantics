@@ -44,6 +44,12 @@ type
     [TestCase('cold publication', 'cold')]
     [TestCase('warm reuse', 'warm')]
     procedure ChangedProducerAbortsModelPublication(const aShape: string);
+    [Test]
+    procedure FrozenModelAdmissionDoesNotReevaluateNativeInputs;
+    [TestCase('Before facts publication', 'facts')]
+    [TestCase('Before snapshot publication', 'snapshot')]
+    [TestCase('Before warm snapshot reuse', 'warm')]
+    procedure SessionCurrentnessRemainsAtCheckpoints(const aShape: string);
   end;
 
 // Only generated, closed synthetic test universes may use this producer.
@@ -64,7 +70,7 @@ implementation
 uses
   System.Hash, System.IOUtils, System.SysUtils,
   DelphiSemantics.Cache,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession;
 
 type
   TTestDefineEvidence = class(TInterfacedObject, IDelphiSemanticCompilerDefineEvidence)
@@ -403,6 +409,92 @@ begin
     Assert.IsTrue(lRefused, 'A native value change aborts publication or reuse.');
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TCompilerDefineEvidenceTests.FrozenModelAdmissionDoesNotReevaluateNativeInputs;
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted, lReadmitted: IDelphiSemanticCompilerDefineEvidence;
+  lOptions: TDelphiSemanticModelOptions;
+  lReason: string;
+  lEvaluations: Integer;
+begin
+  lDescriptor := ClosedDescriptor;
+  lEvaluations := 0;
+  lEvidence := TTestDefineEvidence.Create(lDescriptor,
+    function: Boolean
+    begin
+      Inc(lEvaluations);
+      Result := True;
+    end);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason), lReason);
+  Assert.AreEqual(1, lEvaluations, 'Admission validates the producer once.');
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lAdmitted, lDescriptor.Invocation, lReadmitted, lReason), lReason);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lDescriptor.Sources[0].SourceFileName;
+  lOptions.CompilerDefineEvidence := lReadmitted;
+  lOptions.CompilerDefineRequest := lDescriptor.Invocation;
+  for var i := 1 to 8 do
+  begin
+    lOptions := AdmitCompilerDefineModelOptions(lOptions);
+    Assert.IsTrue(lOptions.DefineEvidenceComplete);
+  end;
+  Assert.AreEqual(1, lEvaluations,
+    'Model admission reuses the frozen descriptor; currentness belongs to publication/reuse checkpoints.');
+  lDescriptor.Invocation.Configuration := 'Release';
+  Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lAdmitted,
+    lDescriptor.Invocation, lReadmitted, lReason), 'Frozen evidence cannot move to another request.');
+  Assert.AreEqual(1, lEvaluations, 'Request mismatch refuses without native re-admission.');
+end;
+
+procedure TCompilerDefineEvidenceTests.SessionCurrentnessRemainsAtCheckpoints(const aShape: string);
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lCurrent, lRefused: Boolean;
+  lEvaluations: Integer;
+begin
+  lDescriptor := ClosedDescriptor;
+  lDescriptor.Invocation.MainSourceFileName := lDescriptor.Sources[0].SourceFileName;
+  lDescriptor.Invocation.ProjectFileName := TPath.ChangeExtension(lDescriptor.Invocation.MainSourceFileName, '.dproj');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDescriptor.Invocation.ProjectFileName;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lCurrent := True;
+  lEvaluations := 0;
+  lOptions.CompilerDefineEvidence := TTestDefineEvidence.Create(lDescriptor,
+    function: Boolean
+    begin
+      Inc(lEvaluations);
+      Result := lCurrent;
+    end);
+  if aShape = 'warm' then
+    lOptions.SqliteCacheFileName := TPath.Combine(TPath.GetTempPath, 'ds772-' + TGUID.NewGuid.ToString + '.db');
+  lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lOpened.Success);
+    Assert.IsTrue(lOpened.Session.Project.DefineEvidenceComplete);
+    Assert.AreEqual(1, lEvaluations, 'Session admission validates once.');
+    if aShape = 'warm' then
+      lOpened.Session.BuildSnapshot.Free;
+    lCurrent := False;
+    lRefused := False;
+    try
+      if aShape = 'facts' then
+        lOpened.Session.BuildWithBindingFactsResult
+      else
+        lOpened.Session.BuildSnapshot.Free;
+    except
+      on E: EInvalidOpException do
+        lRefused := Pos('COMPILER_DEFINE_EVIDENCE_CHANGED', E.Message) > 0;
+    end;
+    Assert.IsTrue(lRefused, 'A mutation after admission must abort publication/reuse.');
+  finally
+    lOpened.Session.Free;
   end;
 end;
 

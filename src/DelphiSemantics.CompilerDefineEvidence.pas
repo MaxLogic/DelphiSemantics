@@ -58,6 +58,12 @@ type
       const aSourceFileName: string): Boolean; static;
     class function EffectiveDefines(const aEvidence: IDelphiSemanticCompilerDefineEvidence): TArray<string>; static;
     class procedure RequireCurrent(const aEvidence: IDelphiSemanticCompilerDefineEvidence); static;
+    // A session publishes the combined result after a single native checkpoint.
+    // Individual models inside it never publish an independently current context.
+    class function ForSession(const aEvidence: IDelphiSemanticCompilerDefineEvidence):
+      IDelphiSemanticCompilerDefineEvidence; static;
+    class procedure RequireCurrentAtCheckpoint(
+      const aEvidence: IDelphiSemanticCompilerDefineEvidence); static;
   end;
 
 implementation
@@ -84,6 +90,44 @@ type
     function InputsAreCurrent(out aReason: string): Boolean;
     function EvidenceFingerprint: string;
   end;
+
+type
+  ISessionCompilerDefineEvidence = interface
+    ['{832C8B54-ED02-4BCC-8375-F7859A8C5275}']
+  end;
+
+  TSessionCompilerDefineEvidence = class(TInterfacedObject,
+    IDelphiSemanticCompilerDefineEvidence, IAdmittedCompilerDefineEvidence, ISessionCompilerDefineEvidence)
+  private
+    fAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  public
+    constructor Create(const aAdmitted: IDelphiSemanticCompilerDefineEvidence);
+    function Descriptor: TDelphiSemanticCompilerDefineDescriptor;
+    function InputsAreCurrent(out aReason: string): Boolean;
+    function EvidenceFingerprint: string;
+  end;
+
+constructor TSessionCompilerDefineEvidence.Create(const aAdmitted: IDelphiSemanticCompilerDefineEvidence);
+begin
+  inherited Create;
+  fAdmitted := aAdmitted;
+end;
+
+function TSessionCompilerDefineEvidence.Descriptor: TDelphiSemanticCompilerDefineDescriptor;
+begin
+  Result := fAdmitted.Descriptor;
+end;
+
+function TSessionCompilerDefineEvidence.InputsAreCurrent(out aReason: string): Boolean;
+begin
+  // Explicit producer queries always re-evaluate, including on session evidence.
+  Result := fAdmitted.InputsAreCurrent(aReason);
+end;
+
+function TSessionCompilerDefineEvidence.EvidenceFingerprint: string;
+begin
+  Result := TDelphiSemanticCompilerDefines.Fingerprint(fAdmitted);
+end;
 
 function CopyDescriptor(const aDescriptor: TDelphiSemanticCompilerDefineDescriptor):
   TDelphiSemanticCompilerDefineDescriptor;
@@ -318,6 +362,17 @@ begin
   if aEvidence = nil then
     Exit(False);
   try
+    // Admitted descriptors are immutable and already normalized. Revalidate only
+    // the request identity, rather than recopying/normalizing every source per model.
+    if Fingerprint(aEvidence) <> 'unavailable' then
+    begin
+      aReason := 'compiler define evidence request identity mismatch';
+      if not RequestMatches(aEvidence.Descriptor.Invocation, aRequest) then
+        Exit(False);
+      aAdmitted := aEvidence;
+      aReason := '';
+      Exit(True);
+    end;
     lDescriptor := CopyDescriptor(aEvidence.Descriptor);
     if not ValidateDescriptor(lDescriptor, aRequest, aReason) then
       Exit(False);
@@ -387,7 +442,27 @@ begin
     raise EInvalidOpException.Create('COMPILER_DEFINE_EVIDENCE_INVALID: admitted symbols changed');
 end;
 
+class function TDelphiSemanticCompilerDefines.ForSession(
+  const aEvidence: IDelphiSemanticCompilerDefineEvidence): IDelphiSemanticCompilerDefineEvidence;
+begin
+  Result := aEvidence;
+  if aEvidence = nil then
+    Exit;
+  if Fingerprint(aEvidence) = 'unavailable' then
+    raise EInvalidOpException.Create('COMPILER_DEFINE_EVIDENCE_INVALID: session requires admitted evidence');
+  if not Supports(aEvidence, ISessionCompilerDefineEvidence) then
+    Result := TSessionCompilerDefineEvidence.Create(aEvidence);
+end;
+
 class procedure TDelphiSemanticCompilerDefines.RequireCurrent(
+  const aEvidence: IDelphiSemanticCompilerDefineEvidence);
+begin
+  if Supports(aEvidence, ISessionCompilerDefineEvidence) then
+    Exit;
+  RequireCurrentAtCheckpoint(aEvidence);
+end;
+
+class procedure TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(
   const aEvidence: IDelphiSemanticCompilerDefineEvidence);
 var
   lReason: string;

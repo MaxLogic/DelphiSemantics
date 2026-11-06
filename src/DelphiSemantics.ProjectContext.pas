@@ -2984,6 +2984,10 @@ begin
   lRequest.Configuration := aOptions.Configuration;
   lRequest.Platform := aOptions.Platform;
   lRequest.DelphiVersion := aOptions.DelphiVersion;
+  // A new independent load is an admission checkpoint. Nested loads inside
+  // an owning session share its frozen admission and seal at publication.
+  if TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) <> 'unavailable' then
+    TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
   if TDelphiSemanticCompilerDefines.TryAdmit(aOptions.CompilerDefineEvidence,
     lRequest, lEvidence, lReason) then
   begin

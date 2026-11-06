@@ -816,7 +816,8 @@ end;
 function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
   aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean;
-  var aSemanticCachePersistenceAvailable: Boolean):
+  var aSemanticCachePersistenceAvailable: Boolean;
+  const aDeferCompilerCurrentness: Boolean = False):
   TProjectModelExtractionResult; overload;
 var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
@@ -843,7 +844,6 @@ begin
       lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
     end;
 
-    TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
     if ModelObservationOwner(aOptions) <> nil then
     begin
       if lCache = nil then
@@ -878,6 +878,10 @@ begin
     if ModelObservationOwner(aOptions) <> nil then
       for lModel in lModels do
         TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
+    // Standalone extraction seals once. The combined binder seals its complete
+    // result after callbacks instead, so internal models need no second evaluation.
+    if not aDeferCompilerCurrentness then
+      TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(aOptions.CompilerDefineEvidence);
     Result.Models := lModels.ToArray;
   finally
     lStopwatch.Stop;
@@ -909,7 +913,7 @@ procedure RequireCurrentRequestModels(const aOptions: TDelphiSemanticOptions;
 var
   lModel: TDelphiSemanticUnitModel;
 begin
-  TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
+  TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(aOptions.CompilerDefineEvidence);
   if ModelObservationOwner(aOptions) <> nil then
     for lModel in aModels do
       TDelphiSemanticUnitCache.RequireCurrentSources(lModel.SourceObservations);
@@ -972,7 +976,7 @@ var
   i: Integer;
   lItem: TDelphiSemanticProjectContextObservation;
 begin
-  TDelphiSemanticCompilerDefines.RequireCurrent(aProject.CompilerDefineEvidence);
+  TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(aProject.CompilerDefineEvidence);
   if aProject.ContextObservations = nil then
     raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_UNAVAILABLE');
   for i := 0 to aProject.ContextObservations.Count - 1 do
@@ -1171,7 +1175,7 @@ begin
   lFiles := ProjectModelFileNames(aProject);
   lExtraction := ExtractProjectModels(aProject, aOptions,
     lFiles, aScopedSourceFileNames,
-    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable);
+    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True);
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
 
@@ -2075,6 +2079,7 @@ begin
           Result.Metrics.SnapshotCacheFullHitCount := 1;
           Result.Metrics.SnapshotCacheUnitMergeMilliseconds :=
             lBuilderMetrics.MergeMilliseconds;
+          TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(fOptions.CompilerDefineEvidence);
           Result.Snapshot := lSnapshot;
           lSnapshot := nil;
           Exit;
@@ -2603,6 +2608,8 @@ begin
   Result.Provenance := 'project-context';
   Result.Diagnostics := Copy(lContext.Diagnostics);
   lOptions := aOptions;
+  lContext.Project.CompilerDefineEvidence := TDelphiSemanticCompilerDefines.ForSession(
+    lContext.Project.CompilerDefineEvidence);
   lOptions.CompilerDefineEvidence := lContext.Project.CompilerDefineEvidence;
   Result.Session := TDelphiSemanticProjectSession.Create(lOptions, lContext.Project,
     lContext.Diagnostics, Result.Status, Result.Provenance);

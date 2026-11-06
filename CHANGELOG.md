@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Compiler define currentness is checked at session admission, result publication and cache reuse, avoiding repeated native evaluation for each model (DS-772).
 - Conditional declarations, imports and WITH activity retain uncertainty when compiler defines are incomplete. Scans report incomplete inventories, and rewrites exclude only proved-inactive references.
 - Project define completeness requires an admitted compiler-input certificate. Legacy define lists and XML evaluation remain partial; certificate identity and currentness guard model and planning caches.
 

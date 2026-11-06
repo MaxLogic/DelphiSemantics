@@ -341,8 +341,6 @@ begin
   Result.DefineEvidenceComplete := False;
   if aOptions.CompilerDefineEvidence = nil then
     Exit;
-  if TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) <> 'unavailable' then
-    TDelphiSemanticCompilerDefines.RequireCurrent(aOptions.CompilerDefineEvidence);
   if not TDelphiSemanticCompilerDefines.TryAdmit(aOptions.CompilerDefineEvidence,
     aOptions.CompilerDefineRequest, lAdmitted, Result.CompilerDefineEvidenceReason) then
   begin
