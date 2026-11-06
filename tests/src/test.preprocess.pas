@@ -16,6 +16,38 @@ type
       const aActive: Boolean): Boolean;
   public
     [Category('Fast')]
+    [TestCase('IFDEF', 'ifdef')]
+    [TestCase('IFNDEF', 'ifndef')]
+    [TestCase('Defined expression', 'defined')]
+    [TestCase('ELSEIF', 'elseif')]
+    procedure IncompleteDefinesMakeAbsentOrdinaryUnknown(const aShape: string);
+
+    [Category('Fast')]
+    [TestCase('Declaration absent from AST', 'declaration')]
+    [TestCase('Conditional uses absent from AST', 'imports')]
+    [TestCase('Empty unknown arm', 'empty')]
+    [TestCase('Scanner only declaration', 'scan-declaration')]
+    [TestCase('Scanner only imports', 'scan-imports')]
+    [TestCase('Text-only uses entry point', 'text-imports')]
+    procedure IncompleteDefinesOpenDeclarationAndImportFacts(const aShape: string);
+
+    [Category('Fast')]
+    [Test]
+    procedure KnownActiveWriteRestoresScannerCertainty;
+    [Category('Fast')]
+    [TestCase('Less than inactive', 'a<b.inc,False')]
+    [TestCase('Pipe active', 'a|b.inc,True')]
+    procedure InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
+    [Category('Fast')]
+    [TestCase('Less than', 'a<b.inc')]
+    [TestCase('Pipe', 'a|b.inc')]
+    procedure InvalidIncludeCannotProveImportOrder(const aName: string);
+
+    [Category('Fast')]
+    [Test]
+    procedure RepeatedIncludeUsesItsOwnActivityInstance;
+
+    [Category('Fast')]
     [TestCase('Uses include', 'uses')]
     [TestCase('Declaration include', 'declaration')]
     [TestCase('Outside dependency spans', 'outside')]
@@ -76,6 +108,10 @@ type
     procedure ConditionalExpressionsRetainTriStateShortCircuit(const aShape: string);
     [Category('Fast')]
     [Test]
+    [TestCase('Certified ordinary absent', 'complete-ordinary')]
+    [TestCase('Certified framework absent', 'complete-framework')]
+    [TestCase('BCB without predefined witness', 'bcb')]
+    [TestCase('BCB witnessed absent', 'bcb-false')]
     [TestCase('Ordinary absent', 'ordinary')]
     [TestCase('Ordinary Defined expression', 'ordinary-defined')]
     [TestCase('Ordinary IFNDEF', 'ordinary-ifndef')]
@@ -176,6 +212,145 @@ begin
   TDirectory.CreateDirectory(Result);
 end;
 
+
+procedure TPreprocessTests.KnownActiveWriteRestoresScannerCertainty;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('scanner-recovery'), 'Unit1.pas');
+  lOptions.SourceText := 'unit Unit1; interface {$IFDEF HIDDEN}{$DEFINE FLAG}{$ENDIF}' +
+    '{$DEFINE FLAG}uses Always {$IFDEF FLAG}, Conditional{$ENDIF}; implementation end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.IsFalse(lResult.DirectiveFacts.ImportsUnproved,
+    'A known-active assignment recovers the symbol after an earlier uncertain write.');
+end;
+
+procedure TPreprocessTests.RepeatedIncludeUsesItsOwnActivityInstance;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lRoot: string;
+  lIncludeSpans: Integer;
+begin
+  lRoot := PreprocessTempRoot('repeat-instance');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'field.inc'),
+    '{$IFDEF FEATURE}Count: Integer;{$ENDIF}', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Unit1.pas');
+  lOptions.SourceText := '{$UNDEF FEATURE}{$I field.inc}' +
+    '{$IFDEF UNKNOWN_FEATURE}{$DEFINE FEATURE}{$ENDIF}{$I field.inc}';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  lIncludeSpans := 0;
+  for var lSpan in lResult.DirectiveFacts.Spans do
+    if SameText(lSpan.StartFileName, TPath.Combine(lRoot, 'field.inc')) then
+      Inc(lIncludeSpans);
+  Assert.AreEqual(1, lIncludeSpans, 'Only the second include expansion has an unknown conditional.');
+  Assert.IsTrue(lResult.DirectiveFacts.NameCause('Count') <> '',
+    'An earlier inactive expansion cannot hide a later possible member.');
+end;
+
+procedure TPreprocessTests.IncompleteDefinesMakeAbsentOrdinaryUnknown(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lDirective, lEvidence: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('incomplete-' + aShape), 'Unit1.pas');
+  lDirective := '{$IFDEF REVIEW_FEATURE}';
+  if aShape = 'ifndef' then
+    lDirective := '{$IFNDEF REVIEW_FEATURE}'
+  else if aShape = 'defined' then
+    lDirective := '{$IF Defined(REVIEW_FEATURE)}'
+  else if aShape = 'elseif' then
+    lDirective := '{$UNDEF CLOSED}{$IFDEF CLOSED}Excluded;{$ELSEIF Defined(REVIEW_FEATURE)}';
+  lOptions.SourceText := lDirective + 'Possible;{$ELSE}Alternative;{$ENDIF}';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success);
+  Assert.IsTrue(lResult.ActivityEvidenceAvailable);
+  lEvidence := TDelphiSemanticSourceConditionals.EncodeActivity(lOptions.SourceText,
+    lOptions.SourceFileName, lResult.ActivitySpans);
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lOptions.SourceText,
+    lEvidence, Pos('Possible;', lOptions.SourceText)), 'An uncaptured ordinary define is unknown.');
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lOptions.SourceText,
+    lEvidence, Pos('Alternative;', lOptions.SourceText)), 'The opposite reachable arm is also unknown.');
+  Assert.IsTrue(HasDiagnostic(lResult, 'UNVERIFIED_PREPROCESS_CONDITION'));
+end;
+
+procedure TPreprocessTests.InvalidIncludeCannotProveImportOrder(const aName: string);
+begin
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.ImportOrderUnknown(
+    'unit Unit1; interface uses {$I ' + aName + '} System.SysUtils; implementation end.',
+    '', [], ['System.SysUtils']), 'An unresolved include cannot prove import order.');
+end;
+
+procedure TPreprocessTests.InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lResolved: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('invalid-include'), 'Unit1.pas');
+  Assert.IsFalse(TDelphiSemanticPreprocessor.ResolveIncludeFileName(aName,
+    TPath.GetDirectoryName(lOptions.SourceFileName), lOptions, lResolved));
+  Assert.AreEqual('', lResolved);
+  lOptions.SourceText := '{$I ' + aName + '}';
+  if not aActive then
+  begin
+    lOptions.DefineEvidenceComplete := True;
+    lOptions.SourceText := '{$IFDEF NEVER_X}' + lOptions.SourceText + '{$ENDIF}';
+  end;
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'),
+    'Invalid include names retain a named diagnostic even when known inactive.');
+  if not aActive then
+    Assert.IsTrue(lResult.Success, 'An inactive unresolved include must retain the model.');
+end;
+
+procedure TPreprocessTests.IncompleteDefinesOpenDeclarationAndImportFacts(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lBody: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('facts-' + aShape), 'Unit1.pas');
+  lBody := 'type TPossible = record Count: Integer; end;';
+  if ContainsText(aShape, 'imports') then
+    lBody := 'uses PossibleHelper;'
+  else if aShape = 'empty' then
+    lBody := '';
+  lOptions.SourceText := 'unit Unit1; interface {$IFDEF REVIEW_FEATURE}' + lBody +
+    '{$ELSE}{$ENDIF} implementation end.';
+  if StartsText('text-', aShape) then
+  begin
+    Assert.IsTrue(TDelphiSemanticSourceConditionals.UsesDirectiveUnproved(lOptions.SourceText));
+    lOptions.SourceFileName := '';
+  end;
+  if StartsText('scan-', aShape) or StartsText('text-', aShape) then
+    lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions)
+  else begin
+    lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+    Assert.IsTrue(lResult.Success);
+    lFacts := lResult.DirectiveFacts;
+  end;
+  Assert.IsTrue(Length(lFacts.Spans) > 0, 'Even an empty unknown arm retains a directive span.');
+  if ContainsText(aShape, 'imports') then
+  begin
+    Assert.IsTrue(lFacts.ImportsUnproved, 'A possible import omitted from the AST is not absent.');
+    Assert.IsTrue(lFacts.NameCause('PossibleHelper') <> '');
+  end else if aShape <> 'empty' then
+  begin
+    Assert.IsTrue(lFacts.NameCause('Count') <> '', 'A conditional member cannot prove absence.');
+    Assert.IsTrue(lFacts.NameCause('TPossible') <> '');
+  end;
+end;
 
 procedure TPreprocessTests.IncludeSpanRequiresCallerEvidence(const aShape: string);
 var
@@ -344,6 +519,8 @@ begin
   lOptions := Default(TDelphiSemanticPreprocessOptions);
   lOptions.SourceFileName := FixturePath('Preprocess', 'ConditionalUnit.pas');
   lOptions.Defines := ['MSWINDOWS', 'X'];
+  // This primitive fixture explicitly closes the ordinary symbol universe.
+  lOptions.DefineEvidenceComplete := True;
   lUnknown := False;
   lActive := False;
   if aShape = 'or-true' then
@@ -506,8 +683,24 @@ begin
   lPrefix := '';
   lDirective := '{$IFDEF UNKNOWN_FEATURE}';
   lActive := False;
-  lUnverified := False;
-  if aShape = 'ordinary-defined' then
+  lUnverified := True;
+  if MatchText(aShape, ['complete-ordinary', 'complete-framework']) then
+  begin
+    // A closed primitive universe proves ordinary absence, not builtin absence.
+    lOptions.DefineEvidenceComplete := True;
+    lUnverified := False;
+    if aShape = 'complete-framework' then
+      lDirective := '{$IFDEF FRAMEWORK_FMX}';
+  end else if MatchText(aShape, ['bcb', 'bcb-false']) then
+  begin
+    lOptions.DefineEvidenceComplete := True;
+    lDirective := '{$IFDEF BCB}';
+    if aShape = 'bcb-false' then
+    begin
+      lOptions.PredefinedFalse := ['BCB'];
+      lUnverified := False;
+    end;
+  end else if aShape = 'ordinary-defined' then
     lDirective := '{$IF Defined(UNKNOWN_FEATURE)}'
   else if aShape = 'ordinary-ifndef' then
   begin

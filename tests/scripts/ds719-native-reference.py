@@ -732,6 +732,93 @@ def msbuild_include_invocation(root, bds, target, tag):
     return run(['cmd', '/d', '/c', command], root, root / (tag + '-compile.json'))
 
 
+def ds772_define_cases(root):
+    cases = []
+    for shape in ('field', 'import'):
+        for evidence in ('missing', 'present', 'empty'):
+            name = f'ds772-{shape}-{evidence}'
+            folder = root / name
+            feature = evidence != 'empty'
+            refs = ['Unit1']
+            if shape == 'field':
+                declarations = ('type\n  TRec = record\n'
+                    '{$IFDEF REVIEW_FEATURE}\n    Count: Integer;\n{$ELSE}\n    Other: Integer;\n{$ENDIF}\n'
+                    'end;\n')
+                imports = ''
+                setup = '{$IFDEF REVIEW_FEATURE} Item.Count := 1; {$ELSE} Item.Other := 1; {$ENDIF}'
+                observation = '{$IFDEF REVIEW_FEATURE} Write(Item.Count); {$ELSE} Write(Item.Other); {$ENDIF}'
+            else:
+                write(folder / 'Base.pas', 'unit Base;\ninterface\ntype\n  TRec = record\n    Actual: Integer;\n  end;\nimplementation\nend.\n')
+                write(folder / 'HelperUnit.pas', 'unit HelperUnit;\ninterface\nuses Base;\n'
+                    'type\n  TRecHelper = record helper for TRec\n'
+                    '    function GetCount: Integer;\n    procedure SetCount(Value: Integer);\n'
+                    '    property Count: Integer read GetCount write SetCount;\n  end;\n'
+                    'implementation\nfunction TRecHelper.GetCount: Integer;\nbegin\n  Result := Actual;\nend;\n'
+                    'procedure TRecHelper.SetCount(Value: Integer);\nbegin\n  Actual := Value;\nend;\nend.\n')
+                declarations = ''
+                imports = 'uses Base {$IFDEF REVIEW_FEATURE}, HelperUnit {$ENDIF};\n'
+                setup = 'Item.Actual := 1;'
+                observation = 'Write(Item.Actual);'
+                refs += ['Base', 'HelperUnit']
+            write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\n' + imports + declarations +
+                'procedure Run;\nimplementation\nprocedure Run;\n'
+                'var\n  Item: TRec;\n  Count: Integer;\nbegin\n  Count := 100;\n  ' + setup + '\n'
+                'with Item do Count := Count + 1;\n' + observation + "\n  Writeln('/', Count);\nend;\nend.\n")
+            project(folder, refs, msbuild_properties={
+                'DCC_AdditionalSwitches': '-DREVIEW_FEATURE' if feature else ''})
+            cases.append(dict(name=name, root=str(folder), family='ds772-compiler-defines',
+                define_evidence=evidence, expected_native_output='2/100\r\n' if feature else '1/101\r\n',
+                identity_names=['TRec'], identity_probe_interface_import=True,
+                expect_plan=evidence == 'present' or (shape == 'field' and evidence == 'empty'),
+                require_named_refusal=evidence == 'missing', routes=list(range(5))))
+    return cases
+
+
+def ds772_apptype_cases(root):
+    cases = []
+    for shape in ('console', 'gui', 'include', 'shared-console', 'shared-gui', 'project-console', 'project-gui'):
+        name = f'ds772-apptype-field-{shape}'
+        folder = root / name
+        directive = '{$APPTYPE GUI}' if shape in ('gui', 'shared-gui', 'project-gui') else '{$APPTYPE CONSOLE}'
+        if shape == 'include':
+            write(folder / 'kind.inc', directive + '\n')
+            directive = '{$I kind.inc}'
+        write(folder / 'u0.pas', 'unit u0;\ninterface\nimplementation\n' + directive + '\nend.\n')
+        write(folder / 'Unit1.pas', 'unit Unit1;\ninterface\ntype TRec = record\n'
+              '{$IFDEF CONSOLE} Count: Integer; {$ELSE} Other: Integer; {$ENDIF}\nend;\n'
+              'procedure Run;\nimplementation\nprocedure Run;\nvar Item: TRec; Count: Integer;\nbegin\n'
+              'Count := 100; {$IFDEF CONSOLE} Item.Count := 1; {$ELSE} Item.Other := 1; {$ENDIF}\n'
+              'with Item do Count := Count + 1;\n'
+              '{$IFDEF CONSOLE} Write(Item.Count); {$ELSE} Write(Item.Other); {$ENDIF}\n'
+              "Writeln('/', Count);\nend;\nend.\n")
+        project(folder, ['u0', 'Unit1'], msbuild_properties={'DCC_ConsoleTarget': 'true' if shape in ('gui', 'shared-gui', 'project-gui') else 'false'})
+        # The unit directive, rather than the DPR or switch, changes the state
+        # seen by the later unit. Keep the compilation order explicit.
+        write(folder / 'P.dpr', "program P; uses u0 in 'u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
+        if shape.startswith('shared-'):
+            write(folder / 'shared.inc', '{$I local.kind}\n')
+            write(folder / 'first/local.kind', '')
+            write(folder / 'local.kind', directive + '\n')
+            write(folder / 'first/first.pas', 'unit first; interface implementation {$I shared.inc} end.\n')
+            write(folder / 'u0.pas', 'unit u0; interface implementation {$I shared.inc} end.\n')
+            write(folder / 'P.dpr', "program P; uses first in 'first/first.pas', u0 in 'u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
+        if shape.startswith('project-'):
+            # Native E3: owning subdirectory has no a.inc; project dir wins over -I.
+            write(folder / 'u0.pas', 'unit u0; interface implementation end.\n')
+            write(folder / 'sub/u0.pas', 'unit u0; interface implementation {$I a.inc} end.\n')
+            write(folder / 'a.inc', directive + '\n')
+            write(folder / 'incdir/a.inc', '// harmless -I shadow\n')
+            project(folder, ['sub/u0', 'Unit1'], search='incdir',
+                msbuild_properties={'DCC_ConsoleTarget': 'true' if shape == 'project-gui' else 'false'})
+            write(folder / 'P.dpr', "program P; uses u0 in 'sub/u0.pas', Unit1 in 'Unit1.pas'; begin Unit1.Run; end.\n")
+        cases.append(dict(name=name, root=str(folder), family='ds772-compiler-defines',
+            define_evidence='present', console_unknown=True,
+            expected_native_output='1/101\r\n' if shape in ('gui', 'shared-gui', 'project-gui') else '2/100\r\n',
+            identity_names=['TRec'], identity_probe_interface_import=True,
+            expect_plan=False, require_named_refusal=True, routes=list(range(5))))
+    return cases
+
+
 def generate(repo, root, full, only="", include_evidence="certified"):
     cases = []
     for si, shape in enumerate(SHAPES):
@@ -851,6 +938,9 @@ def generate(repo, root, full, only="", include_evidence="certified"):
     cases.extend(helper_evidence_cases(repo, root))
     cases.extend(multiline_var_cases(root))
     cases.extend(msbuild_include_cases(repo, root))
+    if full:
+        cases.extend(ds772_define_cases(root))
+        cases.extend(ds772_apptype_cases(root))
     # Recovery design 0.24: native regressions for B1, M1 and Fix D follow-ups.
     for retained in json.loads((repo / 'tests/fixtures/ds719-freeze-findings.json').read_text()):
         case = {key: value for key, value in retained.items() if key not in ('files', 'refs')}
@@ -893,6 +983,11 @@ def generate(repo, root, full, only="", include_evidence="certified"):
         cases = [case for case in cases if case["name"].startswith(prefixes)]
     for case in cases:
         folder = Path(case['root'])
+        if 'define_evidence' in case:
+            # These include-free rows exercise the real DAK settings producer.
+            # Do not label the old include-only helper's partial option grammar
+            # as evidence for their additional -D arguments.
+            continue
         xml = ET.parse(folder / 'P.dproj')
         ns = {'m': 'http://schemas.microsoft.com/developer/msbuild/2003'}
         msbuild = any(item.text == 'true' for item in xml.findall('.//m:DS719NativeMSBuild', ns))
@@ -925,7 +1020,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 676 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 689 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1462,6 +1557,34 @@ def approved_batch_observation(case, route, cause, plan, target=None):
                 expected=expected['statements'], statements=actual, observed_cause=cause)
 
 
+def ds772_fact_errors(case, plan):
+    if case.get('family') != 'ds772-compiler-defines':
+        return []
+    errors = []
+    evidence = case['define_evidence']
+    models = [m for m in plan.get('models', []) if m['unit'] == 'Unit1']
+    if len(models) != 1 or models[0].get('define_complete') != (evidence != 'missing'):
+        errors.append('native-define-completeness-required')
+    if (evidence == 'missing' or case.get('console_unknown')) and len(models) == 1:
+        key = 'directive_count_cause' if '-field-' in case['name'] else 'directive_import_cause'
+        expected = 'DECLARATIONS_DIRECTIVE_UNPROVED' if '-field-' in case['name'] else 'IMPORTS_DIRECTIVE_UNPROVED'
+        if models[0].get(key) != expected:
+            errors.append('native-directive-denial-required')
+    references = [r for r in plan.get('references', []) if r['name'].casefold() == 'count']
+    expected = 'unsupported' if case.get('console_unknown') else {'missing': 'unsupported', 'present': 'member', 'empty': 'lexical'}[evidence]
+    if len(references) != 2 or any(r['classification'] != expected for r in references):
+        errors.append('native-reference-classification-required')
+    if evidence == 'missing' or case.get('console_unknown'):
+        if any(r.get('code') != 'SELECTOR_MEMBERS_UNVERIFIED' for r in references):
+            errors.append('native-persisted-member-denial-required')
+        for statement in plan.get('statements', []):
+            if (statement.get('replacement') or statement.get('temp_count') or statement.get('edits') or
+                    statement.get('recipe_replacement') or statement.get('recipe_edit_count') or
+                    statement.get('recipe_temp_count')):
+                errors.append('native-refusal-published-edits')
+    return errors
+
+
 def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
     start = time.perf_counter(); failures = []; rows = []; losses = 0
     stopped = False
@@ -1543,6 +1666,8 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
             plan, statements, selectors = load(case, route)
             if plan is None:
                 continue
+            for cause in ds772_fact_errors(case, plan):
+                failure(case, route, 4, cause)
             if case.get('synthetic_collision'):
                 # Recovery design 0.24: the two homonym subjects (ten routes)
                 # must strictly refuse; equal synthetic text is not an identity.

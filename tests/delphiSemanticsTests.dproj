@@ -117,6 +117,7 @@
     <DCCReference Include="src\test.withbinding.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
+    <DCCReference Include="..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.ProjectOptions.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Api.RemoveWith.Compatibility.pas"/>
@@ -134,6 +135,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Lsp.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Model.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Preprocess.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.CompilerDefineEvidence.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectContext.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.ProjectSession.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Query.pas"/>

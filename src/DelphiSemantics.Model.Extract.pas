@@ -23,7 +23,7 @@ uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
@@ -1305,6 +1305,8 @@ var
           begin
             lArgument := TDelphiSemanticPreprocessor.CompilerIncludeFileName(
               lArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim));
+            if lArgument = '' then
+              Exit;
             lExpected := TPath.GetFullPath(TPath.Combine(
               ExtractFilePath(lSources[aSource].Source.FileName), lArgument));
             lSelected := '';
@@ -6561,6 +6563,9 @@ begin
   GExtractionContext := lExtractionContext;
   try
     lDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
+    if aOptions.CompilerDefineEvidenceReason <> '' then
+      AddDiagnostic(lDiagnostics, 'COMPILER_DEFINE_EVIDENCE_UNPROVED',
+        aOptions.CompilerDefineEvidenceReason, aOptions.SourceFileName, 0);
     lInterfaceUses := TList<string>.Create;
     lImplementationUses := TList<string>.Create;
     lDeclarations := TList<TDelphiSemanticDeclaration>.Create;
@@ -6593,6 +6598,11 @@ begin
     lPreprocessOptions.SourceFileName := aOptions.SourceFileName;
     lPreprocessOptions.SourceText := lSourceResult.Source.Text;
     lPreprocessOptions.Defines := aOptions.Defines;
+    lPreprocessOptions.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
+    lPreprocessOptions.CompilerDefineEvidenceFingerprint :=
+      TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence);
+    if aOptions.DefineEvidenceComplete and (aOptions.CompilerDefineEvidence <> nil) then
+      lPreprocessOptions.PredefinedFalse := aOptions.CompilerDefineEvidence.Descriptor.PredefinedFalse;
     lPreprocessOptions.SearchPaths := aOptions.IncludePaths;
     lPreprocessOptions.SkippedIncludeSearchPaths := aOptions.SearchPaths;
     if not aOptions.ProjectContextApplied then

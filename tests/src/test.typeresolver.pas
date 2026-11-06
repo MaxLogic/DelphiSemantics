@@ -289,7 +289,7 @@ uses
   DelphiSemantics.Resolve.NameSites,
   DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.RootMemberAbsence,
   DelphiSemantics.SourceConditionals,
-  Test.Support;
+  Test.CompilerDefineEvidence, Test.Support;
 
 type
   TExactNamedTypeAbsence = class(TInterfacedObject, IDelphiSemanticNamedRootMemberAbsence)
@@ -1461,6 +1461,7 @@ begin
   TFile.WriteAllText(lOptions.SourceFileName,
     'unit Consumer; interface uses TypeUnitA {$IFDEF NEVER}, TypeUnitB {$ENDIF}; implementation end.',
     TEncoding.ASCII);
+  CertifyClosedGeneratedModel(lOptions);
   lConsumer := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lConsumer.Success);
   GC(lGraph, TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo,
@@ -2625,6 +2626,8 @@ begin
   lOptions.DefineEvidenceComplete := aShape = 'complete';
   if MatchText(aShape, ['external', 'complete']) then
     lOptions.Defines := ['REVIEW_FEATURE'];
+  if aShape = 'complete' then
+    CertifyClosedGeneratedModel(lOptions);
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   if aShape <> 'missing-include' then
     Assert.IsTrue(lModel.Success);
@@ -2712,7 +2715,7 @@ begin
     end;
   end;
   TFile.WriteAllText(lOptions.SourceFileName,
-    'unit Evidence;'#13#10'interface'#13#10'{$IFDEF FPC}'#13#10 +
+    'unit Evidence;'#13#10'interface'#13#10'{$UNDEF FPC}'#13#10'{$IFDEF FPC}'#13#10 +
     '{$I Skipped.inc}'#13#10'{$ENDIF}'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
   if aShape = 'unreadable' then
     GC(lLock, TFileStream.Create(lInclude, fmOpenReadWrite or fmShareExclusive), g);
@@ -2742,7 +2745,7 @@ begin
   lOptions.SourceFileName := TPath.Combine(lRoot, 'Evidence.pas');
   lOptions.ProjectContextApplied := True;
   TFile.WriteAllText(lOptions.SourceFileName,
-    'unit Evidence;'#13#10'interface'#13#10'{$IFDEF FPC}'#13#10 +
+    'unit Evidence;'#13#10'interface'#13#10'{$UNDEF FPC}'#13#10'{$IFDEF FPC}'#13#10 +
     '{$I Skipped.inc}'#13#10'{$ENDIF}'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
   lCacheOptions := Default(TDelphiSemanticCacheOptions);
   lCacheOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');

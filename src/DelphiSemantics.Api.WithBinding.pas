@@ -36,6 +36,12 @@ begin
   Result := Default(TDelphiSemanticModelOptions);
   Result.SourceFileName := aSourceFileName;
   Result.Defines := aOptions.Defines;
+  Result.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
+  Result.CompilerDefineRequest.ProjectFileName := aOptions.ProjectFileName;
+  Result.CompilerDefineRequest.MainSourceFileName := aOptions.SourceFileName;
+  Result.CompilerDefineRequest.Configuration := aOptions.Configuration;
+  Result.CompilerDefineRequest.Platform := aOptions.Platform;
+  Result.CompilerDefineRequest.DelphiVersion := aOptions.DelphiVersion;
   Result.SearchPaths := aOptions.SearchPaths;
   Result.ProjectContextApplied := aOptions.ProjectContextApplied;
 end;
@@ -50,6 +56,9 @@ begin
   Result.IncludePaths := [aProject.ProjectDirectory] + aProject.IncludePaths;
   Result.ProjectContextApplied := True;
   Result.DefineEvidenceComplete := aProject.DefineEvidenceComplete;
+  Result.CompilerDefineEvidence := aProject.CompilerDefineEvidence;
+  if aProject.CompilerDefineEvidence <> nil then
+    Result.CompilerDefineRequest := aProject.CompilerDefineEvidence.Descriptor.Invocation;
 end;
 
 function ModelDiagnosticFromProjectDiagnostic(

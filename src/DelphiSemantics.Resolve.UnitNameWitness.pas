@@ -664,6 +664,9 @@ var
 begin
   aFileName := '';
   // SDK DCUs never consume project -I paths. Both allowed SDK locations must agree.
+  lCandidate := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aArgument);
+  if lCandidate = '' then
+    Exit(False);
   for lDirectory in [ExtractFilePath(aIncludingFile), ExtractFilePath(aRootFile)] do
   begin
     lCandidate := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(

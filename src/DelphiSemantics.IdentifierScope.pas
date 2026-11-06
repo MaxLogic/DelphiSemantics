@@ -28,7 +28,7 @@ implementation
 uses
   System.Diagnostics, System.Generics.Collections, System.IOUtils,
   System.StrUtils, System.SysUtils,
-  DelphiSemantics.Preprocess, DelphiSemantics.Source,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model, DelphiSemantics.Preprocess, DelphiSemantics.Source,
   MaxLogic.StrUtils;
 
 type
@@ -464,6 +464,7 @@ function TryScanSourceFile(const aProject: TDelphiSemanticProjectInfo;
 var
   lInclude: TDelphiSemanticIncludeFile;
   lIncludeSource: TDelphiSemanticSourceLoadResult;
+  lModelOptions: TDelphiSemanticModelOptions;
   lOptions: TDelphiSemanticPreprocessOptions;
   lPreprocess: TDelphiSemanticPreprocessResult;
   lSource: TDelphiSemanticSourceLoadResult;
@@ -481,12 +482,31 @@ begin
     lOptions := Default(TDelphiSemanticPreprocessOptions);
     lOptions.SourceFileName := aFileName;
     lOptions.SourceText := lSource.Source.Text;
-    lOptions.Defines := aProject.Defines;
-    lOptions.SearchPaths := aSearchPaths;
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := aFileName;
+    lModelOptions.Defines := aProject.Defines;
+    lModelOptions.CompilerDefineEvidence := aProject.CompilerDefineEvidence;
+    if aProject.CompilerDefineEvidence <> nil then
+      lModelOptions.CompilerDefineRequest := aProject.CompilerDefineEvidence.Descriptor.Invocation;
+    lModelOptions := AdmitCompilerDefineModelOptions(lModelOptions);
+    lOptions.Defines := lModelOptions.Defines;
+    lOptions.DefineEvidenceComplete := lModelOptions.DefineEvidenceComplete;
+    lOptions.CompilerDefineEvidenceFingerprint :=
+      TDelphiSemanticCompilerDefines.Fingerprint(lModelOptions.CompilerDefineEvidence);
+    if lModelOptions.DefineEvidenceComplete and (lModelOptions.CompilerDefineEvidence <> nil) then
+      lOptions.PredefinedFalse := lModelOptions.CompilerDefineEvidence.Descriptor.PredefinedFalse;
+    // Broad scan paths remain conservative ambiguity candidates, never include proof.
+    lOptions.SearchPaths := [aProject.ProjectDirectory] + aProject.IncludePaths;
+    lOptions.SkippedIncludeSearchPaths := aSearchPaths;
     lPreprocess := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
     if not lPreprocess.Success then
     begin
       aFailOpenReason := 'ambiguous-or-unreadable-include';
+      Exit(False);
+    end;
+    if lPreprocess.HasUnknownActivity or not lPreprocess.ActivityEvidenceAvailable then
+    begin
+      aFailOpenReason := 'unverified-preprocess-activity';
       Exit(False);
     end;
     for lInclude in lPreprocess.Includes do

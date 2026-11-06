@@ -24,8 +24,7 @@ implementation
 uses
   System.Character, System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SourceConditionals;
 
 type
   TRelatedInventoryMemberRelation = record
@@ -2209,6 +2208,47 @@ begin
   end;
 end;
 
+function SourceForCompatibilityInventory(const aModel: TDelphiSemanticUnitModel): string;
+var
+  i: Integer;
+  lFirst: Integer;
+  lKnown: Boolean;
+  lLexer: TmwBasePasLex;
+  lToken: string;
+begin
+  // Keep source coordinates. Unknown directives retain the compatibility
+  // refusal; only DS-proved branches may contribute a closed inventory.
+  Result := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
+    aModel.VerifiedActiveSourceText);
+  if aModel.VerifiedActiveSourceText = '' then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Result;
+    while lLexer.TokenID <> ptNull do
+    begin
+      lToken := lLexer.Token;
+      if InventoryIsConditionalDirectiveLine(lToken) then
+      begin
+        lFirst := lLexer.TokenPos + 1;
+        lKnown := True;
+        for i := lFirst to lFirst + Length(lToken) - 1 do
+          if TDelphiSemanticSourceConditionals.UnknownAtOffset(aModel.SourceText,
+            aModel.VerifiedActiveSourceText, i) then
+            lKnown := False;
+        if lKnown then
+          for i := lFirst to lFirst + Length(lToken) - 1 do
+            if not CharInSet(Result[i], [#13, #10]) then
+              Result[i] := ' ';
+      end;
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 procedure AddModelSourceCompatibilitySymbols(
   const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
@@ -2217,15 +2257,20 @@ var
   lMember: TDelphiSemanticMember;
   lRoutine: TDelphiSemanticRoutine;
   lDuplicate: Boolean;
+  lSource: string;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
-  lLines := InventorySourceTextLines(aModel.SourceText);
+  lSource := SourceForCompatibilityInventory(aModel);
+  lLines := InventorySourceTextLines(lSource);
   lFirst := aSymbols.Count;
   ParseDakInventoryTypeMembers(aSymbols,
-    InventorySourceTextLines(InventoryMaskTrivia(aModel.SourceText, True)),
+    InventorySourceTextLines(InventoryMaskTrivia(lSource, True)),
     aModel.UnitName, aModel.FileName);
   ParseDakInventoryUnitGlobals(aSymbols, lLines, aModel.UnitName, aModel.FileName);
-  ParseDakInventoryRoutines(aSymbols, lLines,
+  // Rendering retains inactive locals inside an active routine. Keep their
+  // lexical scope from raw source while active headers remain independently
+  // checked; these symbols do not claim active declaration authority.
+  ParseDakInventoryRoutines(aSymbols, InventorySourceTextLines(aModel.SourceText),
     InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
       aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName);
   lActiveLines := InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(

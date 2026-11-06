@@ -1753,7 +1753,7 @@ begin
   end;
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue');
   lExpectedKeys := ['uprov.pas:4:10', 'uprov.pas:6:10'];
-  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version']) then
+  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version', 'undefined']) then
   begin
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual(SortedKeysText(lExpectedKeys), SortedKeysText(PlanEditKeys(lPlan)));
@@ -1837,6 +1837,11 @@ begin
       '{$IFDEF NET} WriteLn(Fetch); {$ENDIF}'
   else
     lBlock := '{$IFNDEF LINUX} WriteLn(Fetch); {$ELSE} WriteLn(0); {$ENDIF}';
+  // These controls prove a false ordinary state locally; LINUX/IFOPT remain unknown.
+  if MatchText(aShape, ['separate', 'nested', 'false-define', 'expression', 'ifopt-nested']) then
+    lBlock := '{$UNDEF NET}{$UNDEF FOO}' + lBlock
+  else if aShape = 'windows-else' then
+    lBlock := '{$UNDEF WINDOWS}' + lBlock;
   lRoot := WriteCompletenessProject('completeness-region-' + aShape,
     'program P;'#13#10'uses UProv;'#13#10'begin end.'#13#10,
     [CompletenessFile('UProv.pas', #13#10 +
@@ -2232,7 +2237,7 @@ begin
     [CompletenessFile('UProv.pas', cCompletenessProvider), CompletenessFile('UCons.pas',
     'unit UCons;'#13#10'interface'#13#10'implementation'#13#10'uses UProv;'#13#10 +
     'procedure Run;'#13#10'var a: TA;'#13#10'begin'#13#10'  with a do'#13#10 +
-    '  begin'#13#10'    FCounter := 1;'#13#10'    {$IFDEF RELEASE_TRACE}'#13#10 +
+    '  begin'#13#10'    FCounter := 1;'#13#10'    {$UNDEF RELEASE_TRACE}{$IFDEF RELEASE_TRACE}'#13#10 +
     '    FCounter := 2;'#13#10'    {$ENDIF}'#13#10'  end;'#13#10'end;'#13#10'end.'#13#10)]);
   lKeys := OccurrenceKeysExcept(OccurrenceKeys(lRoot, ['UProv.pas', 'UCons.pas'], 'FCounter'),
     ['ucons.pas:12:5']);
@@ -2629,8 +2634,12 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['ucons.pas:15:3', 'ucons.pas:17:3']),
     SortedKeysText(PlanEditKeys(lPlan)), 'The with-body ILimit must not be edited.');
-  // DS-667: NEVER_DEFINED is known false; the unsafe WITH-body name still refuses.
-  Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  // DS-772: the uncertified ordinary symbol retains its possible declaration too.
+  if aShape = 'conditional' then
+    Assert.AreEqual(SortedKeysText(['ucons.pas:20:14', 'uprov.pas:16:5']),
+      SortedKeysText(PlanUnresolvedKeys(lPlan)))
+  else
+    Assert.AreEqual('ucons.pas:20:14', SortedKeysText(PlanUnresolvedKeys(lPlan)));
 end;
 
 // DS-652 review round 4: "with c do X := CVar" over c: TAClass (class of TA) binds CVar to
@@ -2874,8 +2883,8 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['uinc.pas:4:3', 'uinc.pas:17:11', 'uinc.pas:25:20']),
     SortedKeysText(PlanEditKeys(lPlan)), 'Only the unit''s own GA occurrences are edits.');
-  // DS-667: an absent ordinary define proves line 13 inactive; active includes still refuse.
-  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9']),
+  // DS-772: an absent uncertified symbol leaves line 13 possible; includes still refuse.
+  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9', 'uinc.pas:13:3']),
     SortedKeysText(PlanUnresolvedKeys(lPlan)));
 
   lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 4, 7, 'GBeta');

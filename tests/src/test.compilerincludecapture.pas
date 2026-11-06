@@ -2,10 +2,22 @@ unit Test.CompilerIncludeCapture;
 
 interface
 
+uses
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ProjectContext;
+
+function CaptureFixtureCompilerDefines(const aProjectFileName: string):
+  IDelphiSemanticCompilerDefineEvidence;
+
 function CaptureTestCompilerIncludePath(const aRoot: string;
   const aDirectories: TArray<string>): string;
 
 function CaptureFixtureCompilerIncludePath(const aProjectFileName: string): string;
+
+function CaptureFixtureCompilerDefineContext(const aProjectFileName: string;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence overload;
+
+function CaptureFixtureCompilerDefineContext(const aPlanningOptions: TDelphiSemanticOptions;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence; overload;
 
 implementation
 
@@ -125,6 +137,60 @@ begin
     raise EInvalidOpException.Create('Test native include capture changed');
   lProfile := lContext.SourceProfile;
   Result := StringReplace(lProfile.fCompilerIncludeSearchPath, sLineBreak, ';', [rfReplaceAll]);
+end;
+
+function CaptureFixtureCompilerDefineContext(const aProjectFileName: string;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence;
+var
+  lOptions: TDelphiSemanticOptions;
+begin
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := aProjectFileName;
+  Result := CaptureFixtureCompilerDefineContext(lOptions, aIncludePath);
+end;
+
+function CaptureFixtureCompilerDefineContext(const aPlanningOptions: TDelphiSemanticOptions;
+  out aIncludePath: string): IDelphiSemanticCompilerDefineEvidence;
+var
+  lInvocation: TDakNativeCompilerInvocation;
+  lContext: IDakNativeCompilerContext;
+  lSettings: IDakNativeCompilerSettingsContext;
+  lRunner: IBuildProcessRunner;
+  lReason: string;
+begin
+  lInvocation := Default(TDakNativeCompilerInvocation);
+  lInvocation.fPlanningOptions := aPlanningOptions;
+  lInvocation.fSettingsEvidenceRequested := True;
+  lInvocation.fDelphiVersion := '23.0';
+  lInvocation.fBuildTarget := 'Build';
+  lInvocation.fProjectFileName := aPlanningOptions.ProjectPath;
+  lInvocation.fSdkRoot := ExcludeTrailingPathDelimiter(
+    TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot('23.0', ''));
+  lInvocation.fCompilerFileName := TPath.Combine(lInvocation.fSdkRoot, 'bin\dcc64.exe');
+  lInvocation.fMsBuildFileName := TPath.Combine(GetEnvironmentVariable('WINDIR'),
+    'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe');
+  lInvocation.fPropertyArguments := '/p:Config=Debug /p:Platform=Win64 /p:BDS="' +
+    lInvocation.fSdkRoot + '"';
+  lInvocation.fWorkRoot := TPath.Combine(ExtractFilePath(aPlanningOptions.ProjectPath),
+    '.dak\' + TPath.GetFileNameWithoutExtension(aPlanningOptions.ProjectPath) + '\defines');
+  lRunner := TIncludeCaptureProcessRunner.Create;
+  lContext := TryCaptureNativeCompilerContext(lInvocation, lRunner, lReason);
+  if (lContext = nil) or not Supports(lContext, IDakNativeCompilerSettingsContext, lSettings) then
+    raise EInvalidOpException.Create('Test native define capture failed: ' + lReason);
+  if not lSettings.TryGetCompilerDefineEvidence(Result, lReason) then
+    raise EInvalidOpException.Create('Test native define capture refused: ' + lReason);
+  if not lSettings.SettingsInputsAreCurrent then
+    raise EInvalidOpException.Create('Test native settings changed before publication');
+  aIncludePath := StringReplace(lContext.SourceProfile.fCompilerIncludeSearchPath,
+    sLineBreak, ';', [rfReplaceAll]);
+end;
+
+function CaptureFixtureCompilerDefines(const aProjectFileName: string):
+  IDelphiSemanticCompilerDefineEvidence;
+var
+  lIncludePath: string;
+begin
+  Result := CaptureFixtureCompilerDefineContext(aProjectFileName, lIncludePath);
 end;
 
 function CaptureTestCompilerIncludePath(const aRoot: string;

@@ -550,6 +550,16 @@ type
     [TestCase('subject-defined route 3', 'subject-defined,3')]
     [TestCase('subject-defined route 4', 'subject-defined,4')]
     procedure ConditionalWithSafety(const aShape: string; const aRoute: Integer);
+    [TestCase('Unknown global declaration', 'global,False')]
+    [TestCase('Unknown local declaration', 'local,False')]
+    [TestCase('Certified inactive routine', 'inactive,True')]
+    [TestCase('Certified NEVER', 'never,True')]
+    [TestCase('Unknown NEVER', 'never,False')]
+    [TestCase('Certified inline', 'inline,True')]
+    [TestCase('Unknown inline', 'inline,False')]
+    [TestCase('Certified nested IF', 'nested,True')]
+    [TestCase('Unknown nested IF', 'nested,False')]
+    procedure ConditionalQualificationOnFiveRoutes(const aShape: string; const aCertified: Boolean);
     [TestCase('cold', 'cold')]
     [TestCase('warm', 'warm')]
     [TestCase('snapshot', 'snapshot')]
@@ -2988,12 +2998,12 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
-  DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.Model.Json,
+  DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
-  DelphiSemantics.SourceConditionals, Test.CompilerIncludeCapture, Test.Support;
+  DelphiSemantics.SourceConditionals, Test.CompilerDefineEvidence, Test.CompilerIncludeCapture, Test.Support;
 
 var
   GWithBinderTempRoot: string;
@@ -3030,6 +3040,140 @@ begin
   end;
   TDirectory.CreateDirectory(GWithBinderTempRoot);
   Result := BoundedWithBinderPath(GWithBinderTempRoot, aName);
+end;
+
+procedure TWithBinderTests.ConditionalQualificationOnFiveRoutes(const aShape: string;
+  const aCertified: Boolean);
+var
+  lRoot, lBody, lMessage, lFields, lGlobals, lLocals: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lRequest: TDelphiSemanticCompilerDefineRequest;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+begin
+  lRoot := WithBinderTempPath('ds772-qualify-' + aShape + BoolToStr(aCertified, True));
+  TDirectory.CreateDirectory(lRoot);
+  lFields := 'Count: Integer;';
+  lGlobals := '';
+  lLocals := 'var Count: Integer;';
+  if MatchText(aShape, ['global', 'local']) then
+  begin
+    lFields := 'Other: Integer;';
+    lLocals := '';
+    if aShape = 'global' then
+      lGlobals := '{$IFDEF FEATURE} var Count: Integer; {$ENDIF}' + sLineBreak
+    else
+      lLocals := '{$IFDEF FEATURE} var Count: Integer; {$ENDIF}';
+    lBody := 'Count := Count + 1;';
+  end else if aShape = 'inactive' then
+    lBody := 'Count := Count + 1;' + sLineBreak +
+      '{$IFDEF ABSENT} MissingRoutine(Count); {$ENDIF}'
+  else if aShape = 'never' then
+    lBody := '{$IFDEF NEVER}' + sLineBreak + 'Count := Count + 1;' + sLineBreak + '{$ENDIF}'
+  else if aShape = 'inline' then
+    lBody := '{$IFDEF FEATURE} Count := Count + 1; {$ENDIF}'
+  else
+    lBody := '{$IFDEF FEATURE}' + sLineBreak +
+      '{$IF Defined(FEATURE)} Count := Count + 1; {$ELSE} Count := 0; {$IFEND}' +
+      sLineBreak + '{$ELSE} Count := 2; {$ENDIF}';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;' + sLineBreak + 'interface' + sLineBreak +
+    'type TRec = record ' + lFields + ' end;' + sLineBreak + lGlobals +
+    'procedure Run(var aItem: TRec);' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Run(var aItem: TRec);' + sLineBreak + lLocals + sLineBreak +
+    'begin' + sLineBreak + 'Count := 99;' + sLineBreak + 'with aItem do' + sLineBreak +
+    'begin' + sLineBreak + lBody + sLineBreak + 'end;' + sLineBreak + 'end;' + sLineBreak + 'end.',
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1 in ''Unit1.pas''; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  if aCertified then
+  begin
+    lRequest := Default(TDelphiSemanticCompilerDefineRequest);
+    lRequest.ProjectFileName := lOptions.ProjectFileName;
+    lRequest.MainSourceFileName := TPath.Combine(lRoot, 'P.dpr');
+    lRequest.Configuration := 'Debug';
+    lRequest.Platform := 'Win64';
+    lRequest.DelphiVersion := '23.0';
+    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest,
+      [lRequest.MainSourceFileName, TPath.Combine(lRoot, 'Unit1.pas')], ['NEVER', 'FEATURE']);
+  end;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
+  for var i := 0 to 4 do
+  begin
+    lMessage := Format('%s certified=%s route=%d', [aShape, BoolToStr(aCertified, True), i]);
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else if i = 1 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts)
+    else if i = 2 then
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'ds772-qualification';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'no-includes';
+      lIdentity.SchemaVersion := 'ds772-qualification';
+      lStored := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite'));
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+        Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded), lMessage);
+        try
+          lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+        finally
+          lLoaded.Free;
+        end;
+      finally
+        lCache.Free;
+        lStored.Free;
+      end;
+    end else begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success, lMessage);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits), lMessage);
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), lMessage);
+    if aCertified then
+    begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+        lMessage + ': ' + lPlan.FinalStatements[0].Reason);
+      if aShape = 'inactive' then
+        Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+          'MissingRoutine(Count)'), lMessage + ': inactive source stays unchanged.');
+      Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, '.Count :='),
+        lMessage + ': active assignment must be qualified.');
+      Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, '.Count + 1'),
+        lMessage + ': active read must be qualified.');
+    end else begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, lMessage);
+      Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, lMessage);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), lMessage);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), lMessage);
+    end;
+  end;
 end;
 
 procedure TWithBinderTests.SqliteCaseDirectoriesRespectPathBudget;
@@ -3826,7 +3970,7 @@ begin
         Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'n-inc-ifdef-unicode' then
         // DS-719 A1a/A1b: included UNICODE activity is verified unknown; imports are unproved.
-        Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
+        Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'n-if-compilerversion' then
         // DS-719 design 0.25: retain the import-completeness cause.
         Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
@@ -3835,12 +3979,17 @@ begin
         Assert.AreEqual('UNIT_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if aShape = 'c-inc-ifdef-unicode' then
         // DS-719 A1a/A1b: included helper activity is verified unknown; imports are unproved.
+        Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if aShape = 'n-unsupported' then
         Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
       else if MatchText(aShape, ['c-ifdef-unicode', 'n-ifdef-unicode',
         'n-inc-define-unknown', 'site-unresolved',
         'n-unmatched', 'n-unterminated', 'n-unsupported']) then
         // DS-719 A1 rules 1/3 and failed-model guard; DS-756 predefined symbols.
-        Assert.AreEqual('receiver-type-not-visible', lPlan.FinalStatements[0].SafetyReason, aShape)
+        Assert.AreEqual('IMPORTS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
+      else if MatchText(aShape, ['n-helper-declaration', 'c-helper-declaration', 'n-routine-unicode']) then
+        // DS-772: retain the declaration uncertainty instead of erasing its cause.
+        Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lPlan.FinalStatements[0].SafetyReason, aShape)
       else
         Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
       Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
@@ -4118,6 +4267,13 @@ begin
     lExpectedReplacement := ' Item.Y := G + Item.Tag;'
   else if aShape = 'unit-record' then
     lExpectedReplacement := ' Item.Y := G + Item.fc;';
+  // DS-772: this generated fixture explicitly proves ordinary-symbol absence.
+  if aShape = 'undefined-symbol' then
+  begin
+    lOptions.Configuration := 'Debug';
+    lOptions.Platform := 'Win64';
+    CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
+  end;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.
   for var i := 0 to 4 do
@@ -5858,7 +6014,8 @@ begin
   begin
     lExtra := '{$IFNDEF LINUX} var Count: Integer; {$ENDIF}'#13#10;
     lControlType := 'TControlRec';
-    lExpectedReason := '';
+    // DS-772: a possible lexical declaration cannot authorize a fallback.
+    lExpectedReason := 'receiver-member-not-found';
   end else if aShape = 'known-inactive-member' then
   begin
     lField := '{$IFDEF NEVER_DEFINED} Count: Integer; {$ENDIF}';
@@ -5894,6 +6051,9 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'owner-activity.sqlite');
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  // DS-772: this generated fixture explicitly proves ordinary-symbol absence.
+  if aShape = 'known-inactive-member' then
+    CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   for lPass := 0 to 1 do
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
@@ -6076,10 +6236,18 @@ begin
           begin
             Assert.AreEqual('selector-type-not-resolved', lStatement.Reason);
             Assert.AreEqual('UNIT_DIRECTIVE_UNPROVED', lStatement.SafetyReason);
-          end else if MatchText(aShape, ['mixed', 'activity-nested']) then
-            Assert.AreEqual('activity-unverified', lStatement.Reason)
-          else if aShape = 'directive' then
-            Assert.AreEqual('receiver-type-not-visible', lStatement.Reason)
+          end else if MatchText(aShape, ['mixed', 'activity-nested', 'directive']) then
+          begin
+            // Possible Rec occurrences also leave its declaration lookup unproved.
+            if (aShape = 'activity-nested') and (lAffectedCount = 2) then
+            begin
+              Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.Reason);
+              Assert.AreEqual('dependent-selector-type-not-resolved', lStatement.SafetyReason);
+            end else begin
+              Assert.AreEqual('selector-type-not-resolved', lStatement.Reason, lStatement.SafetyReason);
+              Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lStatement.SafetyReason);
+            end;
+          end
           else if aShape = 'ancestor-declaration' then
             Assert.AreEqual('members-unverified', lStatement.Reason);
           Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
@@ -6191,6 +6359,8 @@ begin
   // Only session routes share their owned cold/warm cache within this case.
   if aRoute >= 3 then
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   case aRoute of
     0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
@@ -6295,7 +6465,8 @@ begin
   lExpectedSafety := '';
   // DS-719 0.25: source completeness can refuse before statement activity.
   // A-375 class (c), explicit routine-body ruling: refusal cause changes only.
-  if MatchText(aShape, ['hidden-if', 'hidden-declared', 'hidden-malformed', 'hidden-include']) then
+  if MatchText(aShape, ['hidden-if', 'hidden-declared', 'hidden-malformed', 'hidden-include',
+    'hidden-linux', 'selector-text']) then
   begin
     lExpectedReason := 'selector-type-not-resolved';
     lExpectedSafety := 'DECLARATIONS_DIRECTIVE_UNPROVED';
@@ -6384,8 +6555,12 @@ begin
     if aShape = 'selector-text' then
       for var lBinding in lFacts.Bindings do
         if SameText(lBinding.UnitName, 'Unit1') then
-          Assert.AreEqual('resolved', lBinding.Selectors[0].CaptureTypeStatus,
-            'Exact physical statement text proves the conditional header position.');
+        begin
+          Assert.AreEqual('', lBinding.Selectors[0].CaptureTypeStatus,
+            'Physical selector coordinates cannot prove a conditional declaration.');
+          Assert.AreEqual('', lBinding.Selectors[0].CaptureTypeName);
+          Assert.IsTrue(lBinding.ActivityUnverified, 'Conditional header activity stays unknown.');
+        end;
     lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
     lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
     Assert.AreEqual(Length(lPlan.FinalStatements), Length(lSnapshotPlan.FinalStatements));
@@ -6741,6 +6916,8 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  // This generated universe deliberately closes RELEASE_TRACE and other ordinary names.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   if aMode = 'warm' then
   begin
@@ -6936,6 +7113,9 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'range-cache.sqlite');
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  // DS-772: this generated fixture explicitly proves ordinary-symbol absence.
+  if aShape = 'known' then
+    CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   for lPass := 0 to 1 do
   begin
     lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
@@ -7786,6 +7966,8 @@ begin
     '    Value := 3;' + sLineBreak +
     '  end;' + sLineBreak +
     'end;' + sLineBreak + 'end.', TEncoding.UTF8);
+  // DS-772: both variants describe a closed generated define universe.
+  CertifyClosedGeneratedModel(lOptions);
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsTrue(lModel.Success);
   Assert.AreEqual(TFile.ReadAllText(lOptions.SourceFileName, TEncoding.UTF8), lModel.SourceText,
@@ -19114,7 +19296,16 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
   lOptions.DelphiVersion := '23.0';
+  if MatchText(lShape, ['anonymous-include', 'anonymous-include-paren']) then
+  begin
+    // DS-772: these positive fixtures own the local include and supply the
+    // native empty -I witness; other unproved-include controls stay explicit.
+    lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
+    lOptions.CompilerIncludeSearchPathProvided := True;
+  end;
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite');
+  // This generated universe deliberately closes RELEASE_TRACE and other ordinary names.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   Assert.AreEqual(Int64(0), lFacts.Metrics.SemanticCacheHits, 'Fresh SQLite file must be cold.');
   if MatchText(lShape, ['tag-only', 'strong-alias-qualified-target', 'homonym-tag']) then
@@ -20590,6 +20781,8 @@ begin
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lPath, 'prefix-cache.sqlite');
   if TFile.Exists(lOptions.Cache.SqliteCacheFileName) then
     TFile.Delete(lOptions.Cache.SqliteCacheFileName);
+  // DS-772: this generated fixture explicitly proves ordinary-symbol absence.
+  CertifyClosedGeneratedProject(lOptions, lPath, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
   lSnapshotPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
@@ -20913,6 +21106,13 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
   lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // This isolated fixture owns the project sources and explicitly models a
+  // Win64 universe where LINUX is false; no shipped DCU profile is certified.
+  if MatchText(aShape, ['capture-proof-export-import-only',
+    'capture-proof-later-import-complete', 'capture-proof-transitive-import',
+    'capture-proof-private-homonym']) then
+    CertifyClosedGeneratedProject(lOptions, lRoot,
+      ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360'], ['LINUX']);
   lRequest := Default(TDelphiSemanticRemoveWithRequest);
   lRequest.Options := lOptions;
   lRequest.RemoveWithOptions.SkipSemanticGraph := aSkipGraph;
@@ -22425,6 +22625,8 @@ begin
   lOptions.CompilerIncludeSearchPathProvided := True;
   if aRoute >= 3 then
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   lCacheable := not StartsText('include-', aShape);
   case aRoute of
@@ -22581,6 +22783,8 @@ begin
     lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
   lOptions.CompilerIncludeSearchPath := CaptureTestCompilerIncludePath(ExtractFileDir(lRoot), []);
   lOptions.CompilerIncludeSearchPathProvided := True;
+  // DS-772: this owned generated universe supplies explicit absence evidence.
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   case aRoute of
     0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
@@ -22640,7 +22844,7 @@ begin
   lRefused := MatchText(aShape, ['unknown-local', 'unknown-import', 'incomplete-local',
     'incomplete-import', 'alias-incomplete', 'indexed-incomplete', 'indexed-unindexed']);
   lExpectedStatus := 'planned';
-  if lRefused or MatchText(aShape, ['active-local', 'private-incomplete', 'after-incomplete']) then
+  if lRefused or MatchText(aShape, ['private-incomplete', 'after-incomplete']) then
     lExpectedStatus := 'skipped';
   Assert.AreEqual(lExpectedStatus, lPlan.FinalStatements[0].Status,
     aShape + ':' + lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
@@ -22678,6 +22882,13 @@ begin
     Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'lexical'));
   if MatchText(aShape, ['active-local', 'complete-local']) then
     Assert.IsTrue(HasReference(lFacts.Bindings[0], 'lCount', 'member'));
+  if aShape = 'active-local' then
+  begin
+    // Explicit completeness plus the source DEFINE proves the helper active.
+    // The rewrite must preserve helper-property binding over the lexical local.
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.lCount'));
+    Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('^.Value'));
+  end;
   if aShape = 'unknown-local' then
     Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.Bindings[0].Selectors[0].ReasonCode);
 end;

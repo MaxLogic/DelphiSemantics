@@ -366,7 +366,10 @@ begin
 
   lScan := TDelphiSemanticApi.ScanWithStatements(lOptions);
 
-  Assert.IsTrue(lScan.Success);
+  Assert.IsFalse(lScan.Success,
+    'Unknown INCLUDE_INACTIVE_WITH activity leaves this inventory advisory.');
+  Assert.IsTrue(Length(lScan.Diagnostics) > 0);
+  Assert.AreEqual('UNVERIFIED_PREPROCESS_CONDITION', lScan.Diagnostics[0].Code);
   Assert.IsFalse(lScan.ProjectSessionUsed);
   Assert.AreEqual('WithDiscoveryUnit', lScan.UnitName);
   Assert.AreEqual(5, Integer(Length(lScan.WithStatements)));

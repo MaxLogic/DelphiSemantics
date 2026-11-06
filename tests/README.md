@@ -66,6 +66,13 @@ These tests cover deterministic balancing, literal comma-bearing case names,
 success and failure evidence, ignored tests, leaks, duplicate/missing/extra
 identities, detached descendants, timeout cleanup, and the path-budget refusal.
 
+For a full native proof whose successful artifacts must be retained, set
+`DS719_NATIVE_RETAIN_ROOT` to a short caller-owned evidence directory. Each
+comparison allocates a unique GUID child, retaining all source, route, compiler
+and runtime artifacts outside successful suite cleanup. The explicit
+`DS719_NATIVE_ROOT` single-comparison override takes precedence. Unset both
+variables for the ordinary disposable fixture lifecycle.
+
 ## Fast smoke tier (DS-769)
 
 Run the existing Win64 Debug binary with `--include:Fast` for routine feedback:
@@ -141,3 +148,18 @@ tests/src only.
 Fast is smoke coverage, not acceptance of every method or route. A slice still
 runs the owning fixture for every area it touches. Fast never replaces the
 complete default suite at batch or final gates.
+## Native MaxTdb context
+
+MaxTdbProof and the native FlipMark comparison require
+`DELPHISEMANTICS_MAXTDB_FIXTURE_ROOT` to name a fresh, writable MaxTdb fixture
+copy containing `src/maxtdb.dproj`. Preserve its native dependency topology,
+including the three Foundation units selected by explicit relative DPR paths.
+Copying only the MaxTdb folder leaves those paths unresolved and cannot certify
+the other sources. Keep DPR/DPROJ/source bytes unchanged when preparing the
+topology; use the retained native-fixture recipe for the selected proof run.
+
+The tests capture real Debug/Win64/Delphi 23.0 define and include evidence in
+that owned copy. A missing source-applicability witness remains incomplete;
+the fixture helper never converts a caller define list into a certificate.
+The ordinary sharded runner continues to exclude MaxTdbProof. Run that category
+explicitly with the existing test executable and retain its 205-case XML report.

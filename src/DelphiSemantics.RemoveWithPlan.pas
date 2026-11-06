@@ -2283,29 +2283,51 @@ begin
   Result := IsMemberAccessDot(lLine, lColumn);
 end;
 
-function ReferenceLineHasConditionalDirective(const aBinding: TDelphiSemanticWithBinding;
-  const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
-var
-  lLines: TArray<string>;
-begin
-  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
-    Exit(False);
-  Result := TDelphiSemanticSourceConditionals.LineHasConditionalDirective(lLines,
-    aReference.Line);
-end;
-
-function ReferenceInsideInactiveNeverConditionalRegion(
+function ReferenceHasProvedInactiveActivity(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding;
-  const aReference: TDelphiSemanticBoundReference;
-  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+  const aReference: TDelphiSemanticBoundReference): Boolean;
 var
   lLines: TArray<string>;
+  lSource: string;
+  lOriginal: string;
+  lLine: string;
+  lSourceLines: TStringList;
 begin
-  if not aLineCache.TryGetValue(aBinding.FileName, lLines) then
-    Exit(False);
-  Result := TDelphiSemanticSourceConditionals.InsideInactiveNeverConditionalRegion(lLines,
-    aBinding.BodyLine, aReference.Line);
+  Result := False;
+  if (aReference.Line < 1) or (aReference.Column < 1) or
+    (aReference.Name = '') then
+    Exit;
+  if not aFacts.ScanLines.TryGetValue(aBinding.FileName, lLines) then
+  begin
+    if not aFacts.ScanSources.TryGetValue(aBinding.FileName, lSource) or
+      (lSource = '') then
+      Exit;
+    // Share SourceContext's final-EOL semantics with other ScanLines users.
+    lSourceLines := TStringList.Create;
+    try
+      lSourceLines.Text := lSource;
+      lLines := lSourceLines.ToStringArray;
+    finally
+      lSourceLines.Free;
+    end;
+    aFacts.ScanLines.Add(aBinding.FileName, lLines);
+  end;
+  if (aReference.Line > Length(lLines)) or
+    not aFacts.ControlSources.TryGetValue(aBinding.FileName, lOriginal) then
+    Exit;
+  lLine := lLines[aReference.Line - 1];
+  if (aReference.Column > Length(lLine)) or
+    (lLine[aReference.Column] <> ' ') then
+    Exit;
+  lLines := lOriginal.Split([#13#10, #10]);
+  if aReference.Line > Length(lLines) then
+    Exit;
+  lLine := lLines[aReference.Line - 1];
+  // The admitted source view blanks only proved-inactive characters. Unknown
+  // text stays visible. Check the physical token before trusting its coordinate.
+  Result := (aReference.Column <= Length(lLine)) and
+    SameText(lLine[aReference.Column], aReference.Name[1]) and
+    not CharInSet(lLine[aReference.Column], [#9, ' ']);
 end;
 
 function LineIsTopLevel(const aLine: string): Boolean;
@@ -4619,7 +4641,6 @@ begin
       'UNKNOWN_ROUTINE_CALL']) and
     (Trim(aReference.TypeName) = '') and
     (Pos('[', aReference.Name) = 0) and
-    (not ReferenceLineHasConditionalDirective(aBinding, aReference, aLineCache)) and
     (not ReferenceHasPriorRoutineDeclaration(aFacts, aBinding, aReference,
     aLineCache)) and
     (not ReferenceIsRoutineSymbol(aFacts, aBinding, aReference.Name)) and
@@ -5793,13 +5814,15 @@ begin
     if (lReference.LookupSource = 'syntax') and
       MatchText(lReference.Kind, ['label', 'goto-keyword']) then
       Continue;
+    if ReferenceHasProvedInactiveActivity(aFacts, aBinding, lReference) then
+      Continue;
     if ReferenceBlocksFinalRewrite(aFacts, aBinding, aEditDecisions, lReference,
       aLineCache, aReason) then
       Exit;
-    if ReferenceLineHasConditionalDirective(aBinding, lReference, aLineCache) or
-      ReferenceInsideInactiveNeverConditionalRegion(aBinding, lReference,
-      aLineCache) then
-      Continue;
+    // Binding references already carry the admitted preprocessing activity.
+    // A symbol spelling or a directive elsewhere on this line cannot
+    // make this executable reference inactive. Unknown activity refuses
+    // the final statement through the binding activity barrier.
     if (not ActiveDecisionHasMember(aFacts, aEditDecisions, lReference.Name)) and
       ReferenceIsInlineLocalDeclaredInBinding(aBinding, lReference, aLineCache) then
       Continue;

@@ -27,6 +27,12 @@ type
     [Category('Fast')]
     [Test]
     procedure RecursiveRtlDuplicateBasenamesChooseSortedPath;
+    [TestCase('RTL lock variant', 'DEBUG_MREWS')]
+    [TestCase('Vendor edition', 'TRIAL_EDITION')]
+    [TestCase('RTL ICU variant', 'USE_LIBICU')]
+    [TestCase('RTL header variant', 'SYSTEM_HPP_DEFINES_OBJECTS')]
+    [TestCase('RTL integer variant', 'LONGINT64')]
+    procedure SourceProfilesKeepHistoricalDefinesIncomplete(const aDefine: string);
   end;
 
 implementation
@@ -89,6 +95,35 @@ begin
   end;
   Assert.AreEqual(lExpected.Text, lActual.Text,
     'The absence-only witness must cover the installed four-platform member union.');
+end;
+
+procedure TCompilerProfileTests.SourceProfilesKeepHistoricalDefinesIncomplete(const aDefine: string);
+var
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticCacheOptions;
+  lProfile: TDelphiSemanticCompilerProfile;
+  lRoot, lSource: string;
+begin
+  lRoot := CompilerProfileTempRoot;
+  lSource := TPath.Combine(lRoot, 'ProfileSource.pas');
+  TFile.WriteAllText(lSource, 'unit ProfileSource;' + sLineBreak + 'interface' + sLineBreak +
+    'type TProfile = record' + sLineBreak + '{$IFDEF ' + aDefine + '}' + sLineBreak +
+    '  ClosedField: Integer;' + sLineBreak + '{$ENDIF}' + sLineBreak + 'end;' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticCacheOptions);
+  lCache := TDelphiSemanticUnitCache.Create(lOptions);
+  try
+    lProfile := TDelphiSemanticCompilerProfileBuilder.ProfileForTargetFromRtlSourceFiles(
+      lCache, 'ds772-historical-profile', '23.0', 'Win64', lRoot, [lSource]);
+    Assert.AreEqual<Integer>(1, Length(lProfile.RtlSourceUnitModels));
+    Assert.IsTrue(lProfile.RtlSourceUnitModels[0].Success);
+    Assert.IsFalse(lProfile.RtlSourceUnitModels[0].DefineEvidenceComplete,
+      'A source projection cannot certify historical DCU settings.');
+    Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED',
+      lProfile.RtlSourceUnitModels[0].DirectiveFacts.NameCause('ClosedField'), aDefine);
+  finally
+    lCache.Free;
+  end;
 end;
 
 function CompilerProfileFixtureRoot(const aName: string): string;

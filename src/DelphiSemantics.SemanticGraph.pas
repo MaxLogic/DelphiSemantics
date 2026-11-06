@@ -452,6 +452,8 @@ var
     if lSuffix = '' then
       Exit;
     lSuffix := TDelphiSemanticPreprocessor.CompilerIncludeFileName(lSuffix);
+    if lSuffix = '' then
+      Exit(False);
     lExpected := TPath.GetFullPath(TPath.Combine(aDirectory, lSuffix));
     lFileName := '';
     // Selection must already have been observed by preprocessing. Never

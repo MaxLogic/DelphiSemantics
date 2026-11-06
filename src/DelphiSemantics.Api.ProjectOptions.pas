@@ -16,6 +16,8 @@ begin
   Result := Default(TDelphiSemanticOptions);
   Result.ProjectPath := aOptions.ProjectFileName;
   Result.CallerDefinesProvided := Length(aOptions.Defines) > 0;
+  Result.CallerDefines := Copy(aOptions.Defines);
+  Result.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
   Result.Configuration := aOptions.Configuration;
   Result.Platform := aOptions.Platform;
   Result.DelphiVersion := aOptions.DelphiVersion;

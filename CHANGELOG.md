@@ -5,6 +5,12 @@
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed
+- Invalid include names remain unresolved during preprocessing, including inactive conditional branches, instead of raising path exceptions (DS-772).
+- Compiler predefined evidence identifies the possible project-source and include inventory; a planning context outside that inventory cannot reuse its certificate (DS-772).
+- Compiler define currentness is checked at session admission, result publication and cache reuse, avoiding repeated native evaluation for each model (DS-772).
+- Conditional declarations, imports and WITH activity retain uncertainty when compiler defines are incomplete. Scans report incomplete inventories, and rewrites exclude only proved-inactive references.
+- Project define completeness requires an admitted compiler-input certificate. Legacy define lists and XML evaluation remain partial; certificate identity and currentness guard model and planning caches.
+
 
 - WITH planning treats active runtime-package units as unknown and includes caller-supplied search paths in its unit-name witness.
 - Session and compatibility WITH plans use the same routine-end ranges for nested statements.
