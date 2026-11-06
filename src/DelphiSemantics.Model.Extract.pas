@@ -291,8 +291,7 @@ procedure ExtractMembers(const aText, aFileName: string; const aNode: TSyntaxNod
 function ExtractFallbackMembers(const aText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
-  const aReferences: TList<TDelphiSemanticReference>;
-  out aOmittedClassVariables: Integer): Integer; forward;
+  const aReferences: TList<TDelphiSemanticReference>): Integer; forward;
 function ActiveExtractionContext: TDelphiSemanticExtractionContext; forward;
 function BuildTypeBlockRanges(const aText: string): TArray<TOffsetRange>; forward;
 
@@ -2270,7 +2269,6 @@ var
   lMemberCount: Integer;
   lValueMemberCount: Integer;
   lMemberReferences: TList<TDelphiSemanticReference>;
-  lOmittedClassVariables: Integer;
   lOriginalError: string;
   lOwnerScopeIndex: Integer;
   lReference: TDelphiSemanticReference;
@@ -2812,8 +2810,7 @@ begin
         ActiveExtractionContext.TypeValueMembers.Count := lValueMemberCount;
         aReferences.Count := lReferenceCount;
         AddDiagnostic(aDiagnostics, 'SCOPE_MODEL_FAILED', e.Message, aModel.FileName, 0);
-        lTypeCount := ExtractFallbackMembers(aText, aDeclarations, aMembers, lMemberReferences,
-          lOmittedClassVariables);
+        lTypeCount := ExtractFallbackMembers(aText, aDeclarations, aMembers, lMemberReferences);
         // Without a syntax tree no body has a proven end. The line scan keeps the occurrences
         // visible, and the 'ast-failed' status makes consumers list them instead of trusting
         // their routine attribution.
@@ -2830,8 +2827,8 @@ begin
         if lTypeCount > 0 then
           AddDiagnostic(aDiagnostics, 'MEMBERS_UNVERIFIED', Format(
             'Members of %d class, record or interface types come from a line scan because ' +
-            'the syntax tree is unavailable; they are unverified and every type is incomplete. ' +
-            '%d class variables were left out.', [lTypeCount, lOmittedClassVariables]),
+            'the syntax tree is unavailable; they are unverified and every type is incomplete.',
+            [lTypeCount]),
             aModel.FileName, 0);
         Exit;
       end;
@@ -5063,21 +5060,19 @@ end;
 
 // Bounded member scan for a unit whose syntax tree is unavailable. Each block ends at its own
 // `end;` line, so members never leak into later types; nested named types get qualified owners
-// and are blanked from their parent. Class variables are left out: global-vars reports every
-// class-var member as a verified declaration. Returns the number of scanned types.
+// and are blanked from their parent. DS-650: class variables remain unverified member facts;
+// consumers must check the unit's scope status before treating them as declarations.
+// Returns the number of scanned types.
 function ExtractFallbackMembers(const aText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>;
-  const aReferences: TList<TDelphiSemanticReference>;
-  out aOmittedClassVariables: Integer): Integer;
+  const aReferences: TList<TDelphiSemanticReference>): Integer;
 var
   i: Integer;
-  j: Integer;
   lBlock: TFallbackTypeBlock;
   lBlocks: TList<TFallbackTypeBlock>;
   lBody: string;
   lCleanLine: string;
-  lFirstMember: Integer;
   lHeader: TMatch;
   lLines: TStringList;
   lOffset: Integer;
@@ -5085,7 +5080,6 @@ var
   lRange: TOffsetRange;
 begin
   Result := 0;
-  aOmittedClassVariables := 0;
   lLines := TStringList.Create;
   lBlocks := nil;
   try
@@ -5130,15 +5124,8 @@ begin
               BlankRange(lBody, lRange.StartOffset - lBlock.BodyOffset + 1,
                 lRange.EndOffset - lBlock.BodyOffset);
             BlankHeadingContinuations(lBody);
-            lFirstMember := aMembers.Count;
             ExtractMembersFromBody(aText, lBlock.OwnerName, lBody, lBlock.BodyOffset,
               aDeclarations, aMembers, aReferences, nil);
-            for j := Pred(aMembers.Count) downto lFirstMember do
-              if SameText(aMembers[j].Kind, 'class-var') then
-              begin
-                aMembers.Delete(j);
-                Inc(aOmittedClassVariables);
-              end;
             Inc(Result);
             if lBlocks.Count > 0 then
             begin

@@ -166,7 +166,7 @@ const
   // 29: integrated lane identities invalidate every merged schema generation.
   // 31: DS-655 retains implementation owner type references.
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
-  cSnapshotCacheSchemaVersion = '32';
+  cSnapshotCacheSchemaVersion = '33';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

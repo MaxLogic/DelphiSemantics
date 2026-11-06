@@ -6250,7 +6250,8 @@ begin
   Assert.AreEqual(0, Integer(Length(lAnalysis.Declarations)),
     'Unverified class variables must not become global candidates.');
   Assert.AreEqual('', OwnerMemberNames(lModel, 'TOther'), 'A one-line class ends its own block.');
-  Assert.AreEqual('FValue,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.AreEqual('FValue,FShared,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.IsTrue(FindMember(lModel, 'TSubject', 'FShared', 'class-var', lMember));
   Assert.IsTrue(FindMember(lModel, 'TSubject', 'FValue', 'field', lMember));
   Assert.AreEqual('private', lMember.Visibility);
   Assert.AreEqual(Pos('FValue', lSource), lMember.Offset);
@@ -6263,7 +6264,7 @@ begin
     'A fallback type must not claim a complete declaration.');
   lModel := JsonToModel(ModelToJson(lModel));
   Assert.IsTrue(HasDiagnostic(lModel, 'MEMBERS_UNVERIFIED'), 'JSON keeps the unverified marker.');
-  Assert.AreEqual('FValue,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
+  Assert.AreEqual('FValue,FShared,Run,Value,', OwnerMemberNames(lModel, 'TSubject'));
 end;
 
 procedure TUnitModelTests.InterfaceOnlyRetryKeepsOriginalParserMessage;

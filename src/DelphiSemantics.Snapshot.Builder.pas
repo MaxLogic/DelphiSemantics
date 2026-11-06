@@ -469,6 +469,37 @@ begin
   Result := aValue;
 end;
 
+// Nested type names are members of their outer type; names inside their proven bodies
+// are not. Preserve offsets and line breaks for the other declaration-text consumers.
+function SnapshotOuterTypeText(const aModel: TDelphiSemanticUnitModel;
+  const aDeclarationOffset: Integer; const aText: string): string;
+var
+  i: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lEnd: Integer;
+  lStart: Integer;
+begin
+  Result := aText;
+  if not SameText(aModel.ScopeModelStatus, 'ast') then
+    Exit;
+  for lDeclaration in aModel.Declarations do
+    if SameText(lDeclaration.Kind, 'type') and SameText(lDeclaration.ScopeKind, 'type') and
+      (lDeclaration.FileName = '') and (lDeclaration.TypeBodyEndLine > 0) then
+    begin
+      lStart := SnapshotTextOffset(aModel.SourceText, lDeclaration.Line,
+        lDeclaration.Column) - aDeclarationOffset + 1;
+      lEnd := SnapshotTextOffset(aModel.SourceText, lDeclaration.TypeBodyEndLine,
+        lDeclaration.TypeBodyEndColumn) - aDeclarationOffset + 1;
+      // The complete nested declaration must lie inside this outer body.
+      if (lStart > 1) and (lEnd <= Length(Result)) and
+        (lEnd > lStart + Length(lDeclaration.Name)) and
+        SameText(Copy(Result, lStart, Length(lDeclaration.Name)), lDeclaration.Name) then
+        for i := lStart + Length(lDeclaration.Name) to lEnd do
+          if not CharInSet(Result[i], [#10, #13]) then
+            Result[i] := ' ';
+    end;
+end;
+
 procedure AddModelSnapshotTargetSymbols(const aSymbols: TSnapshotTargetSymbolList;
   const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId);
@@ -509,7 +540,9 @@ begin
       // are not in this text at all, so their absence cannot be proven.
       if SnapshotTextHasIncludeDirective(Copy(aModel.SourceText, lDeclarationOffset,
         Length(lDeclarationText))) then
-        lDeclarationText := '';
+        lDeclarationText := ''
+      else
+        lDeclarationText := SnapshotOuterTypeText(aModel, lDeclarationOffset, lDeclarationText);
     end;
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
       SnapshotDeclarationKind(lDeclaration.Kind), IfThen(
@@ -2428,8 +2461,8 @@ begin
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.VisibilityId := aStrings.Intern(aMember.Visibility);
   lSymbol.SignatureId := aStrings.Intern(aMember.Signature);
-  if SameText(aMember.Kind, 'class-var') and
-    (Trim(aMember.OwnerName) <> '') then
+  if SameText(aStrings.TextOf(aUnit.ScopeModelStatusId), 'ast') and
+    SameText(aMember.Kind, 'class-var') and (Trim(aMember.OwnerName) <> '') then
   begin
     lSymbol.DeclarationRoleId := aStrings.Intern('declaration');
     lSymbol.ScopeKindId := aStrings.Intern('type');

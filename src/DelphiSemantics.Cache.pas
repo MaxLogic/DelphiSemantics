@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // Integrated model extraction and conditional WITH safety require fresh extraction.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.84';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.85';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

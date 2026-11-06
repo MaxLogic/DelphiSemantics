@@ -76,6 +76,14 @@ type
     [Category('Fast')]
     [Test]
     procedure MidLineIncludeRoutinesAreBlocked;
+    [Test]
+    [TestCase('Model', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure LocalOccurrenceSafetyStaysInDeclaringUnit(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Model captured include', 'False')]
+    [TestCase('Snapshot captured include', 'True')]
+    procedure DeclaringUnitIncludesRemainOccurrenceBlockers(const aSnapshot: Boolean);
   end;
 
 implementation
@@ -1020,6 +1028,137 @@ begin
     lMap.Free;
     if TFile.Exists(lFileName) then
       TFile.Delete(lFileName);
+  end;
+end;
+
+procedure TDeadCodeTests.LocalOccurrenceSafetyStaysInDeclaringUnit(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lFileName: string;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRoot: string;
+  lScoped: TScopedSnapshotQueryContext;
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lRoot := DeadCodeTempPath('local-occurrences-' + BoolToStr(aSnapshot, True));
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Declaring.pas'),
+    'unit Declaring;'#13#10'interface'#13#10'var Visible: Integer;'#13#10 +
+    'procedure Shared;'#13#10 +
+    'implementation'#13#10'var Hidden: Integer;'#13#10 +
+    'procedure Work(Unused: Integer);'#13#10'var LocalValue: Integer;'#13#10 +
+    'begin'#13#10'end;'#13#10'procedure Shared; begin end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Other.pas'),
+    'unit Other;'#13#10'interface'#13#10'implementation'#13#10 +
+    'procedure Work(Unused: Integer);'#13#10'var LocalValue: Integer;'#13#10 +
+    'begin'#13#10'{$IFDEF NEVER_DEFINED_DS662}'#13#10 +
+    '  Hidden := Visible + Unused + LocalValue; Shared;'#13#10'{$ENDIF}'#13#10 +
+    'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  lModels := [];
+  for lFileName in ['Declaring.pas', 'Other.pas'] do
+  begin
+    lModelOptions := Default(TDelphiSemanticModelOptions);
+    lModelOptions.SourceFileName := TPath.Combine(lRoot, lFileName);
+    lModelOptions.ProjectContextApplied := True;
+    lModels := lModels + [TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions)];
+    Assert.AreEqual('ast', lModels[High(lModels)].ScopeModelStatus);
+  end;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := lModels[0];
+  lContext.IndexedUnitModels := [lModels[1]];
+  lSnapshot := nil;
+  lScoped := nil;
+  try
+    if aSnapshot then
+    begin
+      lOptions := Default(TDelphiSnapshotBuildOptions);
+      lOptions.ResolveReferenceTargets := True;
+      lSnapshot := BuildProjectSnapshotFromModels(lModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+      lScoped := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext := lScoped.Context;
+    end;
+    lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+    Assert.AreEqual('definitely-unused', CandidateStatusInUnit(lReport,
+      'Hidden', 'Declaring', 'var'), DescribeCandidates(lReport));
+    Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'Shared', 'Declaring', 'routine',
+      'unclassified-occurrence'), DescribeCandidates(lReport));
+    Assert.AreEqual('blocked', CandidateStatusAt(lReport, 'Shared', 11),
+      'An interface routine body retains the project-wide occurrence boundary.');
+    if aSnapshot then
+      Assert.AreEqual('maybe-unused', CandidateStatusInUnit(lReport,
+        'Unused', 'Declaring', 'parameter'), DescribeCandidates(lReport));
+    Assert.AreEqual('', CandidateStatusInUnit(lReport,
+      'LocalValue', 'Declaring', 'local'), 'Local variables remain outside removal candidates.');
+    Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'Visible', 'Declaring', 'var',
+      'unclassified-occurrence'), DescribeCandidates(lReport));
+    if aSnapshot then
+      Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'Unused', 'Other', 'parameter',
+        'unclassified-occurrence'), DescribeCandidates(lReport));
+  finally
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lScoped.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TDeadCodeTests.DeclaringUnitIncludesRemainOccurrenceBlockers(const aSnapshot: Boolean);
+var
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lOptions: TDelphiSemanticOptions;
+  lReport: TDelphiSemanticDeadCodeReport;
+  lRoot: string;
+  lSession: TDelphiSemanticProjectSessionResult;
+begin
+  lRoot := DeadCodeTempPath('include-occurrences-' + BoolToStr(aSnapshot, True));
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="ULocal.pas"/>' +
+    '<DCCReference Include="UOther.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P;'#13#10'uses ULocal, UOther;'#13#10'begin end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'ULocal.pas'),
+    'unit ULocal;'#13#10'interface'#13#10'implementation'#13#10 +
+    'var Hidden: Integer;'#13#10'procedure Work;'#13#10'begin'#13#10 +
+    '{$I safety.inc}'#13#10'end;'#13#10'end.'#13#10, TEncoding.ASCII);
+  // The same physical include is classified in another unit under different defines.
+  TFile.WriteAllText(TPath.Combine(lRoot, 'UOther.pas'),
+    'unit UOther;'#13#10'interface'#13#10'implementation'#13#10 +
+    'var Hidden: Integer;'#13#10'procedure Work;'#13#10'begin'#13#10 +
+    '{$DEFINE NEVER_DEFINED_DS662}'#13#10'{$I safety.inc}'#13#10'end;'#13#10'end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'safety.inc'),
+    '{$IFDEF NEVER_DEFINED_DS662}'#13#10'  Hidden := 37;'#13#10'{$ENDIF}'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  Assert.IsTrue(lSession.Success);
+  try
+    if aSnapshot then
+      lContext := lSession.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds)
+    else
+      lContext := lSession.Session.BuildSymbolQueryContext(lCacheMetrics, lExtractionMilliseconds);
+    try
+      // Scope safety uses captured source, including after the include changes on disk.
+      TFile.WriteAllText(TPath.Combine(lRoot, 'safety.inc'), '', TEncoding.ASCII);
+      lReport := TDelphiSemanticDeadCodeReporter.Report(lContext, 'legacy-static');
+      Assert.IsTrue(CandidateHasBlockerInUnit(lReport, 'Hidden', 'ULocal', 'var',
+        'unclassified-occurrence'), DescribeCandidates(lReport));
+    finally
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    end;
+  finally
+    lSession.Session.Free;
   end;
 end;
 

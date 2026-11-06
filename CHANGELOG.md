@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- AST-failed units retain class-variable member facts without reporting them as verified globals. Older model and snapshot caches rebuild.
+- Dead-code occurrence checks use the declaring unit and captured includes for implementation-only names and parameters; interface names keep project-wide checks.
+- Rename and find-usages can prove outer-type member absence without confusing members of nested type bodies with outer members.
+
 - WITH member binding matches routine ranges by physical file, preserving main-file members beside included routines.
 - Consistency ancestry accepts a unique same-section forward/full class pair and resolves implementation-local classes in implementation visibility.
 
