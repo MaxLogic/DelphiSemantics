@@ -301,12 +301,15 @@ begin
   Assert.AreEqual('', lResolved);
   lOptions.SourceText := '{$I ' + aName + '}';
   if not aActive then
+  begin
+    lOptions.DefineEvidenceComplete := True;
     lOptions.SourceText := '{$IFDEF NEVER_X}' + lOptions.SourceText + '{$ENDIF}';
+  end;
   lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
-  if aActive then
-    Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'))
-  else
-    Assert.IsTrue(lResult.Success, 'An unresolved possible include must retain the model.');
+  Assert.IsTrue(HasDiagnostic(lResult, 'INCLUDE_FILE_NOT_FOUND'),
+    'Invalid include names retain a named diagnostic even when known inactive.');
+  if not aActive then
+    Assert.IsTrue(lResult.Success, 'An inactive unresolved include must retain the model.');
 end;
 
 procedure TPreprocessTests.IncompleteDefinesOpenDeclarationAndImportFacts(const aShape: string);

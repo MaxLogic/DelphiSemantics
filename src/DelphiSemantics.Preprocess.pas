@@ -2043,6 +2043,9 @@ begin
       begin
         RecordSkippedInclude(lIncludeName, ExtractFilePath(aFileName), aOptions,
           aContext.Capture, aSourceCache);
+        if TDelphiSemanticPreprocessor.CompilerIncludeFileName(lIncludeName) = '' then
+          AddDiagnostic(aDiagnostics, 'INCLUDE_FILE_NOT_FOUND',
+            'Invalid include file name in inactive branch: ' + lIncludeName, aFileName, aLine);
         Exit(True);
       end;
       lEmitInclude := CurrentActive(aStack);
