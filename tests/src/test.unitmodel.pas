@@ -159,6 +159,7 @@ type
     procedure EscapedIdentifierMembersAreKept;
     [Category('Fast')]
     [Test]
+    [TestCase('Type body after equals newline', 'split-type-header')]
     [TestCase('Last field without semicolon', 'last-field-no-semicolon')]
     [TestCase('Qualified last field type without semicolon', 'qualified-no-semicolon')]
     [TestCase('Field type on the next line', 'split-field')]
@@ -5897,7 +5898,15 @@ var
   lVisibility: string;
 begin
   lKind := 'field';
-  if aLayout = 'last-field-no-semicolon' then
+  if aLayout = 'split-type-header' then
+  begin
+    lSource := MemberLayoutSource('  TSubject ='#13#10'    packed record'#13#10 +
+      '    Value: Integer;'#13#10'  end;');
+    lExpectedNames := 'Value,';
+    lName := 'Value';
+    lTypeName := 'Integer';
+    lAnchor := 'Value:';
+  end else if aLayout = 'last-field-no-semicolon' then
   begin
     lSource := MemberLayoutSource('  TSubject = packed record'#13#10 +
       '    First, Second: Integer;'#13#10'    Data: Pointer'#13#10'    END;');

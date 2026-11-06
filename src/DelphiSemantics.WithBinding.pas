@@ -42,10 +42,6 @@ type
   end;
 
   TDelphiSemanticInventorySymbol = record
-    HeadingLine: Integer;
-    HeadingColumn: Integer;
-    HeadingEndLine: Integer;
-    HeadingEndColumn: Integer;
     Name: string;
     SymbolClass: string;
     Kind: string;
@@ -81,6 +77,10 @@ type
     AccessOwnerSectionKind: string;
     AccessOwnerLine: Integer;
     AccessOwnerColumn: Integer;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticWithBinding = record

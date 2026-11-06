@@ -77,10 +77,6 @@ type
     OwnerName: string;
     OwnerScopeId: string;
     OwnerSymbolId: string;
-    HeadingLine: Integer;
-    HeadingColumn: Integer;
-    HeadingEndLine: Integer;
-    HeadingEndColumn: Integer;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -96,6 +92,10 @@ type
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
     // Line and Column then refer to that file (Line 0: the position is unknown).
     FileName: string;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticParameter = record
@@ -113,10 +113,6 @@ type
   end;
 
   TDelphiSemanticRoutine = record
-    HeadingLine: Integer;
-    HeadingColumn: Integer;
-    HeadingEndLine: Integer;
-    HeadingEndColumn: Integer;
     Name: string;
     OwnerName: string;
     SectionKind: string;
@@ -140,6 +136,10 @@ type
     // DS-659: the include file whose text holds this fact; empty for the unit's own source.
     // Line and Column then refer to that file (Line 0: the position is unknown).
     FileName: string;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
   end;
 
   TDelphiSemanticLocal = record

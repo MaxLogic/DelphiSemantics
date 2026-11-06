@@ -156,7 +156,9 @@ const
   // 25: DS-737/739 invalidate planning facts with unsafe conditional WITH ranges.
   // 26: DS-736/707 retain helper and receiver declaration identity.
   // 29: integrated lane identities invalidate every merged schema generation.
-  cSnapshotCacheSchemaVersion = '31';
+  // 31: DS-655 retains implementation owner type references.
+  // 32: integrated AST headings and implementation owner references.
+  cSnapshotCacheSchemaVersion = '32';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

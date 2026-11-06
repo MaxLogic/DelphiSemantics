@@ -25,6 +25,8 @@ function Invoke-HarnessProcess {
   $lStartInfo.ArgumentList.Add('--consolemode:quiet') | Out-Null
   $lStartInfo.ArgumentList.Add('-r:Test.SnapshotSqlite.TSnapshotSqliteTests.SnapshotSqliteConcurrencyHarness') | Out-Null
 
+  $lStartInfo.Environment['MAXLOGIC_MADEXCEPT_AI'] = '1'
+  $lStartInfo.Environment['DAK_TEST_DISABLE_CRASH_SEND'] = '1'
   foreach ($lKey in $Environment.Keys) {
     $lStartInfo.Environment[$lKey] = [string]$Environment[$lKey]
   }
@@ -45,6 +47,8 @@ function Invoke-UnitCacheHarnessProcess {
   $lStartInfo.ArgumentList.Add('--consolemode:quiet') | Out-Null
   $lStartInfo.ArgumentList.Add('-r:Test.CacheSqlite.TCacheSqliteTests.UnitCacheSqliteConcurrencyHarness') | Out-Null
 
+  $lStartInfo.Environment['MAXLOGIC_MADEXCEPT_AI'] = '1'
+  $lStartInfo.Environment['DAK_TEST_DISABLE_CRASH_SEND'] = '1'
   foreach ($lKey in $Environment.Keys) {
     $lStartInfo.Environment[$lKey] = [string]$Environment[$lKey]
   }

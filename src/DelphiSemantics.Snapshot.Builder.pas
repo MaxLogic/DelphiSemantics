@@ -1902,15 +1902,97 @@ end;
 function TryResolveQualifiedReference(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   out aTarget: TSemanticSymbolRef): Boolean; forward;
+// Implementation parameter types have class scope, but mentions in member signatures
+// are uses, not shadows. Remove only source-backed type uses before proving absence;
+// nested declarations, helpers and unproved ancestors must still refuse the rename.
+function SnapshotHeaderTypeAbsent(const aSymbolsByName: TSnapshotTargetSymbolsByName;
+  const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference): Boolean;
+var
+  lBase: TSnapshotTargetSymbol;
+  lCurrent: TSnapshotTargetSymbol;
+  lDeclarationOffset: Integer;
+  lDepth: Integer;
+  lIndex: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lModelFound: Boolean;
+  lOffset: Integer;
+  lReference: TDelphiSemanticReference;
+  lText: string;
+begin
+  Result := False;
+  if not TryResolveSnapshotTypeFromUnit(aSymbolsByName, aModel.UnitName,
+    SnapshotSectionForReference(aReference), SnapshotMethodOwnerName(aModel, aReference),
+    lCurrent) then
+    Exit;
+  for lDepth := 1 to cSnapshotMaxTypeChainDepth do
+  begin
+    if not lCurrent.UnitVerified or (lCurrent.DeclarationText = '') or
+      aSymbolsByName.ContainsKey(cSnapshotHelperKeyPrefix + lCurrent.Name) then
+      Exit;
+    lText := lCurrent.DeclarationText;
+    lModelFound := False;
+    for lModel in aSymbolsByName.Models do
+      if SameText(lModel.UnitName, lCurrent.UnitName) then
+      begin
+        lModelFound := True;
+        lDeclarationOffset := SnapshotTextOffset(lModel.SourceText, lCurrent.Line,
+          lCurrent.Column);
+        for lReference in lModel.References do
+          if (lReference.FileName = '') and (lReference.RoutineName <> '') and
+            (lReference.Role = 'type-reference') and
+            SameText(lReference.Name, aReference.Name) then
+          begin
+            lOffset := SnapshotTextOffset(lModel.SourceText, lReference.Line,
+              lReference.Column) - lDeclarationOffset + 1;
+            if (lOffset > 0) and (lOffset + Length(lReference.Name) - 1 <= Length(lText)) and
+              SameText(Copy(lText, lOffset, Length(lReference.Name)), lReference.Name) then
+              for lIndex := lOffset to lOffset + Length(lReference.Name) - 1 do
+                lText[lIndex] := ' ';
+          end;
+        Break;
+      end;
+    if not lModelFound or TextContainsIdentifier(lText, aReference.Name) or
+      not lCurrent.BaseKnown then
+      Exit;
+    if (lCurrent.BaseTypeName = '') or MatchText(lCurrent.BaseTypeName, ['TObject',
+      'System.TObject', 'IInterface', 'System.IInterface', 'IUnknown', 'System.IUnknown']) then
+      Exit(SameText(lCurrent.TypeName, 'record') or
+        not IsImplicitRootMemberName(lCurrent.TypeName, aReference.Name));
+    if not TryResolveSnapshotTypeFromUnit(aSymbolsByName, lCurrent.UnitName,
+      SnapshotSectionForSymbol(lCurrent), lCurrent.BaseTypeName, lBase) or
+      SnapshotSameDeclaration(lBase, lCurrent) then
+      Exit;
+    lCurrent := lBase;
+  end;
+end;
+
 function TryResolveSnapshotReferenceTarget(const aSymbolsByName: TSnapshotTargetSymbolsByName;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   out aTargetRef: TSemanticSymbolRef): Boolean;
+var
+  lOwnerType: TSnapshotTargetSymbol;
 begin
   aTargetRef := Default(TSemanticSymbolRef);
   if ReferenceIsPartialIdentifier(aModel, aReference) then
     Exit(False);
   if ReferenceHasQualifier(aModel, aReference) then
     Exit(TryResolveQualifiedReference(aSymbolsByName, aModel, aReference, aTargetRef));
+  if MatchText(aReference.Role, ['implementation-owner', 'implementation-header-type']) then
+  begin
+    if (aReference.Role = 'implementation-header-type') and
+      not SnapshotHeaderTypeAbsent(aSymbolsByName, aModel, aReference) then
+      Exit(False);
+    // The owner is outside the method's local/inherited lookup scope.
+    Result := TryResolveSnapshotDeclaredTypeFromUnit(aSymbolsByName, aModel.UnitName,
+      SnapshotSectionForReference(aReference), aReference.Name, lOwnerType);
+    if (aReference.Role = 'implementation-owner') and Result then
+      Result := SameText(lOwnerType.Kind, 'type') and
+        IsSnapshotStructuredTypeKind(lOwnerType.TypeName);
+    if Result then
+      aTargetRef := lOwnerType.Ref;
+    Exit;
+  end;
   Result := TryResolveSnapshotNameCandidates(aSymbolsByName, aModel, aReference, 0, aTargetRef);
 end;
 
