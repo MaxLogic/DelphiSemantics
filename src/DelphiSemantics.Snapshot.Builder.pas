@@ -2627,6 +2627,10 @@ begin
   Result.SectionKindId := aExactStrings.Intern(aSymbol.SectionKind);
   Result.Line := aSymbol.Line;
   Result.Column := aSymbol.Column;
+  Result.HeadingLine := aSymbol.HeadingLine;
+  Result.HeadingColumn := aSymbol.HeadingColumn;
+  Result.HeadingEndLine := aSymbol.HeadingEndLine;
+  Result.HeadingEndColumn := aSymbol.HeadingEndColumn;
   Result.EndLine := aSymbol.EndLine;
   Result.EndColumn := aSymbol.EndColumn;
   Result.UnsupportedReasonId := aExactStrings.Intern(aSymbol.UnsupportedReason);

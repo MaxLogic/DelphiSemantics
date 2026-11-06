@@ -30,6 +30,10 @@ type
   end;
 
   TSemanticRemoveWithInventorySymbolFact = record
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
     NameId: TSemanticStringId;
     SymbolClassId: TSemanticStringId;
     KindId: TSemanticStringId;

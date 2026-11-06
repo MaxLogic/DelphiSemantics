@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates.
+
 ### Fixed
 
 - Method headings inside types no longer add standalone routine symbols after blank lines. Enum values no longer reference themselves at their declarations, preserving rename and unused-value reporting. Older model and snapshot caches rebuild.

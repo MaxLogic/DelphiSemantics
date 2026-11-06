@@ -3174,9 +3174,15 @@ begin
       lSymbol.OwnerScopeId := lMember.OwnerScopeId;
       lSymbol.OwnerSymbolId := lMember.OwnerSymbolId;
       lSymbol.UnitName := aModel.UnitName;
-      lSymbol.FileName := aModel.FileName;
+      lSymbol.FileName := lMember.FileName;
+      if lSymbol.FileName = '' then
+        lSymbol.FileName := aModel.FileName;
       lSymbol.Line := lMember.Line;
       lSymbol.Column := lMember.Column;
+      lSymbol.HeadingLine := lMember.HeadingLine;
+      lSymbol.HeadingColumn := lMember.HeadingColumn;
+      lSymbol.HeadingEndLine := lMember.HeadingEndLine;
+      lSymbol.HeadingEndColumn := lMember.HeadingEndColumn;
       lSymbol.EndLine := lMember.Line;
       lSymbol.EndColumn := lMember.Column;
       lSymbol.IsDefault := lMember.IsDefault;
@@ -3225,6 +3231,10 @@ begin
         lSymbol.FileName := aModel.FileName;
       lSymbol.Line := lMember.Line;
       lSymbol.Column := lMember.Column;
+      lSymbol.HeadingLine := lMember.HeadingLine;
+      lSymbol.HeadingColumn := lMember.HeadingColumn;
+      lSymbol.HeadingEndLine := lMember.HeadingEndLine;
+      lSymbol.HeadingEndColumn := lMember.HeadingEndColumn;
       lSymbol.EndLine := lMember.Line;
       lSymbol.EndColumn := lMember.Column + Length(lMember.Name);
       AddInventorySymbol(lSymbols, lSymbol);
@@ -3255,6 +3265,10 @@ begin
       lSymbol.ParentScopeId := lRoutine.ParentScopeId;
       lSymbol.Line := lRoutine.Line;
       lSymbol.Column := lRoutine.Column;
+      lSymbol.HeadingLine := lRoutine.HeadingLine;
+      lSymbol.HeadingColumn := lRoutine.HeadingColumn;
+      lSymbol.HeadingEndLine := lRoutine.HeadingEndLine;
+      lSymbol.HeadingEndColumn := lRoutine.HeadingEndColumn;
       lSymbol.EndLine := lRoutine.Line;
       lSymbol.EndColumn := lRoutine.Column;
       if lRoutine.EndLine > 0 then

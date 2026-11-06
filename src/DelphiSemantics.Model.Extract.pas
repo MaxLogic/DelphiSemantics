@@ -55,8 +55,19 @@ type
     EndOffset: Integer;
   end;
 
+  // Parser-owned metadata attached to the exact method AST node. End coordinates
+  // are exclusive and stop at the last heading/directive semicolon, before locals.
+  TSemanticRoutineHeadingNode = class(TCompoundSyntaxNode)
+  public
+    Closed: Boolean;
+  end;
+
   TSemanticSyntaxTreeBuilder = class(TPasSyntaxTreeBuilder)
   protected
+    procedure Semicolon; override;
+    procedure Block; override;
+    procedure AsmStatement; override;
+    procedure CloseRoutineHeading;
     procedure ClassForward; override;
     procedure InterfaceForward; override;
     procedure DispInterfaceForward; override;
@@ -111,6 +122,10 @@ type
     SemanticSignature: string;
     CallingConvention: string;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
     StartLine: Integer;
     StartColumn: Integer;
     EndLine: Integer;
@@ -985,6 +1000,66 @@ begin
     ((Length(lBlock) > 3) and IsIdentifierChar(lBlock[Length(lBlock) - 3])) then
     raise EInvalidOpException.CreateFmt('Block of %s at offset %d does not end with "end"',
       [aWhat, aRange.StartOffset]);
+end;
+
+function AstRoutineHeading(const aNode: TSyntaxNode): TSemanticRoutineHeadingNode;
+var
+  lChild: TSyntaxNode;
+begin
+  Result := nil;
+  for lChild in aNode.ChildNodes do
+    if lChild is TSemanticRoutineHeadingNode then
+      Exit(TSemanticRoutineHeadingNode(lChild));
+end;
+
+procedure TSemanticSyntaxTreeBuilder.Semicolon;
+var
+  lNode: TSyntaxNode;
+  lHeading: TSemanticRoutineHeadingNode;
+begin
+  if (FStack.Count > 0) and (FStack.Peek.Typ = ntMethod) and
+    (TokenID = ptSemiColon) then
+  begin
+    lNode := FStack.Peek;
+    lHeading := AstRoutineHeading(lNode);
+    if lHeading = nil then
+    begin
+      lHeading := TSemanticRoutineHeadingNode.Create(ntUnknown);
+      lHeading.Line := lNode.Line;
+      lHeading.Col := lNode.Col;
+      lNode.AddChild(lHeading);
+    end;
+    if not lHeading.Closed then
+    begin
+      lHeading.EndLine := Lexer.PosXY.Y;
+      lHeading.EndCol := Lexer.PosXY.X + 1;
+    end;
+  end;
+  inherited;
+end;
+
+procedure TSemanticSyntaxTreeBuilder.CloseRoutineHeading;
+var
+  lHeading: TSemanticRoutineHeadingNode;
+begin
+  if (FStack.Count > 0) and (FStack.Peek.Typ = ntMethod) then
+  begin
+    lHeading := AstRoutineHeading(FStack.Peek);
+    if lHeading <> nil then
+      lHeading.Closed := True;
+  end;
+end;
+
+procedure TSemanticSyntaxTreeBuilder.Block;
+begin
+  CloseRoutineHeading;
+  inherited;
+end;
+
+procedure TSemanticSyntaxTreeBuilder.AsmStatement;
+begin
+  CloseRoutineHeading;
+  inherited;
 end;
 
 procedure TSemanticSyntaxTreeBuilder.ClassForward;
@@ -2314,6 +2389,7 @@ var
     lName: string;
     lNameOffset: Integer;
     lScope: TAstRoutineScope;
+    lHeading: TSemanticRoutineHeadingNode;
     lStatements: TSyntaxNode;
     lTypeNode: TSyntaxNode;
   begin
@@ -2332,6 +2408,14 @@ var
         lDeclarationFacts.Add(NestedRoutineDeclarationFact(aNode, aDeclarations, aParentScopeIndex));
       lScope := Default(TAstRoutineScope);
       lScope.Name := AstNodeName(aNode);
+      lHeading := AstRoutineHeading(aNode);
+      if lHeading <> nil then
+      begin
+        lScope.HeadingLine := lHeading.Line;
+        lScope.HeadingColumn := lHeading.Col;
+        lScope.HeadingEndLine := lHeading.EndLine;
+        lScope.HeadingEndColumn := lHeading.EndCol;
+      end;
       lScope.SemanticSignature := '(' + AstMethodSignature(aNode) + ')';
       lScope.CallingConvention := aNode.GetAttribute(anCallingConvention);
       lScope.ProcedureSignature := AstProcedureSignature(aNode);
@@ -2959,6 +3043,10 @@ begin
         lRoutine.ParentScopeId := lScopes[lMatchedScopeIndex].ParentScopeId;
         lRoutine.CallingConvention := lScopes[lMatchedScopeIndex].CallingConvention;
         lRoutine.ProcedureSignature := lScopes[lMatchedScopeIndex].ProcedureSignature;
+        lRoutine.HeadingLine := lScopes[lMatchedScopeIndex].HeadingLine;
+        lRoutine.HeadingColumn := lScopes[lMatchedScopeIndex].HeadingColumn;
+        lRoutine.HeadingEndLine := lScopes[lMatchedScopeIndex].HeadingEndLine;
+        lRoutine.HeadingEndColumn := lScopes[lMatchedScopeIndex].HeadingEndColumn;
         lRoutine.EndLine := lScopes[lMatchedScopeIndex].EndLine;
         lRoutine.EndColumn := lScopes[lMatchedScopeIndex].EndColumn;
         if lScopes[lMatchedScopeIndex].HasBody then
@@ -4380,6 +4468,13 @@ begin
       if lFact.Category = 'method' then
       begin
         lMember.ProcedureSignature := AstProcedureSignature(lFact.Node);
+        if AstRoutineHeading(lFact.Node) <> nil then
+        begin
+          lMember.HeadingLine := AstRoutineHeading(lFact.Node).Line;
+          lMember.HeadingColumn := AstRoutineHeading(lFact.Node).Col;
+          lMember.HeadingEndLine := AstRoutineHeading(lFact.Node).EndLine;
+          lMember.HeadingEndColumn := AstRoutineHeading(lFact.Node).EndCol;
+        end;
         if SameText(lFact.Node.GetAttribute(anClass), 'true') then
           lMember.ProcedureSignature.Known := False;
       end;

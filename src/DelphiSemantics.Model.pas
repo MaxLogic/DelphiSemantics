@@ -77,6 +77,10 @@ type
     OwnerName: string;
     OwnerScopeId: string;
     OwnerSymbolId: string;
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
     Name: string;
     Kind: string;
     TypeName: string;
@@ -109,6 +113,10 @@ type
   end;
 
   TDelphiSemanticRoutine = record
+    HeadingLine: Integer;
+    HeadingColumn: Integer;
+    HeadingEndLine: Integer;
+    HeadingEndColumn: Integer;
     Name: string;
     OwnerName: string;
     SectionKind: string;

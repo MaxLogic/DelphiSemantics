@@ -295,6 +295,14 @@ type
     [Category('Fast')]
     [Test]
     procedure RoutineHeaderExtentPreservesDelimitersAndCommentBoundaries;
+    [TestCase('Interface', 'interface')]
+    [TestCase('Implementation', 'implementation')]
+    [TestCase('Forward', 'forward')]
+    [TestCase('Overload', 'overload')]
+    [TestCase('Method', 'method')]
+    [TestCase('Include', 'include')]
+    [TestCase('Method implementation', 'method-body')]
+    procedure AstRoutineHeadingSpans(const aShape: string);
     [Category('Fast')]
     [Test]
     procedure ExtractsRoutineAfterSingleLineGuidInterface;
@@ -7060,6 +7068,118 @@ begin
   end;
 end;
 
+
+procedure TUnitModelTests.AstRoutineHeadingSpans(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel, lRoundTrip: TDelphiSemanticUnitModel;
+  lRoutine: TDelphiSemanticRoutine;
+  lMember: TDelphiSemanticMember;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSource, lFile, lHeading, lExpectedFile: string;
+  lExpectedStart, lExpectedEnd, lCount: Integer;
+begin
+  lFile := UnitModelTempPath('Heading_' + aShape + '.pas');
+  lHeading := 'function Compute(' + sLineBreak +
+    '  const aValue: Integer):' + sLineBreak + '  Integer;' + sLineBreak + '  overload;';
+  lExpectedStart := 4;
+  lExpectedEnd := 7;
+  lExpectedFile := lFile;
+  if aShape = 'method-body' then
+  begin
+    lExpectedStart := 6;
+    lExpectedEnd := 9;
+    lHeading := lHeading.Replace('function Compute(', 'function TWorker.Compute(');
+    lSource := 'unit HeadingFixture;' + sLineBreak + 'interface' + sLineBreak +
+      'type TWorker = class function Compute(const aValue: Integer): Integer; overload; end;' + sLineBreak +
+      'implementation' + sLineBreak + '// method heading' + sLineBreak + lHeading + sLineBreak +
+      'begin Result := aValue; end;' + sLineBreak + 'end.';
+  end else if aShape = 'method' then
+    lSource := 'unit HeadingFixture;' + sLineBreak + 'interface' + sLineBreak +
+      'type TWorker = class' + sLineBreak + lHeading + sLineBreak +
+      'end;' + sLineBreak + 'implementation' + sLineBreak + 'end.'
+  else if aShape = 'include' then
+  begin
+    lExpectedFile := UnitModelTempPath('heading.inc');
+    TFile.WriteAllText(lExpectedFile, lHeading + sLineBreak, TEncoding.ASCII);
+    lExpectedStart := 1;
+    lExpectedEnd := 4;
+    lSource := 'unit HeadingFixture;' + sLineBreak + 'interface' + sLineBreak +
+      '{$I heading.inc}' + sLineBreak + 'implementation' + sLineBreak + 'end.';
+  end else if aShape = 'interface' then
+    lSource := 'unit HeadingFixture;' + sLineBreak + 'interface' + sLineBreak +
+      '// heading' + sLineBreak + lHeading + sLineBreak + 'implementation' + sLineBreak + 'end.'
+  else begin
+    lSource := 'unit HeadingFixture;' + sLineBreak + 'interface' + sLineBreak +
+      'implementation' + sLineBreak + lHeading;
+    if aShape = 'forward' then
+      lSource := lSource + sLineBreak + '  forward;'
+    else
+      lSource := lSource + sLineBreak + 'var lValue: Integer;' + sLineBreak +
+        'begin lValue := aValue; Result := lValue; end;';
+    if aShape = 'forward' then
+    begin
+      lExpectedEnd := 8;
+      lSource := lSource + sLineBreak + 'function Compute(const aValue: Integer): Integer;' +
+        sLineBreak + 'begin Result := aValue; end;';
+    end;
+    if aShape = 'overload' then
+      lSource := lSource + sLineBreak + 'function Compute(const aValue: string): Integer;' +
+        sLineBreak + 'overload;' + sLineBreak + 'begin Result := Length(aValue); end;';
+    lSource := lSource + sLineBreak + 'end.';
+  end;
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, ModelToJson(lModel));
+  // Full and unit-cache JSON must carry the same authoritative spans.
+  lRoundTrip := JsonToUnitCacheModel(UnitCacheModelToJson(JsonToModel(ModelToJson(lModel))));
+  lCount := 0;
+  if aShape = 'method' then
+  begin
+    for lMember in lRoundTrip.Members do
+      if lMember.Name = 'Compute' then
+      begin
+        Assert.AreEqual(lExpectedStart, lMember.HeadingLine);
+        Assert.AreEqual(lExpectedEnd, lMember.HeadingEndLine);
+        Assert.AreEqual(1, lMember.HeadingColumn);
+        Assert.AreEqual(12, lMember.HeadingEndColumn);
+        Inc(lCount);
+      end;
+  end else
+    for lRoutine in lRoundTrip.Routines do
+      if ((lRoutine.Name = 'Compute') or (lRoutine.Name = 'TWorker.Compute')) and
+        (lRoutine.Line = lExpectedStart) then
+      begin
+        Assert.AreEqual(lExpectedStart, lRoutine.HeadingLine, ModelToJson(lRoundTrip));
+        Assert.AreEqual(lExpectedEnd, lRoutine.HeadingEndLine);
+        Assert.AreEqual(1, lRoutine.HeadingColumn);
+        if aShape = 'forward' then
+          Assert.AreEqual(11, lRoutine.HeadingEndColumn)
+        else
+          Assert.AreEqual(12, lRoutine.HeadingEndColumn);
+        Inc(lCount);
+      end;
+  Assert.AreEqual(1, lCount, 'Exactly the selected declaration must carry its heading');
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  lSymbols := lInventory.Symbols;
+  lCount := 0;
+  for lSymbol in lSymbols do
+    if ((lSymbol.Name = 'Compute') or (lSymbol.Name = 'TWorker.Compute')) and
+      ((lSymbol.RoutineScopeId <> '') or (lSymbol.Kind = 'method')) and
+      (lSymbol.Line = lExpectedStart) and
+      ((aShape <> 'method') or (lSymbol.Kind = 'method')) then
+    begin
+      Assert.AreEqual(lExpectedStart, lSymbol.HeadingLine, lSymbol.SymbolClass);
+      Assert.AreEqual(lExpectedEnd, lSymbol.HeadingEndLine);
+      Assert.AreEqual(lExpectedFile, lSymbol.FileName);
+      Inc(lCount);
+    end;
+  Assert.IsTrue(lCount > 0, 'The binding inventory must preserve heading facts');
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TUnitModelTests);
