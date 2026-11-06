@@ -3,7 +3,7 @@ unit DelphiSemantics.Preprocess;
 interface
 
 uses
-  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticPreprocessOptions = record
@@ -13,6 +13,7 @@ type
     // Only the owning model/context admission may certify ordinary absence.
     DefineEvidenceComplete: Boolean;
     CompilerDefineEvidenceFingerprint: string;
+    CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
     PredefinedFalse: TArray<string>;
     SearchPaths: TArray<string>;
     // Conservative candidates for skipped-file absence evidence, not active lookup.
@@ -120,6 +121,7 @@ type
     ActivitySpans: TList<TDelphiSemanticActivitySpan>;
     Expansions: TList<TPreprocessExpansion>;
     DefineEvidenceComplete: Boolean;
+    ProfileVersionsKnown: Boolean;
     UnknownSymbols: TDictionary<string, Boolean>;
     AllSymbolsUnknown: Boolean;
     HasUnknownActivity: Boolean;
@@ -599,6 +601,219 @@ begin
   Result := True;
 end;
 
+function ProfileVersionsAreUnshadowed(const aOptions: TDelphiSemanticPreprocessOptions;
+  const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>): Boolean;
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lLexer: TmwBasePasLex;
+  lNames, lImports: TStringList;
+  lSource: TDelphiSemanticCompilerSourceWitness;
+  lText, lName, lDirective: string;
+  lRootSeen: Boolean;
+  lLoaded: TDelphiSemanticSourceLoadResult;
+  lScopeCache: TSourceTextCache;
+  lNextOffset: Integer;
+begin
+  Result := False;
+  if not aOptions.DefineEvidenceComplete or
+    (TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) = 'unavailable') then
+    Exit;
+  lDescriptor := aOptions.CompilerDefineEvidence.Descriptor;
+  if (lDescriptor.PredefinedFormat <> 'compiler-predefines-23-win64-v1') or
+    (lDescriptor.CompilerVersion <> '36.0') or (Length(lDescriptor.PredefinedSources) = 0) then
+    Exit;
+  // These are Delphi constants, not -D names. Prove a lexical superset of their
+  // binding scope before using the verified 23.0/Win64 values. Opaque DCUs,
+  // includes and source aliases cannot establish absence of a shadowing name.
+  lNames := TStringList.Create;
+  lImports := TStringList.Create;
+  lLexer := nil;
+  // Certificate currentness owns this source universe. These reads do not
+  // make other units into includes of the unit we are preprocessing.
+  lScopeCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    lNames.CaseSensitive := False;
+    lImports.CaseSensitive := False;
+    lRootSeen := False;
+    for lSource in lDescriptor.Sources do
+      lNames.Add(lSource.UnitName);
+    if lNames.IndexOf('System') >= 0 then
+      Exit;
+    for lSource in lDescriptor.PredefinedSources do
+    begin
+      if not TryLoadPreprocessSource(lSource.SourceFileName, lScopeCache, aDiagnostics, lText) then
+        Exit;
+      if not lScopeCache.TryGetValue(TPath.GetFullPath(lSource.SourceFileName), lLoaded) or
+        not SameText(lLoaded.Source.ContentHash, lSource.ContentHash) then
+        Exit;
+      if SameText(lSource.SourceFileName, aOptions.SourceFileName) then
+      begin
+        if (aOptions.SourceText <> '') and (aOptions.SourceText <> lText) then
+          Exit;
+        lRootSeen := True;
+      end;
+      // SimpleParser.Origin allocates a buffer on every assignment. Each pass
+      // owns a fresh lexer so earlier source buffers are released immediately.
+      FreeAndNil(lLexer);
+      lLexer := TmwBasePasLex.Create;
+      lLexer.UseDefines := False;
+      lLexer.Origin := lText;
+      lNextOffset := 0;
+      while lLexer.TokenID <> ptNull do
+      begin
+        lDirective := lLexer.Token;
+        if StartsText('{$', lDirective) then
+          lDirective := Copy(lDirective, 3, Length(lDirective) - 3)
+        else if StartsText('(*$', lDirective) then
+          lDirective := Copy(lDirective, 4, Length(lDirective) - 5)
+        else
+          lDirective := '';
+        if (lLexer.TokenPos > lNextOffset) or
+          (TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lDirective) <> '') then
+          Exit;
+        if (lLexer.TokenID = ptIdentifier) and
+          MatchText(StringReplace(lLexer.Token, '&', '', [rfReplaceAll]),
+            ['CompilerVersion', 'RTLVersion']) then
+          Exit;
+        lNextOffset := lLexer.TokenPos + lLexer.TokenLen;
+        lLexer.Next;
+      end;
+      // Import parsing may advance over junk; the separate pass above ensures
+      // that a skipped include or a shadow name cannot escape that traversal.
+      // SimpleParser.Origin allocates a buffer on every assignment. Each pass
+      // owns a fresh lexer so earlier source buffers are released immediately.
+      FreeAndNil(lLexer);
+      lLexer := TmwBasePasLex.Create;
+      lLexer.UseDefines := False;
+      lLexer.Origin := lText;
+      while lLexer.TokenID <> ptNull do
+      begin
+        if lLexer.TokenID in [ptUses, ptContains] then
+        begin
+          lLexer.NextNoJunk;
+          while lLexer.TokenID <> ptSemiColon do
+          begin
+            if lLexer.TokenID <> ptIdentifier then
+              Exit;
+            lName := lLexer.Token;
+            lLexer.NextNoJunk;
+            while lLexer.TokenID = ptPoint do
+            begin
+              lLexer.NextNoJunk;
+              if lLexer.TokenID <> ptIdentifier then
+                Exit;
+              lName := lName + '.' + lLexer.Token;
+              lLexer.NextNoJunk;
+            end;
+            lImports.Add(lName);
+            if lLexer.TokenID = ptIn then
+            begin
+              lLexer.NextNoJunk;
+              if lLexer.TokenID <> ptStringConst then
+                Exit;
+              lLexer.NextNoJunk;
+            end;
+            if lLexer.TokenID = ptSemiColon then
+              Break;
+            if lLexer.TokenID <> ptComma then
+              Exit;
+            lLexer.NextNoJunk;
+          end;
+        end;
+        lLexer.Next;
+      end;
+    end;
+    for lName in lImports do
+      if not SameText(lName, 'System') and (lNames.IndexOf(lName) < 0) then
+        Exit;
+    Result := lRootSeen;
+  finally
+    lLexer.Free;
+    lScopeCache.Free;
+    lImports.Free;
+    lNames.Free;
+  end;
+end;
+
+function TryVersionOperand(const aText: string; out aValue: Int64;
+  out aProfileConstant: Boolean): Boolean;
+const
+  cScale: Int64 = 1000000;
+var
+  lText, lWhole, lFraction: string;
+  lPoint: Integer;
+  lInteger, lDecimal: Int64;
+begin
+  aValue := 0;
+  lText := StripOuterParentheses(aText);
+  aProfileConstant := MatchText(lText, ['CompilerVersion', 'RTLVersion']);
+  if aProfileConstant then
+  begin
+    aValue := 36 * cScale;
+    Exit(True);
+  end;
+  // Restrict the admitted numeric grammar to exact bounded decimal values.
+  // Longer/scientific literals remain unknown instead of rounding to 36.0.
+  lPoint := Pos('.', lText);
+  if lPoint = 0 then
+  begin
+    lWhole := lText;
+    lFraction := '';
+  end else begin
+    lWhole := Copy(lText, 1, lPoint - 1);
+    lFraction := Copy(lText, lPoint + 1, MaxInt);
+    if lFraction = '' then
+      Exit(False);
+  end;
+  if (lWhole = '') or (Length(lWhole) > 6) or (Length(lFraction) > 6) then
+    Exit(False);
+  for var c in lWhole + lFraction do
+    if not CharInSet(c, ['0'..'9']) then
+      Exit(False);
+  if not TryStrToInt64(lWhole, lInteger) or
+    not TryStrToInt64(lFraction + StringOfChar('0', 6 - Length(lFraction)), lDecimal) then
+    Exit(False);
+  aValue := lInteger * cScale + lDecimal;
+  Result := True;
+end;
+
+function TryVersionComparison(const aText: string; out aActive: Boolean): Boolean;
+var
+  i: Integer;
+  lLeft, lRight: Int64;
+  lLeftProfile, lRightProfile: Boolean;
+  lOperator: string;
+begin
+  aActive := False;
+  Result := False;
+  for i := 1 to Length(aText) do
+    if CharInSet(aText[i], ['=', '<', '>']) then
+    begin
+      lOperator := aText[i];
+      if (i < Length(aText)) and CharInSet(aText[i + 1], ['=', '>']) then
+        lOperator := lOperator + aText[i + 1];
+      if not TryVersionOperand(Copy(aText, 1, i - 1), lLeft, lLeftProfile) or
+        not TryVersionOperand(Copy(aText, i + Length(lOperator), MaxInt), lRight, lRightProfile) or
+        not (lLeftProfile or lRightProfile) then
+        Exit;
+      if lOperator = '=' then
+        aActive := lLeft = lRight
+      else if lOperator = '<>' then
+        aActive := lLeft <> lRight
+      else if lOperator = '<' then
+        aActive := lLeft < lRight
+      else if lOperator = '<=' then
+        aActive := lLeft <= lRight
+      else if lOperator = '>' then
+        aActive := lLeft > lRight
+      else if lOperator = '>=' then
+        aActive := lLeft >= lRight
+      else
+        Exit;
+      Exit(True);
+    end;
+end;
+
 function TryEvaluateIfExpression(const aExpression: string; const aDefines: TDefineMap;
   out aActive: Boolean; const aRequireKnownSymbols: Boolean = False;
   const aCapture: TPreprocessCapture = nil): Boolean;
@@ -679,6 +894,10 @@ begin
     aActive := False;
     Exit(True);
   end;
+
+  if (aCapture <> nil) and aCapture.ProfileVersionsKnown and
+    TryVersionComparison(lText, aActive) then
+    Exit(True);
 
   if (Pos('(', lText) > 0) or (Pos(')', lText) > 0) then
     Exit(False);
@@ -959,6 +1178,7 @@ end;
 
 function IsModeledImportExpression(const aExpression: string): Boolean;
 var
+  lActive: Boolean;
   lLeft, lRight, lText: string;
 begin
   lText := StripOuterParentheses(aExpression);
@@ -969,7 +1189,7 @@ begin
     Exit(IsModeledImportExpression(Copy(lText, 5, MaxInt)));
   if StartsText('Defined(', lText) and EndsText(')', lText) then
     Exit(IsPlainConditionalIdentifier(Copy(lText, 9, Length(lText) - 9).Trim));
-  Result := MatchText(lText, ['True', 'False']);
+  Result := MatchText(lText, ['True', 'False']) or TryVersionComparison(lText, lActive);
 end;
 
 class function TDelphiSemanticPreprocessor.ImportDirectiveIsModeled(
@@ -1022,6 +1242,7 @@ type
     fNames, fIncludes, fUnknownSymbols: TStringList;
     fFacts: TDelphiSemanticDirectiveFacts;
     fClause: Boolean;
+    fAsm: Boolean;
     fExpandedOffset: Integer;
     function ActivityAt(const aFileName: string; const aOffset: Integer): TDelphiSemanticSourceActivity;
     function IncludeExpansionId(const aFileName: string; const aOffset: Integer): string;
@@ -1179,6 +1400,10 @@ procedure TDirectiveScanner.Word(const aWord: string);
 var
   lFrames: TObjectList<TDirectiveScanFrame>;
 begin
+  if SameText(aWord, 'asm') then
+    fAsm := True
+  else if SameText(aWord, 'end') then
+    fAsm := False;
   if SameText(aWord, 'uses') then
     fClause := True;
   for lFrames in [fFrames, fIncludeFrames] do
@@ -1342,7 +1567,18 @@ begin
     while i <= Length(aText) do
     begin
       lFirst := i;
-      if aText[i] = #39 then
+      if fAsm and CharInSet(aText[i], [#34, #39]) then
+      begin
+        // Assembler byte strings accept both quote delimiters. A byte containing
+        // the other quote must not consume later conditional directives.
+        j := Ord(aText[i]);
+        Inc(i);
+        while (i <= Length(aText)) and (Ord(aText[i]) <> j) and
+          not CharInSet(aText[i], [#10, #13]) do
+          Inc(i);
+        if (i <= Length(aText)) and (Ord(aText[i]) = j) then
+          Inc(i);
+      end else if aText[i] = #39 then
       begin
         j := i;
         while (j <= Length(aText)) and (aText[j] = #39) do
@@ -2249,6 +2485,8 @@ begin
     lRegions := TList<TDelphiSemanticSourceRegion>.Create;
     lSourceCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     lStack := TList<TPreprocessFrame>.Create;
+    if ContainsText(aOptions.SourceText, 'CompilerVersion') or ContainsText(aOptions.SourceText, 'RTLVersion') then
+      lCapture.ProfileVersionsKnown := ProfileVersionsAreUnshadowed(aOptions, lDiagnostics);
 
     lContext.Capture := lCapture;
     lContext.BaseOffset := 0;

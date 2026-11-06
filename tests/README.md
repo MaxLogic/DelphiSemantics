@@ -31,7 +31,9 @@ wrapper excludes MaxTdbProof explicitly, partitions individual cases with
 deterministic longest-first balancing, and validates both each shard's identities
 and the aggregate roster. `scripts/case-durations.json` contains per-case seconds
 from DS revision `510a420`, recorded on 2026-10-29 in the DS-764 serial baseline.
-Unknown cases receive a 0.1-second planning weight. Weights affect placement only.
+The full native compiler comparison uses its 2026-11-06 Win64 Debug measurement
+of 3151.264 seconds after the conditional-code corpus expansion. Unknown cases
+receive a 0.1-second planning weight. Weights affect placement only.
 
 Exit 0 requires nonempty, complete, unique execution with zero failures, errors,
 leaks and ignored tests. Exit 1 reports failed or corrupt evidence; exit 124
