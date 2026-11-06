@@ -333,7 +333,7 @@ end;
 procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '';
   const aEvidence: string = '');
 var
-  lRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile, lScript: string;
+  lRoot, lRetainRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile, lScript: string;
   lPhase: Integer;
   lCases: TJSONArray;
   lOptions: TDelphiSemanticApiOptions;
@@ -355,7 +355,15 @@ begin
     lScript := 'ds754-native-reference.py';
   lRoot := GetEnvironmentVariable('DS719_NATIVE_ROOT');
   if lRoot = '' then
-    lRoot := CreateTestTempRoot('ds719-native-comparison-temp');
+  begin
+    lRetainRoot := GetEnvironmentVariable('DS719_NATIVE_RETAIN_ROOT');
+    if lRetainRoot <> '' then
+      // Each comparison gets its own caller-owned retained evidence directory.
+      // Successful suite cleanup must not erase or overwrite native artifacts.
+      lRoot := TPath.Combine(lRetainRoot, TPath.GetGUIDFileName(False))
+    else
+      lRoot := CreateTestTempRoot('ds719-native-comparison-temp');
+  end;
   if aEvidence <> '' then
     lRoot := TPath.Combine(lRoot, aEvidence);
   TDirectory.CreateDirectory(lRoot);

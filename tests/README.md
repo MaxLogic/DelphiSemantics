@@ -66,6 +66,13 @@ These tests cover deterministic balancing, literal comma-bearing case names,
 success and failure evidence, ignored tests, leaks, duplicate/missing/extra
 identities, detached descendants, timeout cleanup, and the path-budget refusal.
 
+For a full native proof whose successful artifacts must be retained, set
+`DS719_NATIVE_RETAIN_ROOT` to a short caller-owned evidence directory. Each
+comparison allocates a unique GUID child, retaining all source, route, compiler
+and runtime artifacts outside successful suite cleanup. The explicit
+`DS719_NATIVE_ROOT` single-comparison override takes precedence. Unset both
+variables for the ordinary disposable fixture lifecycle.
+
 ## Fast smoke tier (DS-769)
 
 Run the existing Win64 Debug binary with `--include:Fast` for routine feedback:
