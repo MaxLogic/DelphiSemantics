@@ -15,6 +15,8 @@
 - Quoted or unusable compiler search-path entries refuse project context with a named diagnostic instead of raising a path exception (DAK-475).
 
 - WITH binding verifies private field access and permits protected type constants in descendant methods. Type-scoped constants retain their owner in Resolve and no longer appear as unqualified unit declarations. Existing helper-unit and capture-type visibility refusals remain covered across all planner routes.
+- Snapshot-backed find-usages and rename retain class and record constants by declaration identity, including WITH references. Older snapshots rebuild.
+- Rename remains incomplete when a missing conditional include may contain references, even if later directives restore known activity.
 
 - Anonymous record variables close at their own END, including one-line and nested bodies. Nested fields no longer appear on the containing named record, routine-local field duplicates are removed, and class heritage no longer creates enum constants.
 - Generic declarations retain their parameter count through model serialization. Consistency reports generic specialization as unknown rather than certifying an incomplete class; older model caches rebuild.

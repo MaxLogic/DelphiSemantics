@@ -1235,7 +1235,7 @@ begin
       Result.Status := 'incomplete';
       Result.UnresolvedReferences := lUnresolved.ToArray;
       Result.Diagnostic := Format('Rename plan is incomplete: %d same-name occurrence(s) ' +
-        'cannot be proven to be or not to be "%s"; see the unresolved references.',
+        'or source gap(s) may affect "%s"; see the unresolved references.',
         [lUnresolved.Count, aUsageResult.Symbol.Name]);
     end;
     FinalizeRenamePlan(Result, aContext);

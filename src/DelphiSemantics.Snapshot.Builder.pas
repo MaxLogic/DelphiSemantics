@@ -214,6 +214,11 @@ function SnapshotIncludesDeclaration(
 begin
   Result := SameText(aDeclaration.DeclarationRole, 'declaration') and
     (SameText(aDeclaration.ScopeKind, 'unit') or
+      (SameText(aDeclaration.ScopeKind, 'type') and
+        MatchText(aDeclaration.Kind, ['const', 'typed-const']) and
+        (aDeclaration.OwnerName <> '') and (aDeclaration.OwnerScopeId <> '') and
+        (aDeclaration.SymbolId <> '') and (aDeclaration.Line > 0) and
+        (aDeclaration.Column > 0)) or
       (SameText(aDeclaration.ScopeKind, 'routine') and
         (aDeclaration.OwnerScopeId <> '') and
         (aDeclaration.SymbolId <> '') and
@@ -507,7 +512,8 @@ begin
         lDeclarationText := '';
     end;
     AddSnapshotTargetSymbol(aSymbols, aSymbolsByName, aModel.UnitName,
-      SnapshotDeclarationKind(lDeclaration.Kind), '', lDeclaration.Name,
+      SnapshotDeclarationKind(lDeclaration.Kind), IfThen(
+        SameText(lDeclaration.ScopeKind, 'type'), lDeclaration.OwnerName, ''), lDeclaration.Name,
       lDeclaration.SectionKind, '', '', lDeclaration.TypeName, lDeclaration.BaseTypeName,
       lDeclarationText, lVerified, aUnitId, UnitLine(lDeclaration.FileName, lDeclaration.Line),
       UnitLine(lDeclaration.FileName, lDeclaration.Column), False, lSymbolId);
@@ -1161,7 +1167,7 @@ end;
 
 function IsSnapshotMemberKind(const aKind: string): Boolean;
 begin
-  Result := MatchText(aKind, ['field', 'property', 'class-var', 'method']);
+  Result := MatchText(aKind, ['field', 'property', 'class-var', 'method', 'const', 'typed-const']);
 end;
 
 function IsSnapshotStructuredTypeKind(const aTypeKind: string): Boolean;
@@ -1337,8 +1343,8 @@ begin
     end;
     if lCount > 1 then
       Exit(smlUnknown);
-    // The model records fields, properties, methods and class vars only. A constant, nested
-    // type or anything else the type declares still spells the name in its declaration.
+    // Unmodelled declarations (for example a nested type or a constant whose
+    // identity could not be proven) still spell the name in the type's text.
     if (lCurrent.DeclarationText = '') or
       TextContainsIdentifier(lCurrent.DeclarationText, aName) then
       Exit(smlUnknown);
@@ -2133,7 +2139,7 @@ begin
   lCount := 0;
   for lSymbol in lSymbols do
     if SameText(lSymbol.UnitName, aModel.UnitName) and SameText(lSymbol.OwnerName, lOwner) and
-      MatchText(lSymbol.Kind, ['field', 'property', 'class-var', 'method']) then
+      IsSnapshotMemberKind(lSymbol.Kind) then
     begin
       Inc(lCount);
       aTarget := lSymbol.Ref;
@@ -2310,6 +2316,8 @@ begin
   lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   lSymbol.DeclarationRoleId := aStrings.Intern(aDeclaration.DeclarationRole);
   lSymbol.ScopeKindId := aStrings.Intern(aDeclaration.ScopeKind);
+  if SameText(aDeclaration.ScopeKind, 'type') then
+    lSymbol.OwnerTypeId := aStrings.Intern(aDeclaration.OwnerName);
   lSymbol.OwnerScopeId := aStrings.Intern(aDeclaration.OwnerScopeId);
   lSymbol.SemanticSymbolId := aStrings.Intern(aDeclaration.SymbolId);
   if SameText(aDeclaration.Kind, 'typed-const') and not aDeclaration.Mutable then
@@ -2500,6 +2508,7 @@ var
   lLocal: TDelphiSemanticLocal;
   lMember: TDelphiSemanticMember;
   lReference: TDelphiSemanticReference;
+  lSourceGap: TSemanticReferenceFact;
   lRoutine: TDelphiSemanticRoutine;
   lWith: TDelphiSemanticWithStatement;
 begin
@@ -2517,6 +2526,22 @@ begin
     Result.SetScopeModelMetadata(aStrings.Intern(aModel.ScopeModelStatus),
       aStrings.Intern(aModel.ScopeModelVersion), aStrings.Intern(lScopeDiagnostic),
       aModel.RejectedDeclarationCount);
+    // Missing possible includes are project-wide coverage gaps even when the
+    // including unit never spells the queried name. Retain them through SQLite.
+    for lDiagnostic in aModel.Diagnostics do
+      if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+      begin
+        lSourceGap := Default(TSemanticReferenceFact);
+        lSourceGap.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
+        lSourceGap.ReasonId := aStrings.Intern('include-file-not-found');
+        lSourceGap.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+        if not SameText(lDiagnostic.FileName, aModel.FileName) then
+          lSourceGap.FileId := aStrings.Intern(lDiagnostic.FileName);
+        lSourceGap.Line := lDiagnostic.Line;
+        lSourceGap.EndLine := lDiagnostic.Line;
+        Result.AddReference(lSourceGap);
+        Inc(aMetrics.ReferenceCount);
+      end;
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
     for lDeclaration in aModel.Declarations do
