@@ -844,6 +844,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                 refs.append("ControlUnit")
             project(folder, refs)
             cases.append({"name": shape, "root": str(folder), "family": "anonymous-record-E2003"})
+    cases.extend(ds762_785_cases(root))
     cases.extend(r7_cases(repo, root))
     cases.extend(denial_cases(root))
     cases.extend(helper_kind_cases(root))
@@ -924,7 +925,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 672 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 676 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -965,6 +966,70 @@ def run(command, cwd, log):
     return row
 
 
+
+def ds762_785_cases(root):
+    cases = []
+    bds = Path(os.environ.get('BDS', r'C:\Program Files (x86)\Embarcadero\Studio\23.0'))
+    for packaged in (False, True):
+        name = 'ds762-dcp-only' if packaged else 'ds762-command-line-only'
+        folder = root / name
+        oracle = generated(folder, 'array', 'unknown', False, False)
+        source = folder / 'compiler-source'
+        source.mkdir()
+        shutil.move(folder / 's/U.pas', source / 'U.pas')
+        library = folder / 'thirdlib'
+        library.mkdir()
+        build = folder / 'compiler-build'
+        build.mkdir()
+        command = [bds / 'bin/dcc64.exe', '-B', '-Q', '--no-config',
+                   '-NSSystem;Winapi', '-U' + str(bds / 'lib/win64/release'),
+                   '-N0' + str(build), '-E' + str(build), '-LN' + str(build), '-LE' + str(build)]
+        if packaged:
+            write(source / 'CustomPackage.dpk',
+                  'package CustomPackage;\nrequires rtl;\ncontains U in \'U.pas\';\nend.\n')
+            command.append(source / 'CustomPackage.dpk')
+        else:
+            command.append(source / 'U.pas')
+        receipt = run(command, source, folder / 'library-build.json')
+        assert receipt['exit'] == 0, receipt
+        if packaged:
+            for extension in ('dcp', 'bpl'):
+                shutil.copy2(build / ('CustomPackage.' + extension), library)
+            assert not (library / 'U.dcu').exists()
+            switches = ['-LUrtl;CustomPackage']
+            path = os.pathsep.join([str(library), str(bds / 'Redist/win64'), os.environ['PATH']])
+            (folder / 'native-environment.json').write_text(json.dumps({'PATH': path}))
+            path = folder / 'P.dproj'
+            write(path, path.read_text().replace('</PropertyGroup>',
+                '<DCC_UsePackage>rtl;CustomPackage</DCC_UsePackage>'
+                '<DCC_EnabledPackages>true</DCC_EnabledPackages></PropertyGroup>', 1))
+        else:
+            shutil.copy2(build / 'U.dcu', library)
+            switches = []
+        # Native -U and DS caller SearchPaths describe the same extra directory.
+        # No project or IDE profile search path contains it.
+        switches += ['-U' + ';'.join([str(folder), str(library), str(bds / 'lib/win64/release')])]
+        (folder / 'native-compiler.json').write_text(json.dumps(switches))
+        cases.append(dict(name=name, root=str(folder), family='ds762',
+                          caller_search_paths=[str(library)], **oracle))
+    for upper in (False, True):
+        name = 'ds785-nested-' + ('upper' if upper else 'lower')
+        folder = root / name
+        end = 'END' if upper else 'end'
+        write(folder / 'Unit1.pas',
+              'unit Unit1;\ninterface\nprocedure Run;\nimplementation\n'
+              'type TR = record X: Integer; end;\nvar A, B: TR;\n'
+              'procedure Run;\nbegin\n'
+              '  with A do\n  begin\n    X := 1;\n'
+              '    with B do\n    begin\n      X := 2;\n'
+              f'    {end}\n  {end};\n{end};\n'
+              "initialization\n  Run;\n  Writeln(A.X, ' ', B.X);\nend.\n")
+        project(folder, ['Unit1'])
+        cases.append(dict(name=name, root=str(folder), family='ds785', expect_plan=True,
+                          private_types={'Unit1.pas': [['TR', 'Unit1.TR']]}))
+    return cases
+
+
 def native(root, bds, tag, defines=()):
     ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
     xml = ET.parse(root / "P.dproj")
@@ -995,6 +1060,9 @@ def native(root, bds, tag, defines=()):
                "-U" + ";".join(search), "-I" + ";".join(includes),
                "-A" + ";".join(x for x in aliases.split(";") if x),
                "-E" + str(output), "-N0" + str(output), root / main]
+    compiler_file = root / 'native-compiler.json'
+    if compiler_file.exists():
+        command.extend(json.loads(compiler_file.read_text()))
     if defines:
         command.append("-D" + ";".join(defines))
     if prop("DS719NativeMSBuild") == "true":
@@ -1160,6 +1228,23 @@ def check_coverage(plan, targets, folder):
         key = target_key(statement, folder)
         if key in statements: errors.append(('duplicate-statement', key))
         statements[key] = statement
+    for child in plan.get('covered', []):
+        key = target_key(child, folder)
+        parents = [s for s in plan['statements'] if s.get('id') == child['parent']]
+        if key in statements or len(parents) != 1:
+            errors.append(('covered-parent-identity', key))
+            continue
+        parent = parents[0]
+        if (parent['status'] != 'planned' or
+                child['reason'] != 'covered-by-parent-rewrite' or
+                child['file'].lower() != parent['file'].lower() or
+                (child['sl'], child['sc']) <= (parent['sl'], parent['sc']) or
+                (child['el'], child['ec']) > (parent['el'], parent['ec'])):
+            errors.append(('covered-parent-range', key))
+            continue
+        # The parent's native rewrite and admission checks cover this receiver.
+        # Do not duplicate the parent's edits in the publication.
+        statements[key] = parent
     if set(statements) != set(expected):
         errors.append(('statement-coverage', {'missing': sorted(set(expected)-set(statements)),
                                              'extra': sorted(set(statements)-set(expected))}))

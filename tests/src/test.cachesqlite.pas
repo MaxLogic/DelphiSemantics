@@ -56,6 +56,13 @@ type
     [Test]
     [Category('DAK477Payload')]
     procedure CombinedPayloadLoadHonorsSameLimit;
+    [Test]
+    procedure CombinedPublicationTimeoutPreservesPlan;
+    [TestCase('Store released within budget', 'store,release')]
+    [TestCase('Delete released within budget', 'delete,release')]
+    [TestCase('Store exceeds budget', 'store,timeout')]
+    [TestCase('Delete exceeds budget', 'delete,timeout')]
+    procedure CombinedPayloadWritesRetryContention(const aOperation, aHold: string);
     [Category('Fast')]
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
@@ -163,11 +170,11 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.IOUtils, System.StrUtils, System.SysUtils, System.Variants,
+  System.Classes, System.Diagnostics, System.IOUtils, System.StrUtils, System.SyncObjs, System.SysUtils, System.Variants,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   FireDAC.Stan.Error,
-  DelphiSemantics.Api, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Api, DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Api.WithBinding, DelphiSemantics.CompilerProfile,
   DelphiSemantics.Model.Json,
   maxLogic.IOUtils, Test.Support;
 
@@ -2157,6 +2164,178 @@ begin
   finally
     CombinedFactsPayloadMaxCharactersForTest := 0;
     lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.CombinedPayloadWritesRetryContention(const aOperation, aHold: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lFileName, lPayload, lLoaded, lHolderError, lWriteError: string;
+  lReady, lRelease: TEvent;
+  lHolder: TThread;
+  lWatch: TStopwatch;
+  lInvalid: Boolean;
+begin
+  lFileName := TempPath('combined-contention-' + aOperation + '-' + aHold + '.sqlite');
+  SnapshotSqliteNativeBusyTimeoutForTest := 1;
+  SnapshotSqliteBusyRetryBudgetForTest := 400;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lFileName);
+  lReady := TEvent.Create(nil, True, False, '');
+  lRelease := TEvent.Create(nil, True, False, '');
+  lHolder := nil;
+  try
+    lPayload := StringOfChar('x', 1024 * 1024);
+    lCache.StoreCombinedFactsPayload('candidate', 'previous payload');
+    lHolder := TThread.CreateAnonymousThread(
+      procedure
+      var
+        lConnection: TFDConnection;
+      begin
+        lConnection := TFDConnection.Create(nil);
+        try
+          try
+            lConnection.LoginPrompt := False;
+            lConnection.Params.Values['DriverID'] := 'SQLite';
+            lConnection.Params.Values['Database'] := lFileName;
+            lConnection.Params.Values['JournalMode'] := 'WAL';
+            lConnection.Params.Values['LockingMode'] := 'Normal';
+            lConnection.Connected := True;
+            lConnection.StartTransaction;
+            try
+              lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = payload');
+              lReady.SetEvent;
+              if aHold = 'release' then
+                lRelease.WaitFor(150)
+              else
+                lRelease.WaitFor(5000);
+              lConnection.Commit;
+            except
+              if lConnection.InTransaction then
+                lConnection.Rollback;
+              raise;
+            end;
+          except
+            on E: Exception do
+              lHolderError := E.ClassName + ': ' + E.Message;
+          end;
+        finally
+          lReady.SetEvent;
+          lConnection.Free;
+        end;
+      end);
+    lHolder.FreeOnTerminate := False;
+    lHolder.Start;
+    Assert.AreEqual(TWaitResult.wrSignaled, lReady.WaitFor(5000), 'Holder did not acquire lock');
+    Assert.AreEqual('', lHolderError);
+    lWatch := TStopwatch.StartNew;
+    try
+      if aOperation = 'store' then
+        lCache.StoreCombinedFactsPayload('candidate', lPayload)
+      else
+        lCache.DeleteCombinedFactsPayload('candidate');
+    except
+      on E: Exception do
+        lWriteError := E.Message;
+    end;
+    lRelease.SetEvent;
+    lHolder.WaitFor;
+    Assert.AreEqual('', lHolderError);
+    if aHold = 'timeout' then
+    begin
+      Assert.IsTrue(lWriteError.Contains('Combined facts cache publication failed'), lWriteError);
+      Assert.IsTrue(lWatch.ElapsedMilliseconds >= 400, 'Retry budget was not exhausted');
+      Assert.IsTrue(lWatch.ElapsedMilliseconds < 5000, 'Retry was not bounded');
+      Assert.IsTrue(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+      Assert.AreEqual('previous payload', lLoaded, 'Failed publication must preserve the usable row');
+    end else begin
+      Assert.AreEqual('', lWriteError, 'Lock released within the retry budget');
+      if aOperation = 'store' then
+      begin
+        Assert.AreEqual('stored', lCache.CombinedFactsStoreOutcome);
+        Assert.IsTrue(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+        Assert.AreEqual(lPayload, lLoaded);
+      end else
+        Assert.IsFalse(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+    end;
+    // Reuse the same writer after both successful retries and budget exhaustion.
+    lCache.StoreCombinedFactsPayload('candidate', lPayload);
+    Assert.IsTrue(lCache.TryLoadCombinedFactsPayload('candidate', lLoaded, lInvalid));
+    Assert.AreEqual(lPayload, lLoaded);
+  finally
+    lRelease.SetEvent;
+    if lHolder <> nil then
+    begin
+      lHolder.WaitFor;
+      lHolder.Free;
+    end;
+    lRelease.Free;
+    lReady.Free;
+    lCache.Free;
+    SnapshotSqliteNativeBusyTimeoutForTest := 0;
+    SnapshotSqliteBusyRetryBudgetForTest := 0;
+  end;
+end;
+
+procedure TCacheSqliteTests.CombinedPublicationTimeoutPreservesPlan;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lExpected, lActual: TDelphiSemanticRemoveWithCombinedResult;
+  lHolder: TFDConnection;
+  lInvoked: Boolean;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath('ProjectWithBinding\\ProjectWithBinding.dproj');
+  lExpected := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lRequest);
+  Assert.IsTrue(lExpected.Success);
+  Assert.IsTrue(Length(lExpected.Plan.FinalStatements) > 0);
+  lRequest.Options.Cache.SqliteCacheFileName := TempPath('combined-plan-timeout.sqlite');
+  lRequest.Options.PlanningCacheInputsProvided := True;
+  SetLength(lRequest.Options.PlanningCacheInputs, 1);
+  lRequest.Options.PlanningCacheInputs[0].Name := 'fixture-context';
+  lRequest.Options.PlanningCacheInputs[0].Value := 'combined-publication-timeout-v1';
+  lHolder := TFDConnection.Create(nil);
+  lInvoked := False;
+  SnapshotSqliteNativeBusyTimeoutForTest := 1;
+  SnapshotSqliteBusyRetryBudgetForTest := 100;
+  try
+    CombinedFactsBeforeStoreForTest :=
+      procedure
+      begin
+        lHolder.LoginPrompt := False;
+        lHolder.Params.Values['DriverID'] := 'SQLite';
+        lHolder.Params.Values['Database'] := lRequest.Options.Cache.SqliteCacheFileName;
+        lHolder.Params.Values['JournalMode'] := 'WAL';
+        lHolder.Connected := True;
+        lHolder.StartTransaction;
+        lHolder.ExecSQL('INSERT OR REPLACE INTO meta(key_name, value_text) VALUES (''holder'', ''locked'')');
+        lInvoked := True;
+      end;
+    lActual := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lRequest);
+    Assert.IsTrue(lInvoked, 'Combined publication was not exercised: ' + lActual.Plan.Diagnostic);
+    Assert.IsTrue(lActual.Success, lActual.Plan.Diagnostic);
+    Assert.AreEqual('cache-publication-error', lActual.Facts.Metrics.ProjectFactsCacheStoreOutcome);
+    Assert.AreEqual('COMBINED_FACTS_CACHE_PUBLICATION_FAILED', lActual.Diagnostics[High(lActual.Diagnostics)].Code);
+    Assert.AreEqual(dsWarning, lActual.Diagnostics[High(lActual.Diagnostics)].Severity);
+    Assert.AreEqual(Length(lExpected.Plan.FinalStatements), Length(lActual.Plan.FinalStatements));
+    for var i := 0 to High(lExpected.Plan.FinalStatements) do
+    begin
+      Assert.AreEqual(lExpected.Plan.FinalStatements[i].Status, lActual.Plan.FinalStatements[i].Status);
+      Assert.AreEqual(lExpected.Plan.FinalStatements[i].ReplacementText, lActual.Plan.FinalStatements[i].ReplacementText);
+      Assert.AreEqual(Length(lExpected.Plan.FinalStatements[i].Edits), Length(lActual.Plan.FinalStatements[i].Edits));
+      for var j := 0 to High(lExpected.Plan.FinalStatements[i].Edits) do
+      begin
+        Assert.AreEqual(lExpected.Plan.FinalStatements[i].Edits[j].Kind, lActual.Plan.FinalStatements[i].Edits[j].Kind);
+        Assert.AreEqual(lExpected.Plan.FinalStatements[i].Edits[j].ReplacementText,
+          lActual.Plan.FinalStatements[i].Edits[j].ReplacementText);
+      end;
+    end;
+  finally
+    CombinedFactsBeforeStoreForTest := nil;
+    if lHolder.InTransaction then
+      lHolder.Rollback;
+    lHolder.Free;
+    SnapshotSqliteNativeBusyTimeoutForTest := 0;
+    SnapshotSqliteBusyRetryBudgetForTest := 0;
   end;
 end;
 

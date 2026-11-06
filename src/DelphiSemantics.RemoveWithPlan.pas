@@ -9298,6 +9298,8 @@ begin
   end;
 
   lPlanFacts := Default(TRemoveWithPlanFacts);
+  // Both routes render the same source ranges, independent of storage backend.
+  lPlanFacts.UseArchitectureStableRoutineEndTrim := True;
   lBindingSource := nil;
   try
     lMaterializationStopwatch := TStopwatch.StartNew;

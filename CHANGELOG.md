@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- WITH planning treats active runtime-package units as unknown and includes caller-supplied search paths in its unit-name witness.
+- Session and compatibility WITH plans use the same routine-end ranges for nested statements.
+- Combined planning-facts cache writes and deletes retry SQLite busy and table-lock contention and preserve the previous payload when publication fails.
+
 - Class rename plans include method implementation owners, including escaped identifiers and wrapped headers. Selecting an implementation owner resolves to its type; older model and snapshot caches rebuild.
 
 - Method headings inside types no longer add standalone routine symbols after blank lines. Enum values no longer reference themselves at their declarations, preserving rename and unused-value reporting. Older model and snapshot caches rebuild.

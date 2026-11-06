@@ -3,17 +3,25 @@ unit DelphiSemantics.Snapshot.Cache.Sqlite;
 interface
 
 uses
+  System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
 
 const
   cCombinedFactsPayloadMaxCharacters = 128 * 1024 * 1024;
 
 {$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+type
+  TCombinedFactsBeforeStoreForTest = reference to procedure;
+var
+  CombinedFactsBeforeStoreForTest: TCombinedFactsBeforeStoreForTest;
 threadvar
   CombinedFactsPayloadMaxCharactersForTest: Integer;
+  SnapshotSqliteNativeBusyTimeoutForTest: Integer;
+  SnapshotSqliteBusyRetryBudgetForTest: Integer;
 {$ENDIF}
 
 type
+  ECombinedFactsCachePublication = class(EInvalidOpException);
   TDelphiSemanticSnapshotCacheIdentity = record
     CacheKey: string;
     IdentityKey: string;
@@ -140,7 +148,7 @@ implementation
 
 uses
   System.Classes, System.DateUtils, System.Diagnostics, System.Generics.Collections,
-  System.Hash, System.IOUtils, System.SysUtils,
+  System.Hash, System.IOUtils,
   Winapi.Windows,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
@@ -157,7 +165,8 @@ const
   // 26: DS-736/707 retain helper and receiver declaration identity.
   // 29: integrated lane identities invalidate every merged schema generation.
   // 31: DS-655 retains implementation owner type references.
-  cSnapshotCacheSchemaVersion = '31';
+  // 32: DS-762 refuses package-dependent unit-name absence evidence.
+  cSnapshotCacheSchemaVersion = '32';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -190,6 +199,10 @@ begin
   aConnection.Params.Values['DriverID'] := 'SQLite';
   aConnection.Params.Values['Database'] := aDatabase;
   aConnection.Params.Values['BusyTimeout'] := IntToStr(cSnapshotSqliteBusyTimeoutMs);
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  if SnapshotSqliteNativeBusyTimeoutForTest > 0 then
+    aConnection.Params.Values['BusyTimeout'] := IntToStr(SnapshotSqliteNativeBusyTimeoutForTest);
+{$ENDIF}
   aConnection.Params.Values['JournalMode'] := cSnapshotSqliteJournalMode;
   aConnection.Params.Values['LockingMode'] := cSnapshotSqliteLockingMode;
 end;
@@ -200,14 +213,22 @@ var
 begin
   lMessage := LowerCase(aMessage);
   Result := (Pos('database is locked', lMessage) > 0) or
+    (Pos('database table is locked', lMessage) > 0) or
     (Pos('database is busy', lMessage) > 0);
 end;
 
 function RetrySnapshotSqliteBusy(const aMessage: string;
   const aStopwatch: TStopwatch): Boolean;
+var
+  lBudget: Integer;
 begin
+  lBudget := cSnapshotSqliteBusyTimeoutMs;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  if SnapshotSqliteBusyRetryBudgetForTest > 0 then
+    lBudget := SnapshotSqliteBusyRetryBudgetForTest;
+{$ENDIF}
   Result := SnapshotSqliteBusyError(aMessage) and
-    (aStopwatch.ElapsedMilliseconds < cSnapshotSqliteBusyTimeoutMs);
+    (aStopwatch.ElapsedMilliseconds < lBudget);
   if Result then
     TThread.Sleep(cSnapshotSqliteBusyRetryDelayMs);
 end;
@@ -3162,6 +3183,7 @@ var
   lConnection: TFDConnection;
   lError: string;
   lQuery: TFDQuery;
+  lRetryStopwatch: TStopwatch;
 begin
   if not SharedConnection(lConnectionObject, lError) then
     raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
@@ -3171,7 +3193,17 @@ begin
     lQuery.Connection := lConnection;
     lQuery.SQL.Text := 'DELETE FROM combined_remove_with_facts WHERE identity = :identity';
     SetWideParam(lQuery, 0, aIdentity);
-    lQuery.ExecSQL;
+    lRetryStopwatch := TStopwatch.StartNew;
+    repeat
+      try
+        lQuery.ExecSQL;
+        Exit;
+      except
+        on E: Exception do
+          if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
+            raise ECombinedFactsCachePublication.Create('Combined facts cache publication failed (delete): ' + E.Message);
+      end;
+    until False;
   finally
     lQuery.Free;
   end;
@@ -3184,6 +3216,7 @@ var
   lConnection: TFDConnection;
   lError: string;
   lQuery: TFDQuery;
+  lRetryStopwatch: TStopwatch;
 begin
   fCombinedFactsStoreOutcome := '';
   // Do not open, hash, replace or delete rows for a payload the loader cannot use.
@@ -3195,8 +3228,6 @@ begin
   if not SharedConnection(lConnectionObject, lError) then
     raise EInvalidOpException.Create('Combined facts cache open failed: ' + lError);
   lConnection := lConnectionObject as TFDConnection;
-  lConnection.ExecSQL('CREATE TABLE IF NOT EXISTS combined_remove_with_facts (' +
-    'identity TEXT PRIMARY KEY, payload TEXT NOT NULL, payload_hash TEXT NOT NULL)');
   lQuery := TFDQuery.Create(nil);
   try
     lQuery.Connection := lConnection;
@@ -3205,17 +3236,34 @@ begin
     SetWideParam(lQuery, 0, aIdentity);
     SetWideParam(lQuery, 1, aPayload);
     SetWideParam(lQuery, 2, THashSHA2.GetHashString(aPayload));
-    lConnection.StartTransaction;
-    try
-      lConnection.ExecSQL('DELETE FROM combined_remove_with_facts');
-      lQuery.ExecSQL;
-      lConnection.Commit;
-      fCombinedFactsStoreOutcome := 'stored';
-    except
-      if lConnection.InTransaction then
-        lConnection.Rollback;
-      raise;
-    end;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+    if Assigned(CombinedFactsBeforeStoreForTest) then
+      CombinedFactsBeforeStoreForTest();
+{$ENDIF}
+    lRetryStopwatch := TStopwatch.StartNew;
+    repeat
+      try
+        lConnection.ExecSQL('CREATE TABLE IF NOT EXISTS combined_remove_with_facts (' +
+          'identity TEXT PRIMARY KEY, payload TEXT NOT NULL, payload_hash TEXT NOT NULL)');
+        lConnection.StartTransaction;
+        lConnection.ExecSQL('DELETE FROM combined_remove_with_facts');
+        lQuery.ExecSQL;
+        lConnection.Commit;
+        fCombinedFactsStoreOutcome := 'stored';
+        Exit;
+      except
+        on E: Exception do
+        begin
+          if lConnection.InTransaction then
+            lConnection.Rollback;
+          if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
+          begin
+            fCombinedFactsStoreOutcome := 'cache-publication-error';
+            raise ECombinedFactsCachePublication.Create('Combined facts cache publication failed (store): ' + E.Message);
+          end;
+        end;
+      end;
+    until False;
   finally
     lQuery.Free;
   end;

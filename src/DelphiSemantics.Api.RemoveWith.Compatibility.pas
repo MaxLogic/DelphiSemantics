@@ -240,11 +240,11 @@ procedure PopulateCombinedResult(
 begin
   aResult.Facts := aBuildResult.Facts;
   aResult.Plan := aBuildResult.Plan;
-  aResult.Plan.Diagnostics := Copy(aSession.Diagnostics);
+  aResult.Plan.Diagnostics := Copy(aSession.Diagnostics) + Copy(aBuildResult.Plan.Diagnostics);
   aResult.Metrics.Facts := aResult.Facts.Metrics;
   ApplyCombinedBuildMetrics(aResult.Metrics, aBuildMetrics,
     aSessionOpenMilliseconds);
-  aResult.Diagnostics := Copy(aSession.Diagnostics);
+  aResult.Diagnostics := Copy(aResult.Plan.Diagnostics);
 end;
 
 function CombinedResultFromSession(

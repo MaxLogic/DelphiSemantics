@@ -335,6 +335,9 @@ type
     [Category('Fast')]
     [Test]
     procedure SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
+    [TestCase('Lowercase nested end', 'lower')]
+    [TestCase('Uppercase nested end', 'upper')]
+    procedure NestedWithRoutineEndHasRouteParity(const aShape: string);
     [Test]
     procedure SnapshotPlannerConsumesExistingFactsWithoutProjectSession;
     [Test]
@@ -4891,6 +4894,40 @@ begin
   Assert.IsTrue(lMetrics.LookupRequestCount <= 80,
     Format('Repeated routine-scope and owner-member decisions must reuse '
     + 'lookups; actual=%d.', [lMetrics.LookupRequestCount]));
+end;
+
+procedure TRemoveWithPlanTests.NestedWithRoutineEndHasRouteParity(const aShape: string);
+var
+  lRoot, lEnd: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lCompatibility, lSnapshot: TDelphiSemanticRemoveWithPlan;
+begin
+  lRoot := TempPath('ds785-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lEnd := 'end';
+  if aShape = 'upper' then
+    lEnd := 'END';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1;'#13#10'interface'#13#10'procedure Run;'#13#10 +
+    'implementation'#13#10'type TR = record X: Integer; end;'#13#10 +
+    'var A, B: TR;'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '  with A do'#13#10'  begin'#13#10'    X := 1;'#13#10 +
+    '    with B do'#13#10'    begin'#13#10'      X := 2;'#13#10 +
+    '    ' + lEnd + #13#10'  ' + lEnd + ';'#13#10 +
+    lEnd + ';'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin Run; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lCompatibility := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  lSnapshot := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+  Assert.AreEqual(ComparableRemoveWithPlanText(lCompatibility),
+    ComparableRemoveWithPlanText(lSnapshot));
 end;
 
 procedure TRemoveWithPlanTests.SnapshotPlannerMatchesBindingFactsPlanWithoutProjectFactsSidecar;
@@ -23865,9 +23902,10 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lCanonicalPlan, 'tdbutils.pas', 1134, 3,
     lCanonicalStatement), 'Expected canonical maxTdb FlipMark statement.');
   Assert.AreEqual('skipped', lCanonicalStatement.Status);
-  // A-365: canonical range refusal precedes late admission; synthetic control stays planned.
-  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.Reason);
-  Assert.AreEqual('replace-statement-range-mismatch', lCanonicalStatement.SafetyReason);
+  // DS-785: matching routine-end ranges expose the same late admission refusal
+  // as compatibility planning; the separate Win32 control above stays planned.
+  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.Reason);
+  Assert.AreEqual('receiver-type-not-visible', lCanonicalStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Edits)));
   Assert.AreEqual(0, Integer(Length(lCanonicalStatement.Temps)));
   Assert.AreEqual('', lCanonicalStatement.ReplacementText);

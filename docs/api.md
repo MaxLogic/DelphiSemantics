@@ -61,10 +61,21 @@ conservative refusals. SDK source, include and default-alias file hashes
 participate in warm-cache identity. Affected persisted planning facts rebuild.
 
 Include discovery considers every directive opener independently, even in strings
-and comments; unresolved include-looking text cannot establish absence. Paths
-passed only on the dcc command line, outside the dproj and IDE profile, are not
-visible to DS. Units supplied only through runtime-package `.dcp` files are not
-modelled. Installed SDK source is assumed to match the installed DCU.
+and comments; unresolved include-looking text cannot establish absence. Callers
+supply additional effective dcc -U directories through
+TDelphiSemanticOptions.SearchPaths (or the API options' SearchPaths). These
+directories join the witness candidate union, including DCU-only candidates.
+Command-line paths that the caller does not supply remain invisible to DS;
+DS cannot certify their absence. Include options use the separate certified
+CompilerIncludeSearchPath contract.
+
+DS does not read unit membership from .dcp packages. A unit available only in
+a package has unknown content, never absence evidence. Active runtime packages
+also prevent SDK absence proof: UsePackages=true or DCC_EnabledPackages=true
+activates DCC_UsePackage, matching the installed Delphi targets. _UsePackage and
+additional -LU switches are conservative package evidence too. A dormant IDE
+package list alone does not activate them. Installed SDK source is assumed to
+match the installed DCU.
 
 Unknown activity affects import order only where it can change a uses clause
 or its section. Resolved includes with known content activity are expanded in
@@ -673,3 +684,20 @@ Alias-lineage and strong-alias helper refusals preserve established selector and
 statement refusal reasons. An unfinalizable local alias retains
 `ROUTINE_LOCAL_TYPE_UNSUPPORTED`; the alias safety rule applies only after
 existing resolution and planning checks permit the receiver.
+
+## Planning route ranges and cache publication
+
+Session, compatibility-facts and persisted-snapshot planners use the same
+architecture-stable routine-end renderer. Nested WITH children covered by a
+planned parent have no independent final DTO; the statement inventory names
+the covering parent. Both routes retain the replacement-range admission check.
+
+Combined planning-facts publication and deletion use the snapshot cache's
+bounded busy-retry policy, including SQLite table-lock contention. Publication
+retries the complete replacement transaction and rolls it back on failure.
+The previous usable payload survives budget exhaustion. Cache-publication
+failures are distinct from source-validation failures. The combined API keeps
+the validated plan and reports COMBINED_FACTS_CACHE_PUBLICATION_FAILED as a
+warning, with cache-publication-error in ProjectFactsCacheStoreOutcome.
+Source-validation failures still block publication and planning. Older snapshot and planning-fact entries rebuild for the
+package-witness contract (snapshot schema 32, project WITH facts generation 96).

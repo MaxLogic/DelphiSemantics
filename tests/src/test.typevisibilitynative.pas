@@ -114,6 +114,7 @@ begin
       lStatement := TJSONObject.Create;
       lStatements.AddElement(lStatement);
       lStatement.AddPair('file', lItem.FileName);
+      lStatement.AddPair('id', lItem.StatementId);
       lStatement.AddPair('sl', TJSONNumber.Create(lItem.Range.StartLine));
       lStatement.AddPair('sc', TJSONNumber.Create(lItem.Range.StartColumn));
       lStatement.AddPair('el', TJSONNumber.Create(lItem.Range.EndLine));
@@ -142,6 +143,23 @@ begin
         lEdit.AddPair('text', lTextEdit.ReplacementText);
       end;
     end;
+    // Covered children have no final DTO. Export their explicit parent identity
+    // so the oracle proves coverage and checks every absorbed receiver too.
+    lEdits := TJSONArray.Create;
+    lJson.AddPair('covered', lEdits);
+    for var lItem in aPlan.Statements do
+      if lItem.CoveredByStatementId <> '' then
+      begin
+        lStatement := TJSONObject.Create;
+        lEdits.AddElement(lStatement);
+        lStatement.AddPair('file', lItem.FileName);
+        lStatement.AddPair('sl', TJSONNumber.Create(lItem.Range.StartLine));
+        lStatement.AddPair('sc', TJSONNumber.Create(lItem.Range.StartColumn));
+        lStatement.AddPair('el', TJSONNumber.Create(lItem.Range.EndLine));
+        lStatement.AddPair('ec', TJSONNumber.Create(lItem.Range.EndColumn));
+        lStatement.AddPair('parent', lItem.CoveredByStatementId);
+        lStatement.AddPair('reason', lItem.Reason);
+      end;
     lReferences := TJSONArray.Create;
     lJson.AddPair('references', lReferences);
     if aSnapshot <> nil then
@@ -377,6 +395,9 @@ begin
       lOptions.DelphiVersion := '23.0';
       lOptions.Configuration := 'Debug';
       lOptions.Platform := 'Win64';
+      if lCase.GetValue<TJSONValue>('caller_search_paths', nil) <> nil then
+        for var lSearchPath in lCase.GetValue<TJSONArray>('caller_search_paths') do
+          lOptions.SearchPaths := lOptions.SearchPaths + [lSearchPath.Value];
       if lCase.GetValue<TJSONValue>('caller_defines', nil) <> nil then
         for var lDefine in lCase.GetValue<TJSONArray>('caller_defines') do
           lOptions.Defines := lOptions.Defines + [lDefine.Value];
