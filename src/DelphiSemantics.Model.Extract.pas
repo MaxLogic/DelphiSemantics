@@ -5347,6 +5347,8 @@ var
   lNextMatch: TMatch;
   lOwnerName: string;
   lPrefix: string;
+  lOwnerReference: TDelphiSemanticReference;
+  lFirstOwnerReference, lOwnerIndex, lOwnerTypeLength: Integer;
   lRoutineName: string;
   lSection: string;
 begin
@@ -5357,7 +5359,7 @@ begin
     lMatch := TRegEx.Match(aText,
       '^\s*(?:class\s+)?(procedure|function|constructor|destructor)\s+' +
       // Keep the generic owner so the implementation matches its AST scope.
-      '((?:&?[A-Za-z_][A-Za-z0-9_]*(?:<[^;\r\n<>]+>)?\.)?)' +
+      '((?:&?[A-Za-z_][A-Za-z0-9_]*(?:<[^;\r\n<>]+>)?\s*\.\s*)?)' +
       '(&?[A-Za-z_][A-Za-z0-9_]*)\s*', [roIgnoreCase, roMultiLine]);
     while lMatch.Success do
     begin
@@ -5382,6 +5384,24 @@ begin
         Continue;
       end;
       lPrefix := lMatch.Groups[2].Value;
+      // DS-655: the owner tokens in a verified implementation header name types.
+      // Keep the raw prefix so escaped identifiers and line breaks retain exact offsets.
+      if Assigned(aReferences) then
+      begin
+        lFirstOwnerReference := aReferences.Count;
+        // Generic owner arguments declare the type's parameters, not unit type uses.
+        lOwnerTypeLength := Pos('<', lPrefix);
+        if lOwnerTypeLength = 0 then
+          lOwnerTypeLength := Length(lPrefix) + 1;
+        AddTypeReferences(aReferences, '', Copy(lPrefix, 1, lOwnerTypeLength - 1),
+          aText, MatchGroupIndex(lMatch, 2));
+        for lOwnerIndex := lFirstOwnerReference to aReferences.Count - 1 do
+        begin
+          lOwnerReference := aReferences[lOwnerIndex];
+          lOwnerReference.Role := 'implementation-owner';
+          aReferences[lOwnerIndex] := lOwnerReference;
+        end;
+      end;
       lRoutineName := lMatch.Groups[3].Value.Replace('&', '');
       lOwnerName := TRegEx.Replace(lPrefix, '\s+', '').Replace('&', '');
       if EndsText('.', lOwnerName) then
@@ -5392,10 +5412,20 @@ begin
       lSection := SectionForOffset(aText, lMatch.Index + 1);
       AddRoutine(aRoutines, lRoutineName, lOwnerName, lSection, lHeader.Signature,
         lHeader.ReturnType, aText, lNameOffset, lHeader.SignatureOffset);
+      lFirstOwnerReference := 0;
+      if Assigned(aReferences) then
+        lFirstOwnerReference := aReferences.Count;
       AddParameterTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
         lHeader.Signature, aText, lHeader.SignatureOffset);
       AddTypeReferences(aReferences, QualifiedRoutineName(lOwnerName, lRoutineName),
         lHeader.ReturnType, aText, lHeader.ReturnTypeOffset);
+      if (lOwnerName <> '') and Assigned(aReferences) then
+        for lOwnerIndex := lFirstOwnerReference to aReferences.Count - 1 do
+        begin
+          lOwnerReference := aReferences[lOwnerIndex];
+          lOwnerReference.Role := 'implementation-header-type';
+          aReferences[lOwnerIndex] := lOwnerReference;
+        end;
       if lOwnerName = '' then
         AddDeclaration(aDeclarations, lRoutineName, 'routine', lHeader.ReturnType,
           lSection, aText, lNameOffset);
