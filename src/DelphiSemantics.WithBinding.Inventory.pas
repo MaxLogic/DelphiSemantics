@@ -427,7 +427,8 @@ begin
     Exit;
 
   lPrefix := Copy(lText, 1, lOpenPos - 1);
-  if ContainsText(lPrefix, 'procedure') or ContainsText(lPrefix, 'function') then
+  // Only an opening parenthesis immediately after '=' starts an enumeration.
+  if Trim(Copy(lPrefix, lEqualsPos + 1, MaxInt)) <> '' then
     Exit;
 
   lList := TList<string>.Create;
@@ -1068,15 +1069,45 @@ end;
 function InventoryFindTypeEndLine(const aLines: TArray<string>; const aStartIndex: Integer):
   Integer;
 var
-  i: Integer;
-  lLine: string;
+  lDepth, lHeaderPos, lLine: Integer;
+  lLexer: TmwBasePasLex;
+  lText: string;
+  lStarted: Boolean;
 begin
   Result := aStartIndex + 1;
-  for i := aStartIndex + 1 to High(aLines) do
-  begin
-    lLine := LowerCase(InventoryCleanLine(aLines[i]));
-    if SameText(lLine, 'end;') or SameText(lLine, 'end') or StartsText('end ', lLine) then
-      Exit(i + 1);
+  lText := string.Join(sLineBreak, aLines, aStartIndex, Length(aLines) - aStartIndex);
+  lHeaderPos := Pos('=', aLines[aStartIndex]);
+  if lHeaderPos = 0 then
+    lHeaderPos := Pos(':', aLines[aStartIndex]);
+  // Constraints precede '=', so their RECORD keyword cannot open the body.
+  lText := StringOfChar(' ', lHeaderPos) + Copy(lText, lHeaderPos + 1, MaxInt);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lText;
+    lDepth := 0;
+    lLine := aStartIndex + 1;
+    lStarted := False;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptCRLF then
+        Inc(lLine)
+      else if (not lStarted) and MatchText(lLexer.Token, ['class', 'record', 'object', 'interface']) then
+      begin
+        lStarted := True;
+        lDepth := 1;
+      end else if lStarted and (lLexer.TokenID = ptRecord) then
+        Inc(lDepth)
+      else if lStarted and (lLexer.TokenID = ptEnd) then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          Exit(lLine);
+      end;
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
   end;
 end;
 
@@ -2178,6 +2209,9 @@ procedure AddModelSourceCompatibilitySymbols(
 var
   i, lFirst: Integer;
   lActiveLines, lLines: TArray<string>;
+  lMember: TDelphiSemanticMember;
+  lRoutine: TDelphiSemanticRoutine;
+  lDuplicate: Boolean;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   lLines := InventorySourceTextLines(aModel.SourceText);
@@ -2194,6 +2228,27 @@ begin
   for i := aSymbols.Count - 1 downto lFirst do
   begin
     lSymbol := aSymbols[i];
+    lDuplicate := False;
+    if SameText(lSymbol.SymbolClass, 'field') then
+      for lMember in aModel.Members do
+        if (lMember.OwnerScopeId <> '') and (lMember.OwnerSymbolId <> '') and
+          (lMember.FileName = '') and (lMember.Line = lSymbol.Line) and
+          (lMember.Column = lSymbol.Column) and SameText(lMember.Name, lSymbol.Name) then
+        begin
+          for lRoutine in aModel.Routines do
+            if SameText(lRoutine.ScopeId, lMember.OwnerScopeId) then
+            begin
+              lDuplicate := True;
+              Break;
+            end;
+          if lDuplicate then
+            Break;
+        end;
+    if lDuplicate then
+    begin
+      aSymbols.Delete(i);
+      Continue;
+    end;
     if MatchText(lSymbol.SymbolClass, ['field', 'constant']) and
       (lSymbol.Line > 0) and (lSymbol.Line <= Length(lActiveLines)) and
       (lSymbol.Column > 0) and

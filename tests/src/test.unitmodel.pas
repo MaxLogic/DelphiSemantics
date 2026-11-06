@@ -56,6 +56,15 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Category('DS703Slice')]
+    [TestCase('Nested record owner', 'nested')]
+    [TestCase('Nested array record owner', 'array')]
+    [TestCase('One-line global record', 'global')]
+    [TestCase('Routine record inventory', 'local')]
+    [TestCase('Class heritage is not enumeration', 'heritage')]
+    [TestCase('Generic class inventory', 'generic')]
+    [TestCase('Constrained generic class inventory', 'constrained')]
+    procedure ModelInventoryOwnership(const aShape: string);
     [TestCase('repeat-one full', 'repeat-one,False')]
     [TestCase('repeat-one scan', 'repeat-one,True')]
     [TestCase('repeat-multi full', 'repeat-multi,False')]
@@ -1829,6 +1838,120 @@ begin
 
   Assert.IsTrue(HasDeclaration(lModel, 'IGuidInline', 'type', 'interface'));
   Assert.IsTrue(HasRoutine(lModel, 'RoutineAfterGuidInterface', 'interface'));
+end;
+
+procedure TUnitModelTests.ModelInventoryOwnership(const aShape: string);
+var
+  lSource, lPath, lTypes, lVariables, lRoutines, lPrefix: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lCount: Integer;
+begin
+  lTypes := '';
+  lVariables := '';
+  lRoutines := '';
+  if (aShape = 'nested') or (aShape = 'array') then
+  begin
+    lPrefix := '';
+    if aShape = 'array' then
+      lPrefix := 'array[0..1] of ';
+    lTypes := 'type'#13#10'  TOuter = record'#13#10 +
+      '    Struktur: record'#13#10'      Inner: ' + lPrefix + 'record'#13#10 +
+      '        Value: Integer;'#13#10'      end;'#13#10 +
+      '      Count: Integer;'#13#10'    end;'#13#10 +
+      '    Own: Integer;'#13#10'  end;'#13#10;
+  end else if aShape = 'global' then
+    lVariables := 'var'#13#10'  X: record A: Integer; end;'#13#10 +
+      '  Following: Integer;'#13#10
+  else if aShape = 'local' then
+    lRoutines := 'procedure Run;'#13#10'type'#13#10'  TLocal = record'#13#10 +
+      '    Value: Integer;'#13#10'  end;'#13#10'var'#13#10 +
+      '  X: record A: Integer; end;'#13#10'  Following: Integer;'#13#10 +
+      'begin end;'#13#10
+  else if aShape = 'heritage' then
+    lTypes := 'type'#13#10'  TBase = class end;'#13#10 +
+      '  TChild = class(TBase)'#13#10'  end;'#13#10
+  else
+  begin
+    lPrefix := 'T';
+    if aShape = 'constrained' then
+      lPrefix := 'T: class, constructor; U: record';
+    lTypes := 'type'#13#10'  TGen<' + lPrefix + '> = class(Vcl.Forms.TForm)'#13#10 +
+      '  end;'#13#10;
+  end;
+  lSource := 'unit OwnershipUnit;'#13#10'interface'#13#10 + lTypes + lVariables +
+    'implementation'#13#10 + lRoutines + 'end.'#13#10;
+  lPath := UnitModelTempPath('ownership-' + aShape + '.pas');
+  TFile.WriteAllText(lPath, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, ModelToJson(lModel));
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel);
+  if (aShape = 'nested') or (aShape = 'array') then
+  begin
+    Assert.IsFalse(HasMember(lModel, 'TOuter', 'Count', 'field', 'Integer'),
+      'The outer record has no Count field');
+    Assert.IsTrue(HasMember(lModel, 'TOuter', 'Own', 'field', 'Integer'), 'Outer Own');
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'TOuter') and
+        SameText(lSymbol.Name, 'Count'), 'The text inventory must not invent TOuter.Count');
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.OwnerType, 'TOuter.Struktur') and SameText(lSymbol.Name, 'Count') then
+        Inc(lCount);
+    Assert.IsTrue(lCount > 0, 'The inventory retains Count under its actual owner');
+  end else if aShape = 'global' then
+  begin
+    Assert.IsTrue(HasDeclaration(lModel, 'Following', 'var', 'interface'), 'Following declaration');
+    Assert.IsTrue(HasMember(lModel, 'OwnershipUnit.X', 'A', 'field', 'Integer'));
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'OwnershipUnit.X') and
+        SameText(lSymbol.Name, 'Following'), 'A later variable is not an inline record field');
+  end else if aShape = 'local' then
+  begin
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.SymbolClass, 'field') and SameText(lSymbol.Name, 'Value') then
+      begin
+        Inc(lCount);
+        Assert.IsTrue(lSymbol.OwnerScopeId <> '', 'Every routine field must retain its scope');
+        Assert.AreEqual('TLocal', lSymbol.OwnerType);
+      end;
+    Assert.AreEqual(1, lCount, 'A routine record field must occur exactly once');
+    Assert.IsTrue(HasMember(lModel, 'Run.X', 'A', 'field', 'Integer'));
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.OwnerType, 'Run.X') and
+        SameText(lSymbol.Name, 'Following'));
+  end else if aShape = 'heritage' then
+  begin
+    for lSymbol in lSymbols do
+      Assert.IsFalse(SameText(lSymbol.SymbolClass, 'constant') and
+        SameText(lSymbol.Name, 'TBase'), 'Class heritage cannot create an enum constant');
+  end else
+  begin
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration),
+      'A generic class must be inventoried');
+    Assert.AreEqual('class', lDeclaration.TypeName);
+    Assert.AreEqual('Vcl.Forms.TForm', lDeclaration.BaseTypeName);
+    if aShape = 'generic' then
+      Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":1'), 'Generic arity one')
+    else
+      Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":2'), 'Constraint commas are not parameters');
+    lModel := JsonToModel(ModelToJson(lModel));
+    Assert.IsTrue(FindDeclaration(lModel, 'TGen', 'type', 'interface', lDeclaration));
+    Assert.IsTrue(ModelToJson(lModel).Contains('"GenericArity":'), 'Generic arity survives JSON');
+
+    lCount := 0;
+    for lSymbol in lSymbols do
+      if SameText(lSymbol.Name, 'TGen') and SameText(lSymbol.SymbolClass, 'declaration') then
+        Inc(lCount);
+    Assert.AreEqual(1, lCount);
+  end;
 end;
 
 procedure TUnitModelTests.ExtractsAnonymousNestedRecordMembers;

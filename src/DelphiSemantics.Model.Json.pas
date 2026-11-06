@@ -237,6 +237,8 @@ begin
   Result.AddPair('IsDispInterface', TJSONBool.Create(aDeclaration.IsDispInterface));
   Result.AddPair('ProcedureSignature', SignatureToJson(aDeclaration.ProcedureSignature));
   Result.AddPair('BaseTypeName', aDeclaration.BaseTypeName);
+  if aDeclaration.GenericArity > 0 then
+    Result.AddPair('GenericArity', TJSONNumber.Create(aDeclaration.GenericArity));
   Result.AddPair('HelperTargetName', aDeclaration.HelperTargetName);
   Result.AddPair('HelperParentName', aDeclaration.HelperParentName);
   Result.AddPair('AstHelperKind', aDeclaration.AstHelperKind);
@@ -269,6 +271,7 @@ begin
   Result.Kind := JsonString(aObject, 'Kind');
   Result.TypeName := JsonString(aObject, 'TypeName');
   Result.BaseTypeName := JsonString(aObject, 'BaseTypeName');
+  Result.GenericArity := JsonInt(aObject, 'GenericArity');
   Result.HelperTargetName := JsonString(aObject, 'HelperTargetName');
   Result.HelperParentName := JsonString(aObject, 'HelperParentName');
   Result.AstHelperKind := JsonString(aObject, 'AstHelperKind');

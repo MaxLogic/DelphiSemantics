@@ -77,6 +77,9 @@ begin
     (aModel.RejectedDeclarationCount <> 0) or
     (aDeclaration < 0) or (aDeclaration > High(aModel.Declarations)) then
     Exit;
+  // Unspecialized generic members and ancestry cannot certify completeness.
+  if aModel.Declarations[aDeclaration].GenericArity > 0 then
+    Exit;
   for lDiagnostic in aModel.Diagnostics do
   begin
     lOwner := IncompleteMemberOwner(aModel, lDiagnostic);

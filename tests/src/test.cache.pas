@@ -150,6 +150,7 @@ type
     [TestCase('IFOPT erased by previous activity producer', '59')]
     [TestCase('Evidence failure discarded by previous activity producer', '60')]
     [TestCase('Before generic and escaped helper extraction', '79')]
+    [TestCase('Before anonymous record ownership and generic metadata', '80')]
     procedure DefaultParserInvalidatesObsoleteModels(const aVersion: string);
     [Category('Fast')]
     [Test]
@@ -480,7 +481,7 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.80', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.81', lIdentity.ParserVersion,
       'Conditional WITH safety requires fresh extraction of earlier ranges and bindings.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,

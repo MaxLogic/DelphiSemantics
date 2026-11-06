@@ -67,6 +67,7 @@ type
     HelperParentName: string;
     IsHelper: Boolean;
     HelperCovered: Boolean;
+    GenericArity: Integer;
     TypeBodyEndLine: Integer;
     TypeBodyEndColumn: Integer;
     ProcedureSignature: TDelphiSemanticProcedureSignature;
@@ -2071,7 +2072,8 @@ procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: stri
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aMembers: TList<TDelphiSemanticMember>); forward;
 
-function AnonymousRecordHasVariant(const aText: string; const aTypeNode: TSyntaxNode): Boolean;
+function AnonymousRecordNeedsModel(const aText: string; const aTypeNode: TSyntaxNode;
+  const aVariable: Boolean): Boolean;
 var
   lDepth: Integer;
   lLexer: TmwBasePasLex;
@@ -2090,7 +2092,14 @@ begin
       begin
         Dec(lDepth);
         if lDepth = 0 then
+        begin
+          // Only the requested one-line variables gain ordinary model facts.
+          // Other plain anonymous layouts retain their existing binding refusals.
+          Result := aVariable and (LineOfOffset(aText,
+            OffsetOfLineColumn(aText, aTypeNode.Line, aTypeNode.Col) + lLexer.TokenPos) =
+            aTypeNode.Line);
           Exit;
+        end;
       end else if (lDepth = 1) and (lLexer.TokenID = ptCase) then
         Exit(True);
       lLexer.Next;
@@ -2288,6 +2297,9 @@ var
             EnsureUnitAliasDeclaration(aText, aNode, aDeclarations);
         end;
         lFact.TypeOwnerPath := aTypeOwnerPath;
+        for lChild in aNode.ChildNodes do
+          if lChild.Typ = ntTypeParams then
+            lFact.GenericArity := Length(lChild.ChildNodes);
         lTypeNode := aNode.FindNode(ntType);
         if Assigned(lTypeNode) then
         begin
@@ -2363,7 +2375,8 @@ var
     begin
       lTypeNode := aNode.FindNode(ntType);
       if Assigned(lTypeNode) and SameText(lTypeNode.GetAttribute(anType), 'record') and
-        (aAnonymousAbsenceOnly or AnonymousRecordHasVariant(aText, lTypeNode)) then
+        (aAnonymousAbsenceOnly or AnonymousRecordNeedsModel(aText, lTypeNode,
+          aNode.Typ = ntVariable)) then
       begin
         lName := AstNodeName(aNode);
         if aTypeOwnerPath <> '' then
@@ -2712,6 +2725,7 @@ begin
           LowerCase(lDeclaration.Kind) + '|' + LowerCase(lDeclaration.Name);
         lDeclaration.InterfaceGuid := lFact.InterfaceGuid;
         lDeclaration.AstHelperKind := lFact.AstHelperKind;
+        lDeclaration.GenericArity := lFact.GenericArity;
         if lFact.AstHelperKind <> '' then
         begin
           lDeclaration.HelperTargetName := lFact.HelperTargetName;
@@ -3330,13 +3344,31 @@ end;
 
 function FindAnonymousRecordEndLine(const aLines: TStringList; const aStartIndex: Integer): Integer;
 var
-  i: Integer;
+  lDepth: Integer;
+  lLexer: TmwBasePasLex;
+  lText: string;
 begin
   Result := aStartIndex;
-  for i := aStartIndex + 1 to Pred(aLines.Count) do
-  begin
-    if SameText(aLines[i].Trim, 'end;') or SameText(aLines[i].Trim, 'end') then
-      Exit(i);
+  lText := string.Join(sLineBreak, aLines.ToStringArray, aStartIndex, aLines.Count - aStartIndex);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lText;
+    lDepth := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptRecord then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+      begin
+        Dec(lDepth);
+        if lDepth = 0 then
+          Exit(aStartIndex + LineOfOffset(lText, lLexer.TokenPos + 1) - 1);
+      end;
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
   end;
 end;
 
@@ -3542,6 +3574,8 @@ begin
                 lSkipUntilLine := LineOfOffset(aText, lHeaderOffset);
             end;
           end;
+          if TryAnonymousRecordVarStart(lLine, lName) then
+            lMatch := Default(TMatch);
           if lMatch.Success then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);

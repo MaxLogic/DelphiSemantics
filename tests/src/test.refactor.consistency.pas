@@ -21,6 +21,11 @@ type
     function AncestryModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
     function AliasContextModels(const aShape: string): TArray<TDelphiSemanticUnitModel>;
   public
+    [Category('DS703Slice,RefactoringLightConsistency')]
+    [TestCase('Plain generic', 'T,class')]
+    [TestCase('Constrained generic', 'T: class; U: record,class')]
+    [TestCase('Generic ancestor', 'T,class(TBase<T>)')]
+    procedure GenericClassAncestryRemainsExplicitlyUnknown(const aParameters, aBody: string);
     [Category('RefactoringLightConsistency,Fast')]
     [Test]
     procedure ExtractsInterfaceAndDispinterfaceGuidFacts;
@@ -187,6 +192,40 @@ uses
   DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SemanticGraph;
+
+procedure TRefactorConsistencyTests.GenericClassAncestryRemainsExplicitlyUnknown(
+  const aParameters, aBody: string);
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lTypes: TDelphiSemanticTypeIdentityIndex;
+  lAncestry: TDelphiSemanticClassAncestry;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lCount: Integer;
+begin
+  lModels := [ExtractModel('GenericUnit', 'unit GenericUnit;'#13#10'interface'#13#10 +
+    'type'#13#10'  TGen<' + aParameters + '> = ' + aBody + #13#10 +
+    '  end;'#13#10'implementation'#13#10'end.')];
+  lCount := 0;
+  for lDeclaration in lModels[0].Declarations do
+    if lDeclaration.Name = 'TGen' then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('class', lDeclaration.TypeName);
+    end;
+  Assert.AreEqual(1, lCount, 'Unknown generic ancestry must never mean an absent class');
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(
+    Default(TDelphiSemanticProjectInfo), lModels);
+  try
+    lTypes := TDelphiSemanticTypeResolver.BuildIndex(lGraph);
+    lAncestry := TDelphiSemanticEventBindingResolver.InspectClassAncestry(
+      lModels, lTypes, 'GenericUnit', 'TGen');
+    Assert.IsFalse(lAncestry.Complete, lAncestry.Reason);
+    Assert.AreEqual('ancestry.declaration-incomplete', lAncestry.Reason);
+  finally
+    lGraph.Free;
+  end;
+end;
 
 procedure TRefactorConsistencyTests.OrderedUnindexedImportGuardsAncestry(
   const aUnknownLast: Boolean);

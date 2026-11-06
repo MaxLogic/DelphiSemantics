@@ -35,6 +35,43 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [Category('DS703Routes')]
+    [TestCase('missing route 0', 'missing,0')]
+    [TestCase('missing route 1', 'missing,1')]
+    [TestCase('missing route 2', 'missing,2')]
+    [TestCase('missing route 3', 'missing,3')]
+    [TestCase('missing route 4', 'missing,4')]
+    [TestCase('nested route 0', 'nested,0')]
+    [TestCase('nested route 1', 'nested,1')]
+    [TestCase('nested route 2', 'nested,2')]
+    [TestCase('nested route 3', 'nested,3')]
+    [TestCase('nested route 4', 'nested,4')]
+    [TestCase('array route 0', 'array,0')]
+    [TestCase('array route 1', 'array,1')]
+    [TestCase('array route 2', 'array,2')]
+    [TestCase('array route 3', 'array,3')]
+    [TestCase('array route 4', 'array,4')]
+    [TestCase('global route 0', 'global,0')]
+    [TestCase('global route 1', 'global,1')]
+    [TestCase('global route 2', 'global,2')]
+    [TestCase('global route 3', 'global,3')]
+    [TestCase('global route 4', 'global,4')]
+    [TestCase('local route 0', 'local,0')]
+    [TestCase('local route 1', 'local,1')]
+    [TestCase('local route 2', 'local,2')]
+    [TestCase('local route 3', 'local,3')]
+    [TestCase('local route 4', 'local,4')]
+    [TestCase('heritage route 0', 'heritage,0')]
+    [TestCase('heritage route 1', 'heritage,1')]
+    [TestCase('heritage route 2', 'heritage,2')]
+    [TestCase('heritage route 3', 'heritage,3')]
+    [TestCase('heritage route 4', 'heritage,4')]
+    [TestCase('generic route 0', 'generic,0')]
+    [TestCase('generic route 1', 'generic,1')]
+    [TestCase('generic route 2', 'generic,2')]
+    [TestCase('generic route 3', 'generic,3')]
+    [TestCase('generic route 4', 'generic,4')]
+    procedure ModelOwnershipRoutes(const aShape: string; const aRoute: Integer);
     [Category('DS751Slice')]
     [TestCase('generic-record route 0', 'generic-record,0')]
     [TestCase('generic-record route 1', 'generic-record,1')]
@@ -21980,6 +22017,107 @@ begin
   else
     Assert.IsTrue(lPlan.FinalStatements[0].ReplacementText.Contains('G := lWithItemPtr^.Get + 1;'),
       lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TWithBinderTests.ModelOwnershipRoutes(const aShape: string; const aRoute: Integer);
+var
+  g: TGarbos;
+  lRoot, lProofRoot: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lStored, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lBuild: TDelphiSemanticRemoveWithPlanBuildResult;
+  lSerializer: TJsonSerializer;
+begin
+  lRoot := WithBinderTempPath('ownership-' + aShape + IntToStr(aRoute));
+  TDirectory.CreateDirectory(lRoot);
+  for var lFile in TDirectory.GetFiles(FixturePath('ModelOwnership', aShape), '*.pas') do
+    TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="Unit1.pas"/>' +
+    '</ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  if aRoute >= 3 then
+    lOptions.Cache.SqliteCacheFileName := TPath.Combine(lRoot, 'session.sqlite');
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  case aRoute of
+    0: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+    1: lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    2:
+    begin
+      lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+      lIdentity.CacheKey := 'model-ownership';
+      lIdentity.IdentityKey := lIdentity.CacheKey;
+      lIdentity.SourceFileName := lOptions.ProjectFileName;
+      lIdentity.FileHash := lFacts.ContextFingerprint;
+      lIdentity.ContextHash := lFacts.ContextFingerprint;
+      lIdentity.IncludeGraphHash := 'model-ownership';
+      lIdentity.SchemaVersion := 'model-ownership';
+      GC(lStored, BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts), g);
+      GC(lCache, TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'standalone.sqlite')), g);
+      lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded));
+      GC(lLoaded, g);
+      lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
+    end;
+  else
+    for var i := 3 to aRoute do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(ProjectOptionsFromApiOptions(lOptions));
+      try
+        Assert.IsTrue(lSession.Success);
+        lBuild := lSession.Session.PlanRemoveWithResult;
+        Assert.AreEqual(i - 3, Integer(lBuild.SnapshotMetrics.SnapshotCacheHits));
+        lPlan := lBuild.Plan;
+      finally
+        lSession.Session.Free;
+      end;
+    end;
+  end;
+  // Retain the actual published edits for independent dcc64 runtime comparison.
+  lProofRoot := GetEnvironmentVariable('DS_MODEL_OWNERSHIP_PROOF_ROOT');
+  if lProofRoot <> '' then
+  begin
+    lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
+    TDirectory.CreateDirectory(lProofRoot);
+    for var lFile in TDirectory.GetFiles(lRoot) do
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+        TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
+    GC(lSerializer, TJsonSerializer.Create, g);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+      lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
+  Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+  Assert.IsFalse(lPlan.FinalStatements[0].ReplacementText.Contains('lWithOuterPtr^.Count'),
+    'Count belongs to the global scope, never to TOuter');
+  if MatchText(aShape, ['generic', 'missing']) then
+  begin
+    Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status,
+      'Unproved receivers and missing members must remain required refusals');
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+    Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+    Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+    Exit;
+  end;
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
+  Assert.IsFalse(lPlan.FinalStatements[0].ReplacementText.ToLower.Contains('with '));
 end;
 
 procedure TWithBinderTests.BindingSafetyRoutes(const aShape: string; const aRoute: Integer);
