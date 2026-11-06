@@ -38,6 +38,10 @@ type
     [TestCase('Less than inactive', 'a<b.inc,False')]
     [TestCase('Pipe active', 'a|b.inc,True')]
     procedure InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);
+    [Category('Fast')]
+    [TestCase('Less than', 'a<b.inc')]
+    [TestCase('Pipe', 'a|b.inc')]
+    procedure InvalidIncludeCannotProveImportOrder(const aName: string);
 
     [Category('Fast')]
     [Test]
@@ -275,6 +279,13 @@ begin
   Assert.IsTrue(TDelphiSemanticSourceConditionals.UnknownAtOffset(lOptions.SourceText,
     lEvidence, Pos('Alternative;', lOptions.SourceText)), 'The opposite reachable arm is also unknown.');
   Assert.IsTrue(HasDiagnostic(lResult, 'UNVERIFIED_PREPROCESS_CONDITION'));
+end;
+
+procedure TPreprocessTests.InvalidIncludeCannotProveImportOrder(const aName: string);
+begin
+  Assert.IsTrue(TDelphiSemanticSourceConditionals.ImportOrderUnknown(
+    'unit Unit1; interface uses {$I ' + aName + '} System.SysUtils; implementation end.',
+    '', [], ['System.SysUtils']), 'An unresolved include cannot prove import order.');
 end;
 
 procedure TPreprocessTests.InvalidIncludeIsUnresolved(const aName: string; const aActive: Boolean);

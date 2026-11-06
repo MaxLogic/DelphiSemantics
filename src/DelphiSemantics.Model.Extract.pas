@@ -1230,6 +1230,8 @@ var
           begin
             lArgument := TDelphiSemanticPreprocessor.CompilerIncludeFileName(
               lArgument.Trim.Trim([#39, '"']).Replace('/', PathDelim));
+            if lArgument = '' then
+              Exit;
             lExpected := TPath.GetFullPath(TPath.Combine(
               ExtractFilePath(lSources[aSource].Source.FileName), lArgument));
             lSelected := '';

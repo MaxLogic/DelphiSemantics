@@ -721,6 +721,8 @@ begin
     // dcc64 always supplies .pas when an include has no extension; it never
     // probes the extensionless file or an implicit .inc (native MSBuild matrix).
     lIncludeName := TDelphiSemanticPreprocessor.CompilerIncludeFileName(aIncludeName);
+    if lIncludeName = '' then
+      Exit(False);
     if TPath.IsPathRooted(lIncludeName) then
     begin
       aFileName := TPath.GetFullPath(lIncludeName);
@@ -856,10 +858,19 @@ end;
 
 class function TDelphiSemanticPreprocessor.CompilerIncludeFileName(const aName: string): string;
 begin
-  Result := aName;
-  if (Result <> '') and (Result <> '<include-unclassified>') and
-    (TPath.GetExtension(Result) = '') then
-    Result := Result + '.pas';
+  Result := '';
+  try
+    // Shared name validation for resolution and observed-include consumers.
+    // An invalid raw directive is unresolved, never a filesystem exception.
+    if (aName = '') or (aName = '<include-unclassified>') then
+      Exit;
+    Result := aName;
+    if TPath.GetExtension(Result) = '' then
+      Result := Result + '.pas';
+  except
+    on E: EArgumentException do
+      Result := '';
+  end;
 end;
 
 class function TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
