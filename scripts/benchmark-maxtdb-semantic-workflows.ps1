@@ -21,6 +21,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# DAK-483: warmups and measured DAK children must never send crash reports.
+$env:MAXLOGIC_MADEXCEPT_AI = '1'
+$env:DAK_TEST_DISABLE_CRASH_SEND = '1'
 
 # The DelphiSemantics revision comes from this script's repository, not from the caller's working
 # directory: DAK and other callers run the benchmark from their own checkouts (T-320).

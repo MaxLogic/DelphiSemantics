@@ -305,7 +305,7 @@ function Invoke-GateStep {
     # Direct file handles also avoid an unbounded drain after a parent exits.
     . (Join-Path $DakRoot 'tests\scripts\Dak.ProcessTrace.ps1')
     $lCommandLine = ((@($lExecutable) + @($Arguments) | ForEach-Object { ConvertTo-WindowsCommandArgument $_ }) -join ' ')
-    $lTrace = Invoke-TracedProcess -CommandLine $lCommandLine -WorkingDirectory $lWorkingDirectory -Environment @{} -LogPath $lMetadata -TimeoutSeconds $TimeoutSeconds -NoOutputText -StdoutPath $lStdout -StderrPath $lStderr
+    $lTrace = Invoke-TracedProcess -CommandLine $lCommandLine -WorkingDirectory $lWorkingDirectory -Environment @{MAXLOGIC_MADEXCEPT_AI='1'; DAK_TEST_DISABLE_CRASH_SEND='1'} -LogPath $lMetadata -TimeoutSeconds $TimeoutSeconds -NoOutputText -StdoutPath $lStdout -StderrPath $lStderr
     $lNativeExitCode = $lTrace.exit_code
     $lTimedOut = $lTrace.timed_out
     $lCleanupComplete = $lTrace.cleanup_complete

@@ -240,6 +240,8 @@ function New-DsProcess {
     $process.StartInfo.Environment['TEMP'] = Join-Path $Scratch 'tmp'
     $process.StartInfo.Environment['TMP'] = Join-Path $Scratch 'tmp'
     $process.StartInfo.Environment['DS_TEST_OUTPUT_ROOT'] = Join-Path $Scratch 'out'
+    $process.StartInfo.Environment['MAXLOGIC_MADEXCEPT_AI'] = '1'
+    $process.StartInfo.Environment['DAK_TEST_DISABLE_CRASH_SEND'] = '1'
     $process.StartInfo.Environment['DS_TEST_RUNLIST_LITERAL'] = '1'
     # Never inherit a caller's roster-only mode into an executing shard.
     [void]$process.StartInfo.Environment.Remove('DS_TEST_LIST_PATH')
