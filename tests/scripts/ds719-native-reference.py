@@ -1051,6 +1051,9 @@ def run(command, cwd, log):
     environment_file = Path(cwd) / 'native-environment.json'
     if environment_file.exists():
         environment.update(json.loads(environment_file.read_text()))
+    # DAK-483: includes the DAK build host and all compiler/runtime descendants.
+    environment['MAXLOGIC_MADEXCEPT_AI'] = '1'
+    environment['DAK_TEST_DISABLE_CRASH_SEND'] = '1'
     process = subprocess.run(list(map(str, command)), cwd=cwd, capture_output=True, env=environment,
                              creationflags=subprocess.CREATE_NO_WINDOW, timeout=90)
     row = {"command": list(map(str, command)), "cwd": str(cwd), "exit": process.returncode,
