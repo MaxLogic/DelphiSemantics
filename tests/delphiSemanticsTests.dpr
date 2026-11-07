@@ -29,6 +29,7 @@ uses
   DelphiSemantics.GlobalVars in '..\src\DelphiSemantics.GlobalVars.pas',
   DelphiSemantics.Graph in '..\src\DelphiSemantics.Graph.pas',
   DelphiSemantics.IdentifierScope in '..\src\DelphiSemantics.IdentifierScope.pas',
+  DelphiSemantics.ImportFacts in '..\src\DelphiSemantics.ImportFacts.pas',
   DelphiSemantics.Index in '..\src\DelphiSemantics.Index.pas',
   DelphiSemantics.Index.LegacyModel in '..\src\DelphiSemantics.Index.LegacyModel.pas',
   DelphiSemantics.Lsp in '..\src\DelphiSemantics.Lsp.pas',

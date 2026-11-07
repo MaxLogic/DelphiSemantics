@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // Integrated extraction plus configuration-neutral include/import coverage and never-compiled activity.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.95';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.102';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -336,6 +336,7 @@ begin
     '|possibleSourceAliases=' + CanonicalIdentityArrayText(aOptions.UnitAliases, False, False) +
     '|possibleSourceScopes=' + CanonicalIdentityArrayText(aOptions.UnitScopeNames, False, False) +
     '|installedSdkRoot=' + TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.InstalledSdkRoot) +
+    '|possibleUnitScopeNames=' + CanonicalIdentityArrayText(aOptions.PossibleUnitScopeNames, False, True) +
     '|possibleUnitSearchPaths=' + CanonicalIdentityArrayText(aOptions.PossibleUnitSearchPaths, False, True) +
     '|possibleSourceRoots=' + CanonicalIdentityArrayText(aOptions.ProjectSourceFileNames, True, True) +
     '|selectedConfigurationOnly=' + BoolToStr(aOptions.SelectedConfigurationOnly, True) +
@@ -500,6 +501,7 @@ begin
   Result.UnindexedHelpers := Copy(aModel.UnindexedHelpers);
   Result.TypeValueMembers := Copy(aModel.TypeValueMembers);
   Result.PossibleUnitImports := Copy(aModel.PossibleUnitImports);
+  Result.ImportFacts := Copy(aModel.ImportFacts);
   Result.Diagnostics := Copy(aModel.Diagnostics);
 end;
 
@@ -624,12 +626,22 @@ var
   i: Integer;
   lExpected: TDelphiSemanticSourceText;
   lActualHash: string;
+  lDirectory: TDelphiSemanticSourceText;
+  lFileNames: TArray<string>;
 begin
   if (aObservations = nil) or (aObservations.Count = 0) then
     raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: missing observations');
   for i := 0 to aObservations.Count - 1 do
   begin
     lExpected := aObservations.Items[i];
+    if lExpected.Role = 'possible-unit-directory' then
+    begin
+      lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(lExpected.FileName, lFileNames);
+      if lDirectory.ContentHash <> lExpected.ContentHash then
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: unit directory drift: ' +
+          lExpected.FileName);
+      Continue;
+    end;
     if lExpected.Role = 'possible-source-absence' then
     begin
       if TFile.Exists(lExpected.FileName) then

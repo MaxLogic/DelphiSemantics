@@ -55,6 +55,8 @@ type
     [Category('Fast')]
     [Test]
     procedure NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
+    [Test]
+    procedure UnitCacheEnvelopeRequiresImportProvenance;
     [Category('Fast')]
     [Test]
     procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
@@ -418,6 +420,43 @@ begin
   end;
 end;
 
+procedure TCacheTests.UnitCacheEnvelopeRequiresImportProvenance;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lModel: TDelphiSemanticUnitModel;
+  lObject: TJSONObject;
+  lOptions: TDelphiSemanticModelOptions;
+  lPair: TJSONPair;
+  lRestored: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TempPath('ProvenanceEnvelope.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit ProvenanceEnvelope; interface implementation end.', TEncoding.ASCII);
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    lModel := lCache.GetOrExtractUnitModel(lOptions);
+    Assert.IsTrue(lModel.SourceObservations <> nil);
+    lObject := TJSONObject.ParseJSONValue(UnitCacheModelToJson(lModel)) as TJSONObject;
+    try
+      lRestored := JsonToUnitCacheModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.SourceObservations <> nil,
+        'The complete envelope must retain reusable source witnesses.');
+      lPair := lObject.RemovePair('ImportFacts');
+      lPair.Free;
+      lRestored := JsonToModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.Success, 'Legacy generic JSON remains readable.');
+      lRestored := JsonToUnitCacheModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.SourceObservations = nil,
+        'Missing import provenance cannot publish cache reuse evidence.');
+    finally
+      lObject.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -489,8 +528,8 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.95', lIdentity.ParserVersion,
-      'Configuration-neutral include/import coverage and never-compiled activity require fresh extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.102', lIdentity.ParserVersion,
+      'Ordered, configuration-neutral import provenance and directory witnesses require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');

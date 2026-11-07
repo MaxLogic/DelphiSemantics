@@ -6798,6 +6798,7 @@ begin
     Result.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.WithNeverActivity(
       Result.SourceText, Result.VerifiedActiveSourceText, lPossibleSources.RootActivity);
     Result.PossibleUnitImports := Copy(lPossibleSources.ProjectUnitImports);
+    Result.ImportFacts := Copy(lPossibleSources.ImportFacts);
     for lPossibleDiagnostic in lPossibleSources.Diagnostics do
       lDiagnostics.Add(lPossibleDiagnostic);
     for lPossibleReference in lPossibleSources.References do

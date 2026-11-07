@@ -3,7 +3,7 @@ unit DelphiSemantics.Model;
 interface
 
 uses
-  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ImportFacts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticModelOptions = record
@@ -16,6 +16,7 @@ type
     ProjectSourceFileNames: TArray<string>;
     InstalledSdkRoot: string;
     PossibleUnitSearchPaths: TArray<string>;
+    PossibleUnitScopeNames: TArray<string>;
     ProjectContextApplied: Boolean;
     DefineEvidenceComplete: Boolean;
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
@@ -318,6 +319,7 @@ type
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
     PossibleUnitImports: TArray<string>;
+    ImportFacts: TArray<TDelphiSemanticImportFact>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
     // DS-731: constants and variant tags bind in WITH, separately from ordinary Members.

@@ -64,10 +64,10 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
+  System.Generics.Collections, System.Generics.Defaults, System.Math, System.StrUtils, System.SysUtils,
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
-  DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals, MaxLogic.StrUtils;
 
 function SnapshotUnknownActivity(const aSnapshot: TDelphiProjectSnapshot;
   const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId;
@@ -754,110 +754,367 @@ begin
     MatchText(SnapshotText(aSnapshot, aSymbol.KindId), ['local', 'var', 'parameter']);
 end;
 
-function SnapshotTargetIsRoutineLocal(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+function SnapshotPositionInWith(const aUnit: TUnitSnapshot; const aLine, aColumn: Integer): Boolean;
+var
+  i: Integer;
+  lWith: TSemanticWithStatementFact;
+begin
+  for i := 1 to aUnit.WithStatementCount do
+  begin
+    lWith := aUnit.WithStatementById(TSemanticWithId(i));
+    if ((aLine > lWith.BodyStartLine) or
+      ((aLine = lWith.BodyStartLine) and (aColumn >= lWith.BodyStartColumn))) and
+      ((aLine < lWith.BodyEndLine) or
+      ((aLine = lWith.BodyEndLine) and (aColumn <= lWith.BodyEndColumn))) then
+      Exit(True);
+  end;
+  Result := False;
+end;
+
+function SnapshotLocalTarget(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TDelphiSemanticIndexedSymbol; out aUnit: TUnitSnapshot;
+  out aFact: TSemanticSymbolFact): Boolean;
 var
   i, j: Integer;
-  lUnit: TUnitSnapshot;
-  lFact: TSemanticSymbolFact;
 begin
   for i := 0 to aSnapshot.UnitCount - 1 do
   begin
-    lUnit := aSnapshot.UnitByIndex(i);
-    for j := 1 to lUnit.SymbolCount do
+    aUnit := aSnapshot.UnitByIndex(i);
+    for j := 1 to aUnit.SymbolCount do
     begin
-      lFact := lUnit.SymbolById(TSemanticSymbolId(j));
-      if (lFact.Line = aSymbol.Line) and (lFact.Column = aSymbol.Column) and
-        SameText(SnapshotFactFileName(aSnapshot, lUnit, lFact.FileId), aSymbol.FileName) and
-        SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) then
-        Exit(SnapshotFactIsRoutineLocal(lFact, aSnapshot));
+      aFact := aUnit.SymbolById(TSemanticSymbolId(j));
+      if (aFact.Line = aSymbol.Line) and (aFact.Column = aSymbol.Column) and
+        SameText(SnapshotFactFileName(aSnapshot, aUnit, aFact.FileId), aSymbol.FileName) and
+        SameText(SnapshotText(aSnapshot, aFact.NameId), aSymbol.Name) then
+        Exit(SnapshotFactIsRoutineLocal(aFact, aSnapshot));
     end;
   end;
   Result := False;
 end;
 
-function SnapshotUnitHasNonlocalName(const aSnapshot: TDelphiProjectSnapshot;
-  const aUnit: TUnitSnapshot; const aNames: TArray<string>): Boolean;
+function SnapshotInsideLocalRoutine(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aLocal: TSemanticSymbolFact;
+  const aFileName: string; const aLine: Integer): Boolean;
 var
   i: Integer;
-  lReference: TSemanticReferenceFact;
-  lTargetUnit: TUnitSnapshot;
+  lRoutine: TSemanticSymbolFact;
+  lHasSpan: Boolean;
 begin
-  // Declarations do not bind through imports. A same-unit binding shadows
-  // imports in its interface, or after an implementation declaration. An
-  // implementation uses clause can still interfere with interface symbols,
-  // so those references remain conservative. M1 guards conditional occurrences.
-  for i := 1 to aUnit.ReferenceCount do
-  begin
-    lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
-    if not MatchText(SnapshotText(aSnapshot, lReference.NameId), aNames) then
-      Continue;
-    if (lReference.TargetSymbolId <> 0) and
-      aSnapshot.TryFindUnitById(lReference.TargetUnitId, lTargetUnit) and
-      (SnapshotFactIsRoutineLocal(lTargetUnit.SymbolById(lReference.TargetSymbolId), aSnapshot) or
-      ((lTargetUnit.UnitId = aUnit.UnitId) and
-      (SameText(SnapshotText(aSnapshot, lReference.SectionKindId), 'interface') or
-      SameText(SnapshotText(aSnapshot, lTargetUnit.SymbolById(lReference.TargetSymbolId).SectionKindId),
-        'implementation')) and
-      not SnapshotUnknownActivity(aSnapshot, aUnit, lReference.FileId,
-        lReference.Line, lReference.Column))) then
-      Continue;
+  // Includes retain physical coordinates, which cannot be compared with the
+  // owning routine's main-file span. The caller already proved unit identity;
+  // absent a mapped routine span, keep every included name as a possible capture.
+  if not SameText(aFileName, SnapshotFactFileName(aSnapshot, aUnit, aLocal.FileId)) then
     Exit(True);
+  lHasSpan := False;
+  for i := 1 to aUnit.SymbolCount do
+  begin
+    lRoutine := aUnit.SymbolById(TSemanticSymbolId(i));
+    if not SameText(SnapshotText(aSnapshot, lRoutine.KindId), 'routine') or
+      (lRoutine.RoutineId <> aLocal.RoutineId) or (lRoutine.EndLine <= lRoutine.Line) then
+      Continue;
+    // Include the heading, declarations, nested bodies and inactive text. Where
+    // overload/scope identity is unavailable the larger matching span is safe.
+    lHasSpan := True;
+    if (aLine >= lRoutine.Line) and (aLine <= lRoutine.EndLine) then
+      Exit(True);
   end;
-  Result := False;
+  Result := not lHasSpan;
 end;
 
 function ScopedSnapshotSourceGaps(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
 var
   i, j: Integer;
-  lUnit: TUnitSnapshot;
+  lUnit, lLocalUnit: TUnitSnapshot;
   lReference: TSemanticReferenceFact;
-  lReachable: THashSet<TSemanticStringId>;
+  lLocalFact: TSemanticSymbolFact;
+  lImports: TObjectDictionary<string, TList<TDelphiSemanticImportFact>>;
+  lSeen, lReported: THashSet<string>;
   lResult: TList<TDelphiSemanticUsage>;
-  lChanged, lLocal: Boolean;
-begin
-  lReachable := THashSet<TSemanticStringId>.Create;
-  lResult := TList<TDelphiSemanticUsage>.Create;
-  try
-    lLocal := SnapshotTargetIsRoutineLocal(aSnapshot, aSymbol);
-    if not lLocal then
-    begin
-      for i := 0 to aSnapshot.UnitCount - 1 do
+  lLocal: Boolean;
+  lFact: TDelphiSemanticImportFact;
+  lEdges: TList<TDelphiSemanticImportFact>;
+  lKey: string;
+
+  procedure Report(const aOwner, aReason, aName: string; const aLine, aColumn: Integer);
+  var
+    lUsage: TDelphiSemanticUsage;
+    lReportKey: string;
+  begin
+    lReportKey := aOwner + '|' + aReason + '|' + aName + '|' + aLine.ToString + ':' + aColumn.ToString;
+    if lReported.Contains(lReportKey) then
+      Exit;
+    lReported.Add(lReportKey);
+    lUsage := Default(TDelphiSemanticUsage);
+    lUsage.FileName := aOwner;
+    lUsage.Name := aName;
+    lUsage.Line := aLine;
+    lUsage.Column := aColumn;
+    lUsage.Role := 'unresolved';
+    lUsage.SourceKind := 'project';
+    lUsage.Reason := aReason;
+    lResult.Add(lUsage);
+  end;
+
+  procedure CheckImports(const aOwner, aSection, aProvider, aName: string;
+    const aClosure, aIgnoreWinner: Boolean; const aLine, aColumn: Integer);
+  var
+    lQueue: TList<string>;
+    lVisited: THashSet<string>;
+    lOwner: string;
+    lDirect: Boolean;
+    lIndex, lWinner: Integer;
+    lItems: TList<TDelphiSemanticImportFact>;
+    lImport: TDelphiSemanticImportFact;
+  begin
+    lQueue := TList<string>.Create;
+    lVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      lQueue.Add(aOwner);
+      lIndex := 0;
+      while lIndex < lQueue.Count do
       begin
-        lUnit := aSnapshot.UnitByIndex(i);
-        if SnapshotUnitHasNonlocalName(aSnapshot, lUnit, aNames) then
-          lReachable.Add(lUnit.FileNameId);
-      end;
-      repeat
-        lChanged := False;
-        for i := 0 to aSnapshot.UnitCount - 1 do
+        lOwner := lQueue[lIndex];
+        Inc(lIndex);
+        if lVisited.Contains(lOwner) then
+          Continue;
+        lVisited.Add(lOwner);
+        if not lImports.TryGetValue(lOwner, lItems) then
+          Continue;
+        lDirect := SameText(lOwner, aOwner);
+        lWinner := -1;
+        if lDirect and not aClosure and not aIgnoreWinner and (aProvider <> '') then
+          for lImport in lItems do
+            if SameText(lImport.TargetFileName, aProvider) and lImport.Unconditional and
+              (lImport.Cause = '') and
+              (lImport.GapReason = '') and
+              ((aSection <> 'interface') or (lImport.SectionKind = 'interface')) then
+              lWinner := Max(lWinner, lImport.OrderIndex);
+        for lImport in lItems do
         begin
-          lUnit := aSnapshot.UnitByIndex(i);
-          if not lReachable.Contains(lUnit.FileNameId) then
+          // SDK units cannot reference project declarations, but an inactive
+          // SDK import can still export a helper for a selector's SDK ancestor.
+          if lImport.SdkBoundary and (lImport.GapReason = '') and
+            not (aClosure and not lImport.Unconditional) then
             Continue;
-          for j := 0 to lUnit.PossibleUnitImportCount - 1 do
+          if ((not lDirect or (aSection = 'interface')) and
+            (lImport.SectionKind <> 'interface')) or
+            (lDirect and not aClosure and (lImport.OrderIndex < lWinner) and
+            not lImport.ResolutionVaries) then
+            Continue;
+          // A unit's interface declarations shadow its interface imports. Its
+          // implementation imports can shadow those declarations later on.
+          if lDirect and not aClosure and not aIgnoreWinner and
+            SameText(aProvider, aOwner) and (lImport.SectionKind = 'interface') and
+            not lImport.ResolutionVaries then
+            Continue;
+          if lImport.GapReason <> '' then
+            Report(lImport.OwnerFileName, lImport.GapReason, '', 0, 0)
+          else if not lImport.Unconditional then
           begin
-            if not lReachable.Contains(lUnit.PossibleUnitImportByIndex(j)) then
-            begin
-              lReachable.Add(lUnit.PossibleUnitImportByIndex(j));
-              lChanged := True;
-            end;
+            if aClosure then
+              Report(aOwner, 'inactive-import-may-capture-member', aName, aLine, aColumn)
+            else
+              Report(aOwner, 'inactive-import-may-capture-name', aName, aLine, aColumn);
+          end;
+          if aClosure and (lImport.TargetFileName <> '') then
+            lQueue.Add(lImport.TargetFileName);
+        end;
+      end;
+    finally
+      lVisited.Free;
+      lQueue.Free;
+    end;
+  end;
+
+  procedure CheckOccurrence(const aCurrentUnit: TUnitSnapshot; const aFileName,
+    aName: string; const aLine, aColumn: Integer; const aInactive, aMember: Boolean;
+    const aReference: TSemanticReferenceFact);
+  var
+    lTarget: TSemanticSymbolFact;
+    lTargetUnit: TUnitSnapshot;
+    lProvider, lSection, lOwner: string;
+    lInWith, lNewLocal: Boolean;
+  begin
+    if lLocal and ((aCurrentUnit.UnitId <> lLocalUnit.UnitId) or
+      not SnapshotInsideLocalRoutine(aSnapshot, lLocalUnit, lLocalFact, aFileName, aLine)) then
+      Exit;
+    // Includes have physical token coordinates but share their unit's imports.
+    // Possible-only imported units retain their own owner when available.
+    lOwner := aFileName;
+    if not lImports.ContainsKey(lOwner) then
+      lOwner := SnapshotText(aSnapshot, aCurrentUnit.FileNameId);
+    lNewLocal := lLocal and not SameText(aName, aSymbol.Name);
+    if aInactive then
+    begin
+      // M1 applies to prospective captures too, including names which never
+      // occur in selected reference facts. Never-compiled text was excluded.
+      if not SameText(aName, aSymbol.Name) then
+        Report(aFileName, 'occurrence-in-inactive-configuration', aName, aLine, aColumn);
+      CheckImports(lOwner, '', '', aName, aMember, True, aLine, aColumn);
+      Exit;
+    end;
+    lInWith := (aReference.WithId <> 0) or SnapshotPositionInWith(aCurrentUnit, aLine, aColumn);
+    lProvider := '';
+    if (aReference.TargetSymbolId <> 0) and
+      aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) then
+    begin
+      lTarget := lTargetUnit.SymbolById(aReference.TargetSymbolId);
+      if not lInWith and not aMember and not lNewLocal then
+      begin
+        if SnapshotFactIsRoutineLocal(lTarget, aSnapshot) then
+          Exit;
+        if (lTargetUnit.UnitId = aCurrentUnit.UnitId) and
+          (SameText(SnapshotText(aSnapshot, aReference.SectionKindId), 'interface') or
+          SameText(SnapshotText(aSnapshot, lTarget.SectionKindId), 'implementation')) then
+          Exit;
+      end;
+      lProvider := SnapshotText(aSnapshot, lTargetUnit.FileNameId);
+    end;
+    lSection := SnapshotText(aSnapshot, aReference.SectionKindId);
+    CheckImports(lOwner, lSection, lProvider, aName, lInWith or aMember, lNewLocal,
+      aLine, aColumn);
+  end;
+
+  procedure CheckUnitTokens(const aCurrentUnit: TUnitSnapshot);
+  var
+    lSource, lScan, lActive, lEvidence, lName, lFileName: string;
+    lOffset, lScanned, lLine, lLineStart, lEnd, lPrevious, lIndex: Integer;
+    lReference: TSemanticReferenceFact;
+    lDeclaration: TSemanticSymbolFact;
+    lIsDeclaration: Boolean;
+  begin
+    lSource := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
+    lEvidence := aSnapshot.ExactTextOf(aCurrentUnit.VerifiedActiveSourceTextId);
+    lScan := SanitizeCodeText(lSource);
+    lActive := TDelphiSemanticSourceConditionals.SourceForScan(lSource, lEvidence);
+    lFileName := SnapshotText(aSnapshot, aCurrentUnit.FileNameId);
+    lScanned := 1;
+    lLine := 1;
+    lLineStart := 1;
+    lOffset := 1;
+    while lOffset <= Length(lScan) do
+    begin
+      if not CharInSet(lScan[lOffset], ['A'..'Z', 'a'..'z', '_', '&']) then
+      begin
+        Inc(lOffset);
+        Continue;
+      end;
+      lEnd := lOffset + 1;
+      while (lEnd <= Length(lScan)) and CharInSet(lScan[lEnd], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
+        Inc(lEnd);
+      lName := Copy(lScan, lOffset, lEnd - lOffset);
+      if StartsText('&', lName) then
+        Delete(lName, 1, 1);
+      if MatchText(lName, aNames) and
+        not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lEvidence, lOffset) then
+      begin
+        while lScanned < lOffset do
+        begin
+          if lSource[lScanned] = #10 then
+          begin
+            Inc(lLine);
+            lLineStart := lScanned + 1;
+          end;
+          Inc(lScanned);
+        end;
+        lReference := Default(TSemanticReferenceFact);
+        for lIndex := 1 to aCurrentUnit.ReferenceCount do
+          if (aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex)).Line = lLine) and
+            (aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex)).Column = lOffset - lLineStart + 1) and
+            ((aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex)).FileId = 0) or
+            (aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex)).FileId = aCurrentUnit.FileNameId)) then
+          begin
+            lReference := aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex));
+            Break;
+          end;
+        lIsDeclaration := False;
+        for lIndex := 1 to aCurrentUnit.SymbolCount do
+        begin
+          lDeclaration := aCurrentUnit.SymbolById(TSemanticSymbolId(lIndex));
+          if (lDeclaration.Line = lLine) and (lDeclaration.Column = lOffset - lLineStart + 1) and
+            ((lDeclaration.FileId = 0) or (lDeclaration.FileId = aCurrentUnit.FileNameId)) then
+          begin
+            lIsDeclaration := True;
+            Break;
           end;
         end;
-      until not lChanged;
+        lPrevious := lOffset - 1;
+        while (lPrevious > 0) and CharInSet(lScan[lPrevious], [#9, #10, #13, ' ']) do
+          Dec(lPrevious);
+        if lIsDeclaration and not lLocal and SameText(lName, aSymbol.Name) and
+          (lDeclaration.RoutineId = 0) and
+          SameText(SnapshotText(aSnapshot, lDeclaration.SectionKindId), 'interface') then
+          CheckImports(lFileName, 'implementation', lFileName, lName, False, True, lLine,
+            lOffset - lLineStart + 1)
+        else if lIsDeclaration and not lLocal and SameText(lName, aSymbol.Name) and
+          SameText(SnapshotText(aSnapshot, lDeclaration.KindId), 'routine') and
+          SameText(SnapshotText(aSnapshot, lDeclaration.SectionKindId), 'interface') then
+          // An unseen direct import can itself reference an exported declaration,
+          // even when the declaring unit has no expression using its old name.
+          CheckImports(lFileName, 'implementation', lFileName, lName, False, True, lLine,
+            lOffset - lLineStart + 1)
+        else if not lIsDeclaration or
+          (lLocal and (not SameText(lName, aSymbol.Name) or
+          SnapshotPositionInWith(aCurrentUnit, lLine, lOffset - lLineStart + 1))) then
+          CheckOccurrence(aCurrentUnit, lFileName, lName, lLine, lOffset - lLineStart + 1,
+            (Copy(lActive, lOffset, lEnd - lOffset) <> Copy(lSource, lOffset, lEnd - lOffset)) or
+            TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lEvidence, lOffset),
+            (lPrevious > 0) and (lScan[lPrevious] = '.'), lReference);
+      end;
+      lOffset := lEnd;
     end;
+    // Included and possible-only files have physical reference coordinates;
+    // their selected/inactive provenance remains authoritative for refusal.
+    for lIndex := 1 to aCurrentUnit.ReferenceCount do
+    begin
+      lReference := aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex));
+      if (lReference.FileId = 0) or (lReference.FileId = aCurrentUnit.FileNameId) or
+        not MatchText(SnapshotText(aSnapshot, lReference.NameId), aNames) then
+        Continue;
+      CheckOccurrence(aCurrentUnit, SnapshotText(aSnapshot, lReference.FileId),
+        SnapshotText(aSnapshot, lReference.NameId), lReference.Line, lReference.Column,
+        MatchText(SnapshotText(aSnapshot, lReference.ReasonId),
+          ['occurrence-in-inactive-configuration', 'unverified-condition']),
+        lReference.ReceiverTypeId <> 0, lReference);
+    end;
+  end;
+
+begin
+  lImports := TObjectDictionary<string, TList<TDelphiSemanticImportFact>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lReported := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lResult := TList<TDelphiSemanticUsage>.Create;
+  try
+    lLocal := SnapshotLocalTarget(aSnapshot, aSymbol, lLocalUnit, lLocalFact);
+    for i := 0 to aSnapshot.UnitCount - 1 do
+      for lFact in aSnapshot.UnitByIndex(i).ImportFacts do
+      begin
+        lKey := lFact.OwnerFileName + '|' + lFact.SectionKind + '|' + lFact.OrderIndex.ToString +
+          '|' + lFact.Name + '|' + lFact.TargetFileName + '|' + lFact.Cause + '|' + lFact.GapReason +
+          '|' + BoolToStr(lFact.ResolutionVaries, True) + '|' + BoolToStr(lFact.Unconditional, True);
+        if lSeen.Contains(lKey) then
+          Continue;
+        lSeen.Add(lKey);
+        if not lImports.TryGetValue(lFact.OwnerFileName, lEdges) then
+        begin
+          lEdges := TList<TDelphiSemanticImportFact>.Create;
+          lImports.Add(lFact.OwnerFileName, lEdges);
+        end;
+        lEdges.Add(lFact);
+      end;
     for i := 0 to aSnapshot.UnitCount - 1 do
     begin
       lUnit := aSnapshot.UnitByIndex(i);
+      CheckUnitTokens(lUnit);
       for j := 1 to lUnit.ReferenceCount do
       begin
         lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
         if not SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
           cSnapshotReferenceClassificationUnseenSource) then
           Continue;
-        if SameText(SnapshotText(aSnapshot, lReference.ReasonId), 'possible-unit-source-unavailable') and
-          not lReachable.Contains(lUnit.FileNameId) then
+        if SameText(SnapshotText(aSnapshot, lReference.ReasonId), 'possible-unit-source-unavailable') then
           Continue;
         AddUnresolvedUsage(lResult, aSnapshot, lUnit, '', '', '', lReference.Line, 0,
           SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
@@ -866,7 +1123,9 @@ begin
     Result := SortedUsages(lResult);
   finally
     lResult.Free;
-    lReachable.Free;
+    lReported.Free;
+    lSeen.Free;
+    lImports.Free;
   end;
 end;
 

@@ -53,6 +53,11 @@ type
     procedure ObservationMergeOrderIsDeterministic;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
+    [TestCase('New source', '.pas')]
+    [TestCase('New binary', '.dcu')]
+    procedure AlternateUnitDirectoryRejectsNewCandidate(const aExtension: string);
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
     procedure RepeatedPreprocessDoesNotRetainEarlierObservations;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
@@ -339,6 +344,26 @@ begin
   Assert.AreEqual(lBefore.Text, lAfter.Text);
   Assert.AreNotEqual(lBefore.ContentHash, lAfter.ContentHash);
   Assert.AreEqual(THashSHA2.GetHashStringFromFile(lInclude), lAfter.ContentHash);
+end;
+
+procedure TSourceLoaderTests.AlternateUnitDirectoryRejectsNewCandidate(const aExtension: string);
+var
+  lPath: string;
+  lNames: TArray<string>;
+  lDirectory: TDelphiSemanticSourceText;
+  lEvidence: IDelphiSemanticSourceObservations;
+begin
+  lPath := ObservationPath('NewCandidate' + aExtension);
+  lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(ExtractFilePath(lPath), lNames);
+  lEvidence := TDelphiSemanticSourceEvidence.FromItems([lDirectory]);
+  TDelphiSemanticUnitCache.RequireCurrentSources(lEvidence);
+  WriteUtf8Bytes(lPath, 'new alternate unit candidate');
+  Assert.WillRaise(
+    procedure
+    begin
+      TDelphiSemanticUnitCache.RequireCurrentSources(lEvidence);
+    end, EInvalidOpException,
+    'A newly available alternate source or DCU must invalidate the earlier absence proof.');
 end;
 
 procedure TSourceLoaderTests.ObservationMergeOrderIsDeterministic;

@@ -229,7 +229,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v69';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v76';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v98';
 
@@ -268,6 +268,7 @@ begin
   Result.Defines := aProject.Defines;
   Result.SearchPaths := aProject.SourceLookupPaths;
   Result.PossibleUnitSearchPaths := aProject.PossibleUnitSearchPaths;
+  Result.PossibleUnitScopeNames := aProject.PossibleUnitScopeNames;
   Result.UnitAliases := aProject.UnitAliases;
   Result.UnitScopeNames := aProject.UnitScopeNames;
   Result.ProjectSourceFileNames := [aProject.MainSourceFileName] + aProject.SourceFileNames;

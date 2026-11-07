@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- Rename checks alternate configuration/platform search paths before classifying SDK imports and scopes missing-import gaps to affected nonlocal names, preserving local and parameter shadowing (DS-791).
+- Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
+
+- Missing-import checks follow direct import visibility and uses order outside WITH, and interface-uses chains for member lookup. Safe lexical renames remain available when unrelated imports are missing (DS-791).
 
 - Rename and find-usages retain possible occurrences in recursive includes and inactive imported units, report unavailable possible source, and safely ignore source-proven never-compiled branches (DS-791).
 

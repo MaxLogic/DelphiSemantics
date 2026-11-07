@@ -157,7 +157,7 @@ uses
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
-  DelphiSemantics.Cache, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.Cache, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Snapshot.RemoveWith;
 
@@ -172,8 +172,8 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  // 35: DS-791 persists import provenance separately from token references.
-  cSnapshotCacheSchemaVersion = '35';
+  // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
+  cSnapshotCacheSchemaVersion = '38';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -703,6 +703,7 @@ begin
     aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_project_remove_with_facts where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_import_facts where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_possible_imports where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_with_statements where cache_key = ?',
@@ -797,6 +798,8 @@ begin
       'body_start_column integer not null, body_end_line integer not null, ' +
       'body_end_column integer not null, flags integer not null, ' +
       'primary key(cache_key, unit_id, with_id))');
+    lConnection.ExecSQL('create table if not exists snapshot_import_facts (' +
+      'cache_key text primary key not null, payload text not null, fact_count integer not null)');
     lConnection.ExecSQL('create table if not exists snapshot_possible_imports (' +
       'cache_key text not null, item_index integer not null, file_name_id integer not null, ' +
       'import_count integer not null, primary key(cache_key, item_index))');
@@ -1081,6 +1084,19 @@ begin
     end;
     if lIndex <> lExpected then
       raise Exception.Create('Snapshot possible import row count mismatch.');
+  finally
+    lQuery.Free;
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select payload, fact_count from snapshot_import_facts where cache_key = ?');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Open;
+    if lQuery.Eof then
+      raise Exception.Create('Snapshot import provenance is missing.');
+    aUnit.SetImportFacts(JsonToImportFacts(lQuery.Fields[0].AsWideString));
+    if Length(aUnit.ImportFacts) <> lQuery.Fields[1].AsInteger then
+      raise Exception.Create('Snapshot import provenance count mismatch.');
   finally
     lQuery.Free;
   end;
@@ -2467,6 +2483,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_project_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
+  lConnection.ExecSQL('drop table if exists snapshot_import_facts');
   lConnection.ExecSQL('drop table if exists snapshot_possible_imports');
   lConnection.ExecSQL('drop table if exists snapshot_references');
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
@@ -2563,6 +2580,16 @@ begin
       lQuery.Params[3].AsInteger := aUnit.PossibleUnitImportCount;
       lQuery.ExecSQL;
     end;
+  finally
+    lQuery.Free;
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_import_facts(cache_key, payload, fact_count) values (?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aIdentity.CacheKey);
+    SetWideParam(lQuery, 1, ImportFactsToJson(aUnit.ImportFacts));
+    lQuery.Params[2].AsInteger := Length(aUnit.ImportFacts);
+    lQuery.ExecSQL;
   finally
     lQuery.Free;
   end;
@@ -3126,6 +3153,7 @@ begin
     aTargetStrings, aUnit.ScopeModelVersionId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
   try
+    Result.SetImportFacts(aUnit.ImportFacts);
     for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
       Result.AddPossibleUnitImport(RemapSnapshotStringId(aSnapshot, aTargetStrings,
         aUnit.PossibleUnitImportByIndex(lImportIndex)));

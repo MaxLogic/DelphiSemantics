@@ -46,6 +46,9 @@ type
     [TestCase('Missing graph header', 'header')]
     [TestCase('Missing graph edge', 'edge')]
     [TestCase('Invalid graph file ID', 'id')]
+    [TestCase('Missing import provenance', 'provenance')]
+    [TestCase('Truncated import provenance', 'count')]
+    [TestCase('Malformed import provenance', 'payload')]
     procedure ImportGraphPersistsWithoutTokenReferences(const aCorruption: string);
     [Category('Fast')]
     [Test]
@@ -179,7 +182,7 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.ImportFacts, DelphiSemantics.Model,
   DelphiSemantics.Model.Json, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
@@ -409,6 +412,7 @@ var
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lIdentity: TDelphiSemanticSnapshotCacheIdentity;
   lCacheFileName, lImport: string;
+  lFact: TDelphiSemanticImportFact;
 begin
   lCacheFileName := TempPath('import-graph-' + aCorruption + '.sqlite3');
   lImport := TempPath('ImportTarget.pas');
@@ -420,6 +424,16 @@ begin
       lBuilder.Strings.Intern('ImportGraph'));
     lBuilder.AddUnit(lUnit);
     lUnit.AddPossibleUnitImport(lBuilder.Strings.Intern(lImport));
+    lFact := Default(TDelphiSemanticImportFact);
+    lFact.OwnerFileName := lIdentity.SourceFileName;
+    lFact.Name := 'ImportTarget';
+    lFact.TargetFileName := lImport;
+    lFact.SectionKind := 'implementation';
+    lFact.Cause := 'occurrence-in-inactive-configuration';
+    lFact.GapReason := 'possible-unit-source-unavailable';
+    lFact.ResolutionVaries := True;
+    lFact.OrderIndex := 7;
+    lUnit.SetImportFacts([lFact]);
     lOriginal := lBuilder.Build;
   finally
     lBuilder.Free;
@@ -435,6 +449,9 @@ begin
       Assert.AreEqual(lImport, lLoaded.TextOf(lLoaded.UnitByIndex(0).PossibleUnitImportByIndex(0)));
       lMerged := BuildProjectSnapshotFromUnitSnapshots([lLoaded], lMetrics);
       try
+        Assert.AreEqual(1, Integer(Length(lMerged.UnitByIndex(0).ImportFacts)));
+        Assert.AreEqual(ImportFactsToJson([lFact]), ImportFactsToJson(lMerged.UnitByIndex(0).ImportFacts),
+          'Section, order, activity and alternate-resolution evidence survive caching and merge.');
         Assert.AreEqual(0, lMerged.UnitByIndex(0).ReferenceCount);
         Assert.AreEqual(1, lMerged.UnitByIndex(0).PossibleUnitImportCount);
         Assert.AreEqual(lImport, lMerged.TextOf(lMerged.UnitByIndex(0).PossibleUnitImportByIndex(0)));
@@ -450,6 +467,12 @@ begin
         ExecCacheSql(lCacheFileName, 'delete from snapshot_possible_imports where item_index = 0')
       else if aCorruption = 'edge' then
         ExecCacheSql(lCacheFileName, 'delete from snapshot_possible_imports where item_index = 1')
+      else if aCorruption = 'provenance' then
+        ExecCacheSql(lCacheFileName, 'delete from snapshot_import_facts')
+      else if aCorruption = 'count' then
+        ExecCacheSql(lCacheFileName, 'update snapshot_import_facts set payload = ''[]''')
+      else if aCorruption = 'payload' then
+        ExecCacheSql(lCacheFileName, 'update snapshot_import_facts set payload = ''{}''')
       else
         ExecCacheSql(lCacheFileName, 'update snapshot_possible_imports set file_name_id = 999999 where item_index = 1');
       Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded));

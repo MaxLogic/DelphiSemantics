@@ -14,6 +14,7 @@ uses
   DelphiSemantics.CompilerProfile in '..\src\DelphiSemantics.CompilerProfile.pas',
   DelphiSemantics.DeadCode in '..\src\DelphiSemantics.DeadCode.pas',
   DelphiSemantics.ExternalSymbols in '..\src\DelphiSemantics.ExternalSymbols.pas',
+  DelphiSemantics.ImportFacts in '..\src\DelphiSemantics.ImportFacts.pas',
   DelphiSemantics.Index in '..\src\DelphiSemantics.Index.pas',
   DelphiSemantics.Index.LegacyModel in '..\src\DelphiSemantics.Index.LegacyModel.pas',
   DelphiSemantics.Lsp in '..\src\DelphiSemantics.Lsp.pas',

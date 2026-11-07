@@ -30,6 +30,8 @@ type
 
   TDelphiSemanticSourceEvidence = record
   public
+    class function UnitDirectoryObservation(const aDirectory: string;
+      out aFileNames: TArray<string>): TDelphiSemanticSourceText; static;
     class function FromItems(const aItems: TArray<TDelphiSemanticSourceText>):
       IDelphiSemanticSourceObservations; static;
     class function WithRole(const aSources: IDelphiSemanticSourceObservations;
@@ -67,6 +69,33 @@ type
     function GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
     function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
   end;
+
+// A lookup absence is bounded by the complete immediate PAS/DCU name set.
+// Content changes of selected files still have their separate byte witnesses.
+class function TDelphiSemanticSourceEvidence.UnitDirectoryObservation(const aDirectory: string;
+  out aFileNames: TArray<string>): TDelphiSemanticSourceText;
+var
+  i: Integer;
+  lFiles: TArray<string>;
+  lIdentity: string;
+begin
+  Result := Default(TDelphiSemanticSourceText);
+  Result.FileName := ExcludeTrailingPathDelimiter(TPath.GetFullPath(aDirectory));
+  Result.Role := 'possible-unit-directory';
+  aFileNames := nil;
+  lIdentity := 'missing';
+  if TDirectory.Exists(Result.FileName) then
+  begin
+    lFiles := TDirectory.GetFiles(Result.FileName, '*.pas') +
+      TDirectory.GetFiles(Result.FileName, '*.dcu');
+    SetLength(aFileNames, Length(lFiles));
+    for i := 0 to High(lFiles) do
+      aFileNames[i] := LowerCase(ExtractFileName(lFiles[i]));
+    TArray.Sort<string>(aFileNames);
+    lIdentity := 'present' + #10 + string.Join(#10, aFileNames);
+  end;
+  Result.ContentHash := THashSHA2.GetHashString(lIdentity);
+end;
 
 constructor TSourceObservations.Create(const aItems: TArray<TDelphiSemanticSourceText>);
 var

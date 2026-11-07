@@ -14,7 +14,7 @@ implementation
 
 uses
   System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -963,6 +963,7 @@ begin
     lObject.AddPair('LocalLabelReferences', ReferencesToJson(aModel.LocalLabelReferences));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
     lObject.AddPair('PossibleUnitImports', StringArrayToJson(aModel.PossibleUnitImports));
+    lObject.AddPair('ImportFacts', ImportFactsToJson(aModel.ImportFacts));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
     if Length(aModel.UnindexedHelpers) > 0 then
       lObject.AddPair('UnindexedHelpers', UnindexedHelpersToJson(aModel.UnindexedHelpers));
@@ -1026,6 +1027,10 @@ begin
     Result.LocalLabelReferences := JsonToReferences(lObject.GetValue('LocalLabelReferences') as TJSONArray);
     Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
     Result.PossibleUnitImports := JsonToStringArray(lObject.GetValue('PossibleUnitImports') as TJSONArray);
+    // Generic model JSON still accepts legacy, unverified records. Persisted
+    // unit-cache envelopes separately require this provenance before reuse.
+    if Assigned(lObject.GetValue('ImportFacts')) then
+      Result.ImportFacts := JsonToImportFacts(lObject.GetValue<string>('ImportFacts'));
     Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
     if lInvalidOccurrenceCount > 0 then
     begin
@@ -1090,6 +1095,9 @@ begin
   Result := JsonToModel(aJson);
   lObject := TJSONObject.ParseJSONValue(aJson) as TJSONObject;
   try
+    // No observations may certify reuse without mandatory import provenance.
+    if not (lObject.GetValue('ImportFacts') is TJSONString) then
+      Exit;
     lValue := lObject.GetValue('SourceObservations');
     // Legacy or incomplete payloads retain nil evidence and become cache misses.
     if not (lValue is TJSONArray) then

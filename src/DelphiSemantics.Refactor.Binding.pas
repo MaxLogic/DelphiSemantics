@@ -236,6 +236,12 @@ begin
       Exit;
     // Lookup absences constrain selection/currentness; they are not source text.
     // Retain strict hash validation for every actual observed file.
+    if lSource.Role = 'possible-unit-directory' then
+    begin
+      if (lSource.ContentHash = '') or (lSource.Text <> '') then
+        Exit;
+      Continue;
+    end;
     if lSource.Role = 'possible-source-absence' then
     begin
       if (lSource.ContentHash <> '') or (lSource.Text <> '') then

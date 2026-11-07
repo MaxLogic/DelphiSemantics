@@ -2662,6 +2662,7 @@ begin
         Result.AddReference(lSourceGap);
         Inc(aMetrics.ReferenceCount);
       end;
+    Result.SetImportFacts(aModel.ImportFacts);
     // Import reachability is provenance, separate from token references.
     for var lImport in aModel.PossibleUnitImports do
       Result.AddPossibleUnitImport(aStrings.Intern(lImport));
@@ -3148,6 +3149,7 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    Result.SetImportFacts(aUnit.ImportFacts);
     for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
       Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
         aUnit.PossibleUnitImportByIndex(lImportIndex)));
@@ -3189,6 +3191,7 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    Result.SetImportFacts(aUnit.ImportFacts);
     for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
       Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
         aUnit.PossibleUnitImportByIndex(lImportIndex)));

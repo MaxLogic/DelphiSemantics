@@ -3,12 +3,13 @@ unit DelphiSemantics.Model.PossibleSources;
 interface
 
 uses
-  DelphiSemantics.Model, DelphiSemantics.Preprocess, DelphiSemantics.Source;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Preprocess, DelphiSemantics.Source;
 
 type
   TDelphiSemanticPossibleSources = record
     RootActivity: string;
     ProjectUnitImports: TArray<string>;
+    ImportFacts: TArray<TDelphiSemanticImportFact>;
     Identity: string;
     Sources: IDelphiSemanticSourceObservations;
     References: TArray<TDelphiSemanticReference>;
@@ -40,17 +41,19 @@ type
     fResult: TDelphiSemanticPossibleSources;
     fReferences: TList<TDelphiSemanticReference>;
     fProjectImports: TList<string>;
+    fImportFacts: TList<TDelphiSemanticImportFact>;
     fDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
     fVisited: THashSet<string>;
     fCollectReferences: Boolean;
     fCandidateSources: TList<TDelphiSemanticSourceText>;
     fObservedCandidates: THashSet<string>;
+    fDirectoryFiles: TDictionary<string, TArray<string>>;
     fSdkDiscovery: TDelphiSemanticRtlSourceDiscovery;
     fSdkBinaries: TDictionary<string, string>;
     fSdkDirectories: TArray<string>;
     function TrySdkAlias(const aName: string; out aTarget: string): Boolean;
     function ResolveProjectUnit(const aName: string): TDelphiSemanticUnitResolutionResult;
-    function HasAlternateProjectSource(const aName, aOwner: string): Boolean;
+    function HasAlternateProjectSource(const aName, aOwner, aSelected: string): Boolean;
     procedure ProjectImport(const aFileName: string);
     function IsSdkFile(const aFileName: string): Boolean;
     function TryFindSdkUnit(const aName: string; out aFileName: string): Boolean;
@@ -135,8 +138,10 @@ begin
   fCollectReferences := aCollectReferences;
   fCandidateSources := TList<TDelphiSemanticSourceText>.Create;
   fObservedCandidates := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fDirectoryFiles := TDictionary<string, TArray<string>>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fReferences := TList<TDelphiSemanticReference>.Create;
   fProjectImports := TList<string>.Create;
+  fImportFacts := TList<TDelphiSemanticImportFact>.Create;
   fDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
   fVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fProject.ProjectDirectory := ExtractFilePath(aOptions.SourceFileName);
@@ -148,6 +153,7 @@ end;
 
 destructor TPossibleSourceCapture.Destroy;
 begin
+  fDirectoryFiles.Free;
   fObservedCandidates.Free;
   fCandidateSources.Free;
   fSdkBinaries.Free;
@@ -155,6 +161,7 @@ begin
   fVisited.Free;
   fDiagnostics.Free;
   fReferences.Free;
+  fImportFacts.Free;
   fProjectImports.Free;
   inherited Destroy;
 end;
@@ -362,25 +369,76 @@ begin
     '|' + LowerCase(Result.FileName);
 end;
 
-function TPossibleSourceCapture.HasAlternateProjectSource(const aName, aOwner: string): Boolean;
+function TPossibleSourceCapture.HasAlternateProjectSource(const aName, aOwner, aSelected: string): Boolean;
 var
   lName: TUnitCandidateName;
+  lNames: TArray<TUnitCandidateName>;
   lPath, lCandidate, lExtension: string;
+  lProject: TDelphiSemanticProjectInfo;
+  lPaths, lFileNames: TArray<string>;
+  lDirectory: TDelphiSemanticSourceText;
+  lIndex: Integer;
 begin
   Result := False;
-  for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aName) do
-    for lPath in fOptions.PossibleUnitSearchPaths do
+  lProject := fProject;
+  lProject.UnitScopeNames := lProject.UnitScopeNames + fOptions.PossibleUnitScopeNames;
+  lNames := TDelphiSemanticUnitResolver.CandidateNames(lProject, aName);
+  lPaths := fOptions.PossibleUnitSearchPaths;
+  if Length(fOptions.PossibleUnitScopeNames) > 0 then
+    lPaths := fProject.SourceLookupPaths + lPaths;
+  for lPath in lPaths do
+  begin
+    if lPath = '<alternate-alias-unverified>' then
+    begin
+      Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
+        'Import: ' + aName + '; alternate configuration/platform unit aliases vary.');
+      Exit(True);
+    end;
+    if lPath = '<alternate-library-unverified>' then
+    begin
+      Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
+        'Import: ' + aName + '; alternate configuration/platform IDE library is unavailable.');
+      Exit(True);
+    end;
+    // SDK directories cannot introduce project references. Test the directory
+    // once, rather than canonicalizing every possible scoped filename there.
+    if IsSdkFile(TPath.Combine(lPath, '_')) then
+      Continue;
+    if not fDirectoryFiles.TryGetValue(lPath, lFileNames) then
+    begin
+      try
+        lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(lPath, lFileNames);
+      except
+        on E: Exception do
+        begin
+          Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
+            'Import: ' + aName + '; alternate configuration/platform directory unreadable: ' +
+            lPath + '; ' + E.Message);
+          Exit(True);
+        end;
+      end;
+      fDirectoryFiles.Add(lPath, lFileNames);
+      fCandidateSources.Add(lDirectory);
+    end;
+    for lName in lNames do
       for lExtension in ['.pas', '.dcu'] do
       begin
+        // The sorted inventory also witnesses new candidates at publication.
+        if not TArray.BinarySearch<string>(lFileNames,
+          LowerCase(lName.TargetName + lExtension), lIndex) then
+          Continue;
         lCandidate := TPath.Combine(lPath, lName.TargetName + lExtension);
+        if SameText(TPath.GetFullPath(lCandidate), aSelected) then
+          Continue;
         ObserveCandidate(lCandidate);
-        if TFile.Exists(lCandidate) and not IsSdkFile(lCandidate) then
+        if TFile.Exists(lCandidate) then
         begin
           Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
             'Import: ' + aName + '; alternate configuration/platform project source: ' + lCandidate);
-          Result := True;
+          Exit(True);
         end;
       end;
+  end;
 end;
 
 procedure TPossibleSourceCapture.ProjectImport(const aFileName: string);
@@ -410,16 +468,15 @@ begin
   end;
   lLookupName := aName;
   lResolution := ResolveProjectUnit(lLookupName);
-  if (not lResolution.Found or IsSdkFile(lResolution.FileName)) and
-    HasAlternateProjectSource(aName, aFileName) then
+  if HasAlternateProjectSource(aName, aFileName, lResolution.FileName) then
     Exit;
   if not lResolution.Found and not lResolution.Ambiguous and
     TrySdkAlias(aName, lAliasTarget) then
   begin
-    if HasAlternateProjectSource(lAliasTarget, aFileName) then
-      Exit;
     lLookupName := lAliasTarget;
     lResolution := ResolveProjectUnit(lLookupName);
+    if HasAlternateProjectSource(lLookupName, aFileName, lResolution.FileName) then
+      Exit;
   end;
   // Project/search-path selection always wins, including a project shadow or DCU.
   // Only a genuinely unresolved import may fall back to the installed SDK inventory.
@@ -486,14 +543,17 @@ procedure TPossibleSourceCapture.ScanImports(const aPossible,
   const aDepth: Integer);
 var
   lLexer: TmwBasePasLex;
-  lActivities: TDictionary<string, TPossibleImportState>;
-  lName, lExplicit, lCause, lFileName: string;
+  lActivities, lNeutralActivities: TDictionary<string, TPossibleImportState>;
+  lName, lExplicit, lCause, lFileName, lNeutralFileName: string;
   lInUses: Boolean;
-  lOffset: Integer;
+  lOffset, lDiagnosticStart, lIndex, lOrder: Integer;
+  lSection: string;
+  lFact: TDelphiSemanticImportFact;
   lPrevious: TptTokenKind;
   lResolution: TDelphiSemanticUnitResolutionResult;
 begin
   lActivities := TDictionary<string, TPossibleImportState>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lNeutralActivities := TDictionary<string, TPossibleImportState>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lLexer := TmwBasePasLex.Create;
   try
     lLexer.UseDefines := False;
@@ -503,8 +563,12 @@ begin
     lLexer.NextNoJunk;
     lInUses := False;
     lPrevious := ptNull;
+    lSection := 'interface';
+    lOrder := 0;
     while lLexer.TokenID <> ptNull do
     begin
+      if lLexer.TokenID = ptImplementation then
+        lSection := 'implementation';
       if (lLexer.TokenID in [ptUses, ptContains]) and
         (lPrevious in [ptNull, ptInterface, ptImplementation, ptSemiColon]) then
         lInUses := True
@@ -538,6 +602,23 @@ begin
             Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aRootFileName, 0);
         end;
         lCause := ImportCause(aPossible, aCurrent, lOffset, aRootFileName, aInheritedCause, lActivities, lFileName);
+        lDiagnosticStart := fDiagnostics.Count;
+        lResolution := TDelphiSemanticUnitResolver.Resolve(fProject, lName);
+        lFact := Default(TDelphiSemanticImportFact);
+        lFact.OwnerFileName := aRootFileName;
+        lFact.Name := lName;
+        lFact.TargetFileName := lResolution.FileName;
+        if lExplicit <> '' then
+          lFact.TargetFileName := TPath.GetFullPath(TPath.Combine(ExtractFilePath(lFileName), lExplicit));
+        lFact.SdkBoundary := lResolution.Found and IsSdkFile(lResolution.FileName);
+        lFact.SectionKind := lSection;
+        lFact.Cause := lCause;
+        // A selected active provider is not necessarily visible in every build.
+        // Uses-order exemptions require configuration-neutral activity proof.
+        lFact.Unconditional := ImportCause(aPossible, aPossible, lOffset, aRootFileName,
+          aInheritedCause, lNeutralActivities, lNeutralFileName) = '';
+        lFact.OrderIndex := lOrder;
+        Inc(lOrder);
         if lCause <> '' then
           ImportUnit(lName, lExplicit, lFileName, lCause, aDepth)
         else if lExplicit <> '' then
@@ -545,10 +626,35 @@ begin
         else begin
           // Selected project models already own these bytes. Retain the edge
           // without rescanning their references or expanding installed SDK units.
-          lResolution := TDelphiSemanticUnitResolver.Resolve(fProject, lName);
-          if lResolution.Found and not lResolution.Ambiguous and not IsSdkFile(lResolution.FileName) then
+          HasAlternateProjectSource(lName, lFileName, lResolution.FileName);
+          if not lResolution.Found or lResolution.Ambiguous or
+            not SameText(TPath.GetExtension(lResolution.FileName), '.pas') then
+            // Selected missing/binary imports need typed gap provenance too.
+            ImportUnit(lName, '', lFileName, '', aDepth)
+          else if not IsSdkFile(lResolution.FileName) then
             ProjectImport(lResolution.FileName);
         end;
+        for lIndex := lDiagnosticStart to fDiagnostics.Count - 1 do
+          if SameText(fDiagnostics[lIndex].Code, 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE') and
+            SameText(fDiagnostics[lIndex].FileName, lFileName) then
+          begin
+            lFact.GapReason := 'possible-unit-source-unavailable';
+            lFact.ResolutionVaries := lFact.ResolutionVaries or
+              ContainsText(fDiagnostics[lIndex].Message, 'alternate configuration/platform');
+          end;
+        for lIndex := lDiagnosticStart to fDiagnostics.Count - 1 do
+          if SameText(fDiagnostics[lIndex].Code, 'POSSIBLE_UNIT_SDK_BOUNDARY') and
+            StartsText(lName + ' resolves to installed SDK ', fDiagnostics[lIndex].Message) then
+            lFact.SdkBoundary := True;
+        if lCause = '' then
+          // Active import uncertainty belongs to typed provenance. It still
+          // blocks affected rename/usage names, without discarding selected AST
+          // declarations that consistency can follow to an unresolved external type.
+          for lIndex := fDiagnostics.Count - 1 downto lDiagnosticStart do
+            if MatchText(fDiagnostics[lIndex].Code,
+              ['POSSIBLE_UNIT_SDK_BOUNDARY', 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE']) then
+              fDiagnostics.Delete(lIndex);
+        fImportFacts.Add(lFact);
         lPrevious := ptIdentifier;
         Continue;
       end;
@@ -557,6 +663,7 @@ begin
     end;
   finally
     lLexer.Free;
+    lNeutralActivities.Free;
     lActivities.Free;
   end;
 end;
@@ -697,6 +804,7 @@ begin
   if fCandidateSources.Count > 0 then
     MergeSources(TDelphiSemanticSourceEvidence.FromItems(fCandidateSources.ToArray));
   fResult.ProjectUnitImports := fProjectImports.ToArray;
+  fResult.ImportFacts := fImportFacts.ToArray;
   fResult.References := fReferences.ToArray;
   fResult.Diagnostics := fDiagnostics.ToArray;
   fResult.Identity := THashSHA2.GetHashString(fResult.Identity);
