@@ -3658,11 +3658,11 @@ begin
         Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
         Assert.AreEqual('lWithDatFilePtr: ^TDatFile;',
           lStatement.Temps[0].DeclarationText);
-        Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}', lStatement.Temps[0].InitializationText);
+        Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
         Assert.AreEqual('TMaskEntry', lStatement.Temps[1].ReceiverType);
         Assert.AreEqual('lWithMaskEntryPtr: ^TMaskEntry;',
           lStatement.Temps[1].DeclarationText);
-        Assert.AreEqual('{$IFOPT T-}{$T+}lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[i]^;{$T-}{$ELSE}lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[i]^;{$ENDIF}',
+        Assert.AreEqual('lWithMaskEntryPtr := @lWithDatFilePtr^.Maske[i]^;',
           lStatement.Temps[1].InitializationText);
       end;
     end;
@@ -3959,7 +3959,7 @@ begin
       Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
       Assert.AreEqual('  lWithDerived := aDerived;'#13#10 +
         '      begin'#13#10 +
-        '      {$IFOPT T-}{$T+}lWithLeafPtr := @lWithDerived.Child;{$T-}{$ELSE}lWithLeafPtr := @lWithDerived.Child;{$ENDIF}'#13#10 +
+        '      lWithLeafPtr := @lWithDerived.Child;'#13#10 +
         '      aValue := lWithLeafPtr^.Value;'#13#10 +
         '    end;', lStatement.ReplacementText);
     end;

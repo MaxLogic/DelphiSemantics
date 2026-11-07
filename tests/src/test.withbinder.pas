@@ -5389,7 +5389,7 @@ begin
     Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
       lPlan.FinalStatements[0].Reason + ':' + lPlan.FinalStatements[0].SafetyReason);
     Assert.AreEqual('', lPlan.FinalStatements[0].SafetyReason);
-    Assert.AreEqual(' {$IFOPT T-}{$T+}lWithFooPtr := @Foo;{$T-}{$ELSE}lWithFooPtr := @Foo;{$ENDIF}'#13#10 +
+    Assert.AreEqual(' lWithFooPtr := @Foo;'#13#10 +
       ' begin lWithFooPtr^.X := lWithFooPtr^.Tag;'#13#10 +
       '    lWithB := B;'#13#10' lWithB.Y := G; end;',
       lPlan.FinalStatements[0].ReplacementText);
@@ -5418,7 +5418,7 @@ begin
     end;
     if aShape = 'ctl-record-absent-global' then
     begin
-      lExpectedTexts := [' {$IFOPT T-}{$T+}lWithRecPtr := @R;{$T-}{$ELSE}lWithRecPtr := @R;{$ENDIF}' + #13#10 +
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
     ' lWithRecPtr^.A := G;'];
       lExpectedTemps := [1];
       lExpectedEdits := [2];
@@ -5431,7 +5431,7 @@ begin
     end;
     if aShape = 'ctl-rec-in-comp-method-free' then
     begin
-      lExpectedTexts := [' {$IFOPT T-}{$T+}lWithRecPtr := @R;{$T-}{$ELSE}lWithRecPtr := @R;{$ENDIF}' + #13#10 +
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
     ' lWithRecPtr^.B := Foo.Tag;'];
       lExpectedTemps := [1];
       lExpectedEdits := [2];
@@ -5473,7 +5473,7 @@ begin
     end;
     if aShape = 'nested-outerrec-field-b' then
     begin
-      lExpectedTexts := [' {$IFOPT T-}{$T+}lWithRecPtr := @R;{$T-}{$ELSE}lWithRecPtr := @R;{$ENDIF}' + #13#10 +
+      lExpectedTexts := [' lWithRecPtr := @R;' + #13#10 +
     '   begin' + #13#10 +
     '    lWithFoo := Foo;' + #13#10 +
     '   lWithRecPtr^.B := 4;' + #13#10 +
@@ -7018,7 +7018,7 @@ begin
       Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
       Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
       Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-      Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}'#13#10 +
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
         ' begin'#13#10 +
         '    lWithRecPtr^.Count := 1;'#13#10 +
         '    {$IFDEF RELEASE_TRACE}{$I+}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
@@ -7031,7 +7031,7 @@ begin
       Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
       Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
       Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-      Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}'#13#10 +
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
         ' begin'#13#10 +
         '    lWithRecPtr^.Count := 1;'#13#10 +
         '    {$IFDEF RELEASE_TRACE}{$I-}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
@@ -7044,7 +7044,7 @@ begin
       Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
       Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
       Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-      Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}'#13#10 +
+      Assert.AreEqual('  lWithRecPtr := @Rec;'#13#10 +
         ' begin'#13#10 +
         '    lWithRecPtr^.Count := 1;'#13#10 +
         '    {$IFDEF RELEASE_TRACE}{$INLINE ON}{$ENDIF} lWithRecPtr^.Count := 5;'#13#10 +
@@ -13096,10 +13096,10 @@ begin
   // including when the source fixture uses LF.
   lTemps := 1;
   lEdits := 2;
-  lExpected := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + lLineBreak +
+  lExpected := '  lWithRecPtr := @Rec;' + lLineBreak +
     ' lWithRecPtr^.Other := lWithRecPtr^.Count;';
   if StartsText('vt-', aShape) then
-    lExpected := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + lLineBreak +
+    lExpected := '  lWithRecPtr := @Rec;' + lLineBreak +
       ' lWithRecPtr^.A := lWithRecPtr^.Count;';
   if aShape = 'vt-alias-recv' then
   begin
@@ -13109,8 +13109,8 @@ begin
   end;
   if aShape = 'vt-nested-with' then
   begin
-    lExpected := '  {$IFOPT T-}{$T+}lWithOuterPtr := @Outer;{$T-}{$ELSE}lWithOuterPtr := @Outer;{$ENDIF}' + lLineBreak +
-      '               {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + lLineBreak +
+    lExpected := '  lWithOuterPtr := @Outer;' + lLineBreak +
+      '               lWithRecPtr := @Rec;' + lLineBreak +
       ' lWithRecPtr^.A := lWithRecPtr^.Count;';
     lTemps := 2;
   end;
@@ -13786,9 +13786,9 @@ begin
       'end;'#13#10 +
       'end.'#13#10;
     lExpected :=       ' begin try Item.A := 6; except on Exception do begin'#13#10 +
-      '                                                      {$IFOPT T-}{$T+}lWithExtraPtr := @Extra;{$T-}{$ELSE}lWithExtraPtr := @Extra;{$ENDIF}'#13#10 +
+      '                                                      lWithExtraPtr := @Extra;'#13#10 +
       ' lWithExtraPtr^.C := 1;'#13#10 +
-      '                                                      end; end;                                                                                  {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      '                                                      end; end;                                                                                  lWithOtherPtr := @Other;'#13#10 +
       ' lWithOtherPtr^.B := Item.A; end;';
   end;
   if aShape = 'd-nested-twoline-noconst' then
@@ -13818,7 +13818,7 @@ begin
       ' '#13#10 +
       'end;'#13#10 +
       'end.'#13#10;
-    lExpected :=       ' begin Writeln(7);                                 {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+    lExpected :=       ' begin Writeln(7);                                 lWithOtherPtr := @Other;'#13#10 +
       ' Item.A := lWithOtherPtr^.B; end;';
   end;
   if aShape = 'unit-local-weak-var-globalA' then
@@ -14570,7 +14570,7 @@ begin
     'k-weak-call-helper', 'nested-local-weak']);
   lExpected := ' Item.Foo(7);';
   if aShape = 'c-plain-call' then
-    lExpected :=       ' {$IFOPT T-}{$T+}lWithRecPtr := @Item;{$T-}{$ELSE}lWithRecPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected :=       ' lWithRecPtr := @Item;'#13#10 +
       ' lWithRecPtr^.Foo(7);';
   if aShape = 'k-weak-call-helper' then
     lExpected := ' Item.P(7);';
@@ -16102,7 +16102,7 @@ begin
       '';
     lRefused := False;
     lLocal := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithRecPtr := @Item;{$T-}{$ELSE}lWithRecPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
       ' lWithRecPtr^.Foo(7);';
     lExpectedEdits := 2;
     lExpectedLine := 34;
@@ -16179,7 +16179,7 @@ begin
       '';
     lRefused := False;
     lLocal := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithRecPtr := @Item;{$T-}{$ELSE}lWithRecPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
       ' lWithRecPtr^.P(7);';
     lExpectedEdits := 2;
     lExpectedLine := 23;
@@ -16274,7 +16274,7 @@ begin
       '';
     lRefused := False;
     lLocal := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithRecPtr := @Item;{$T-}{$ELSE}lWithRecPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
       ' lWithRecPtr^.A := lWithRecPtr^.Values[0];';
     lExpectedEdits := 2;
     lExpectedLine := 32;
@@ -16369,7 +16369,7 @@ begin
       '';
     lRefused := False;
     lLocal := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithRecPtr := @Item;{$T-}{$ELSE}lWithRecPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithRecPtr := @Item;'#13#10 +
       ' lWithRecPtr^.Values[0] := 7;';
     lExpectedEdits := 2;
     lExpectedLine := 32;
@@ -16454,7 +16454,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := '    {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := '    lWithItemPtr := @Item;'#13#10 +
       ' lWithItemPtr^.A := 7;';
     lExpectedEdits := 2;
     lExpectedLine := 25;
@@ -16547,7 +16547,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := '      {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := '      lWithItemPtr := @Item;'#13#10 +
       ' lWithItemPtr^.A := 7;';
     lExpectedEdits := 2;
     lExpectedLine := 26;
@@ -16583,7 +16583,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
       ' G := lWithItemPtr^.Arr[1];';
     lExpectedEdits := 2;
     lExpectedLine := 22;
@@ -16619,7 +16619,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
       ' G := lWithItemPtr^.Sub.S;';
     lExpectedEdits := 2;
     lExpectedLine := 22;
@@ -16655,7 +16655,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
       ' lWithItemPtr^.Sub.S := 9;';
     lExpectedEdits := 2;
     lExpectedLine := 22;
@@ -16732,7 +16732,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
       ' G := lWithItemPtr^.Items[1];';
     lExpectedEdits := 2;
     lExpectedLine := 63;
@@ -16809,7 +16809,7 @@ begin
       'end.'#13#10 +
       '';
     lRefused := False;
-    lExpected := ' {$IFOPT T-}{$T+}lWithItemPtr := @Item;{$T-}{$ELSE}lWithItemPtr := @Item;{$ENDIF}'#13#10 +
+    lExpected := ' lWithItemPtr := @Item;'#13#10 +
       ' lWithItemPtr^.Foo(lWithItemPtr^.B);';
     lExpectedEdits := 2;
     lExpectedLine := 63;
@@ -17496,7 +17496,7 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '  lWithRPtr^.Foo;';
     lExpectedEdits := 2;
     lExpectedLine := 32;
@@ -17662,7 +17662,7 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '  G := lWithRPtr^.Fn;';
     lExpectedEdits := 2;
     lExpectedLine := 47;
@@ -17851,9 +17851,9 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '      begin'#13#10 +
-'      {$IFOPT T-}{$T+}lWithOtherPtr := @O;{$T-}{$ELSE}lWithOtherPtr := @O;{$ENDIF}'#13#10 +
+'      lWithOtherPtr := @O;'#13#10 +
 '      begin'#13#10 +
 '      lWithOtherPtr^.Z := 1;'#13#10 +
 '      lWithRPtr^.Foo;'#13#10 +
@@ -17923,7 +17923,7 @@ begin
 'end.'#13#10;
     lRefused := False;
     lExpected := '      begin'#13#10 +
-'      {$IFOPT T-}{$T+}lWithOtherPtr := @O;{$T-}{$ELSE}lWithOtherPtr := @O;{$ENDIF}'#13#10 +
+'      lWithOtherPtr := @O;'#13#10 +
 '      begin'#13#10 +
 '      lWithOtherPtr^.Z := 1;'#13#10 +
 '      SR.Foo;'#13#10 +
@@ -18050,7 +18050,7 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '  lWithRPtr^.Foo;';
     lExpectedEdits := 2;
     lExpectedLine := 48;
@@ -18246,7 +18246,7 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '  lWithRPtr^.Foo;';
     lExpectedEdits := 2;
     lExpectedLine := 25;
@@ -18403,7 +18403,7 @@ begin
 'end;'#13#10 +
 'end.'#13#10;
     lRefused := False;
-    lExpected := '  {$IFOPT T-}{$T+}lWithRPtr := @SR;{$T-}{$ELSE}lWithRPtr := @SR;{$ENDIF}'#13#10 +
+    lExpected := '  lWithRPtr := @SR;'#13#10 +
 '  lWithRPtr^.Foo;';
     lExpectedEdits := 2;
     lExpectedLine := 32;
@@ -18743,7 +18743,7 @@ begin
     lInnerStatement := lPlan.FinalStatements[1];
     Assert.AreEqual('planned', lInnerStatement.Status);
     Assert.AreEqual('    begin'#13#10 +
-      '      {$IFOPT T-}{$T+}lWithOtherPtr := @O;{$T-}{$ELSE}lWithOtherPtr := @O;{$ENDIF}'#13#10 +
+      '      lWithOtherPtr := @O;'#13#10 +
       '      begin'#13#10 +
       '      lWithOtherPtr^.Z := 1;'#13#10 +
       '      Foo;'#13#10 +
@@ -18762,7 +18762,7 @@ begin
     Assert.AreEqual(1, lInnerStatement.Edits[0].Range.EndColumn);
     Assert.AreEqual('replace-statement', lInnerStatement.Edits[1].Kind);
     Assert.AreEqual('    begin'#13#10 +
-      '      {$IFOPT T-}{$T+}lWithOtherPtr := @O;{$T-}{$ELSE}lWithOtherPtr := @O;{$ENDIF}'#13#10 +
+      '      lWithOtherPtr := @O;'#13#10 +
       '      begin'#13#10 +
       '      lWithOtherPtr^.Z := 1;'#13#10 +
       '      Foo;'#13#10 +
@@ -18889,38 +18889,38 @@ begin
       ' Rec.A := Rec.Count;');
   if aShape = 'nested-parent-trigger' then
     Exit(
-      ' begin Writeln(Item.Count);                                      {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      ' begin Writeln(Item.Count);                                      lWithOtherPtr := @Other;'#13#10 +
       ' Item.A := lWithOtherPtr^.B; end;');
   if aShape = 'nested-parent-noglobal' then
     Exit(
-      ' begin Writeln(Item.Count);                                      {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      ' begin Writeln(Item.Count);                                      lWithOtherPtr := @Other;'#13#10 +
       ' Item.A := lWithOtherPtr^.B; end;');
   if aShape = 'nested-child-trigger' then
     Exit(
-      ' begin Item.A := 5;                              {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      ' begin Item.A := 5;                              lWithOtherPtr := @Other;'#13#10 +
       ' lWithOtherPtr^.B := Item.Count; end;');
   if aShape = 'nested-three-level' then
     Exit(
-      ' begin Item.A := 5;                              {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
-      ' begin                                                  {$IFOPT T-}{$T+}lWithExtraPtr := @Extra;{$T-}{$ELSE}lWithExtraPtr := @Extra;{$ENDIF}'#13#10 +
+      ' begin Item.A := 5;                              lWithOtherPtr := @Other;'#13#10 +
+      ' begin                                                  lWithExtraPtr := @Extra;'#13#10 +
       ' lWithExtraPtr^.C := Item.Count; end; end;');
   if aShape = 'nested-siblings' then
     Exit(
-      ' begin                      {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
-      ' lWithOtherPtr^.B := Item.Count;                                                {$IFOPT T-}{$T+}lWithExtraPtr := @Extra;{$T-}{$ELSE}lWithExtraPtr := @Extra;{$ENDIF}'#13#10 +
+      ' begin                      lWithOtherPtr := @Other;'#13#10 +
+      ' lWithOtherPtr^.B := Item.Count;                                                lWithExtraPtr := @Extra;'#13#10 +
       ' lWithExtraPtr^.C := Item.A; end;');
   if aShape = 'partial-noconst-control' then
     Exit(
       ' Item.A := 7;');
   if aShape = 'nested-unrelated-control' then
     Exit(
-      ' begin Item.A := Item.Count;                                  {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      ' begin Item.A := Item.Count;                                  lWithOtherPtr := @Other;'#13#10 +
       ' lWithOtherPtr^.B := 1; end;');
   if aShape = 'partial-cascade' then
     Exit(
-      ' begin Item.A := 5;                            {$IFOPT T-}{$T+}lWithOtherPtr := @Other;{$T-}{$ELSE}lWithOtherPtr := @Other;{$ENDIF}'#13#10 +
+      ' begin Item.A := 5;                            lWithOtherPtr := @Other;'#13#10 +
       ' lWithOtherPtr^.B := Item.Count; try Item.A := 6; except on Exception do begin'#13#10 +
-      '                                                                                        {$IFOPT T-}{$T+}lWithExtraPtr := @Extra;{$T-}{$ELSE}lWithExtraPtr := @Extra;{$ENDIF}'#13#10 +
+      '                                                                                        lWithExtraPtr := @Extra;'#13#10 +
       ' lWithExtraPtr^.C := 1;'#13#10 +
       '                                                                                        end; end; end;');
 end;
@@ -20362,8 +20362,8 @@ begin
   begin
     Assert.AreEqual('TInner', ReceiverOf(lFacts.Bindings[0], 'A', 'member'));
     Assert.AreEqual('planned', lPlan.FinalStatements[0].Status, lPlan.FinalStatements[0].Reason);
-    Assert.AreEqual('  {$IFOPT T-}{$T+}lWithOuterPtr := @Outer;{$T-}{$ELSE}lWithOuterPtr := @Outer;{$ENDIF}'#13#10 +
-      '  {$IFOPT T-}{$T+}lWithInnerPtr := @Item;{$T-}{$ELSE}lWithInnerPtr := @Item;{$ENDIF}'#13#10 +
+    Assert.AreEqual('  lWithOuterPtr := @Outer;'#13#10 +
+      '  lWithInnerPtr := @Item;'#13#10 +
       ' lWithInnerPtr^.A := 7;', lPlan.FinalStatements[0].ReplacementText);
   end else begin
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
@@ -22125,9 +22125,9 @@ begin
     Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
     Assert.AreEqual('', lStatement.Reason);
     Assert.AreEqual('', lStatement.SafetyReason);
-    lExpected := '{$IFOPT T-}{$T+}lWithFooPtr := @Item.Other;{$T-}{$ELSE}lWithFooPtr := @Item.Other;{$ENDIF}';
+    lExpected := 'lWithFooPtr := @Item.Other;';
     if aShape = 'nested-nonalias-global' then
-      lExpected := '{$IFOPT T-}{$T+}lWithFooPtr := @lWithItemPtr^.Other;{$T-}{$ELSE}lWithFooPtr := @lWithItemPtr^.Other;{$ENDIF}';
+      lExpected := 'lWithFooPtr := @lWithItemPtr^.Other;';
     Assert.IsTrue(lStatement.ReplacementText.Contains(lExpected), lStatement.ReplacementText);
     Assert.IsFalse(lStatement.ReplacementText.Contains(':= @Other;'),
       'Removing the parent must preserve the nested receiver storage.');
@@ -22197,7 +22197,7 @@ begin
       Assert.AreEqual('planned', lStatement.Status);
       Assert.AreEqual('', lStatement.Reason);
       Assert.AreEqual('', lStatement.SafetyReason);
-      lExpected := ' {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}'#13#10' lWithRecPtr^.A := lWithRecPtr^.Count;';
+      lExpected := ' lWithRecPtr := @Rec;'#13#10' lWithRecPtr^.A := lWithRecPtr^.Count;';
       if aShape = 'compound-class' then
         lExpected := ' lWithRec := Rec;'#13#10' lWithRec.A := lWithRec.Count;';
       Assert.AreEqual(lExpected, lStatement.ReplacementText);

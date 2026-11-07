@@ -3371,18 +3371,6 @@ begin
   Result := not SameText(aSelector.Status, 'resolved') or BinderDenialCode(aSelector.ReasonCode);
 end;
 
-function TypedPointerInitialization(const aTempName, aSelectorText: string): string;
-var
-  lAssignment: string;
-begin
-  lAssignment := aTempName + ' := @' + aSelectorText + ';';
-  // dcc64 checks address compatibility at the semicolon, so keep T+ through
-  // the complete assignment. IFOPT preserves either incoming T setting without
-  // introducing a compiler symbol or changing the surrounding source options.
-  Result := '{$IFOPT T-}{$T+}' + lAssignment + '{$T-}{$ELSE}' +
-    lAssignment + '{$ENDIF}';
-end;
-
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -3553,7 +3541,7 @@ begin
       aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);
       aDecision.QualifierText := aDecision.TempName + '^';
       aDecision.DeclarationText := aDecision.TempName + ': ^' + aDecision.ReceiverType + ';';
-      aDecision.InitializationText := TypedPointerInitialization(aDecision.TempName, aSelectorText);
+      aDecision.InitializationText := aDecision.TempName + ' := @' + aSelectorText + ';';
       aDecision.Reason := 'record-pointer-preserves-alias';
     end;
   end else if IsSimpleIdentifier(aSelectorText) then
@@ -6946,11 +6934,9 @@ begin
   if lQualifiedSelectorText = aDecision.SelectorText then
     Exit;
   if SameText(aDecision.Strategy, 'record-pointer-temp') then
-    aDecision.InitializationText := TypedPointerInitialization(
-      aDecision.TempName, lQualifiedSelectorText)
-  else
-    aDecision.InitializationText := aDecision.TempName + ' := ' +
-      lQualifiedSelectorText + ';';
+    lQualifiedSelectorText := '@' + lQualifiedSelectorText;
+  aDecision.InitializationText := aDecision.TempName + ' := ' +
+    lQualifiedSelectorText + ';';
 end;
 
 function AdmissionDeniedBindingIndex(const aBindingSource: TRemoveWithPlanBindingSource;
