@@ -9,6 +9,8 @@ type
   TDelphiSemanticPreprocessOptions = record
     SourceFileName: string;
     SourceText: string;
+    // Completeness-only text; never feed possible branches into the selected AST.
+    PreservePossibleText: Boolean;
     Defines: TArray<string>;
     // Only the owning model/context admission may certify ordinary absence.
     DefineEvidenceComplete: Boolean;
@@ -398,6 +400,13 @@ begin
   if aStack.Count = 0 then
     Exit(saActive);
   Result := aStack[Pred(aStack.Count)].Activity;
+end;
+
+function ShouldEmitSource(const aOptions: TDelphiSemanticPreprocessOptions;
+  const aStack: TList<TPreprocessFrame>): Boolean;
+begin
+  Result := CurrentActive(aStack) or
+    (aOptions.PreservePossibleText and (CurrentActivity(aStack) <> saInactive));
 end;
 
 procedure CaptureActivity(const aContext: TPreprocessOutputContext;
@@ -1905,7 +1914,7 @@ begin
     begin
       CaptureActivity(aContext, aStack, aSourceText, aFileName,
         aSourceLineStartOffset + lPos - 1, lDirectiveStart - lPos);
-      if CurrentActive(aStack) then
+      if ShouldEmitSource(aOptions, aStack) then
         AppendCopiedText(lLineOutput, lLineContext,
           Copy(aLine, lPos, lDirectiveStart - lPos), aSourceText, aFileName,
           aLineNumber, lPos, aSourceLineStartOffset)
@@ -1927,7 +1936,7 @@ begin
       lDirectiveActivity := CurrentActivity(aStack);
       if IsCompilerSwitchDirective(lDirective) then
       begin
-        if CurrentActive(aStack) then
+        if ShouldEmitSource(aOptions, aStack) then
           AppendCopiedText(lLineOutput, lLineContext,
             Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1),
             aSourceText, aFileName, aLineNumber, lDirectiveStart,
@@ -1956,7 +1965,7 @@ begin
 
     CaptureActivity(aContext, aStack, aSourceText, aFileName,
       aSourceLineStartOffset + lPos - 1, Length(aLine) - lPos + 1);
-    if CurrentActive(aStack) then
+    if ShouldEmitSource(aOptions, aStack) then
       AppendCopiedText(lLineOutput, lLineContext, Copy(aLine, lPos, MaxInt),
         aSourceText, aFileName, aLineNumber, lPos, aSourceLineStartOffset)
     else
@@ -2071,7 +2080,7 @@ begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
         CaptureActivity(aContext, aStack, aSourceText, aFileName,
           lLineStarts[i], Length(lLines[i]));
-        if CurrentActive(aStack) then
+        if ShouldEmitSource(aOptions, aStack) then
         begin
           AppendCopiedText(aOutput, aContext, lLines[i], aSourceText, aFileName,
             i + 1, 1, lLineStarts[i]);
@@ -2284,7 +2293,7 @@ begin
             'Invalid include file name in inactive branch: ' + lIncludeName, aFileName, aLine);
         Exit(True);
       end;
-      lEmitInclude := CurrentActive(aStack);
+      lEmitInclude := ShouldEmitSource(aOptions, aStack);
 
       if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
         lIncludeFileName) then

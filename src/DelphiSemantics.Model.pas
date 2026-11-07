@@ -11,6 +11,10 @@ type
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     IncludePaths: TArray<string>;
+    UnitAliases: TArray<string>;
+    UnitScopeNames: TArray<string>;
+    ProjectSourceFileNames: TArray<string>;
+    InstalledSdkRoot: string;
     ProjectContextApplied: Boolean;
     DefineEvidenceComplete: Boolean;
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
@@ -19,6 +23,8 @@ type
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
+    // WITH binding does not consume cross-configuration usage completeness.
+    SelectedConfigurationOnly: Boolean;
     WritableTypedConstants: Boolean;
   end;
 

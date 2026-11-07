@@ -133,6 +133,45 @@ type
     [TestCase('Found unknown include unrelated control', 'unrelated')]
     [TestCase('No include control', 'none')]
     procedure MissingPossibleIncludePreventsCompleteRename(const aShape: string);
+    [TestCase('c07 Win32', 'c07,Win32')]
+    [TestCase('c07 Win64', 'c07,Win64')]
+    [TestCase('c08 Win32', 'c08,Win32')]
+    [TestCase('c08 Win64', 'c08,Win64')]
+    [TestCase('c11 fragment Win32', 'fragment,Win32')]
+    [TestCase('c11 fragment Win64', 'fragment,Win64')]
+    [TestCase('c11 Win32', 'c11,Win32')]
+    [TestCase('c11 Win64', 'c11,Win64')]
+    [TestCase('c16 Win32', 'c16,Win32')]
+    [TestCase('c16 Win64', 'c16,Win64')]
+    [TestCase('nested Win32', 'nested,Win32')]
+    [TestCase('nested Win64', 'nested,Win64')]
+    [TestCase('missing Win32', 'missing,Win32')]
+    [TestCase('missing Win64', 'missing,Win64')]
+    procedure CertifiedPossibleSourcesRemainVisible(const aShape, aPlatform: string);
+    [TestCase('prose Win32', 'prose,Win32')]
+    [TestCase('prose Win64', 'prose,Win64')]
+    [TestCase('SDK alias Win32', 'sdk-alias,Win32')]
+    [TestCase('SDK alias Win64', 'sdk-alias,Win64')]
+    [TestCase('source Win32', 'source,Win32')]
+    [TestCase('source Win64', 'source,Win64')]
+    [TestCase('scoped Win32', 'scoped,Win32')]
+    [TestCase('scoped Win64', 'scoped,Win64')]
+    [TestCase('dcu Win32', 'dcu,Win32')]
+    [TestCase('dcu Win64', 'dcu,Win64')]
+    [TestCase('shadow Win32', 'shadow,Win32')]
+    [TestCase('shadow Win64', 'shadow,Win64')]
+    [TestCase('unknown Win32', 'unknown,Win32')]
+    [TestCase('unknown Win64', 'unknown,Win64')]
+    procedure InactiveSdkImportsCannotReferenceProject(const aShape, aPlatform: string);
+    [TestCase('Literal false', 'false')]
+    [TestCase('Local define', 'define')]
+    [TestCase('Local undef', 'undef')]
+    procedure NeverCompiledOccurrencesDoNotBlockRename(const aShape: string);
+    [TestCase('Missing import Win32', 'missing,Win32')]
+    [TestCase('Missing import Win64', 'missing,Win64')]
+    [TestCase('Reachable project Win32', 'project,Win32')]
+    [TestCase('Reachable project Win64', 'project,Win64')]
+    procedure IdentifierScopedPossibleSourcesRemainVisible(const aShape, aPlatform: string);
     [Category('Fast')]
     [Test]
     procedure PlansQualifiedMemberReferencesInConsumerUnit;
@@ -289,9 +328,9 @@ uses
   System.Generics.Collections, System.IOUtils, System.JSON.Serializers, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
-  DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Usage, DelphiSemantics.WithBinding,
-  Test.Support;
+  Test.CompilerDefineEvidence, Test.Support;
 
 var
   GRenameTempRoot: string;
@@ -1410,23 +1449,46 @@ end;
 
 function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aColumn: Integer;
   const aNewName: string; const aCacheFileName: string = '';
-  const aExpectCacheHit: Boolean = False; const aPlatform: string = ''): TDelphiSemanticRenamePlan;
+  const aExpectCacheHit: Boolean = False; const aPlatform: string = '';
+  const aCertified: Boolean = False; const aIdentifier: string = ''): TDelphiSemanticRenamePlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lRequest: TDelphiSemanticCompilerDefineRequest;
   lContext: TDelphiSemanticSymbolQueryContext;
   lExtractionMilliseconds: Int64;
   lOptions: TDelphiSemanticOptions;
   lSessionResult: TDelphiSemanticProjectSessionResult;
+  lScopeMetrics: TDelphiSemanticIdentifierScopeMetrics;
 begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(aRoot, 'P.dproj');
   lOptions.Platform := aPlatform;
   lOptions.SqliteCacheFileName := aCacheFileName;
+  if aCertified then
+  begin
+    lOptions.Configuration := 'Debug';
+    lOptions.DelphiVersion := '23.0';
+    lOptions.CompilerIncludeSearchPath := aRoot;
+    lOptions.CompilerIncludeSearchPathProvided := True;
+    lRequest := Default(TDelphiSemanticCompilerDefineRequest);
+    lRequest.ProjectFileName := lOptions.ProjectPath;
+    lRequest.MainSourceFileName := TPath.Combine(aRoot, 'P.dpr');
+    lRequest.Configuration := 'Debug';
+    lRequest.DelphiVersion := '23.0';
+    lRequest.Platform := aPlatform;
+    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest,
+      TDirectory.GetFiles(aRoot, '*.pas') + TDirectory.GetFiles(aRoot, '*.inc') +
+      [lRequest.MainSourceFileName], []);
+  end;
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
     Assert.IsTrue(lSessionResult.Success, 'Project session must open.');
-    lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
-      lExtractionMilliseconds);
+    if aIdentifier = '' then
+      lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+        lExtractionMilliseconds)
+    else
+      lContext := lSessionResult.Session.BuildSnapshotSymbolQueryContextForIdentifier(aIdentifier,
+        lCacheMetrics, lExtractionMilliseconds, lScopeMetrics);
     if aExpectCacheHit then
       Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm control must actually reuse cached units.');
     try
@@ -1665,6 +1727,198 @@ begin
   AssertCompletePlan(lPlan, ['unit1.pas:16:5', 'unit1.pas:30:14'], 2);
 end;
 
+procedure TRenameCompletenessTests.IdentifierScopedPossibleSourcesRemainVisible(
+  const aShape, aPlatform: string);
+var
+  lRoot, lImport: string;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lImport := 'DS791MissingProjectUnit';
+  if aShape = 'project' then
+    lImport := 'UHidden';
+  lRoot := WriteCompletenessProject('scoped-possible-' + aShape + '-' + aPlatform,
+    'program P; uses UProv, USilent; begin WriteLn(Fetch); end.',
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+      'function Fetch: Integer;'#13#10'implementation'#13#10 +
+      'function Fetch: Integer;'#13#10'begin Result := 1; end; end.'),
+     CompletenessFile('USilent.pas', 'unit USilent; interface implementation ' +
+      '{$IFDEF RELEASE}uses ' + lImport + ';{$ENDIF} end.')]);
+  if aShape = 'project' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'UHidden.pas'),
+      'unit UHidden; interface implementation uses UProv; ' +
+      'procedure Run; begin WriteLn(Fetch); end; end.', TEncoding.ASCII);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'scoped.sqlite3'), False, aPlatform, True, 'Fetch');
+  lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'scoped.sqlite3'), True, aPlatform, True, 'Fetch');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)),
+    SortedKeysText(PlanUnresolvedKeys(lWarm)), 'Lean source coverage must survive cache reuse.');
+  if aShape = 'missing' then
+  begin
+    Assert.AreEqual(1, Integer(Length(lPlan.UnresolvedReferences)));
+    Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'usilent.pas:');
+  end else
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'uhidden.pas:');
+end;
+
+procedure TRenameCompletenessTests.NeverCompiledOccurrencesDoNotBlockRename(const aShape: string);
+var
+  lRoot, lBlock: string;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lBlock := '{$IF False}';
+  if aShape = 'define' then
+    lBlock := '{$DEFINE X}{$IFNDEF X}'
+  else if aShape = 'undef' then
+    lBlock := '{$UNDEF X}{$IFDEF X}';
+  lRoot := WriteCompletenessProject('never-compiled-' + aShape,
+    'program P; uses UProv; begin end.',
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+      'function Fetch: Integer;'#13#10'implementation'#13#10 +
+      'function Fetch: Integer;'#13#10'begin Result := 1; end;'#13#10 +
+      'procedure Run; begin ' + lBlock + ' WriteLn(Fetch); {$ENDIF} end; end.')]);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'never.sqlite3'));
+  lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'never.sqlite3'), True);
+  AssertCompletePlan(lPlan, ['uprov.pas:3:10', 'uprov.pas:5:10'], 2);
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  Assert.AreEqual(SortedKeysText(PlanEditKeys(lPlan)), SortedKeysText(PlanEditKeys(lWarm)));
+end;
+
+procedure TRenameCompletenessTests.InactiveSdkImportsCannotReferenceProject(
+  const aShape, aPlatform: string);
+var
+  lRoot, lImport, lProject, lPrefix: string;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lPrefix := '';
+  if aShape = 'prose' then
+    lPrefix := '{$IFDEF LINUX}This is unsupported. But there is a way to uses it on windows.{$ENDIF}';
+  lImport := 'Posix.Unistd';
+  if aShape = 'scoped' then
+    lImport := 'Unistd'
+  else if aShape = 'sdk-alias' then
+    lImport := 'WinTypes'
+  else if aShape = 'dcu' then
+    lImport := 'FireDAC.Stan.Cipher'
+  else if aShape = 'unknown' then
+    lImport := 'DS791MissingProjectUnit';
+  lRoot := WriteCompletenessProject('inactive-sdk-' + aShape + '-' + aPlatform,
+    'program P; uses UProv; begin WriteLn(Fetch); end.',
+    [CompletenessFile('UProv.pas', 'unit UProv;' + lPrefix + #13#10'interface'#13#10 +
+      'function Fetch: Integer;'#13#10'implementation'#13#10 +
+      '{$IFDEF LINUX}uses ' + lImport + ';{$ENDIF}'#13#10 +
+      'function Fetch: Integer;'#13#10'begin Result := 1; end; end.')]);
+  if aShape = 'scoped' then
+  begin
+    lProject := TFile.ReadAllText(TPath.Combine(lRoot, 'P.dproj'));
+    TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'), StringReplace(lProject,
+      '</PropertyGroup>', '<DCC_Namespace>Posix</DCC_Namespace></PropertyGroup>', []), TEncoding.ASCII);
+  end;
+  if aShape = 'shadow' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Posix.Unistd.pas'),
+      'unit Posix.Unistd; interface implementation uses UProv; ' +
+      'procedure Run; begin WriteLn(Fetch); end; end.', TEncoding.ASCII);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'sdk.sqlite3'), False, aPlatform, True);
+  lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'sdk.sqlite3'), True, aPlatform, True);
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  if aShape = 'shadow' then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'posix.unistd.pas:');
+  end else if aShape = 'unknown' then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
+  end else begin
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(0, Integer(Length(lPlan.UnresolvedReferences)));
+    Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
+  end;
+  if aShape = 'sdk-alias' then
+  begin
+    // An SDK alias cannot hide a project source selected for its target.
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Windows.pas'),
+      'unit Windows; interface implementation uses UProv; ' +
+      'procedure Run; begin WriteLn(Fetch); end; end.', TEncoding.ASCII);
+    lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+      TPath.Combine(lRoot, 'alias-shadow.sqlite3'), False, aPlatform, True);
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'windows.pas:');
+  end;
+end;
+
+procedure TRenameCompletenessTests.CertifiedPossibleSourcesRemainVisible(
+  const aShape, aPlatform: string);
+var
+  lRoot, lBlock, lInclude, lUses: string;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lBlock := '{$IFDEF RELEASE}{$I Outer.inc}{$ENDIF}';
+  lInclude := 'WriteLn(Fetch);';
+  lUses := 'uses UProv;';
+  if aShape = 'c08' then
+  begin
+    lBlock := '{$I Outer.inc}';
+    lInclude := '{$IFDEF RELEASE}WriteLn(Fetch);{$ENDIF}';
+  end else if aShape = 'nested' then
+    lInclude := '{$I Inner.inc}'
+  else if aShape = 'c11' then
+  begin
+    lBlock := 'WriteLn(0);';
+    lUses := '{$IFDEF RELEASE}uses UUser;{$ENDIF}';
+  end else if aShape = 'fragment' then
+  begin
+    lBlock := 'WriteLn(0);';
+    lUses := 'uses UProv {$IFDEF RELEASE}{$I Outer.inc}{$ENDIF};';
+    lInclude := ', UUser';
+  end else if aShape = 'c16' then
+    lUses := '{$IFDEF RELEASE}uses UOther;{$ENDIF}';
+  lRoot := WriteCompletenessProject('certified-possible-' + aShape + '-' + aPlatform,
+    'program P;'#13#10'uses UProv, UCons;'#13#10'begin Run; end.'#13#10,
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+      'function Fetch: Integer;'#13#10'implementation'#13#10 +
+      'function Fetch: Integer;'#13#10'begin Result := 1; end;'#13#10'end.'#13#10),
+     CompletenessFile('UCons.pas', 'unit UCons;'#13#10'interface procedure Run;'#13#10 +
+      'implementation'#13#10 + lUses + #13#10'procedure Run;'#13#10'begin'#13#10 +
+      lBlock + #13#10'end;'#13#10'end.'#13#10)]);
+  if aShape <> 'missing' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Outer.inc'), lInclude, TEncoding.ASCII);
+  if aShape = 'nested' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'Inner.inc'), 'WriteLn(Fetch);', TEncoding.ASCII);
+  if MatchText(aShape, ['c11', 'fragment']) then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'UUser.pas'),
+      'unit UUser; interface procedure Bump; implementation uses UProv;' +
+      'procedure Bump; begin WriteLn(Fetch); end; end.', TEncoding.ASCII);
+  if aShape = 'c16' then
+    TFile.WriteAllText(TPath.Combine(lRoot, 'UOther.pas'),
+      'unit UOther; interface function Fetch: Integer; implementation ' +
+      'function Fetch: Integer; begin Result := 2; end; end.', TEncoding.ASCII);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'possible.sqlite3'), False, aPlatform, True);
+  lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'possible.sqlite3'), True, aPlatform, True);
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)),
+    SortedKeysText(PlanUnresolvedKeys(lWarm)), 'Cold/warm include and unit coverage must agree.');
+  Assert.IsTrue(Length(lPlan.UnresolvedReferences) > 0);
+  if aShape = 'missing' then
+    Assert.AreEqual('include-file-not-found', lPlan.UnresolvedReferences[0].Reason)
+  else if MatchText(aShape, ['c11', 'fragment']) then
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'uuser.pas:')
+  else if aShape = 'nested' then
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'inner.inc:')
+  else
+    Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'outer.inc:');
+end;
+
 procedure TRenameCompletenessTests.MissingPossibleIncludePreventsCompleteRename(const aShape: string);
 var
   lBlock: string;
@@ -1757,14 +2011,12 @@ begin
   end;
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue');
   lExpectedKeys := ['uprov.pas:4:10', 'uprov.pas:6:10'];
-  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version', 'undefined', 'inactive']) then
+  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version', 'undefined']) then
   begin
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual(SortedKeysText(lExpectedKeys), SortedKeysText(PlanEditKeys(lPlan)));
     Assert.AreEqual('uprov.pas:10:' + IntToStr(Length(lDirective) + 10),
       SortedKeysText(PlanUnresolvedKeys(lPlan)));
-    if aShape = 'inactive' then
-      Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
     Exit;
   end;
   lExpectedCount := 2;
@@ -1880,10 +2132,9 @@ begin
     // UNDEF restores later activity, but cannot expose references in the missing include.
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
-    Assert.AreEqual('uprov.pas:10:0 uprov.pas:11:20', SortedKeysText(PlanUnresolvedKeys(lPlan)));
-    Assert.AreEqual<Integer>(2, Length(lPlan.UnresolvedReferences));
+    Assert.AreEqual('uprov.pas:10:0', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual<Integer>(1, Length(lPlan.UnresolvedReferences));
     Assert.AreEqual('include-file-not-found', lPlan.UnresolvedReferences[0].Reason);
-    Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[1].Reason);
     Assert.AreEqual('', lPlan.ContextFingerprint);
     Exit;
   end;
@@ -1905,11 +2156,8 @@ begin
   if MatchText(aShape, ['separate', 'nested', 'true-else', 'true-elseif', 'later-true',
     'false-define', 'expression', 'ifopt-nested']) then
   begin
-    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
-    Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
-    Assert.AreEqual('uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
-      SortedKeysText(PlanUnresolvedKeys(lPlan)));
-    Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
+    // Source-only inactivity matches the installed host's safe never-compiled behavior.
+    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10'], 2);
     Exit;
   end;
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
@@ -2256,15 +2504,9 @@ begin
   if TFile.Exists(lCacheFileName) then
     TFile.Delete(lCacheFileName);
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName);
-  Assert.AreEqual('incomplete', lPlan.Status);
-  Assert.AreEqual(SortedKeysText(lKeys), SortedKeysText(PlanEditKeys(lPlan)));
-  Assert.AreEqual('ucons.pas:12:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
-  Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
+  AssertCompletePlan(lPlan, lKeys, 6);
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName, True);
-  Assert.AreEqual('incomplete', lPlan.Status);
-  Assert.AreEqual(SortedKeysText(lKeys), SortedKeysText(PlanEditKeys(lPlan)));
-  Assert.AreEqual('ucons.pas:12:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
-  Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
+  AssertCompletePlan(lPlan, lKeys, 6);
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
   lOptions.SqliteCacheFileName := lCacheFileName;
@@ -2306,8 +2548,8 @@ begin
       Assert.AreEqual(6, Integer(Length(lKeys)));
       Assert.IsFalse(SortedKeysText(lKeys).Contains('ucons.pas:12:5'),
         'Inactive homonyms are advisory occurrences, never active bindings.');
-      Assert.AreEqual(1, Integer(Length(lUsages.Unresolved)));
-      Assert.AreEqual('occurrence-in-inactive-configuration', lUsages.Unresolved[0].Reason);
+      Assert.AreEqual(0, Integer(Length(lUsages.Unresolved)));
+      // Local DEFINE/IFNDEF proves this homonym can never compile.
     finally
       lContext.ProjectSnapshot := nil;
     end;

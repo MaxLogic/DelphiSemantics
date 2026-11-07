@@ -50,6 +50,9 @@ type
     class function UnavailableActivity: string; static;
     class function EncodeActivity(const aSource, aFileName: string;
       const aSpans: TArray<TDelphiSemanticActivitySpan>): string; static;
+    class function WithNeverActivity(const aSource, aCurrent, aPossible: string): string; static;
+    class function NeverAtOffset(const aSource, aEvidence: string;
+      const aOffset: Integer): Boolean; static;
     class function SourceForScan(const aSource, aEvidence: string): string; static;
     class function UnknownAtOffset(const aSource, aEvidence: string;
       const aOffset: Integer): Boolean; static;
@@ -476,6 +479,30 @@ begin
   Result := cActivityPrefix + Result;
 end;
 
+class function TDelphiSemanticSourceConditionals.WithNeverActivity(const aSource,
+  aCurrent, aPossible: string): string;
+var
+  i: Integer;
+begin
+  Result := aCurrent;
+  if not StartsStr(cActivityPrefix, aCurrent) or not StartsStr(cActivityPrefix, aPossible) or
+    (Length(aCurrent) <> Length(cActivityPrefix) + Length(aSource)) or
+    (Length(aPossible) <> Length(aCurrent)) then
+    Exit;
+  for i := Length(cActivityPrefix) + 1 to Length(aCurrent) do
+    if (aCurrent[i] = 'I') and (aPossible[i] = 'I') then
+      Result[i] := 'N';
+end;
+
+class function TDelphiSemanticSourceConditionals.NeverAtOffset(const aSource,
+  aEvidence: string; const aOffset: Integer): Boolean;
+begin
+  Result := StartsStr(cActivityPrefix, aEvidence) and
+    (Length(aEvidence) = Length(cActivityPrefix) + Length(aSource)) and
+    (aOffset >= 1) and (aOffset <= Length(aSource)) and
+    (aEvidence[Length(cActivityPrefix) + aOffset] = 'N');
+end;
+
 class function TDelphiSemanticSourceConditionals.SourceForScan(const aSource,
   aEvidence: string): string;
 var
@@ -487,7 +514,7 @@ begin
     if Length(aEvidence) <> Length(cActivityPrefix) + Length(aSource) then
       Exit;
     for i := 1 to Length(aSource) do
-      if (aEvidence[Length(cActivityPrefix) + i] = 'I') and
+      if CharInSet(aEvidence[Length(cActivityPrefix) + i], ['I', 'N']) and
         not CharInSet(Result[i], [#13, #10]) then
         Result[i] := ' ';
   end else if (aEvidence <> '') and (Length(aEvidence) = Length(aSource)) then
@@ -505,7 +532,7 @@ begin
   if (Length(aEvidence) <> Length(cActivityPrefix) + Length(aSource)) or
     (aOffset < 1) or (aOffset > Length(aSource)) then
     Exit(True);
-  Result := not CharInSet(aEvidence[Length(cActivityPrefix) + aOffset], ['A', 'I']);
+  Result := not CharInSet(aEvidence[Length(cActivityPrefix) + aOffset], ['A', 'I', 'N']);
 end;
 
 class function TDelphiSemanticSourceConditionals.RangeIsKnownActive(const aSource,
@@ -534,7 +561,7 @@ begin
     begin
       // Proven inactive spans preserve the base raw-text rewrite behavior.
       // Only unknown or unavailable activity blocks the whole source range.
-      if not CharInSet(aEvidence[Length(cActivityPrefix) + i], ['A', 'I']) then
+      if not CharInSet(aEvidence[Length(cActivityPrefix) + i], ['A', 'I', 'N']) then
         Exit;
     end else if not CharInSet(aSource[i], [#9, #10, #13, ' ']) and
       (aEvidence <> '') and (aEvidence[i] <> aSource[i]) then

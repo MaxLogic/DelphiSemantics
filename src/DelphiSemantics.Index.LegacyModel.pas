@@ -444,6 +444,8 @@ begin
       lIndexedReference.Status := 'unresolved';
       lIndexedReference.Confidence := 'no-candidates';
     end;
+    if MatchText(lReference.Role, ['occurrence-in-inactive-configuration', 'unverified-condition']) then
+      lIndexedReference.Confidence := 'possible-source-advisory';
     aReferences.Add(lIndexedReference);
   end;
 end;

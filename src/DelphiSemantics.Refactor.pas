@@ -34,6 +34,7 @@ type
     // Status 'incomplete': these same-name occurrences could not be classified, so the edits
     // are a review aid only and must not be applied.
     UnresolvedReferences: TArray<TDelphiSemanticUsage>;
+    HasUnverifiedConditionalOccurrences: Boolean;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
@@ -1187,7 +1188,11 @@ var
   lUsage: TDelphiSemanticUsage;
 begin
   if aUsageResult.Status <> 'resolved' then
-    Exit(MakeBlockedPlan(aUsageResult.Diagnostic));
+  begin
+    Result := MakeBlockedPlan(aUsageResult.Diagnostic);
+    Result.HasUnverifiedConditionalOccurrences := aUsageResult.HasUnverifiedConditionalOccurrences;
+    Exit;
+  end;
 
   lUnresolved := nil;
   lEdits := TList<TDelphiSemanticTextEdit>.Create;
@@ -1228,6 +1233,7 @@ begin
     Result := Default(TDelphiSemanticRenamePlan);
     Result.Status := 'planned';
     Result.Edits := lEdits.ToArray;
+    Result.HasUnverifiedConditionalOccurrences := aUsageResult.HasUnverifiedConditionalOccurrences;
     // DS-652/DAK-392: an occurrence we cannot classify may be a missed reference or a wrong
     // edit, so the plan is a review aid without the apply provenance.
     if lUnresolved.Count > 0 then
@@ -1300,7 +1306,7 @@ begin
     lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName,
       aLine, aColumn);
     if lUsageResult.Status <> 'resolved' then
-      Exit(MakeBlockedPlan(lUsageResult.Diagnostic));
+      Exit(BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName));
 
     if HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
       Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +

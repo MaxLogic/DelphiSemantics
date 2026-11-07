@@ -108,8 +108,9 @@ type
     [Test]
     procedure BlocksInterfaceVisibleImport;
     [Category('RefactoringLightUses,Fast')]
-    [Test]
-    procedure BlocksConditionalUsesClause;
+    [TestCase('Project import', 'False')]
+    [TestCase('SDK boundary', 'True')]
+    procedure BlocksConditionalUsesClause(const aSdk: Boolean);
     [Category('RefactoringLightUses,Fast')]
     [Test]
     procedure UnverifiedProviderConditionCannotAuthorizeImportRemoval;
@@ -1025,12 +1026,17 @@ begin
     TSemanticPlanStatus.Blocked);
 end;
 
-procedure TRefactoringUsesTests.BlocksConditionalUsesClause;
+procedure TRefactoringUsesTests.BlocksConditionalUsesClause(const aSdk: Boolean);
+var
+  lSdkImport: string;
 begin
+  lSdkImport := '';
+  if aSdk then
+    lSdkImport := ', Posix.Unistd';
   AssertRemovalClassification(
     'unit UsesConsumer;' + sLineBreak + 'interface' + sLineBreak +
     'implementation' + sLineBreak + '{$IFDEF USE_LEAF}' + sLineBreak +
-    'uses QuietLeaf;' + sLineBreak + '{$ENDIF}' + sLineBreak + 'end.',
+    'uses QuietLeaf' + lSdkImport + ';' + sLineBreak + '{$ENDIF}' + sLineBreak + 'end.',
     'unit QuietLeaf;' + sLineBreak + 'interface' + sLineBreak +
     'implementation' + sLineBreak + 'end.', False,
     TDelphiSemanticUsesClassification.ucConditionalClause,

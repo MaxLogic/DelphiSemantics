@@ -23,7 +23,7 @@ uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.PossibleSources, DelphiSemantics.Model.Text,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
@@ -6522,6 +6522,10 @@ var
   lOrigin: TDelphiSemanticSourceLineOrigin;
   lPreprocessOptions: TDelphiSemanticPreprocessOptions;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
+  lPossibleSources: TDelphiSemanticPossibleSources;
+  lCombinedSources: IDelphiSemanticSourceObservations;
+  lPossibleReference: TDelphiSemanticReference;
+  lPossibleDiagnostic: TDelphiSemanticModelDiagnostic;
   lReferenceSink: TList<TDelphiSemanticReference>;
   lReferences: TList<TDelphiSemanticReference>;
   lRoutines: TList<TDelphiSemanticRoutine>;
@@ -6784,6 +6788,19 @@ begin
 
     CaptureUnknownIncludeReferences(lSourceResult.Source.FileName,
       lPreprocessResult.ActivitySpans, lReferences);
+    lPossibleSources := TDelphiSemanticPossibleSources.Capture(aOptions, lPreprocessResult, True);
+    if lPossibleSources.Sources <> nil then
+      if TDelphiSemanticSourceEvidence.TryMerge(Result.SourceObservations,
+        lPossibleSources.Sources, lCombinedSources, lObservationError) then
+        Result.SourceObservations := lCombinedSources
+      else
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: ' + lObservationError);
+    Result.VerifiedActiveSourceText := TDelphiSemanticSourceConditionals.WithNeverActivity(
+      Result.SourceText, Result.VerifiedActiveSourceText, lPossibleSources.RootActivity);
+    for lPossibleDiagnostic in lPossibleSources.Diagnostics do
+      lDiagnostics.Add(lPossibleDiagnostic);
+    for lPossibleReference in lPossibleSources.References do
+      lReferences.Add(lPossibleReference);
     RemoveDuplicateReferences(lReferences);
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);

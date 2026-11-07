@@ -30,6 +30,7 @@ type
     // Same-name occurrences in other configurations or with uncertain identity (role
     // 'unresolved'). Filled for project-snapshot results.
     Unresolved: TArray<TDelphiSemanticUsage>;
+    HasUnverifiedConditionalOccurrences: Boolean;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
 
@@ -116,6 +117,7 @@ begin
     Result := UnverifiedDeclarationResult(aResult.Symbol.Name,
       SnapshotText(aSnapshot, aUnit.UnitNameId), lStatus);
     Result.IndexMetrics := aResult.IndexMetrics;
+    Result.HasUnverifiedConditionalOccurrences := aResult.HasUnverifiedConditionalOccurrences;
   end;
 end;
 
@@ -743,7 +745,8 @@ end;
 // fact describes at all.
 function CollectSnapshotUnresolvedUsages(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aEquivalentRefs: TList<TSemanticSymbolRef>;
-  const aUsages: TList<TDelphiSemanticUsage>): TArray<TDelphiSemanticUsage>;
+  const aUsages: TList<TDelphiSemanticUsage>;
+  out aHasUnverifiedConditionals: Boolean): TArray<TDelphiSemanticUsage>;
 var
   i: Integer;
   lColumn: Integer;
@@ -778,6 +781,7 @@ var
   lUsage: TDelphiSemanticUsage;
   lVerified: Boolean;
 begin
+  aHasUnverifiedConditionals := False;
   lCovered := TDictionary<string, Byte>.Create;
   lDeclarations := TDictionary<string, TSemanticSymbolRef>.Create;
   lHandled := TDictionary<string, Byte>.Create;
@@ -835,8 +839,20 @@ begin
           Continue;
         lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
         if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
+          'occurrence-in-inactive-configuration') then
+        begin
+          lKey := SnapshotPositionKey(SnapshotFactFileName(aSnapshot, lUnit, lReference.FileId),
+            lReference.Line, lReference.Column);
+          if not lCovered.ContainsKey(lKey) and not lDeclarations.ContainsKey(lKey) then
+            AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName, '', '',
+              lReference.Line, lReference.Column,
+              SnapshotText(aSnapshot, lReference.ClassificationId), lReference.FileId);
+          Continue;
+        end;
+        if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
           'unverified-condition') then
         begin
+          aHasUnverifiedConditionals := True;
           AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, lName,
             SnapshotText(aSnapshot, lReference.RoutineId), SnapshotText(aSnapshot,
             lReference.SectionKindId), lReference.Line, lReference.Column,
@@ -918,10 +934,13 @@ begin
           end;
           Inc(lScanned);
         end;
-        if IsWordAt(lUpperSource, lPosition, lNeedle) then
+        if IsWordAt(lUpperSource, lPosition, lNeedle) and
+          not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lActiveSource, lPosition) then
         begin
           lColumn := lPosition - lLineStart + 1;
           lKey := SnapshotPositionKey(lFileName, lLine, lColumn);
+          if TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lActiveSource, lPosition) then
+            aHasUnverifiedConditionals := True;
           if lVerified and (lScanSource[lPosition] <> lSource[lPosition]) then
             AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit,
               Copy(lSource, lPosition, Length(lName)), '', '', lLine, lColumn,
@@ -1030,12 +1049,65 @@ begin
     Result.Symbol := aSymbol;
     Result.Usages := SortedUsages(lUsages);
     Result.Unresolved := CollectSnapshotUnresolvedUsages(aSnapshot, aSymbol, lEquivalentRefs,
-      lUsages);
+      lUsages, Result.HasUnverifiedConditionalOccurrences);
     Result.IndexMetrics.BuildInvocationCount := 0;
   finally
     lUsages.Free;
     lEquivalentRefs.Free;
   end;
+end;
+
+// The initial parse may omit a conditional declaration entirely. A failed lookup
+// still needs a certificate retry when the queried identifier has unknown activity.
+function SnapshotHasUnverifiedNameOccurrence(const aSnapshot: TDelphiProjectSnapshot;
+  const aName: string): Boolean;
+var
+  i, lLow, lHigh, lPosition: Integer;
+  lNameId: TSemanticStringId;
+  lReferenceRef: TSemanticReferenceRef;
+  lReference: TSemanticReferenceFact;
+  lUnit: TUnitSnapshot;
+  lSource, lEvidence, lUpperSource, lNeedle: string;
+begin
+  Result := False;
+  if aName = '' then
+    Exit;
+  if aSnapshot.TryFindStringId(aName, lNameId) and
+    aSnapshot.TryReferencesByName(lNameId, lLow, lHigh) then
+    for i := lLow to lHigh do
+    begin
+      lReferenceRef := aSnapshot.ReferenceRefByNameIndex(i);
+      if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
+        Continue;
+      lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+      if SameText(SnapshotText(aSnapshot, lReference.ClassificationId), 'unverified-condition') then
+        Exit(True);
+    end;
+  lNeedle := UpperCase(aName);
+  for i := 0 to Pred(aSnapshot.UnitCount) do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+    if not ContainsText(lSource, aName) then
+      Continue;
+    lEvidence := aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId);
+    lUpperSource := UpperCase(SanitizeCodeText(lSource));
+    lPosition := Pos(lNeedle, lUpperSource);
+    while lPosition > 0 do
+    begin
+      if IsWordAt(lUpperSource, lPosition, lNeedle) and
+        TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lEvidence, lPosition) then
+        Exit(True);
+      lPosition := PosEx(lNeedle, lUpperSource, lPosition + 1);
+    end;
+  end;
+end;
+
+function SnapshotLookupDiagnostic(const aSnapshot: TDelphiProjectSnapshot;
+  const aStatus, aDiagnostic, aName: string): TDelphiSemanticUsageResult;
+begin
+  Result := MakeDiagnosticResult(aStatus, aDiagnostic);
+  Result.HasUnverifiedConditionalOccurrences := SnapshotHasUnverifiedNameOccurrence(aSnapshot, aName);
 end;
 
 function FindSnapshotUsagesByName(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -1051,8 +1123,8 @@ begin
     Exit(MakeDiagnosticResult('unresolved', 'No project snapshot is available.'));
 
   if not TryFindSnapshotUsageSymbolByName(lSnapshot, aName, lSymbolRef, lSymbol) then
-    Exit(MakeDiagnosticResult('unresolved', 'No visible symbol named "' + aName +
-      '" was found.'));
+    Exit(SnapshotLookupDiagnostic(lSnapshot, 'unresolved', 'No visible symbol named "' + aName +
+      '" was found.', aName));
 
   Result := BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol);
   if lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
@@ -1116,9 +1188,11 @@ begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot = nil then
     Exit(MakeDiagnosticResult('unresolved', 'No project snapshot is available.'));
+  TryReadSnapshotIdentifierAt(lSnapshot, aFileName, aLine, aColumn, lIdentifier);
   if not TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn, '',
     lPositionResolution) then
-    Exit(MakeDiagnosticResult('not-found', 'No symbol found at the requested position.'));
+    Exit(SnapshotLookupDiagnostic(lSnapshot, 'not-found', 'No symbol found at the requested position.',
+      lIdentifier));
 
   lSymbol := SnapshotIndexedSymbol(lSnapshot, lPositionResolution.SymbolUnit,
     lPositionResolution.SymbolRef, lPositionResolution.Symbol);
@@ -1126,17 +1200,17 @@ begin
   // at the position means the resolver matched an enclosing range (a routine body), not it.
   if TryReadSnapshotIdentifierAt(lSnapshot, aFileName, aLine, aColumn, lIdentifier) and
     not SameText(lIdentifier, lSymbol.Name) then
-    Exit(MakeDiagnosticResult('unknown', 'The identifier "' + lIdentifier +
+    Exit(SnapshotLookupDiagnostic(lSnapshot, 'unknown', 'The identifier "' + lIdentifier +
       '" at the requested position was resolved to "' + lSymbol.Name +
-      '"; its own symbol cannot be proven.'));
+      '"; its own symbol cannot be proven.', lIdentifier));
   Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
   Result := GateSnapshotDeclaringUnit(lSnapshot, lPositionResolution.SymbolUnit, Result);
   // The requested position must be one of the symbol's own declarations or proven references;
   // whitespace or punctuation in a routine body only matched the routine's range.
   if (Result.Status = 'resolved') and not UsagesCoverPosition(Result.Usages, aFileName, aLine,
     aColumn) then
-    Result := MakeDiagnosticResult('unknown', 'The requested position is not a declaration ' +
-      'or proven reference of "' + lSymbol.Name + '".');
+    Result := SnapshotLookupDiagnostic(lSnapshot, 'unknown', 'The requested position is not a declaration ' +
+      'or proven reference of "' + lSymbol.Name + '".', lIdentifier);
 end;
 
 function NormalizedSymbolSignature(const aSignature: string): string;

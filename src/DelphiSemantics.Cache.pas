@@ -205,7 +205,7 @@ implementation
 
 uses
   System.Classes, System.Hash, System.IOUtils, System.SysUtils,
-  DelphiSemantics.Preprocess, DelphiSemantics.Version;
+  DelphiSemantics.Model.PossibleSources, DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
   cCacheSchemaVersion = '10';
@@ -213,8 +213,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated headings, owner references, conditional safety, compiler define evidence and batch extraction.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.89';
+  // Integrated extraction plus configuration-neutral include/import coverage and never-compiled activity.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.93';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -333,6 +333,11 @@ begin
     '|compilerDefineEvidence=' + TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) +
     // Include order affects lookup; equivalent Windows path spellings do not.
     '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
+    '|possibleSourceAliases=' + CanonicalIdentityArrayText(aOptions.UnitAliases, False, False) +
+    '|possibleSourceScopes=' + CanonicalIdentityArrayText(aOptions.UnitScopeNames, False, False) +
+    '|installedSdkRoot=' + TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.InstalledSdkRoot) +
+    '|possibleSourceRoots=' + CanonicalIdentityArrayText(aOptions.ProjectSourceFileNames, True, True) +
+    '|selectedConfigurationOnly=' + BoolToStr(aOptions.SelectedConfigurationOnly, True) +
     '|skippedIncludePolicy=all-candidates-v1' +
     '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
@@ -542,6 +547,7 @@ function BuildLoadedUnitIdentity(const aOptions: TDelphiSemanticModelOptions;
 var
   lContext: TDelphiSemanticCacheIdentityContext;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
+  lPossibleSources: TDelphiSemanticPossibleSources;
   lSourceFileName: string;
   lSourceResult: TDelphiSemanticSourceLoadResult;
   lObservationError: string;
@@ -553,6 +559,9 @@ begin
   else
     lPreprocessResult := Default(TDelphiSemanticPreprocessResult);
 
+  lPossibleSources := TDelphiSemanticPossibleSources.Capture(aOptions, lPreprocessResult, False);
+  lPreprocessResult.SourceObservations := lPossibleSources.Sources;
+  lPreprocessResult.IncludeGraphHash := lPreprocessResult.IncludeGraphHash + lPossibleSources.Identity;
   aObservations := lSourceResult.SourceObservations;
   if lPreprocessResult.SourceObservations <> nil then
     if not TDelphiSemanticSourceEvidence.TryMerge(lSourceResult.SourceObservations,
@@ -619,6 +628,13 @@ begin
   for i := 0 to aObservations.Count - 1 do
   begin
     lExpected := aObservations.Items[i];
+    if lExpected.Role = 'possible-source-absence' then
+    begin
+      if TFile.Exists(lExpected.FileName) then
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: source selection drift: ' +
+          lExpected.FileName);
+      Continue;
+    end;
     try
       lActualHash := THashSHA2.GetHashStringFromFile(lExpected.FileName);
     except

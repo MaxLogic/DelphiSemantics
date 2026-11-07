@@ -36,6 +36,7 @@ uses
   DelphiSemantics.Model.Coordinates in '..\src\DelphiSemantics.Model.Coordinates.pas',
   DelphiSemantics.Model.Extract in '..\src\DelphiSemantics.Model.Extract.pas',
   DelphiSemantics.Model.Json in '..\src\DelphiSemantics.Model.Json.pas',
+  DelphiSemantics.Model.PossibleSources in '..\src\DelphiSemantics.Model.PossibleSources.pas',
   DelphiSemantics.Model.Text in '..\src\DelphiSemantics.Model.Text.pas',
   DelphiSemantics.Preprocess in '..\src\DelphiSemantics.Preprocess.pas',
   DelphiSemantics.CompilerDefineEvidence in '..\src\DelphiSemantics.CompilerDefineEvidence.pas',

@@ -2644,11 +2644,16 @@ begin
     // Missing possible includes are project-wide coverage gaps even when the
     // including unit never spells the queried name. Retain them through SQLite.
     for lDiagnostic in aModel.Diagnostics do
-      if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+      if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') or
+        SameText(lDiagnostic.Code, 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE') or
+        SameText(lDiagnostic.Code, 'POSSIBLE_SOURCE_COVERAGE_UNAVAILABLE') then
       begin
         lSourceGap := Default(TSemanticReferenceFact);
         lSourceGap.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
-        lSourceGap.ReasonId := aStrings.Intern('include-file-not-found');
+        if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+          lSourceGap.ReasonId := aStrings.Intern('include-file-not-found')
+        else
+          lSourceGap.ReasonId := aStrings.Intern(LowerCase(lDiagnostic.Code).Replace('_', '-'));
         lSourceGap.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
         if not SameText(lDiagnostic.FileName, aModel.FileName) then
           lSourceGap.FileId := aStrings.Intern(lDiagnostic.FileName);

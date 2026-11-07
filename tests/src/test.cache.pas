@@ -87,6 +87,9 @@ type
     procedure WritableTypedConstantsOptionInvalidatesCachedUnitModel;
     [Category('Fast')]
     [Test]
+    procedure SelectedConfigurationCoverageInvalidatesCachedUnitModel;
+    [Category('Fast')]
+    [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
     [Category('Fast')]
     [Test]
@@ -486,8 +489,8 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.89', lIdentity.ParserVersion,
-      'Integrated headings, owner references, conditional safety, compiler define evidence and batch extraction require fresh extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.93', lIdentity.ParserVersion,
+      'Configuration-neutral include/import coverage and never-compiled activity require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');
@@ -785,6 +788,53 @@ begin
     Assert.AreEqual(0, Integer(Length(lLean.Model.References)));
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SelectedConfigurationCoverageInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lOptions, lSelectedOptions: TDelphiSemanticModelOptions;
+  lFull, lSelected, lAgain: TDelphiSemanticUnitCacheAccessResult;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFullGaps, lSelectedGaps: Integer;
+  lPath: string;
+begin
+  lPath := TempPath('SelectedConfigurationCoverage.pas');
+  TFile.WriteAllText(lPath, 'unit SelectedConfigurationCoverage;' + sLineBreak +
+    'interface' + sLineBreak + '{$IFDEF OTHER_CONFIGURATION}' + sLineBreak +
+    'uses MissingProjectConsumer;' + sLineBreak + '{$ENDIF}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.ProjectSourceFileNames := [lPath];
+  lSelectedOptions := lOptions;
+  lSelectedOptions.SelectedConfigurationOnly := True;
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    lFull := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    lSelected := lCache.GetOrExtractUnitModelWithStatus(lSelectedOptions);
+    lFullGaps := 0;
+    for lDiagnostic in lFull.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lFullGaps);
+    lSelectedGaps := 0;
+    for lDiagnostic in lSelected.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lSelectedGaps);
+    Assert.IsTrue(lFullGaps > 0, 'Full queries must retain unavailable possible project sources.');
+    Assert.AreEqual(0, lSelectedGaps, 'Selected-configuration WITH models do not scan possible consumers.');
+    Assert.IsFalse(lSelected.CacheHit);
+    Assert.AreNotEqual(lFull.Identity.ExtractionOptionsHash, lSelected.Identity.ExtractionOptionsHash);
+    lAgain := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    lFullGaps := 0;
+    for lDiagnostic in lAgain.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lFullGaps);
+    Assert.IsTrue(lFullGaps > 0, 'A subsequent full query cannot reuse a selected-only model.');
   finally
     lCache.Free;
   end;

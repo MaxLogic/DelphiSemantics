@@ -471,6 +471,9 @@ begin
   end;
   for lReference in aIndex.References do
   begin
+    // Possible-source identifiers have no binding proof and cannot cover raw occurrences.
+    if lReference.Confidence = 'possible-source-advisory' then
+      Continue;
     fCovered.AddOrSetValue(PositionKey(lReference.FileName, lReference.Line, lReference.Column),
       True);
     fCoveredByUnit.AddOrSetValue(lReference.UnitName + #1 +

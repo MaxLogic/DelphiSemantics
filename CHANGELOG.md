@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename and find-usages retain possible occurrences in recursive includes and inactive imported units, report unavailable possible source, and safely ignore source-proven never-compiled branches (DS-791).
+
 - Rename and find-usages retain inactive-configuration occurrences as unresolved advisory entries; native predefined tables are validated by contents as well as compiler/platform identity (DS-791).
 
 - Certified compiler define evidence supports verified Delphi 12 Win32 dcc32 hosts with a separate predefined-symbol table and platform-specific admission checks (DS-791).

@@ -3055,6 +3055,8 @@ begin
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
     PopulateWitnessProfileProperties(lProperties, aOptions, lObservations, aDiagnostics);
     PopulateCompilerIncludePaths(lProperties, aOptions, aDiagnostics);
+    SetPropertyValue(lProperties, 'DSInstalledSdkRoot',
+      TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(aOptions.DelphiVersion, aOptions.RsVarsPath));
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
