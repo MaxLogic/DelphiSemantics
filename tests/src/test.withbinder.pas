@@ -3044,6 +3044,7 @@ uses
   AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.RemoveWithVerification,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
@@ -22072,6 +22073,9 @@ var
   lSerializer: TJsonSerializer;
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
   lFound: Integer;
+  lVerificationPlan: TDelphiSemanticRemoveWithPlan;
+  lInitializations: TArray<string>;
+  lVerificationReplacements: TArray<TDelphiSemanticRemoveWithVerificationReplacement>;
 begin
   lRoot := WithBinderTempPath('inventory-' + aShape + IntToStr(aRoute) + '-' + TPath.GetRandomFileName);
   TDirectory.CreateDirectory(lRoot);
@@ -22245,6 +22249,25 @@ begin
       lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
       lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+    lVerificationPlan := lPlan;
+    lVerificationPlan.FinalStatements := Copy(lPlan.FinalStatements);
+    for var i := 0 to High(lVerificationPlan.FinalStatements) do
+    begin
+      lVerificationPlan.FinalStatements[i].Edits := Copy(lPlan.FinalStatements[i].Edits);
+      for var j := 0 to High(lVerificationPlan.FinalStatements[i].Edits) do
+      begin
+        lInitializations := nil;
+        for var lTempStatement in lPlan.FinalStatements do
+          if SameText(lTempStatement.FileName, lPlan.FinalStatements[i].Edits[j].FileName) then
+            for var lTemp in lTempStatement.Temps do
+              if lTemp.Strategy = 'record-pointer-temp' then
+                lInitializations := lInitializations + [lTemp.InitializationText];
+        lVerificationPlan.FinalStatements[i].Edits[j].ReplacementText := RemoveWithVerificationText(
+          lPlan.FinalStatements[i].Edits[j].ReplacementText, lInitializations, lVerificationReplacements);
+      end;
+    end;
+    TFile.WriteAllText(TPath.Combine(lProofRoot, 'verification-plan.json'),
+      lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lVerificationPlan), TEncoding.UTF8);
   end;
   if MatchText(aShape, ['nested-alias-global', 'nested-alias-no-global', 'nested-nonalias-global']) then
   begin

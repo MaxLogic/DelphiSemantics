@@ -1237,10 +1237,37 @@ def native(root, bds, tag, defines=()):
 
 def apply_edits(root, plan):
     grouped = {}
+    expected = {(str(Path(statement['file']).resolve()).lower(), plain)
+                for statement in plan['statements'] if statement['status'] == 'planned'
+                for plain in statement['pointer_initializations']}
+    verified = set()
     for statement in plan["statements"]:
         if statement["status"] == "planned":
             for edit in statement["edits"]:
+                # Missing metadata is an exporter failure, never permission to
+                # compile an unchecked pointer initialization. Check all files
+                # before writing the first one.
+                code = {m.start(): m.group() for m in _TOKEN.finditer(edit['text'])
+                        if not m.group().startswith(("'", '//', '{', '(*'))}
+                filename = str(Path(edit['file']).resolve()).lower()
+                required = {(offset, plain) for owner, plain in expected if owner == filename
+                            for offset in code if edit['text'].startswith(plain, offset)}
+                recipes = set()
+                previous = len(edit['text']) + 1
+                for recipe in edit['verification']:
+                    offset = recipe['offset'] - 1
+                    plain = recipe['plain']
+                    typed = '{$IFOPT T-}{$T+}' + plain + '{$T-}{$ELSE}' + plain + '{$ENDIF}'
+                    assert 0 <= offset and offset + len(plain) <= previous
+                    assert edit['text'][offset:offset + len(plain)] == plain
+                    assert offset in code and plain.startswith(code[offset])
+                    assert recipe['typed'] == typed, 'Invalid typed-address wrapper'
+                    verified.add((filename, plain))
+                    recipes.add((offset, plain))
+                    previous = offset
+                assert required <= recipes, ('temp-address-initialization-unverified', required - recipes)
                 grouped.setdefault(edit["file"], []).append(edit)
+    assert expected <= verified, ('temp-address-initialization-unverified', expected - verified)
     for filename, edits in grouped.items():
         path = Path(filename).resolve()
         assert path.is_relative_to(root.resolve()), path
@@ -1261,7 +1288,19 @@ def apply_edits(root, plan):
                 kind = "declare-temp" if point else "replace-statement"
             assert kind in ("declare-temp", "replace-statement"), kind
             end = start if kind == "declare-temp" else offsets[edit["el"] - 1] + edit["ec"]
-            changes.append((start, end, edit["text"]))
+            replacement = edit["text"]
+            # Native Delphi exports the exact verified wrapper and its position.
+            # Preserve mutations of real edit text: never replace it with a stale
+            # pre-rendered variant that could conceal an oracle challenge.
+            previous_verification = len(replacement) + 1
+            for verification in edit["verification"]:
+                offset = verification['offset'] - 1
+                plain = verification['plain']
+                assert offset + len(plain) <= previous_verification
+                assert replacement[offset:offset + len(plain)] == plain
+                replacement = replacement[:offset] + verification['typed'] + replacement[offset + len(plain):]
+                previous_verification = offset
+            changes.append((start, end, replacement))
         # Shared declaration edits may occur in more than one statement DTO.
         unique = sorted(set(changes), reverse=True)
         previous = len(text) + 1
@@ -1934,7 +1973,7 @@ def challenge(root, bds):
     output = root/'comparator-challenges'; output.mkdir()
     for mutation in ('baseline', 'wrong-name', 'deleted-dto', 'missing-selector',
                      'alias-wrong-unit', 'wrong-unit', 'runtime', 'monotonicity', 'route-loss',
-                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused', 'anonymous-wrong-binding'):
+                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused', 'anonymous-wrong-binding', 'temp-address'):
         folder = output/mutation; folder.mkdir()
         subject = (next(c for c in cases if c['name'] == 'anon-partial-field')
                    if mutation == 'anonymous-wrong-binding' else
@@ -1944,6 +1983,8 @@ def challenge(root, bds):
                    if mutation == 'nested-context-loss' else
                    next(c for c in cases if c['name'] == 'r8-member-homonym-field-own-global')
                    if mutation == 'binding-flip' else base)
+        if mutation == 'temp-address':
+            subject = next(c for c in cases if c['name'] == 'ds785-nested-lower')
         row = json.loads(json.dumps(subject)); row['root'] = str(folder/'subject'); row['name']=subject['name'] if mutation == 'approved-plan-refused' else 'subject'
         row.pop('known_absent', None)
         shutil.copytree(subject['root'], row['root'], ignore=shutil.ignore_patterns('native', '*.sqlite*', '*-compile.json', '*-runtime.json'))
@@ -1976,6 +2017,20 @@ def challenge(root, bds):
                 if mutation=='alias-wrong-unit':
                     assert plan['selectors'][0]['name'].startswith('TAlias'), plan
                 plan['selectors'][0]['unit']='WrongUnit'
+            if mutation == 'temp-address':
+                count = 0
+                for statement in plan['statements']:
+                    statement['pointer_initializations'] = [plain.replace('@A;', '@B.X;')
+                                                           for plain in statement['pointer_initializations']]
+                    for edit in statement['edits']:
+                        count += edit['text'].count('@A;')
+                        edit['text'] = edit['text'].replace('@A;', '@B.X;')
+                        for verification in edit.get('verification', []):
+                            verification['plain'] = verification['plain'].replace('@A;', '@B.X;')
+                            verification['typed'] = verification['typed'].replace('@A;', '@B.X;')
+                            verification['offset'] = edit['text'].index(verification['plain']) + 1
+                        edit.get('verification', []).sort(key=lambda item: item['offset'], reverse=True)
+                assert count == 1, 'Must corrupt one actual generated pointer initialization'
             if mutation=='runtime':
                 count=0
                 for statement in plan['statements']:
@@ -2017,7 +2072,7 @@ def challenge(root, bds):
         import sys
         process=run([sys.executable,'-B',*command],folder,folder/'receipt.json')
         result=json.loads((folder/'comparison.json').read_text())
-        expected = { 'baseline': None, 'anonymous-wrong-binding': 'compiler-identity', 'wrong-name': 'compiler-identity',
+        expected = { 'temp-address': 'rewrite-compile', 'baseline': None, 'anonymous-wrong-binding': 'compiler-identity', 'wrong-name': 'compiler-identity',
             'deleted-dto': 'statement-coverage', 'missing-selector': 'selector-coverage',
             'alias-wrong-unit': 'compiler-identity', 'wrong-unit': 'compiler-identity',
             'runtime': 'runtime-output', 'monotonicity': 'monotonicity',
@@ -2027,6 +2082,10 @@ def challenge(root, bds):
         detected = (process['exit']==0 and not result['failures']) if expected is None else (
             process['exit']==1 and any(f['cause']==expected and
                 (mutation != 'anonymous-wrong-binding' or f['field'] == 3) for f in result['failures']))
+        if mutation == 'temp-address':
+            builds = [row['rewrite']['build'] for row in result['rows'] if 'rewrite' in row]
+            detected = detected and len(builds) == 5 and all(
+                build['exit'] != 0 and 'E2008' in build['stdout'] for build in builds)
         results.append(dict(mutation=mutation,exit=process['exit'],detected=detected,
                             expected=expected,failures=len(result['failures']),seconds=process['seconds']))
     (root/'comparator-mutations.json').write_text(json.dumps(results,indent=2))
