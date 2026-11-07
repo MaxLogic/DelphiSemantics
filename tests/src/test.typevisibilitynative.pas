@@ -41,7 +41,7 @@ uses
   DelphiSemantics.Api, DelphiSemantics.Api.ProjectOptions,
   DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Api.WithBinding,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Extract, DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
+  DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan, DelphiSemantics.RemoveWithVerification,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   Test.CompilerIncludeCapture, Test.Support;
@@ -106,6 +106,10 @@ var
   lSelectorIndex: Integer;
   lReferences: TJSONArray;
   lReference: TJSONObject;
+  lInitializations: TArray<string>;
+  lReplacements: TArray<TDelphiSemanticRemoveWithVerificationReplacement>;
+  lVerification: TJSONArray;
+  lVerificationItem: TJSONObject;
 begin
   lJson := TJSONObject.Create;
   try
@@ -143,6 +147,23 @@ begin
         lEdit.AddPair('el', TJSONNumber.Create(lTextEdit.Range.EndLine));
         lEdit.AddPair('ec', TJSONNumber.Create(lTextEdit.Range.EndColumn));
         lEdit.AddPair('text', lTextEdit.ReplacementText);
+        lInitializations := nil;
+        for var lTempStatement in aPlan.FinalStatements do
+          if SameText(lTempStatement.FileName, lTextEdit.FileName) then
+            for var lTemp in lTempStatement.Temps do
+              if lTemp.Strategy = 'record-pointer-temp' then
+                lInitializations := lInitializations + [lTemp.InitializationText];
+        RemoveWithVerificationText(lTextEdit.ReplacementText, lInitializations, lReplacements);
+        lVerification := TJSONArray.Create;
+        lEdit.AddPair('verification', lVerification);
+        for var lReplacement in lReplacements do
+        begin
+          lVerificationItem := TJSONObject.Create;
+          lVerification.AddElement(lVerificationItem);
+          lVerificationItem.AddPair('offset', TJSONNumber.Create(lReplacement.PlainOffset));
+          lVerificationItem.AddPair('plain', lReplacement.PlainText);
+          lVerificationItem.AddPair('typed', lReplacement.VerificationText);
+        end;
       end;
     end;
     // Covered children have no final DTO. Export their explicit parent identity

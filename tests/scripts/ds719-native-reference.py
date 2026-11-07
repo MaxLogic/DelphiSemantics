@@ -1259,7 +1259,19 @@ def apply_edits(root, plan):
                 kind = "declare-temp" if point else "replace-statement"
             assert kind in ("declare-temp", "replace-statement"), kind
             end = start if kind == "declare-temp" else offsets[edit["el"] - 1] + edit["ec"]
-            changes.append((start, end, edit["text"]))
+            replacement = edit["text"]
+            # Native Delphi exports the exact verified wrapper and its position.
+            # Preserve mutations of real edit text: never replace it with a stale
+            # pre-rendered variant that could conceal an oracle challenge.
+            previous_verification = len(replacement) + 1
+            for verification in edit.get("verification", []):
+                offset = verification['offset'] - 1
+                plain = verification['plain']
+                assert offset + len(plain) <= previous_verification
+                assert replacement[offset:offset + len(plain)] == plain
+                replacement = replacement[:offset] + verification['typed'] + replacement[offset + len(plain):]
+                previous_verification = offset
+            changes.append((start, end, replacement))
         # Shared declaration edits may occur in more than one statement DTO.
         unique = sorted(set(changes), reverse=True)
         previous = len(text) + 1
@@ -1888,7 +1900,7 @@ def challenge(root, bds):
     output = root/'comparator-challenges'; output.mkdir()
     for mutation in ('baseline', 'wrong-name', 'deleted-dto', 'missing-selector',
                      'alias-wrong-unit', 'wrong-unit', 'runtime', 'monotonicity', 'route-loss',
-                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused', 'anonymous-wrong-binding'):
+                     'nested-context-loss', 'binding-flip', 'refuse-all', 'approved-plan-refused', 'anonymous-wrong-binding', 'temp-address'):
         folder = output/mutation; folder.mkdir()
         subject = (next(c for c in cases if c['name'] == 'anon-partial-field')
                    if mutation == 'anonymous-wrong-binding' else
@@ -1898,6 +1910,8 @@ def challenge(root, bds):
                    if mutation == 'nested-context-loss' else
                    next(c for c in cases if c['name'] == 'r8-member-homonym-field-own-global')
                    if mutation == 'binding-flip' else base)
+        if mutation == 'temp-address':
+            subject = next(c for c in cases if c['name'] == 'ds785-nested-lower')
         row = json.loads(json.dumps(subject)); row['root'] = str(folder/'subject'); row['name']=subject['name'] if mutation == 'approved-plan-refused' else 'subject'
         row.pop('known_absent', None)
         shutil.copytree(subject['root'], row['root'], ignore=shutil.ignore_patterns('native', '*.sqlite*', '*-compile.json', '*-runtime.json'))
@@ -1930,6 +1944,18 @@ def challenge(root, bds):
                 if mutation=='alias-wrong-unit':
                     assert plan['selectors'][0]['name'].startswith('TAlias'), plan
                 plan['selectors'][0]['unit']='WrongUnit'
+            if mutation == 'temp-address':
+                count = 0
+                for statement in plan['statements']:
+                    for edit in statement['edits']:
+                        count += edit['text'].count('@A;')
+                        edit['text'] = edit['text'].replace('@A;', '@B.X;')
+                        for verification in edit.get('verification', []):
+                            verification['plain'] = verification['plain'].replace('@A;', '@B.X;')
+                            verification['typed'] = verification['typed'].replace('@A;', '@B.X;')
+                            verification['offset'] = edit['text'].index(verification['plain']) + 1
+                        edit.get('verification', []).sort(key=lambda item: item['offset'], reverse=True)
+                assert count == 1, 'Must corrupt one actual generated pointer initialization'
             if mutation=='runtime':
                 count=0
                 for statement in plan['statements']:
@@ -1971,7 +1997,7 @@ def challenge(root, bds):
         import sys
         process=run([sys.executable,'-B',*command],folder,folder/'receipt.json')
         result=json.loads((folder/'comparison.json').read_text())
-        expected = { 'baseline': None, 'anonymous-wrong-binding': 'compiler-identity', 'wrong-name': 'compiler-identity',
+        expected = { 'temp-address': 'rewrite-compile', 'baseline': None, 'anonymous-wrong-binding': 'compiler-identity', 'wrong-name': 'compiler-identity',
             'deleted-dto': 'statement-coverage', 'missing-selector': 'selector-coverage',
             'alias-wrong-unit': 'compiler-identity', 'wrong-unit': 'compiler-identity',
             'runtime': 'runtime-output', 'monotonicity': 'monotonicity',
@@ -1981,6 +2007,10 @@ def challenge(root, bds):
         detected = (process['exit']==0 and not result['failures']) if expected is None else (
             process['exit']==1 and any(f['cause']==expected and
                 (mutation != 'anonymous-wrong-binding' or f['field'] == 3) for f in result['failures']))
+        if mutation == 'temp-address':
+            builds = [row['rewrite']['build'] for row in result['rows'] if 'rewrite' in row]
+            detected = detected and len(builds) == 5 and all(
+                build['exit'] != 0 and 'E2008' in build['stdout'] for build in builds)
         results.append(dict(mutation=mutation,exit=process['exit'],detected=detected,
                             expected=expected,failures=len(result['failures']),seconds=process['seconds']))
     (root/'comparator-mutations.json').write_text(json.dumps(results,indent=2))

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Remove-with native proof type-checks generated pointer initializations without changing the published plain assignments (DS-787).
+
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed
