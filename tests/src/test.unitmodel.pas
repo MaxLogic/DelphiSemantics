@@ -469,6 +469,15 @@ type
     procedure MidLineIncludesKeepDistinctPhysicalReferenceOccurrences;
     [Category('Fast')]
     [Test]
+    [TestCase('Distinct includes without trailing newline', 'distinct-none')]
+    [TestCase('Repeated include without trailing newline', 'repeated-none')]
+    [TestCase('Distinct includes with CRLF', 'distinct-crlf')]
+    [TestCase('Repeated include with CRLF', 'repeated-crlf')]
+    [TestCase('Distinct includes with UTF8 BOM', 'distinct-bom')]
+    [TestCase('Repeated include with UTF8 BOM', 'repeated-bom')]
+    procedure InlineIncludePhysicalSpansPreserveLegacyCoordinates(const aLayout: string);
+    [Category('Fast')]
+    [Test]
     procedure RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;
     [Category('Fast')]
     [Test]
@@ -2977,6 +2986,115 @@ begin
   Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
   AssertOccurrences(ModelToJson(lModel));
   AssertOccurrences(ModelToJson(JsonToModel(ModelToJson(lModel))));
+end;
+
+procedure TUnitModelTests.InlineIncludePhysicalSpansPreserveLegacyCoordinates(
+  const aLayout: string);
+const
+  cPrefix = 'unit InlinePhysical;'#13#10 + 'interface'#13#10 +
+    'var GF: Integer;'#13#10 + 'procedure Foo;'#13#10 +
+    'implementation'#13#10 + 'procedure Foo;'#13#10 + 'begin'#13#10;
+var
+  lColumn: Integer;
+  lFirstExpansion: string;
+  lIncludeCount: Integer;
+  lIncludeText: string;
+  lLegacyCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  lOptions: TDelphiSemanticModelOptions;
+  lParentLine: string;
+  lReference: TDelphiSemanticReference;
+  lRoot: string;
+  lSecondExpansion: string;
+  lSecondInclude: string;
+  lTailCount: Integer;
+begin
+  lRoot := UnitModelTempPath('inline-physical-' + aLayout);
+  TDirectory.CreateDirectory(lRoot);
+  lIncludeText := 'GF := GF + 1;';
+  if aLayout.EndsWith('-crlf') then
+    lIncludeText := lIncludeText + #13#10;
+  if aLayout.EndsWith('-bom') then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'), lIncludeText, TEncoding.UTF8);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'), lIncludeText, TEncoding.UTF8);
+  end else begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'), lIncludeText, TEncoding.ASCII);
+    TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'), lIncludeText, TEncoding.ASCII);
+  end;
+  lSecondInclude := 'second.inc';
+  if aLayout.StartsWith('repeated-') then
+    lSecondInclude := 'first.inc';
+  lParentLine := '  WriteLn(1); {$I first.inc} {$I ' + lSecondInclude + '} GF := GF + 1;';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'InlinePhysical.pas'),
+    cPrefix + lParentLine + #13#10 + 'end;'#13#10 + 'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'InlinePhysical.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  lIncludeCount := 0;
+  lTailCount := 0;
+  for lOccurrence in lModel.PhysicalReferenceOccurrences do
+  begin
+    if not SameText(lOccurrence.Name, 'GF') then
+      Continue;
+    Assert.IsTrue(lOccurrence.Verified, 'All captured GF origins must be verified');
+    Assert.AreEqual('reference', lOccurrence.Role);
+    Assert.AreEqual('Foo', lOccurrence.RoutineName);
+    Assert.AreNotEqual('', lOccurrence.RoutineScopeId);
+    Assert.AreEqual(2, lOccurrence.OutputEndOffset - lOccurrence.OutputStartOffset);
+    if SameText(ExtractFileExt(lOccurrence.FileName), '.inc') then
+    begin
+      Assert.AreEqual(1, lOccurrence.Line);
+      Assert.AreEqual(1, lOccurrence.EndLine);
+      lColumn := 1 + (lIncludeCount mod 2) * 6;
+      Assert.AreEqual(lColumn, lOccurrence.Column);
+      Assert.AreEqual(lColumn + 1, lOccurrence.EndColumn);
+      if lIncludeCount < 2 then
+      begin
+        Assert.AreEqual('first.inc', ExtractFileName(lOccurrence.FileName));
+        if lIncludeCount = 0 then
+          lFirstExpansion := lOccurrence.ExpansionId
+        else
+          Assert.AreEqual(lFirstExpansion, lOccurrence.ExpansionId);
+      end else begin
+        Assert.AreEqual(lSecondInclude, ExtractFileName(lOccurrence.FileName));
+        if lIncludeCount = 2 then
+          lSecondExpansion := lOccurrence.ExpansionId
+        else
+          Assert.AreEqual(lSecondExpansion, lOccurrence.ExpansionId);
+      end;
+      Inc(lIncludeCount);
+    end else begin
+      Assert.AreEqual('InlinePhysical.pas', ExtractFileName(lOccurrence.FileName));
+      Assert.AreEqual(8, lOccurrence.Line);
+      Assert.AreEqual(8, lOccurrence.EndLine);
+      lColumn := Length(lParentLine) - 12 + lTailCount * 6;
+      Assert.AreEqual(lColumn, lOccurrence.Column, 'The parent tail keeps its exact column');
+      Assert.AreEqual(lColumn + 1, lOccurrence.EndColumn);
+      Inc(lTailCount);
+    end;
+  end;
+  Assert.AreEqual(4, lIncludeCount);
+  Assert.AreEqual(2, lTailCount);
+  Assert.AreNotEqual('', lFirstExpansion);
+  Assert.AreNotEqual('', lSecondExpansion);
+  Assert.AreNotEqual(lFirstExpansion, lSecondExpansion,
+    'Each include invocation has its own identity, even for the same physical file');
+  lLegacyCount := 0;
+  for lReference in lModel.References do
+    if SameText(lReference.Name, 'GF') then
+    begin
+      Inc(lLegacyCount);
+      Assert.AreEqual('InlinePhysical.pas', ExtractFileName(lReference.FileName));
+      Assert.AreEqual(8, lReference.Line);
+      Assert.AreEqual(15, lReference.Column, 'Legacy mixed-line GF stays at the first directive');
+    end;
+  Assert.AreEqual(1, lLegacyCount, 'The physical sidecar must not expand legacy references');
 end;
 
 procedure TUnitModelTests.RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;

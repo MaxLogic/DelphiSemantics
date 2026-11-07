@@ -698,9 +698,12 @@ begin
     Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
     lOriginalName := lModel.PhysicalReferenceOccurrences[0].Name;
     lModel.PhysicalReferenceOccurrences[0].Name := 'Corrupted';
+    lModel.PhysicalReferenceOccurrencesAvailable := False;
     lModel := lCache.GetOrExtractUnitModel(lModelOptions);
     Assert.AreEqual(lOriginalName, lModel.PhysicalReferenceOccurrences[0].Name,
       'A returned model must not alias the cached occurrence array');
+    Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable,
+      'Mutating a returned availability scalar must not change the cached model');
     Assert.AreEqual(2, lCache.Metrics.CacheHits);
   finally
     lCache.Free;
