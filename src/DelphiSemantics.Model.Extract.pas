@@ -22,7 +22,7 @@ implementation
 uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SyncObjs, System.SysUtils,
-  DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
+  AutoFree, DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
@@ -6215,22 +6215,34 @@ begin
   end;
 end;
 
+function ReferencePhysicalPositionKey(const aReference: TDelphiSemanticReference): string;
+begin
+  // UpperCase uses the same ASCII folding as SameText, without locale-dependent file aliases.
+  Result := UpperCase(aReference.FileName) + #1 + IntToStr(aReference.Line) + #1 +
+    IntToStr(aReference.Column);
+end;
+
 procedure CaptureUnknownIncludeReferences(const aRootFileName: string;
   const aSpans: TArray<TDelphiSemanticActivitySpan>;
   const aReferences: TList<TDelphiSemanticReference>);
 var
+  g: TGarbos;
   i: Integer;
+  lKeptCount: Integer;
+  lLastIndex: Integer;
+  lLatestPositions: TDictionary<string, Integer>;
   lLexer: TmwBasePasLex;
-  lLine: Integer;
-  lLineStart: Integer;
   lOffset: Integer;
   lReference: TDelphiSemanticReference;
   lSpan: TDelphiSemanticActivitySpan;
 begin
+  lLatestPositions := nil;
   // Possible include text must refuse rename even when absent from the chosen AST branch.
   for lSpan in aSpans do
     if (lSpan.Activity = saUnknown) and not SameText(lSpan.FileName, aRootFileName) then
     begin
+      if not Assigned(lLatestPositions) then
+        GC(lLatestPositions, TDictionary<string, Integer>.Create, g);
       lLexer := TmwBasePasLex.Create;
       try
         lLexer.UseDefines := False;
@@ -6242,30 +6254,18 @@ begin
           if lLexer.TokenID = ptIdentifier then
           begin
             lOffset := lLexer.TokenPos + 1;
-            lLine := 1;
-            lLineStart := 1;
-            for i := 1 to lOffset - 1 do
-              if lSpan.SourceText[i] = #10 then
-              begin
-                Inc(lLine);
-                lLineStart := i + 1;
-              end;
             lReference := Default(TDelphiSemanticReference);
             lReference.Name := lLexer.Token;
             if StartsText('&', lReference.Name) then
               Delete(lReference.Name, 1, 1);
             lReference.FileName := lSpan.FileName;
-            lReference.Line := lLine;
-            lReference.Column := lOffset - lLineStart + 1;
+            lReference.Line := LineOfOffset(lSpan.SourceText, lOffset);
+            lReference.Column := ColumnOfOffset(lSpan.SourceText, lOffset);
             lReference.Offset := lOffset;
             lReference.EndOffset := lOffset + lLexer.TokenLen;
             lReference.Role := 'unverified-condition';
-            // Replace a selected-branch AST reference at the same physical position.
-            for i := Pred(aReferences.Count) downto 0 do
-              if SameText(aReferences[i].FileName, lReference.FileName) and
-                (aReferences[i].Line = lReference.Line) and
-                (aReferences[i].Column = lReference.Column) then
-                aReferences.Delete(i);
+            // Defer replacement so each token avoids scanning and shifting the growing list.
+            lLatestPositions.AddOrSetValue(ReferencePhysicalPositionKey(lReference), aReferences.Count);
             aReferences.Add(lReference);
           end;
           lLexer.Next;
@@ -6274,6 +6274,20 @@ begin
         lLexer.Free;
       end;
     end;
+  if not Assigned(lLatestPositions) then
+    Exit;
+  // Keep untouched AST facts and the last replacement, in the original encounter order.
+  lKeptCount := 0;
+  for i := 0 to Pred(aReferences.Count) do
+  begin
+    lReference := aReferences[i];
+    if lLatestPositions.TryGetValue(ReferencePhysicalPositionKey(lReference), lLastIndex) and
+      (lLastIndex <> i) then
+      Continue;
+    aReferences[lKeptCount] := lReference;
+    Inc(lKeptCount);
+  end;
+  aReferences.Count := lKeptCount;
 end;
 
 procedure RemoveDuplicateReferences(const aReferences: TList<TDelphiSemanticReference>);
