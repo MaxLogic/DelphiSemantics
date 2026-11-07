@@ -932,6 +932,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
             project(folder, refs)
             cases.append({"name": shape, "root": str(folder), "family": "anonymous-record-E2003"})
     cases.extend(ds762_785_cases(root))
+    cases.extend(ds782_include_cases(root))
     cases.extend(r7_cases(repo, root))
     cases.extend(denial_cases(root))
     cases.extend(helper_kind_cases(root))
@@ -1020,7 +1021,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 689 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 692 if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1125,6 +1126,40 @@ def ds762_785_cases(root):
         project(folder, ['Unit1'])
         cases.append(dict(name=name, root=str(folder), family='ds785', expect_plan=True,
                           private_types={'Unit1.pas': [['TR', 'Unit1.TR']]}))
+    return cases
+
+
+def ds782_include_cases(root):
+    cases = []
+    for shape in ('statements', 'inline-var', 'declaration'):
+        name = 'ds782-' + shape
+        folder = root / name
+        header = ('unit Unit1;\ninterface\n'
+                  'type TRec = record Count: Integer; end;\nvar Rec: TRec;\n'
+                  'procedure Run;\nimplementation\n')
+        child = 'with Rec do Count := 5;'
+        body = ('procedure Run;\nbegin\n'
+                '  with Rec do Count := Count + 1;\n'
+                '  with Rec do begin\n    Count := Count + 2;\n'
+                '    {$IFDEF FLAG}{$I Body.inc}{$ENDIF}\n  end;\nend;\n')
+        expected = ['planned', 'skipped']
+        if shape == 'inline-var':
+            child = 'var Count := 5; Rec.Count := Count;'
+            expected = ['skipped', 'skipped']
+        elif shape == 'declaration':
+            header += '{$IFDEF FLAG}{$I Body.inc}{$ENDIF}\n'
+            child = 'var Rec: TRec; Count: Integer;'
+            body = 'procedure Run; begin with Rec do Count := Count + 1; end;\n'
+            expected = ['skipped']
+        assert body.endswith('end;\n')
+        body = body[:-len('end;\n')] + '  Writeln(Rec.Count);\nend;\n'
+        write(folder / 'Unit1.pas', header + body + 'end.\n')
+        write(folder / 'Body.inc', child)
+        write(folder / 'P.dpr', 'program P; uses Unit1; begin end.\n')
+        project(folder, ['Unit1'])
+        cases.append(dict(name=name, root=str(folder), family='ds782',
+                          expected_statement_statuses=expected,
+                          expected_native_output='3\r\n' if shape != 'declaration' else '1\r\n'))
     return cases
 
 
@@ -1719,6 +1754,23 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                             statement.get('safety') != case['expect_refusal']):
                         failure(case, route, 4, 'approved-refusal-contract',
                                 approval='A-367', expected=case['expect_refusal'], statement=statement)
+            if 'expected_statement_statuses' in case:
+                ordered = sorted(plan['statements'], key=lambda statement: (statement['sl'], statement['sc']))
+                actual = [statement['status'] for statement in ordered]
+                if actual != case['expected_statement_statuses']:
+                    failure(case, route, 4, 'body-include-statement-outcomes',
+                            expected=case['expected_statement_statuses'], actual=actual)
+                for statement in ordered:
+                    if statement['status'] == 'skipped':
+                        if (not statement['reason'] or statement['replacement'] or statement['edits'] or
+                                statement['temp_count'] or statement['recipe_replacement'] or
+                                statement['recipe_edit_count'] or statement['recipe_temp_count']):
+                            failure(case, route, 4, 'body-include-refusal-payload', statement=statement)
+                        expected_cause = ('activity-unverified' if case['name'] == 'ds782-statements'
+                                          else 'DECLARATIONS_DIRECTIVE_UNPROVED')
+                        if expected_cause not in (statement['reason'], statement['safety']):
+                            failure(case, route, 4, 'body-include-refusal-cause',
+                                    expected=expected_cause, statement=statement)
             if case.get('expect_plan'):
                 for statement in plan['statements']:
                     target = list(target_key(statement, folder))

@@ -1042,6 +1042,8 @@ type
     fFacts: TDelphiSemanticDirectiveFacts;
     fClause: Boolean;
     fExpandedOffset: Integer;
+    fStatementDepth, fStatementIncludeDepth: Integer;
+    fStatementStructureUnproved: Boolean;
     function ActivityAt(const aFileName: string; const aOffset: Integer): TDelphiSemanticSourceActivity;
     function IncludeExpansionId(const aFileName: string; const aOffset: Integer): string;
     function TestsUnknownSymbol(const aBody: string): Boolean;
@@ -1049,7 +1051,8 @@ type
     procedure CloseFrame(const aFileName: string; const aOffset: Integer;
       const aIncludeFrame: Boolean = False);
     procedure Directive(const aBody, aFileName: string; const aFirst, aLast: Integer);
-    procedure Word(const aWord: string);
+    procedure Word(const aWord, aFileName: string; const aOffset: Integer;
+      const aEscaped: Boolean);
     procedure Scan(const aText, aFileName, aExpansionId: string);
   public
     constructor Create(const aOptions: TDelphiSemanticPreprocessOptions;
@@ -1194,12 +1197,29 @@ begin
   lFrames.Delete(lFrames.Count - 1);
 end;
 
-procedure TDirectiveScanner.Word(const aWord: string);
+procedure TDirectiveScanner.Word(const aWord, aFileName: string;
+  const aOffset: Integer; const aEscaped: Boolean);
 var
   lFrames: TObjectList<TDirectiveScanFrame>;
 begin
+  // Once narrowing is unavailable, structural lookups cannot restore it.
+  if not fStatementStructureUnproved and not aEscaped and
+    MatchText(aWord, ['begin', 'end', 'asm']) and
+    not KnownInactive(aFileName, aOffset) then
+  begin
+    // Only a known executable BEGIN can establish statement context. Unknown
+    // structure or assembler cannot be repaired by a later selected branch.
+    if (ActivityAt(aFileName, aOffset) <> saActive) or SameText(aWord, 'asm') then
+      fStatementStructureUnproved := True
+    else if SameText(aWord, 'begin') then
+      Inc(fStatementDepth)
+    else if fStatementDepth > 0 then
+      Dec(fStatementDepth);
+  end;
   if SameText(aWord, 'uses') then
     fClause := True;
+  if fStatementIncludeDepth > 0 then
+    Exit;
   for lFrames in [fFrames, fIncludeFrames] do
     for var lFrame in lFrames do
   begin
@@ -1211,12 +1231,50 @@ begin
   end;
 end;
 
+function IsBoundedStatementInclude(const aText: string): Boolean;
+var
+  lLastToken: TptTokenKind;
+  lLexer: TmwBasePasLex;
+begin
+  // Deliberately accept only fragments that cannot declare a name, escape an
+  // executable block, or alter preprocessing. Other fragments keep the lexical
+  // superset. In particular, inline VAR/CONST and anonymous routines still taint.
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lLastToken := ptNull;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID in [ptError, ptAsm, ptBegin, ptEnd, ptVar, ptThreadvar,
+        ptConst, ptResourcestring, ptType, ptLabel, ptProcedure, ptFunction,
+        ptConstructor, ptDestructor, ptOperator, ptUnit, ptProgram, ptLibrary,
+        ptInterface, ptImplementation, ptUses, ptInitialization, ptFinalization,
+        ptRecord, ptClass, ptObject, ptOn, ptTry, ptCase, ptRepeat, ptUntil,
+        ptExcept, ptFinally] then
+        Exit(False);
+      // ON is contextual: the standalone-fragment lexer may return an identifier.
+      if SameText(lLexer.Token, 'on') or StartsStr('{$', lLexer.Token) or
+        StartsStr('(*$', lLexer.Token) then
+        Exit(False);
+      if not (lLexer.TokenID in [ptBorComment, ptAnsiComment, ptSlashesComment]) and
+        (lLexer.Token.Trim <> '') then
+        lLastToken := lLexer.TokenID;
+      lLexer.Next;
+    end;
+    // An open WITH/IF/expression may consume source beyond the included span.
+    Result := lLastToken = ptSemiColon;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 procedure TDirectiveScanner.Directive(const aBody, aFileName: string;
   const aFirst, aLast: Integer);
 var
   i: Integer;
   lName, lArgument, lChildFile: string;
-  lUnprovedInclude: Boolean;
+  lStatementOnly, lUnprovedInclude: Boolean;
   lFrame: TDirectiveScanFrame;
   lSource: TDelphiSemanticSourceLoadResult;
   lSpan: TDelphiSemanticDirectiveSpan;
@@ -1274,7 +1332,20 @@ begin
       lFrame.Span.StartOffset := aFirst;
       lFrame.Span.ExpandedStartOffset := fExpandedOffset - (aLast - aFirst);
     end;
-    Scan(lSource.Source.Text, lChildFile, IncludeExpansionId(lChildFile, aFirst));
+    // An uncertified search list can select different bytes, even when our
+    // readable candidate contains only statements. Never narrow that evidence.
+    lStatementOnly := not lUnprovedInclude and not fStatementStructureUnproved and
+      (fStatementDepth > 0) and IsBoundedStatementInclude(lSource.Source.Text);
+    if lUnprovedInclude then
+      fStatementStructureUnproved := True;
+    if lStatementOnly then
+      Inc(fStatementIncludeDepth);
+    try
+      Scan(lSource.Source.Text, lChildFile, IncludeExpansionId(lChildFile, aFirst));
+    finally
+      if lStatementOnly then
+        Dec(fStatementIncludeDepth);
+    end;
     if lUnprovedInclude then
       CloseFrame(aFileName, aLast, True);
     Exit;
@@ -1457,7 +1528,7 @@ begin
         while (j <= Length(aText)) and
           CharInSet(aText[j], ['A'..'Z', 'a'..'z', '0'..'9', '_']) do
           Inc(j);
-        Word(Copy(aText, i, j - i));
+        Word(Copy(aText, i, j - i), aFileName, i, (i > 1) and (aText[i - 1] = '&'));
         i := j;
       end else begin
         if aText[i] = ';' then

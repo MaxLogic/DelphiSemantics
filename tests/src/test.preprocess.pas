@@ -55,6 +55,17 @@ type
     [TestCase('Outside dependency spans', 'outside')]
     [TestCase('Include closes parent conditional', 'cross-endif')]
     procedure IncludeSpanRequiresCallerEvidence(const aShape: string);
+    [Category('Fast')]
+    [TestCase('Certified body statements', 'statements')]
+    [TestCase('Body inline declaration', 'inline-var')]
+    [TestCase('Declaration include', 'declaration')]
+    [TestCase('Include escapes the routine', 'escape')]
+    [TestCase('Uncertified include selection', 'uncertified')]
+    [TestCase('Exception variable declaration', 'exception-var')]
+    [TestCase('Open statement fragment', 'open-statement')]
+    [TestCase('Preprocessor changes', 'directive')]
+    [TestCase('Unknown enclosing structure', 'unknown-structure')]
+    procedure BodyIncludeReferencesDoNotInventDeclarations(const aShape: string);
 
     [Category('Fast')]
     [TestCase('IFDEF after unknown DEFINE', 'ifdef')]
@@ -407,6 +418,54 @@ begin
     Assert.AreEqual('', lFacts.ImportCause);
     Assert.AreEqual('', lFacts.NameCause('TSelected'));
   end;
+end;
+
+procedure TPreprocessTests.BodyIncludeReferencesDoNotInventDeclarations(const aShape: string);
+var
+  lChild, lRoot: string;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lOptions: TDelphiSemanticPreprocessOptions;
+begin
+  lRoot := PreprocessTempRoot('body-include-declarations-' + aShape);
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'Unit1.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.SourceText := 'unit Unit1; interface type TRec = record Count: Integer; end; ' +
+    'var Rec: TRec; implementation procedure Run; begin ' +
+    '{$IFDEF FLAG}{$I child.inc}{$ENDIF} with Rec do Count := 1; end; end.';
+  lChild := 'with Rec do Count := 5;';
+  if aShape = 'inline-var' then
+    lChild := 'var Count := 5; Rec.Count := Count;'
+  else if aShape = 'exception-var' then
+    lChild := 'on Count: Exception do Rec.Count := 5;'
+  else if aShape = 'open-statement' then
+    lChild := 'with Rec do Count :='
+  else if aShape = 'directive' then
+    lChild := '{$DEFINE CHANGED} with Rec do Count := 5;'
+  else if aShape = 'unknown-structure' then
+    lOptions.SourceText := StringReplace(lOptions.SourceText, 'procedure Run; begin ',
+      'procedure Run; {$IFDEF OTHER}begin{$ENDIF} ', [])
+  else if aShape = 'escape' then
+    lChild := 'end; var Count: Integer; procedure Next; begin Rec.Count := Count;'
+  else if aShape = 'declaration' then
+  begin
+    lOptions.SourceText := 'unit Unit1; interface type TRec = record Count: Integer; end; ' +
+      '{$IFDEF FLAG}{$I child.inc}{$ENDIF} implementation end.';
+    lChild := 'var Count: Integer;';
+  end else if aShape = 'uncertified' then
+    lOptions.SearchPaths := ['<include-path-unproved>'];
+  TFile.WriteAllText(TPath.Combine(lRoot, 'child.inc'), lChild, TEncoding.ASCII);
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.IsFalse(lFacts.UnitUnproved);
+  Assert.AreEqual('', lFacts.ImportCause);
+  Assert.IsTrue(Length(lFacts.Spans) > 0, 'Statement activity uncertainty must remain visible.');
+  if aShape = 'statements' then
+  begin
+    Assert.AreEqual('', lFacts.NameCause('Rec'), 'A statement reference does not declare a receiver.');
+    Assert.AreEqual('', lFacts.NameCause('Count'), 'A statement reference does not declare a field.');
+  end else
+    Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.NameCause('Count'),
+      'A possible declaration or alternate include selection still denies declaration proof.');
 end;
 
 procedure TPreprocessTests.UnknownDirectiveSymbolTaintsLaterImports(const aShape: string);

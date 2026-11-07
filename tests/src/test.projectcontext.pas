@@ -205,6 +205,21 @@ type
     procedure EmptyExistsConditionIsFalse;
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
+    [TestCase('Project pipe', '0,False')]
+    [TestCase('Project less than', '1,False')]
+    [TestCase('Project greater than', '2,False')]
+    [TestCase('Project quote', '3,False')]
+    [TestCase('Project star', '4,False')]
+    [TestCase('Project question mark', '5,False')]
+    [TestCase('Import pipe', '0,True')]
+    [TestCase('Import less than', '1,True')]
+    [TestCase('Import greater than', '2,True')]
+    [TestCase('Import quote', '3,True')]
+    [TestCase('Import star', '4,True')]
+    [TestCase('Import question mark', '5,True')]
+    procedure InvalidExistsPathsNeverCrash(const aCharacter: Integer; const aImported: Boolean);
+    [Test]
+    [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedSourceSearchPathStillReportsMacro;
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
@@ -2768,6 +2783,44 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('', lResult.Project.PropertyValue('DCC_Define'),
     'An empty Exists path is not the project directory.');
+end;
+
+procedure TProjectContextTests.InvalidExistsPathsNeverCrash(
+  const aCharacter: Integer; const aImported: Boolean);
+const
+  cCharacters: array[0..5] of string = ('|', '&lt;', '&gt;', '&quot;', '*', '?');
+var
+  lDocument, lDprojFileName, lImportFileName: string;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lDprojFileName := ContextEvidenceTempPath(Format('InvalidExists-%d-%s.dproj',
+    [aCharacter, BoolToStr(aImported, True)]));
+  lImportFileName := TPath.ChangeExtension(lDprojFileName, '.optset');
+  // The characters are XML escaped, but remain literal path characters after DOM loading.
+  lDocument := '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><DCC_Define>BASE</DCC_Define></PropertyGroup>' +
+    '<PropertyGroup Condition="Exists(''a' + cCharacters[aCharacter] + 'b.flag'')">' +
+    '<DCC_Define>SHOULD_NOT_APPLY</DCC_Define></PropertyGroup></Project>';
+  if aImported then
+  begin
+    WriteUtf8Bytes(lImportFileName, lDocument);
+    lDocument := '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+      '<Import Project="' + ExtractFileName(lImportFileName) + '"/></Project>';
+  end;
+  WriteUtf8Bytes(lDprojFileName, lDocument);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojFileName;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lResult := TDelphiSemanticProject.Load(lDprojFileName, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.AreEqual('BASE', lResult.Project.PropertyValue('DCC_Define'),
+    'Native MSBuild evaluates these invalid Exists paths as false.');
+  Assert.IsTrue(HasDiagnostic(lResult, 'INVALID_MSBUILD_CONDITION'),
+    'Rejected path syntax must publish the named unproved-condition diagnostic.');
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'A named invalid-condition diagnostic must withhold complete define evidence.');
 end;
 
 procedure TProjectContextTests.UnresolvedSourceSearchPathStillReportsMacro;
