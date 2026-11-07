@@ -2662,6 +2662,9 @@ begin
         Result.AddReference(lSourceGap);
         Inc(aMetrics.ReferenceCount);
       end;
+    // Import reachability is provenance, separate from token references.
+    for var lImport in aModel.PossibleUnitImports do
+      Result.AddPossibleUnitImport(aStrings.Intern(lImport));
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
     for lDeclaration in aModel.Declarations do
@@ -3130,6 +3133,7 @@ function RemapUnitSnapshot(const aSourceStrings, aTargetStrings: TSemanticString
   TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
+  lImportIndex: Integer;
   lSymbolId: TSemanticSymbolId;
   lWithId: TSemanticWithId;
 begin
@@ -3144,6 +3148,9 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
+      Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
+        aUnit.PossibleUnitImportByIndex(lImportIndex)));
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
         aUnit.SymbolById(lSymbolId)));
@@ -3167,6 +3174,7 @@ function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings,
   TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
+  lImportIndex: Integer;
   lSymbolId: TSemanticSymbolId;
   lWithId: TSemanticWithId;
 begin
@@ -3181,6 +3189,9 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
+      Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
+        aUnit.PossibleUnitImportByIndex(lImportIndex)));
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
         aUnit.SymbolById(lSymbolId)));

@@ -1184,6 +1184,8 @@ var
   lEdit: TDelphiSemanticTextEdit;
   lEdits: TList<TDelphiSemanticTextEdit>;
   lListed: TDelphiSemanticUsage;
+  lGap: TDelphiSemanticUsage;
+  lDuplicate: Boolean;
   lUnresolved: TList<TDelphiSemanticUsage>;
   lUsage: TDelphiSemanticUsage;
 begin
@@ -1199,6 +1201,22 @@ begin
   try
     lUnresolved := TList<TDelphiSemanticUsage>.Create;
     lUnresolved.AddRange(aUsageResult.Unresolved);
+    // A new name can capture an imported declaration even where the old name
+    // never occurs. Check both sides before granting apply provenance.
+    for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(aContext,
+      aUsageResult.Symbol, [aNewName]) do
+    begin
+      lDuplicate := False;
+      for lListed in lUnresolved do
+        if SameText(lListed.FileName, lGap.FileName) and (lListed.Line = lGap.Line) and
+          (lListed.Column = lGap.Column) and (lListed.Reason = lGap.Reason) then
+        begin
+          lDuplicate := True;
+          Break;
+        end;
+      if not lDuplicate then
+        lUnresolved.Add(lGap);
+    end;
     for lUsage in aUsageResult.Usages do
     begin
       if not IsProjectUsage(lUsage) then

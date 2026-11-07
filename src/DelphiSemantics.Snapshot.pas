@@ -115,6 +115,7 @@ type
     fFileNameId: TSemanticStringId;
     fFrozen: Boolean;
     fReferences: TSimpleList<TSemanticReferenceFact>;
+    fPossibleUnitImports: TSimpleList<TSemanticStringId>;
     fReferencesByWithId: TSortedList<TSemanticWithId, TSemanticReferenceId>;
     fRejectedDeclarationCount: Integer;
     fScopeDiagnosticId: TSemanticStringId;
@@ -128,6 +129,7 @@ type
     fWithBySourceLine: TSortedList<Integer, TSemanticWithId>;
     fWithStatements: TSimpleList<TSemanticWithStatementFact>;
     function GetReferenceCount: Integer;
+    function GetPossibleUnitImportCount: Integer;
     function GetSymbolCount: Integer;
     function GetWithStatementCount: Integer;
     procedure CheckMutable;
@@ -139,6 +141,8 @@ type
     constructor Create(const aUnitId: TSemanticUnitId; const aFileNameId,
       aUnitNameId, aSourceTextId: TSemanticStringId); overload;
     destructor Destroy; override;
+    procedure AddPossibleUnitImport(const aFileNameId: TSemanticStringId);
+    function PossibleUnitImportByIndex(const aIndex: Integer): TSemanticStringId;
     function AddReference(const aReference: TSemanticReferenceFact): TSemanticReferenceId;
     function AddSymbol(const aSymbol: TSemanticSymbolFact): TSemanticSymbolId;
     function AddWithStatement(const aWith: TSemanticWithStatementFact): TSemanticWithId;
@@ -157,6 +161,7 @@ type
     function WithIdBySourceLineIndex(const aIndex: Integer): TSemanticWithId;
     function WithStatementById(const aId: TSemanticWithId): TSemanticWithStatementFact;
     property FileNameId: TSemanticStringId read fFileNameId;
+    property PossibleUnitImportCount: Integer read GetPossibleUnitImportCount;
     property ReferenceCount: Integer read GetReferenceCount;
     property RejectedDeclarationCount: Integer read fRejectedDeclarationCount;
     property ScopeDiagnosticId: TSemanticStringId read fScopeDiagnosticId;
@@ -532,12 +537,14 @@ begin
     fSymbols := TSimpleList<TSemanticSymbolFact>.Create;
     fWithStatements := TSimpleList<TSemanticWithStatementFact>.Create;
     fReferences := TSimpleList<TSemanticReferenceFact>.Create;
+    fPossibleUnitImports := TSimpleList<TSemanticStringId>.Create;
     fReferencesByWithId := TSortedList<TSemanticWithId, TSemanticReferenceId>.Create;
     fWithBySourceLine := TSortedList<Integer, TSemanticWithId>.Create;
   except
     fWithBySourceLine.Free;
     fReferencesByWithId.Free;
     fReferences.Free;
+    fPossibleUnitImports.Free;
     fWithStatements.Free;
     fSymbols.Free;
     raise;
@@ -549,9 +556,26 @@ begin
   fWithBySourceLine.Free;
   fReferencesByWithId.Free;
   fReferences.Free;
+  fPossibleUnitImports.Free;
   fWithStatements.Free;
   fSymbols.Free;
   inherited;
+end;
+
+procedure TUnitSnapshot.AddPossibleUnitImport(const aFileNameId: TSemanticStringId);
+begin
+  CheckMutable;
+  fPossibleUnitImports.add(aFileNameId);
+end;
+
+function TUnitSnapshot.PossibleUnitImportByIndex(const aIndex: Integer): TSemanticStringId;
+begin
+  Result := fPossibleUnitImports[aIndex];
+end;
+
+function TUnitSnapshot.GetPossibleUnitImportCount: Integer;
+begin
+  Result := fPossibleUnitImports.Count;
 end;
 
 function TUnitSnapshot.AddReference(

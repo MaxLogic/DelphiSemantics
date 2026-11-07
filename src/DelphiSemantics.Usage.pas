@@ -46,6 +46,10 @@ type
       const aName: string): TDelphiSemanticUsageResult; overload; static;
     class function FindUsagesByName(const aIndex: TDelphiSemanticProjectSymbolIndex;
       const aName: string): TDelphiSemanticUsageResult; overload; static;
+    // Missing imports can affect only nonlocal names in their possible uses closure.
+    class function PossibleImportGaps(const aContext: TDelphiSemanticSymbolQueryContext;
+      const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>):
+      TArray<TDelphiSemanticUsage>; static;
     // Refuses a resolved result whose declaring unit lacks syntax-verified facts.
     class function RequireVerifiedDeclaringUnit(const aContext: TDelphiSemanticSymbolQueryContext;
       const aResult: TDelphiSemanticUsageResult): TDelphiSemanticUsageResult; static;
@@ -743,6 +747,141 @@ end;
 // unresolved references, facts that contradict each other, methods that may override or
 // implement it, any occurrence in a unit whose syntax facts are unverified, and occurrences no
 // fact describes at all.
+function SnapshotFactIsRoutineLocal(const aSymbol: TSemanticSymbolFact;
+  const aSnapshot: TDelphiProjectSnapshot): Boolean;
+begin
+  Result := (aSymbol.RoutineId <> 0) and
+    MatchText(SnapshotText(aSnapshot, aSymbol.KindId), ['local', 'var', 'parameter']);
+end;
+
+function SnapshotTargetIsRoutineLocal(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
+var
+  i, j: Integer;
+  lUnit: TUnitSnapshot;
+  lFact: TSemanticSymbolFact;
+begin
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    for j := 1 to lUnit.SymbolCount do
+    begin
+      lFact := lUnit.SymbolById(TSemanticSymbolId(j));
+      if (lFact.Line = aSymbol.Line) and (lFact.Column = aSymbol.Column) and
+        SameText(SnapshotFactFileName(aSnapshot, lUnit, lFact.FileId), aSymbol.FileName) and
+        SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) then
+        Exit(SnapshotFactIsRoutineLocal(lFact, aSnapshot));
+    end;
+  end;
+  Result := False;
+end;
+
+function SnapshotUnitHasNonlocalName(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aNames: TArray<string>): Boolean;
+var
+  i: Integer;
+  lReference: TSemanticReferenceFact;
+  lTargetUnit: TUnitSnapshot;
+begin
+  // Declarations do not bind through imports. A same-unit binding shadows
+  // imports in its interface, or after an implementation declaration. An
+  // implementation uses clause can still interfere with interface symbols,
+  // so those references remain conservative. M1 guards conditional occurrences.
+  for i := 1 to aUnit.ReferenceCount do
+  begin
+    lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
+    if not MatchText(SnapshotText(aSnapshot, lReference.NameId), aNames) then
+      Continue;
+    if (lReference.TargetSymbolId <> 0) and
+      aSnapshot.TryFindUnitById(lReference.TargetUnitId, lTargetUnit) and
+      (SnapshotFactIsRoutineLocal(lTargetUnit.SymbolById(lReference.TargetSymbolId), aSnapshot) or
+      ((lTargetUnit.UnitId = aUnit.UnitId) and
+      (SameText(SnapshotText(aSnapshot, lReference.SectionKindId), 'interface') or
+      SameText(SnapshotText(aSnapshot, lTargetUnit.SymbolById(lReference.TargetSymbolId).SectionKindId),
+        'implementation')) and
+      not SnapshotUnknownActivity(aSnapshot, aUnit, lReference.FileId,
+        lReference.Line, lReference.Column))) then
+      Continue;
+    Exit(True);
+  end;
+  Result := False;
+end;
+
+function ScopedSnapshotSourceGaps(const aSnapshot: TDelphiProjectSnapshot;
+  const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
+var
+  i, j: Integer;
+  lUnit: TUnitSnapshot;
+  lReference: TSemanticReferenceFact;
+  lReachable: THashSet<TSemanticStringId>;
+  lResult: TList<TDelphiSemanticUsage>;
+  lChanged, lLocal: Boolean;
+begin
+  lReachable := THashSet<TSemanticStringId>.Create;
+  lResult := TList<TDelphiSemanticUsage>.Create;
+  try
+    lLocal := SnapshotTargetIsRoutineLocal(aSnapshot, aSymbol);
+    if not lLocal then
+    begin
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        if SnapshotUnitHasNonlocalName(aSnapshot, lUnit, aNames) then
+          lReachable.Add(lUnit.FileNameId);
+      end;
+      repeat
+        lChanged := False;
+        for i := 0 to aSnapshot.UnitCount - 1 do
+        begin
+          lUnit := aSnapshot.UnitByIndex(i);
+          if not lReachable.Contains(lUnit.FileNameId) then
+            Continue;
+          for j := 0 to lUnit.PossibleUnitImportCount - 1 do
+          begin
+            if not lReachable.Contains(lUnit.PossibleUnitImportByIndex(j)) then
+            begin
+              lReachable.Add(lUnit.PossibleUnitImportByIndex(j));
+              lChanged := True;
+            end;
+          end;
+        end;
+      until not lChanged;
+    end;
+    for i := 0 to aSnapshot.UnitCount - 1 do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      for j := 1 to lUnit.ReferenceCount do
+      begin
+        lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
+        if not SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
+          cSnapshotReferenceClassificationUnseenSource) then
+          Continue;
+        if SameText(SnapshotText(aSnapshot, lReference.ReasonId), 'possible-unit-source-unavailable') and
+          not lReachable.Contains(lUnit.FileNameId) then
+          Continue;
+        AddUnresolvedUsage(lResult, aSnapshot, lUnit, '', '', '', lReference.Line, 0,
+          SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
+      end;
+    end;
+    Result := SortedUsages(lResult);
+  finally
+    lResult.Free;
+    lReachable.Free;
+  end;
+end;
+
+class function TDelphiSemanticUsageFinder.PossibleImportGaps(
+  const aContext: TDelphiSemanticSymbolQueryContext;
+  const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
+var
+  lSnapshot: TDelphiProjectSnapshot;
+begin
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot = nil then
+    Exit(nil);
+  Result := ScopedSnapshotSourceGaps(lSnapshot, aSymbol, aNames);
+end;
+
 function CollectSnapshotUnresolvedUsages(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aEquivalentRefs: TList<TSemanticSymbolRef>;
   const aUsages: TList<TDelphiSemanticUsage>;
@@ -790,20 +929,9 @@ begin
     for lUsage in aUsages do
       lCovered.AddOrSetValue(SnapshotPositionKey(lUsage.FileName, lUsage.Line, lUsage.Column), 0);
     lName := aSymbol.Name;
-    // A missing possible include has no known token to put in the name index.
-    // It can hide this symbol's uses regardless of the text in its parent unit.
-    for i := 0 to Pred(aSnapshot.UnitCount) do
-    begin
-      lUnit := aSnapshot.UnitByIndex(i);
-      for var j := 1 to lUnit.ReferenceCount do
-      begin
-        lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
-        if SameText(SnapshotText(aSnapshot, lReference.ClassificationId),
-          cSnapshotReferenceClassificationUnseenSource) then
-          AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit, '', '', '',
-            lReference.Line, 0, SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
-      end;
-    end;
+    // Includes retain their coverage barrier. Missing imports are scoped to
+    // nonlocal occurrences and possible uses reachability, including inactive uses.
+    lUnresolved.AddRange(ScopedSnapshotSourceGaps(aSnapshot, aSymbol, [lName]));
     lNameKnown := aSnapshot.TryFindStringId(lName, lNameId);
     if lNameKnown then
       AddPossibleOverrideUsages(lUnresolved, aSnapshot, aSymbol, aEquivalentRefs, lNameId);

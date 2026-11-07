@@ -163,6 +163,20 @@ type
     [TestCase('unknown Win32', 'unknown,Win32')]
     [TestCase('unknown Win64', 'unknown,Win64')]
     procedure InactiveSdkImportsCannotReferenceProject(const aShape, aPlatform: string);
+    [TestCase('c21 Release path Win32', 'config,Win32')]
+    [TestCase('c21 Release path Win64', 'config,Win64')]
+    [TestCase('Alternate platform path Win32', 'platform,Win32')]
+    [TestCase('Alternate platform path Win64', 'platform,Win64')]
+    procedure AlternateSearchPathCannotBecomeSdkBoundary(const aShape, aPlatform: string);
+    [TestCase('Unrelated import', 'unrelated')]
+    [TestCase('c30 local', 'local')]
+    [TestCase('Own implementation declaration shadows import', 'own')]
+    [TestCase('Implementation imports can affect interface symbols', 'own-interface')]
+    [TestCase('Parameter shadows import', 'parameter')]
+    [TestCase('Old name affected', 'old')]
+    [TestCase('New name capture affected', 'new')]
+    [TestCase('Transitive inactive import', 'transitive')]
+    procedure MissingImportGapsRespectLexicalScope(const aShape: string);
     [TestCase('Literal false', 'false')]
     [TestCase('Local define', 'define')]
     [TestCase('Local undef', 'undef')]
@@ -1727,6 +1741,117 @@ begin
   AssertCompletePlan(lPlan, ['unit1.pas:16:5', 'unit1.pas:30:14'], 2);
 end;
 
+procedure TRenameCompletenessTests.AlternateSearchPathCannotBecomeSdkBoundary(
+  const aShape, aPlatform: string);
+var
+  lRoot, lProject, lCondition, lOtherPlatform: string;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lRoot := WriteCompletenessProject('alternate-sdk-' + aShape + '-' + aPlatform,
+    'program P; uses UProv; begin WriteLn(Fetch); end.',
+    [CompletenessFile('UProv.pas', 'unit UProv;'#13#10'interface'#13#10 +
+      'function Fetch: Integer;'#13#10'implementation'#13#10 +
+      '{$IFDEF RELEASE}uses Posix.Base;{$ENDIF}'#13#10 +
+      'function Fetch: Integer; begin Result := 1; end; end.')]);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'rel'));
+  TFile.WriteAllText(CombinePath([lRoot, 'rel', 'Posix.Base.pas']),
+    'unit Posix.Base; interface implementation uses UProv; ' +
+    'procedure Run; begin WriteLn(Fetch); end; end.', TEncoding.ASCII);
+  lCondition := '''$(Config)''==''Release''';
+  if aShape = 'platform' then
+  begin
+    lOtherPlatform := 'Win64';
+    if aPlatform = 'Win64' then
+      lOtherPlatform := 'Win32';
+    lCondition := '''$(Platform)''==''' + lOtherPlatform + '''';
+  end;
+  lProject := TFile.ReadAllText(TPath.Combine(lRoot, 'P.dproj'));
+  lProject := lProject.Replace('</Project>',
+    '<PropertyGroup Condition="' + lCondition + '">' +
+    '<DCC_UnitSearchPath>rel</DCC_UnitSearchPath></PropertyGroup>' +
+    '<ItemGroup><BuildConfiguration Include="Debug"/>' +
+    '<BuildConfiguration Include="Release"/></ItemGroup>' +
+    '<ProjectExtensions><Platforms><Platform value="Win32">True</Platform>' +
+    '<Platform value="Win64">True</Platform></Platforms></ProjectExtensions></Project>');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'), lProject, TEncoding.ASCII);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'alternate.sqlite3'), False, aPlatform, True);
+  lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
+    TPath.Combine(lRoot, 'alternate.sqlite3'), True, aPlatform, True);
+  Assert.AreEqual('incomplete', lPlan.Status, 'An alternate project path is never an SDK boundary.');
+  Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'uprov.pas:');
+  Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)), SortedKeysText(PlanUnresolvedKeys(lWarm)));
+end;
+
+procedure TRenameCompletenessTests.MissingImportGapsRespectLexicalScope(const aShape: string);
+var
+  lRoot, lProvider, lConsumer, lImports, lTarget: string;
+  lLine, lColumn: Integer;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+begin
+  lProvider := 'unit UProv;'#13#10'interface'#13#10'var Fetch: Integer;'#13#10 +
+    'implementation end.';
+  lImports := '{$IFDEF RELEASE}uses MissingUnit;{$ENDIF}';
+  lConsumer := 'unit UCons; interface implementation ' + lImports + ' end.';
+  lTarget := 'UProv.pas';
+  lLine := 3;
+  lColumn := 5;
+  if MatchText(aShape, ['local', 'parameter']) then
+  begin
+    lTarget := 'UCons.pas';
+    lConsumer := 'unit UCons;'#13#10'interface'#13#10'implementation'#13#10 +
+      lImports + #13#10'procedure Run;'#13#10'var Fetch: Integer;'#13#10 +
+      'begin Fetch := 2; WriteLn(Fetch); end;'#13#10'end.';
+    lLine := 6;
+    if aShape = 'parameter' then
+    begin
+      lConsumer := lConsumer.Replace('procedure Run;'#13#10'var Fetch: Integer;',
+        'procedure Run(Fetch: Integer);');
+      lLine := 5;
+      lColumn := 15;
+    end;
+  end else if MatchText(aShape, ['own', 'own-interface']) then
+  begin
+    lProvider := 'unit UProv;'#13#10'interface'#13#10'var Fetch: Integer;'#13#10 +
+      'implementation uses UCons; procedure Run; begin Fetch := 2; end; end.';
+    if aShape = 'own' then
+    begin
+      lProvider := 'unit UProv;'#13#10'interface'#13#10'implementation uses UCons;'#13#10 +
+        'var Fetch: Integer;'#13#10'procedure Run; begin Fetch := 2; end; end.';
+      lLine := 4;
+    end;
+  end else if aShape = 'old' then
+    lConsumer := 'unit UCons; interface implementation uses UProv ' +
+      '{$IFDEF RELEASE}, MissingUnit{$ENDIF}; procedure Run; begin Fetch := 2; end; end.'
+  else if aShape = 'new' then
+    lConsumer := 'unit UCons; interface implementation ' + lImports +
+      ' procedure Run; begin ReadValue := 2; end; end.'
+  else if aShape = 'transitive' then
+    lProvider := 'unit UProv;'#13#10'interface'#13#10'var Fetch: Integer;'#13#10 +
+      'implementation uses UCons; end.';
+  lImports := 'program P; uses UProv, UCons; begin end.';
+  if aShape = 'transitive' then
+    lImports := 'program P; uses UProv, UCons; begin WriteLn(Fetch); end.';
+  lRoot := WriteCompletenessProject('scoped-gap-' + aShape, lImports,
+    [CompletenessFile('UProv.pas', lProvider), CompletenessFile('UCons.pas', lConsumer)]);
+  lPlan := PlanCompletenessRename(lRoot, lTarget, lLine, lColumn, 'ReadValue',
+    TPath.Combine(lRoot, 'gap.sqlite3'), False, 'Win32', True);
+  lWarm := PlanCompletenessRename(lRoot, lTarget, lLine, lColumn, 'ReadValue',
+    TPath.Combine(lRoot, 'gap.sqlite3'), True, 'Win32', True);
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  if MatchText(aShape, ['old', 'new', 'transitive', 'own-interface']) then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.Contains(lPlan.UnresolvedReferences[0].Reason, 'possible-unit-source-unavailable');
+  end else begin
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(0, Integer(Length(lPlan.UnresolvedReferences)));
+    if MatchText(aShape, ['local', 'parameter']) then
+      Assert.AreEqual(3, Integer(Length(lPlan.Edits)));
+  end;
+end;
+
 procedure TRenameCompletenessTests.IdentifierScopedPossibleSourcesRemainVisible(
   const aShape, aPlatform: string);
 var
@@ -1751,12 +1876,13 @@ begin
     TPath.Combine(lRoot, 'scoped.sqlite3'), False, aPlatform, True, 'Fetch');
   lWarm := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 10, 'ReadValue',
     TPath.Combine(lRoot, 'scoped.sqlite3'), True, aPlatform, True, 'Fetch');
-  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(lPlan.Status, lWarm.Status);
   Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)),
     SortedKeysText(PlanUnresolvedKeys(lWarm)), 'Lean source coverage must survive cache reuse.');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   if aShape = 'missing' then
   begin
+    // P itself spells Fetch and imports USilent, so this gap can affect P's binding.
     Assert.AreEqual(1, Integer(Length(lPlan.UnresolvedReferences)));
     Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
     Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'usilent.pas:');

@@ -111,6 +111,7 @@ type
     UnitScopeNames: TArray<string>;
     UnitAliases: TArray<string>;
     ReferenceDirectories: TArray<string>;
+    PossibleUnitSearchPaths: TArray<string>;
     Properties: TArray<TDelphiSemanticProperty>;
     CompilerProfileName: string;
     ContextFingerprint: string;
@@ -2528,6 +2529,7 @@ begin
   lBuilder := TStringBuilder.Create;
   try
     lBuilder.AppendLine('schema=semantic-project-configuration-v2');
+    AppendFingerprintItems(lBuilder, 'possibleUnitSearchPaths', aProject.PossibleUnitSearchPaths, True);
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
     AppendFingerprintItem(lBuilder, 'defineEvidenceComplete', BoolToStr(aProject.DefineEvidenceComplete, True));
@@ -3037,6 +3039,86 @@ begin
     lReason, aProject.ProjectFileName));
 end;
 
+procedure CollectProjectSelections(const aNode: IXMLNode;
+  const aConfigurations, aPlatforms: TList<string>);
+var
+  i: Integer;
+  lValue, lCondition: string;
+  lMatch: TMatch;
+begin
+  if SameText(XmlNodeName(aNode), 'BuildConfiguration') then
+  begin
+    lValue := XmlNodeAttributeValue(aNode, 'Include');
+    if (lValue <> '') and not SameText(lValue, 'Base') then
+      AddUniqueText(aConfigurations, lValue);
+  end;
+  if SameText(XmlNodeName(aNode), 'Platform') then
+  begin
+    lValue := XmlNodeAttributeValue(aNode, 'value');
+    if lValue <> '' then
+      AddUniqueText(aPlatforms, lValue);
+  end;
+  // Minimal projects may declare selections only through property conditions.
+  lCondition := XmlNodeAttributeValue(aNode, 'Condition');
+  for lMatch in TRegEx.Matches(lCondition,
+    '[''" ]*\$\((Config|Platform)\)[''" ]*==[''" ]*([^''" ]+)', [roIgnoreCase]) do
+    if SameText(lMatch.Groups[1].Value, 'Config') then
+      AddUniqueText(aConfigurations, lMatch.Groups[2].Value)
+    else
+      AddUniqueText(aPlatforms, lMatch.Groups[2].Value);
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+    CollectProjectSelections(aNode.ChildNodes[i], aConfigurations, aPlatforms);
+end;
+
+function PossibleProjectSearchPaths(const aProjectFileName: string;
+  const aDocument: IXMLDocument; const aOptions: TDelphiSemanticOptions;
+  const aSelected: TDelphiSemanticProjectInfo;
+  const aObservations: IProjectContextObservationsBuilder): TArray<string>;
+var
+  lConfigurations, lPlatforms, lPaths: TList<string>;
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lOptions: TDelphiSemanticOptions;
+  lProperties: TPropertyMap;
+  lConfiguration, lPlatform, lPath: string;
+begin
+  lConfigurations := TList<string>.Create;
+  lPlatforms := TList<string>.Create;
+  lPaths := TList<string>.Create;
+  lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  try
+    AddUniqueText(lConfigurations, aSelected.Configuration);
+    AddUniqueText(lPlatforms, aSelected.Platform);
+    CollectProjectSelections(aDocument.DocumentElement, lConfigurations, lPlatforms);
+    for lConfiguration in lConfigurations do
+      for lPlatform in lPlatforms do
+      begin
+        if SameText(lConfiguration, aSelected.Configuration) and SameText(lPlatform, aSelected.Platform) then
+          Continue;
+        lOptions := aOptions;
+        lOptions.Configuration := lConfiguration;
+        lOptions.Platform := lPlatform;
+        lOptions.CompilerDefineEvidence := nil;
+        lProperties := CreateInitialProperties(aProjectFileName, aDocument, lOptions);
+        try
+          // Reuse the project evaluator. These paths can only refuse a rename;
+          // they cannot certify defines, source applicability or active binding.
+          ApplyPropertyDocument(aDocument, aProjectFileName, aSelected.ProjectDirectory,
+            lProperties, lDiagnostics, True, aObservations);
+          for lPath in GetPropertyValue(lProperties, 'DCC_UnitSearchPath').Split([';']) do
+            AddPartialSearchPath(lPaths, aSelected.ProjectDirectory, lPath, lDiagnostics);
+        finally
+          lProperties.Free;
+        end;
+      end;
+    Result := lPaths.ToArray;
+  finally
+    lDiagnostics.Free;
+    lPaths.Free;
+    lPlatforms.Free;
+    lConfigurations.Free;
+  end;
+end;
+
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
   const aRootAbsenceFingerprint: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
@@ -3060,6 +3142,8 @@ begin
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
+    Result.PossibleUnitSearchPaths := PossibleProjectSearchPaths(aProjectFileName,
+      lDocument, aOptions, Result, lObservations);
     AddAdditionalSourceFiles(Result, aOptions);
     AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);

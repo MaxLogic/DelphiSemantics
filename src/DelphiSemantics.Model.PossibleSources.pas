@@ -8,6 +8,7 @@ uses
 type
   TDelphiSemanticPossibleSources = record
     RootActivity: string;
+    ProjectUnitImports: TArray<string>;
     Identity: string;
     Sources: IDelphiSemanticSourceObservations;
     References: TArray<TDelphiSemanticReference>;
@@ -38,6 +39,7 @@ type
     fProject: TDelphiSemanticProjectInfo;
     fResult: TDelphiSemanticPossibleSources;
     fReferences: TList<TDelphiSemanticReference>;
+    fProjectImports: TList<string>;
     fDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
     fVisited: THashSet<string>;
     fCollectReferences: Boolean;
@@ -48,6 +50,8 @@ type
     fSdkDirectories: TArray<string>;
     function TrySdkAlias(const aName: string; out aTarget: string): Boolean;
     function ResolveProjectUnit(const aName: string): TDelphiSemanticUnitResolutionResult;
+    function HasAlternateProjectSource(const aName, aOwner: string): Boolean;
+    procedure ProjectImport(const aFileName: string);
     function IsSdkFile(const aFileName: string): Boolean;
     function TryFindSdkUnit(const aName: string; out aFileName: string): Boolean;
     procedure SdkBoundary(const aName, aFileName, aOwnerFileName: string);
@@ -132,6 +136,7 @@ begin
   fCandidateSources := TList<TDelphiSemanticSourceText>.Create;
   fObservedCandidates := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fReferences := TList<TDelphiSemanticReference>.Create;
+  fProjectImports := TList<string>.Create;
   fDiagnostics := TList<TDelphiSemanticModelDiagnostic>.Create;
   fVisited := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fProject.ProjectDirectory := ExtractFilePath(aOptions.SourceFileName);
@@ -150,6 +155,7 @@ begin
   fVisited.Free;
   fDiagnostics.Free;
   fReferences.Free;
+  fProjectImports.Free;
   inherited Destroy;
 end;
 
@@ -356,6 +362,36 @@ begin
     '|' + LowerCase(Result.FileName);
 end;
 
+function TPossibleSourceCapture.HasAlternateProjectSource(const aName, aOwner: string): Boolean;
+var
+  lName: TUnitCandidateName;
+  lPath, lCandidate, lExtension: string;
+begin
+  Result := False;
+  for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aName) do
+    for lPath in fOptions.PossibleUnitSearchPaths do
+      for lExtension in ['.pas', '.dcu'] do
+      begin
+        lCandidate := TPath.Combine(lPath, lName.TargetName + lExtension);
+        ObserveCandidate(lCandidate);
+        if TFile.Exists(lCandidate) and not IsSdkFile(lCandidate) then
+        begin
+          Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
+            'Import: ' + aName + '; alternate configuration/platform project source: ' + lCandidate);
+          Result := True;
+        end;
+      end;
+end;
+
+procedure TPossibleSourceCapture.ProjectImport(const aFileName: string);
+var
+  lFileName: string;
+begin
+  lFileName := TPath.GetFullPath(aFileName);
+  if not fProjectImports.Contains(lFileName) then
+    fProjectImports.Add(lFileName);
+end;
+
 procedure TPossibleSourceCapture.ImportUnit(const aName, aExplicit, aFileName,
   aCause: string; const aDepth: Integer);
 var
@@ -374,9 +410,14 @@ begin
   end;
   lLookupName := aName;
   lResolution := ResolveProjectUnit(lLookupName);
+  if (not lResolution.Found or IsSdkFile(lResolution.FileName)) and
+    HasAlternateProjectSource(aName, aFileName) then
+    Exit;
   if not lResolution.Found and not lResolution.Ambiguous and
     TrySdkAlias(aName, lAliasTarget) then
   begin
+    if HasAlternateProjectSource(lAliasTarget, aFileName) then
+      Exit;
     lLookupName := lAliasTarget;
     lResolution := ResolveProjectUnit(lLookupName);
   end;
@@ -450,6 +491,7 @@ var
   lInUses: Boolean;
   lOffset: Integer;
   lPrevious: TptTokenKind;
+  lResolution: TDelphiSemanticUnitResolutionResult;
 begin
   lActivities := TDictionary<string, TPossibleImportState>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lLexer := TmwBasePasLex.Create;
@@ -497,7 +539,16 @@ begin
         end;
         lCause := ImportCause(aPossible, aCurrent, lOffset, aRootFileName, aInheritedCause, lActivities, lFileName);
         if lCause <> '' then
-          ImportUnit(lName, lExplicit, lFileName, lCause, aDepth);
+          ImportUnit(lName, lExplicit, lFileName, lCause, aDepth)
+        else if lExplicit <> '' then
+          ProjectImport(TPath.GetFullPath(TPath.Combine(ExtractFilePath(lFileName), lExplicit)))
+        else begin
+          // Selected project models already own these bytes. Retain the edge
+          // without rescanning their references or expanding installed SDK units.
+          lResolution := TDelphiSemanticUnitResolver.Resolve(fProject, lName);
+          if lResolution.Found and not lResolution.Ambiguous and not IsSdkFile(lResolution.FileName) then
+            ProjectImport(lResolution.FileName);
+        end;
         lPrevious := ptIdentifier;
         Continue;
       end;
@@ -609,6 +660,7 @@ var
   lPossible: TDelphiSemanticPreprocessResult;
 begin
   lFileName := TPath.GetFullPath(aFileName);
+  ProjectImport(lFileName);
   for lKnown in fOptions.ProjectSourceFileNames do
     if SameText(lFileName, TPath.GetFullPath(lKnown)) then
       Exit;
@@ -644,6 +696,7 @@ begin
     fResult.RootActivity := AggregateActivity(lRoot.Text, lRoot.FileName, lPossible);
   if fCandidateSources.Count > 0 then
     MergeSources(TDelphiSemanticSourceEvidence.FromItems(fCandidateSources.ToArray));
+  fResult.ProjectUnitImports := fProjectImports.ToArray;
   fResult.References := fReferences.ToArray;
   fResult.Diagnostics := fDiagnostics.ToArray;
   fResult.Identity := THashSHA2.GetHashString(fResult.Identity);

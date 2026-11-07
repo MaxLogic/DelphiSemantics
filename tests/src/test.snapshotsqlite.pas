@@ -42,6 +42,13 @@ type
     procedure CorruptStringIdInvalidatesStoredSnapshot;
     [Category('Fast')]
     [Test]
+    [TestCase('Round trip', 'none')]
+    [TestCase('Missing graph header', 'header')]
+    [TestCase('Missing graph edge', 'edge')]
+    [TestCase('Invalid graph file ID', 'id')]
+    procedure ImportGraphPersistsWithoutTokenReferences(const aCorruption: string);
+    [Category('Fast')]
+    [Test]
     procedure DefaultSnapshotBuildDoesNotRequireSqliteCache;
     [Category('Fast')]
     [Test]
@@ -390,6 +397,68 @@ begin
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.ImportGraphPersistsWithoutTokenReferences(const aCorruption: string);
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lOriginal, lLoaded, lMerged: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lUnit: TUnitSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lCacheFileName, lImport: string;
+begin
+  lCacheFileName := TempPath('import-graph-' + aCorruption + '.sqlite3');
+  lImport := TempPath('ImportTarget.pas');
+  lIdentity := CreateIdentity('ImportGraph' + aCorruption, 'file-a', 'context-a',
+    'include-a', 'snapshot-v1');
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lUnit := TUnitSnapshot.Create(1, lBuilder.Strings.Intern(lIdentity.SourceFileName),
+      lBuilder.Strings.Intern('ImportGraph'));
+    lBuilder.AddUnit(lUnit);
+    lUnit.AddPossibleUnitImport(lBuilder.Strings.Intern(lImport));
+    lOriginal := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentity, lOriginal, 0);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded));
+    try
+      Assert.AreEqual(0, lLoaded.UnitByIndex(0).ReferenceCount,
+        'Import provenance must not become a symbol occurrence.');
+      Assert.AreEqual(1, lLoaded.UnitByIndex(0).PossibleUnitImportCount);
+      Assert.AreEqual(lImport, lLoaded.TextOf(lLoaded.UnitByIndex(0).PossibleUnitImportByIndex(0)));
+      lMerged := BuildProjectSnapshotFromUnitSnapshots([lLoaded], lMetrics);
+      try
+        Assert.AreEqual(0, lMerged.UnitByIndex(0).ReferenceCount);
+        Assert.AreEqual(1, lMerged.UnitByIndex(0).PossibleUnitImportCount);
+        Assert.AreEqual(lImport, lMerged.TextOf(lMerged.UnitByIndex(0).PossibleUnitImportByIndex(0)));
+      finally
+        lMerged.Free;
+      end;
+    finally
+      lLoaded.Free;
+    end;
+    if aCorruption <> 'none' then
+    begin
+      if aCorruption = 'header' then
+        ExecCacheSql(lCacheFileName, 'delete from snapshot_possible_imports where item_index = 0')
+      else if aCorruption = 'edge' then
+        ExecCacheSql(lCacheFileName, 'delete from snapshot_possible_imports where item_index = 1')
+      else
+        ExecCacheSql(lCacheFileName, 'update snapshot_possible_imports set file_name_id = 999999 where item_index = 1');
+      Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded));
+      Assert.IsNull(lLoaded);
+      Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    end;
+  finally
+    lCache.Free;
+    lOriginal.Free;
   end;
 end;
 

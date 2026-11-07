@@ -15,6 +15,7 @@ type
     UnitScopeNames: TArray<string>;
     ProjectSourceFileNames: TArray<string>;
     InstalledSdkRoot: string;
+    PossibleUnitSearchPaths: TArray<string>;
     ProjectContextApplied: Boolean;
     DefineEvidenceComplete: Boolean;
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
@@ -316,6 +317,7 @@ type
     // Syntax occurrences in the routine label namespace, never value-symbol references.
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
+    PossibleUnitImports: TArray<string>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
     // DS-731: constants and variant tags bind in WITH, separately from ordinary Members.

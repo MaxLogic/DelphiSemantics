@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // Integrated extraction plus configuration-neutral include/import coverage and never-compiled activity.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.93';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.95';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -336,6 +336,7 @@ begin
     '|possibleSourceAliases=' + CanonicalIdentityArrayText(aOptions.UnitAliases, False, False) +
     '|possibleSourceScopes=' + CanonicalIdentityArrayText(aOptions.UnitScopeNames, False, False) +
     '|installedSdkRoot=' + TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.InstalledSdkRoot) +
+    '|possibleUnitSearchPaths=' + CanonicalIdentityArrayText(aOptions.PossibleUnitSearchPaths, False, True) +
     '|possibleSourceRoots=' + CanonicalIdentityArrayText(aOptions.ProjectSourceFileNames, True, True) +
     '|selectedConfigurationOnly=' + BoolToStr(aOptions.SelectedConfigurationOnly, True) +
     '|skippedIncludePolicy=all-candidates-v1' +
@@ -498,6 +499,7 @@ begin
   Result.WithStatements := Copy(aModel.WithStatements);
   Result.UnindexedHelpers := Copy(aModel.UnindexedHelpers);
   Result.TypeValueMembers := Copy(aModel.TypeValueMembers);
+  Result.PossibleUnitImports := Copy(aModel.PossibleUnitImports);
   Result.Diagnostics := Copy(aModel.Diagnostics);
 end;
 

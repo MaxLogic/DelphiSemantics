@@ -962,6 +962,7 @@ begin
       TJSONBool.Create(aModel.PhysicalReferenceOccurrencesAvailable));
     lObject.AddPair('LocalLabelReferences', ReferencesToJson(aModel.LocalLabelReferences));
     lObject.AddPair('WithStatements', WithStatementsToJson(aModel.WithStatements));
+    lObject.AddPair('PossibleUnitImports', StringArrayToJson(aModel.PossibleUnitImports));
     lObject.AddPair('Diagnostics', DiagnosticsToJson(aModel.Diagnostics));
     if Length(aModel.UnindexedHelpers) > 0 then
       lObject.AddPair('UnindexedHelpers', UnindexedHelpersToJson(aModel.UnindexedHelpers));
@@ -1024,6 +1025,7 @@ begin
       JsonBool(lObject, 'PhysicalReferenceOccurrencesAvailable');
     Result.LocalLabelReferences := JsonToReferences(lObject.GetValue('LocalLabelReferences') as TJSONArray);
     Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
+    Result.PossibleUnitImports := JsonToStringArray(lObject.GetValue('PossibleUnitImports') as TJSONArray);
     Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
     if lInvalidOccurrenceCount > 0 then
     begin
