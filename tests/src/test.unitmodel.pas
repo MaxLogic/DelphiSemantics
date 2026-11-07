@@ -472,6 +472,9 @@ type
     procedure RepeatedNestedAndInactiveIncludesKeepPhysicalOccurrences;
     [Category('Fast')]
     [Test]
+    procedure UnknownIncludeReferencesKeepLastPhysicalOccurrenceOrder;
+    [Category('Fast')]
+    [Test]
     procedure ModelUsesSourceLoaderFallbackWhenExtractingAnsiSource;
     [Category('Fast')]
     [Test]
@@ -2775,6 +2778,58 @@ begin
     IncludeFactKeys(lModel, lRoot, 'GA'));
   Assert.AreEqual('body.inc:1:9 incbody.pas:19:3 incbody.pas:4:7 inner.inc:1:14',
     IncludeFactKeys(lModel, lRoot, 'GB'));
+end;
+
+procedure TUnitModelTests.UnknownIncludeReferencesKeepLastPhysicalOccurrenceOrder;
+var
+  lKeys: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticReference;
+  lRoot: string;
+begin
+  lRoot := UnitModelTempPath('unknown-include-reference-order');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'),
+    '  &Value := Value + 1;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'),
+    #10'  Value := Value + 2;'#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeOrder.pas'),
+    'unit IncludeOrder;'#13#10 +
+    'interface'#13#10 +
+    'var Value: Integer;'#13#10 +
+    'procedure Touch;'#13#10 +
+    'implementation'#13#10 +
+    'procedure Touch;'#13#10 +
+    'begin'#13#10 +
+    '{$IFDEF POSSIBLE_BRANCH}'#13#10 +
+    '{$I first.inc}'#13#10 +
+    '{$I second.inc}'#13#10 +
+    '{$I FIRST.INC}'#13#10 +
+    '{$ENDIF}'#13#10 +
+    '  Value := 0;'#13#10 +
+    'end;'#13#10 +
+    'end.'#13#10, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeOrder.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(HasReferenceOnLine(lModel, 'Value', 13),
+    'Unreplaced root references must survive');
+  lKeys := '';
+  for lReference in lModel.References do
+    if SameText(ExtractFileExt(lReference.FileName), '.inc') then
+    begin
+      Assert.AreEqual('Value', lReference.Name);
+      Assert.AreEqual('unverified-condition', lReference.Role,
+        'Possible references must replace selected AST facts at their physical position');
+      lKeys := lKeys + LowerCase(ExtractFileName(lReference.FileName)) + ':' +
+        lReference.Line.ToString + ':' + lReference.Column.ToString + ' ';
+    end;
+  Assert.AreEqual('second.inc:2:3 second.inc:2:12 first.inc:1:3 first.inc:1:13 ', lKeys,
+    'Repeated physical positions keep the last occurrence, in its encounter order');
 end;
 
 procedure TUnitModelTests.MidLineIncludeFactsStayAtTheDirective;
