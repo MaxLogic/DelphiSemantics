@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename and find-usages retain inactive-configuration occurrences as unresolved advisory entries; native predefined tables are validated by contents as well as compiler/platform identity (DS-791).
+
 - Certified compiler define evidence supports verified Delphi 12 Win32 dcc32 hosts with a separate predefined-symbol table and platform-specific admission checks (DS-791).
 
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
@@ -15,6 +17,13 @@
 - Conditional declarations, imports and WITH activity retain uncertainty when compiler defines are incomplete. Scans report incomplete inventories, and rewrites exclude only proved-inactive references.
 - Project define completeness requires an admitted compiler-input certificate. Legacy define lists and XML evaluation remain partial; certificate identity and currentness guard model and planning caches.
 
+
+- AST-failed units retain class-variable member facts without reporting them as verified globals. Older model and snapshot caches rebuild.
+- Dead-code occurrence checks use the declaring unit and captured includes for implementation-only names and parameters; interface names keep project-wide checks.
+- Rename and find-usages can prove outer-type member absence without confusing members of nested type bodies with outer members.
+
+- WITH member binding matches routine ranges by physical file, preserving main-file members beside included routines.
+- Consistency ancestry accepts a unique same-section forward/full class pair and resolves implementation-local classes in implementation visibility.
 
 - WITH planning treats active runtime-package units as unknown and includes caller-supplied search paths in its unit-name witness.
 - Session and compatibility WITH plans use the same routine-end ranges for nested statements.

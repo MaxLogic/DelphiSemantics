@@ -160,6 +160,10 @@ type
     [Category('Fast')]
     [Test]
     procedure PositionResolvesLocalNotEnclosingRoutine;
+    [Test]
+    procedure PlansLaterLocalInNameListAtDeclaration;
+    [Test]
+    procedure NestedTypeBodyDoesNotHideProvenOuterMemberAbsence;
     [Category('Fast')]
     [Test]
     procedure PlansGlobalWhoseNameIsALocalElsewhere;
@@ -1753,12 +1757,14 @@ begin
   end;
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 4, 10, 'ReadValue');
   lExpectedKeys := ['uprov.pas:4:10', 'uprov.pas:6:10'];
-  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version', 'undefined']) then
+  if MatchText(aShape, ['uncertain', 'unicode', 'compiler-version', 'undefined', 'inactive']) then
   begin
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual(SortedKeysText(lExpectedKeys), SortedKeysText(PlanEditKeys(lPlan)));
     Assert.AreEqual('uprov.pas:10:' + IntToStr(Length(lDirective) + 10),
       SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    if aShape = 'inactive' then
+      Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
     Exit;
   end;
   lExpectedCount := 2;
@@ -1874,9 +1880,10 @@ begin
     // UNDEF restores later activity, but cannot expose references in the missing include.
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
-    Assert.AreEqual('uprov.pas:10:0', SortedKeysText(PlanUnresolvedKeys(lPlan)));
-    Assert.AreEqual<Integer>(1, Length(lPlan.UnresolvedReferences));
+    Assert.AreEqual('uprov.pas:10:0 uprov.pas:11:20', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual<Integer>(2, Length(lPlan.UnresolvedReferences));
     Assert.AreEqual('include-file-not-found', lPlan.UnresolvedReferences[0].Reason);
+    Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[1].Reason);
     Assert.AreEqual('', lPlan.ContextFingerprint);
     Exit;
   end;
@@ -1884,12 +1891,6 @@ begin
   begin
     AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10',
       'uprov.pas:10:' + IntToStr(Pos('Fetch', lBlock))], 3);
-    Exit;
-  end;
-  if MatchText(aShape, ['separate', 'nested', 'true-else', 'true-elseif', 'later-true',
-    'false-define', 'expression', 'ifopt-nested']) then
-  begin
-    AssertCompletePlan(lPlan, ['uprov.pas:4:10', 'uprov.pas:6:10'], 2);
     Exit;
   end;
   lLine := 0;
@@ -1901,6 +1902,16 @@ begin
       lLine := 10 + i;
       lColumn := Pos('Fetch', lLines[i]);
     end;
+  if MatchText(aShape, ['separate', 'nested', 'true-else', 'true-elseif', 'later-true',
+    'false-define', 'expression', 'ifopt-nested']) then
+  begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
+    Assert.AreEqual('uprov.pas:' + IntToStr(lLine) + ':' + IntToStr(lColumn),
+      SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
+    Exit;
+  end;
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('uprov.pas:4:10 uprov.pas:6:10', SortedKeysText(PlanEditKeys(lPlan)));
   if MatchText(aShape, ['earlier-witness', 'missing-include']) then
@@ -2245,9 +2256,15 @@ begin
   if TFile.Exists(lCacheFileName) then
     TFile.Delete(lCacheFileName);
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName);
-  AssertCompletePlan(lPlan, lKeys, 6);
+  Assert.AreEqual('incomplete', lPlan.Status);
+  Assert.AreEqual(SortedKeysText(lKeys), SortedKeysText(PlanEditKeys(lPlan)));
+  Assert.AreEqual('ucons.pas:12:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
   lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 8, 5, 'FTally', lCacheFileName, True);
-  AssertCompletePlan(lPlan, lKeys, 6);
+  Assert.AreEqual('incomplete', lPlan.Status);
+  Assert.AreEqual(SortedKeysText(lKeys), SortedKeysText(PlanEditKeys(lPlan)));
+  Assert.AreEqual('ucons.pas:12:5', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  Assert.AreEqual('occurrence-in-inactive-configuration', lPlan.UnresolvedReferences[0].Reason);
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
   lOptions.SqliteCacheFileName := lCacheFileName;
@@ -2255,7 +2272,7 @@ begin
   try
     Assert.IsTrue(lSessionResult.Success, 'Find-usages project session must open.');
     // Exercise the binding partition that supplies general rename/usage references.
-    // The high-level scanner independently masks inactive text, so its result alone
+    // The high-level scanner independently retains inactive text, so its result alone
     // cannot detect a broken partition. Keep both contracts in this control.
     lFacts := lSessionResult.Session.BuildWithBindingFacts;
     lActiveWithCount := 0;
@@ -2288,8 +2305,9 @@ begin
         lKeys := lKeys + [CompletenessKey(lUsage.FileName, lUsage.Line, lUsage.Column)];
       Assert.AreEqual(6, Integer(Length(lKeys)));
       Assert.IsFalse(SortedKeysText(lKeys).Contains('ucons.pas:12:5'),
-        'Known-inactive homonyms are not usage occurrences.');
-      Assert.AreEqual(0, Integer(Length(lUsages.Unresolved)));
+        'Inactive homonyms are advisory occurrences, never active bindings.');
+      Assert.AreEqual(1, Integer(Length(lUsages.Unresolved)));
+      Assert.AreEqual('occurrence-in-inactive-configuration', lUsages.Unresolved[0].Reason);
     finally
       lContext.ProjectSnapshot := nil;
     end;
@@ -2464,6 +2482,36 @@ end;
 
 // The local GValue on line 8 sits inside Touch's range; resolving that position to Touch would
 // rename the routine instead of the local. A position naming no symbol stays refused (DS-652).
+procedure TRenameCompletenessTests.PlansLaterLocalInNameListAtDeclaration;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('ds656-name-list',
+    'program P;'#13#10'procedure Run;'#13#10'var A, B, CVar, X: Integer;'#13#10 +
+    'begin'#13#10'  A := 1; B := 2; CVar := 37; X := 4;'#13#10 +
+    '  WriteLn(A + B + CVar + X);'#13#10'end;'#13#10'begin'#13#10'  Run;'#13#10'end.'#13#10, []);
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 3, 11, 'RenamedValue');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['P.dpr'], 'CVar'), 3);
+end;
+
+procedure TRenameCompletenessTests.NestedTypeBodyDoesNotHideProvenOuterMemberAbsence;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('ds656-nested-type',
+    'program P;'#13#10'type'#13#10'  TOuter = class'#13#10'  public type'#13#10 +
+    '    TInner = class'#13#10'    public'#13#10'      Limit: Integer;'#13#10'    end;'#13#10 +
+    '  public'#13#10'    Count: Integer;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  a: TOuter;'#13#10'  Limit: Integer;'#13#10 +
+    'begin'#13#10'  Limit := 37;'#13#10'  a := TOuter.Create;'#13#10 +
+    '  with a do'#13#10'    Count := Limit;'#13#10'  WriteLn(a.Count);'#13#10 +
+    '  a.Free;'#13#10'end;'#13#10'begin'#13#10'  Run;'#13#10'end.'#13#10, []);
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 15, 3, 'RenamedLimit');
+  AssertCompletePlan(lPlan, ['p.dpr:15:3', 'p.dpr:17:3', 'p.dpr:20:14'], 3);
+end;
+
 procedure TRenameCompletenessTests.PositionResolvesLocalNotEnclosingRoutine;
 var
   lPlan: TDelphiSemanticRenamePlan;

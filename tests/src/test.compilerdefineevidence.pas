@@ -22,6 +22,15 @@ type
     [TestCase('Win32 native 32-bit host', 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378')]
     [TestCase('Win32 native 64-bit host', '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765')]
     procedure AdmitsVerifiedWin32CompilerHost(const aCompilerHash: string);
+    [TestCase('Win32 wrong-states', 'Win32,wrong-states')]
+    [TestCase('Win32 partial', 'Win32,partial')]
+    [TestCase('Win32 missing-false', 'Win32,missing-false')]
+    [TestCase('Win32 bcb', 'Win32,bcb')]
+    [TestCase('Win64 wrong-states', 'Win64,wrong-states')]
+    [TestCase('Win64 partial', 'Win64,partial')]
+    [TestCase('Win64 missing-false', 'Win64,missing-false')]
+    [TestCase('Win64 bcb', 'Win64,bcb')]
+    procedure RejectsMislabeledNativeTable(const aPlatform, aShape: string);
     [TestCase('Win64 table on Win32', 'win64-table')]
     [TestCase('Win32 table on Win64', 'win32-table')]
     [TestCase('Win64 hash on Win32', 'win64-hash')]
@@ -207,6 +216,39 @@ begin
   aOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, lSources, aDefines, aPredefinedFalse);
 end;
 
+function NativeTableDescriptor(const aPlatform: string): TDelphiSemanticCompilerDefineDescriptor;
+begin
+  Result := ClosedDescriptor;
+  Result.CaptureKind := 'native-msbuild-dcc-inputs-v1';
+  Result.Invocation.Platform := aPlatform;
+  Result.PredefinedIdentity := 'native-probe-table';
+  if aPlatform = 'Win32' then
+  begin
+    Result.CompilerFileName := TPath.GetFullPath('dcc32.exe');
+    Result.CompilerHash := 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
+    Result.PredefinedFormat := 'compiler-predefines-23-win32-v1';
+    Result.PredefinedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU32BITS', 'CPU386',
+      'CPUX86', 'DCC', 'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNDERSCOREIMPORTNAME', 'UNICODE',
+      'VER360', 'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT', 'WIN32'];
+    Result.PredefinedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU64BITS', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX64', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN64'];
+  end else begin
+    Result.CompilerHash := 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
+    Result.PredefinedFormat := 'compiler-predefines-23-win64-v1';
+    Result.PredefinedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU64BITS', 'CPUX64', 'DCC',
+      'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNICODE', 'VER360', 'WEAKINTFREF', 'WEAKREF',
+      'WEAK_NATIVEINT', 'WIN64'];
+    Result.PredefinedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU32BITS', 'CPU386', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX86', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'UNDERSCOREIMPORTNAME', 'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN32'];
+  end;
+end;
+
 procedure TCompilerDefineEvidenceTests.AdmitsVerifiedNativeCompilerHost(const aCompilerHash: string);
 var
   lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
@@ -227,20 +269,44 @@ var
   lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
   lReason: string;
 begin
-  lDescriptor := ClosedDescriptor;
-  lDescriptor.CaptureKind := 'native-msbuild-dcc-inputs-v1';
-  lDescriptor.Invocation.Platform := 'Win32';
-  lDescriptor.CompilerFileName := TPath.GetFullPath('dcc32.exe');
+  lDescriptor := NativeTableDescriptor('Win32');
   lDescriptor.CompilerHash := aCompilerHash;
-  lDescriptor.PredefinedFormat := 'compiler-predefines-23-win32-v1';
-  lDescriptor.PredefinedIdentity := 'native-dcc32-probe-table';
-  lDescriptor.PredefinedTrue := ['CPU32BITS', 'CPU386', 'CPUX86', 'UNDERSCOREIMPORTNAME', 'WIN32'];
-  lDescriptor.PredefinedFalse := ['CPU64BITS', 'CPUX64', 'WIN64'];
   lEvidence := TTestDefineEvidence.Create(lDescriptor);
   Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason),
     lReason);
   Assert.IsTrue(TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted,
     lDescriptor.Sources[0].SourceFileName));
+end;
+
+procedure TCompilerDefineEvidenceTests.RejectsMislabeledNativeTable(const aPlatform, aShape: string);
+var
+  lDescriptor, lOther: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lReason: string;
+begin
+  lDescriptor := NativeTableDescriptor(aPlatform);
+  if aPlatform = 'Win32' then
+    lOther := NativeTableDescriptor('Win64')
+  else
+    lOther := NativeTableDescriptor('Win32');
+  if aShape = 'wrong-states' then
+  begin
+    lDescriptor.PredefinedTrue := lOther.PredefinedTrue;
+    lDescriptor.PredefinedFalse := lOther.PredefinedFalse;
+  end else if aShape = 'partial' then
+    lDescriptor.PredefinedTrue := [UpperCase(aPlatform)]
+  else if aShape = 'missing-false' then
+    lDescriptor.PredefinedFalse := nil
+  else
+  begin
+    lDescriptor.PredefinedTrue := lDescriptor.PredefinedTrue + ['BCB'];
+    lDescriptor.PredefinedFalse := Copy(lDescriptor.PredefinedFalse, 6, MaxInt);
+  end;
+  lEvidence := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence,
+    lDescriptor.Invocation, lAdmitted, lReason), 'Native table contents must match the compiler, not its label.');
+  Assert.IsNull(lAdmitted);
+  Assert.Contains(lReason, 'predefined');
 end;
 
 procedure TCompilerDefineEvidenceTests.RejectsMismatchedCompilerSelection(const aShape: string);

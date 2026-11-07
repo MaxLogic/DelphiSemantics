@@ -201,7 +201,8 @@ begin
         lDeclaration.Kind, lDeclaration.Name), lDeclaration.Line, lDeclaration.Column);
 
   for lMember in aModel.Members do
-    if SameText(lMember.Kind, 'class-var') and (Trim(lMember.OwnerName) <> '') then
+    if SameText(aModel.ScopeModelStatus, 'ast') and
+      SameText(lMember.Kind, 'class-var') and (Trim(lMember.OwnerName) <> '') then
       AddGlobalDeclaration(aDeclarations, lMember.Name, aModel.UnitName, aModel.FileName,
         lMember.OwnerName, lMember.TypeName, 'classvar', 'interface', 'declaration', 'type',
         TypeScopeId(aModel.UnitName, lMember.OwnerName),
@@ -308,7 +309,8 @@ begin
           lSymbol.Id), lDeclarationIndex);
         AddSnapshotDeclarationIndex(aDeclarationByUnitName,
           SnapshotDeclarationUnitNameKey(lUnitName, lName), lDeclarationIndex);
-      end else if SameText(lKind, 'class-var') and
+      end else if SameText(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId), 'ast') and
+        SameText(lKind, 'class-var') and
         (Trim(SnapshotText(aSnapshot, lSymbol.OwnerTypeId)) <> '') and
         SameText(SnapshotText(aSnapshot, lSymbol.DeclarationRoleId),
         'declaration') and
@@ -1001,6 +1003,10 @@ begin
     for lModel in aModels do
     begin
       AddModelDiagnostics(lDiagnostics, lModel);
+      if not SameText(lModel.ScopeModelStatus, 'ast') then
+        AddDiagnostic(lDiagnostics, 'SCOPE_MODEL_UNVERIFIED',
+          'Unit lexical scope facts are not AST-verified: ' + lModel.ScopeModelStatus,
+          lModel.FileName, 0);
       AddModelDeclarations(lDeclarations, lModel);
       Inc(Result.ModelFallbackUnitCount);
       if SameText(lModel.ScopeModelStatus, 'ast') then

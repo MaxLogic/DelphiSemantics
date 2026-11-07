@@ -35,6 +35,32 @@ type
       const aName, aSymbolClass, aOwnerName: string; out aSymbol:
       TDelphiSemanticInventorySymbol): Boolean;
   public
+    [Test]
+    [Category('DS708747')]
+    procedure IncludedRoutineRangesDoNotCaptureMainFileMembers;
+    [Test]
+    [Category('DS708747')]
+    [TestCase('ds708-include-overlap route 0', 'ds708-include-overlap,0')]
+    [TestCase('ds708-include-overlap route 1', 'ds708-include-overlap,1')]
+    [TestCase('ds708-include-overlap route 2', 'ds708-include-overlap,2')]
+    [TestCase('ds708-include-overlap route 3', 'ds708-include-overlap,3')]
+    [TestCase('ds708-include-overlap route 4', 'ds708-include-overlap,4')]
+    [TestCase('ds747-threadvar route 0', 'ds747-threadvar,0')]
+    [TestCase('ds747-threadvar route 1', 'ds747-threadvar,1')]
+    [TestCase('ds747-threadvar route 2', 'ds747-threadvar,2')]
+    [TestCase('ds747-threadvar route 3', 'ds747-threadvar,3')]
+    [TestCase('ds747-threadvar route 4', 'ds747-threadvar,4')]
+    [TestCase('ds747-global-control route 0', 'ds747-global-control,0')]
+    [TestCase('ds747-global-control route 1', 'ds747-global-control,1')]
+    [TestCase('ds747-global-control route 2', 'ds747-global-control,2')]
+    [TestCase('ds747-global-control route 3', 'ds747-global-control,3')]
+    [TestCase('ds747-global-control route 4', 'ds747-global-control,4')]
+    [TestCase('ds747-ancestor-homonym-own-base route 0', 'ds747-ancestor-homonym-own-base,0')]
+    [TestCase('ds747-ancestor-homonym-own-base route 1', 'ds747-ancestor-homonym-own-base,1')]
+    [TestCase('ds747-ancestor-homonym-own-base route 2', 'ds747-ancestor-homonym-own-base,2')]
+    [TestCase('ds747-ancestor-homonym-own-base route 3', 'ds747-ancestor-homonym-own-base,3')]
+    [TestCase('ds747-ancestor-homonym-own-base route 4', 'ds747-ancestor-homonym-own-base,4')]
+    procedure FileRangesAndValueFollowUps(const aShape: string; const aRoute: Integer);
     [Category('DS718Routes')]
     [TestCase('constant-class route 0', 'constant-class,0')]
     [TestCase('constant-class route 1', 'constant-class,1')]
@@ -22449,6 +22475,42 @@ begin
   Assert.IsFalse(lPlan.FinalStatements[0].ReplacementText.ToLower.Contains('with '));
 end;
 
+procedure TWithBinderTests.IncludedRoutineRangesDoNotCaptureMainFileMembers;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lIncluded: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := FixturePath('BindingSafety', 'ds708-include-overlap\Unit1.pas');
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lIncluded := 0;
+  for var i := 0 to High(lModel.Routines) do
+    if SameText(ExtractFileName(lModel.Routines[i].FileName), 'overlap.inc') then
+    begin
+      Inc(lIncluded);
+      // Include extraction currently omits body end coordinates. Supply the
+      // physical end from this retained fixture to exercise a complete range.
+      lModel.Routines[i].EndLine := 21;
+      lModel.Routines[i].EndColumn := 1;
+    end;
+  Assert.AreEqual(1, lIncluded);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds708', nil, [lModel]);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings));
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status,
+    lFacts.Bindings[0].Selectors[0].ReasonCode);
+  Assert.AreEqual('TInner', ReceiverOf(lFacts.Bindings[0], 'Count', 'member'));
+end;
+
+procedure TWithBinderTests.FileRangesAndValueFollowUps(const aShape: string;
+  const aRoute: Integer);
+begin
+  BindingSafetyRoutes(aShape, aRoute);
+end;
+
 procedure TWithBinderTests.BindingSafetyRoutes(const aShape: string; const aRoute: Integer);
 var
   g: TGarbos;
@@ -22467,8 +22529,8 @@ begin
   lRoot := WithBinderTempPath('binding-' + aShape + IntToStr(aRoute));
   TDirectory.CreateDirectory(lRoot);
   for var lFolder in ['common', aShape] do
-    for var lFile in TDirectory.GetFiles(FixturePath('BindingSafety', lFolder), '*.pas') do
-      TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)));
+    for var lFile in TDirectory.GetFiles(FixturePath('BindingSafety', lFolder)) do
+      TFile.Copy(lFile, TPath.Combine(lRoot, ExtractFileName(lFile)), True);
   TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
     'program P; {$APPTYPE CONSOLE} uses Unit1; begin Run; end.'#13#10, TEncoding.ASCII);
   TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
@@ -22526,13 +22588,44 @@ begin
     lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(aRoute));
     TDirectory.CreateDirectory(lProofRoot);
     for var lFile in TDirectory.GetFiles(lRoot) do
-      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj']) then
+      if MatchText(ExtractFileExt(lFile), ['.pas', '.dpr', '.dproj', '.inc']) then
         TFile.Copy(lFile, TPath.Combine(lProofRoot, ExtractFileName(lFile)));
     GC(lSerializer, TJsonSerializer.Create, g);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
       lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
     TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
       lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
+  end;
+  if StartsText('ds708-', aShape) or StartsText('ds747-', aShape) then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements));
+    if aShape = 'ds747-ancestor-homonym-own-base' then
+    begin
+      // ControlUnit.TBase cannot contribute Count to Unit1.TBase's lineage.
+      if lPlan.FinalStatements[0].Status = 'planned' then
+        Assert.IsFalse(ContainsText(lPlan.FinalStatements[0].ReplacementText, 'lWithItem.Count'),
+          lPlan.FinalStatements[0].ReplacementText)
+      else
+      begin
+        Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
+        Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps));
+        Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText);
+      end;
+    end else if aShape = 'ds708-include-overlap' then
+    begin
+      Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status);
+      Assert.AreEqual('TInner', ReceiverOf(lFacts.Bindings[0], 'Count', 'member'));
+      // Compound selectors retain the separate planner refusal.
+      Assert.AreEqual('property-selector', lPlan.FinalStatements[0].Reason);
+    end else begin
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+        aShape + ': ' + lPlan.FinalStatements[0].Reason);
+      Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+        '.A := Count;'),
+        lPlan.FinalStatements[0].ReplacementText);
+    end;
+    Exit;
   end;
   Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual<Integer>(1 + Ord(aShape = 'overloads'), Length(lFacts.Bindings));

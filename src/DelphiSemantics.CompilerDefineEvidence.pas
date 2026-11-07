@@ -279,6 +279,47 @@ begin
     SameText(aDescriptor.DelphiVersion, aRequest.DelphiVersion);
 end;
 
+function NativePredefinedStatesMatch(const aDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  const aWin32: Boolean): Boolean;
+var
+  lExpectedTrue, lExpectedFalse, lActualTrue, lActualFalse: TArray<string>;
+  lSymbol: string;
+begin
+  // DS-772/DS-791: pinned native dcc64/dcc32 probes, not a caller-supplied label.
+  // The verified task fixes BCB=false. CONSOLE may be true, false or withheld
+  // when source APPTYPE propagation cannot prove a common state.
+  if aWin32 then
+  begin
+    lExpectedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU32BITS', 'CPU386',
+      'CPUX86', 'DCC', 'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNDERSCOREIMPORTNAME', 'UNICODE',
+      'VER360', 'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT', 'WIN32'];
+    lExpectedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU64BITS', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX64', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN64'];
+  end else begin
+    lExpectedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU64BITS', 'CPUX64', 'DCC',
+      'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNICODE', 'VER360', 'WEAKINTFREF', 'WEAKREF',
+      'WEAK_NATIVEINT', 'WIN64'];
+    lExpectedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU32BITS', 'CPU386', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX86', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'UNDERSCOREIMPORTNAME', 'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN32'];
+  end;
+  lActualTrue := nil;
+  lActualFalse := nil;
+  for lSymbol in aDescriptor.PredefinedTrue do
+    if lSymbol <> 'CONSOLE' then
+      lActualTrue := lActualTrue + [lSymbol];
+  for lSymbol in aDescriptor.PredefinedFalse do
+    if lSymbol <> 'CONSOLE' then
+      lActualFalse := lActualFalse + [lSymbol];
+  Result := TDelphiSemanticCompilerDefines.SameDefines(lExpectedTrue, lActualTrue) and
+    TDelphiSemanticCompilerDefines.SameDefines(lExpectedFalse, lActualFalse);
+end;
+
 function ValidateDescriptor(var aDescriptor: TDelphiSemanticCompilerDefineDescriptor;
   const aRequest: TDelphiSemanticCompilerDefineRequest; out aReason: string): Boolean;
 const
@@ -349,6 +390,9 @@ begin
       for i := 0 to High(aDescriptor.PredefinedFalse) do
         if lSymbol = aDescriptor.PredefinedFalse[i] then
           Exit(False);
+    if (aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1') and
+      not NativePredefinedStatesMatch(aDescriptor, lWin32) then
+      Exit(False);
   end;
   aDescriptor.Invocation.ProjectFileName := CanonicalPath(aDescriptor.Invocation.ProjectFileName);
   aDescriptor.Invocation.MainSourceFileName := CanonicalPath(aDescriptor.Invocation.MainSourceFileName);

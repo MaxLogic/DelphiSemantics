@@ -27,7 +27,7 @@ type
     Diagnostic: string;
     Symbol: TDelphiSemanticIndexedSymbol;
     Usages: TArray<TDelphiSemanticUsage>;
-    // Same-name occurrences that are proven neither to be nor not to be the symbol (role
+    // Same-name occurrences in other configurations or with uncertain identity (role
     // 'unresolved'). Filled for project-snapshot results.
     Unresolved: TArray<TDelphiSemanticUsage>;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
@@ -766,6 +766,7 @@ var
   lReference: TSemanticReferenceFact;
   lReferenceRef: TSemanticReferenceRef;
   lScanned: Integer;
+  lScanSource: string;
   lSource: string;
   lSymbol: TSemanticSymbolFact;
   lSymbolRef: TSemanticSymbolRef;
@@ -898,11 +899,10 @@ begin
       lVerified := IsVerifiedScopeStatus(SnapshotText(aSnapshot, lUnit.ScopeModelStatusId));
       lFileName := SnapshotText(aSnapshot, lUnit.FileNameId);
       lActiveSource := aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId);
-      if lVerified then
-        lUpperSource := UpperCase(SanitizeCodeText(
-          TDelphiSemanticSourceConditionals.SourceForScan(lSource, lActiveSource)))
-      else
-        lUpperSource := UpperCase(SanitizeCodeText(lSource));
+      // A certificate proves one configuration. Keep other configurations' tokens
+      // visible to generic usage/rename completeness, without binding or editing them.
+      lScanSource := TDelphiSemanticSourceConditionals.SourceForScan(lSource, lActiveSource);
+      lUpperSource := UpperCase(SanitizeCodeText(lSource));
       lLine := 1;
       lLineStart := 1;
       lScanned := 1;
@@ -922,7 +922,11 @@ begin
         begin
           lColumn := lPosition - lLineStart + 1;
           lKey := SnapshotPositionKey(lFileName, lLine, lColumn);
-          if TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lActiveSource,
+          if lVerified and (lScanSource[lPosition] <> lSource[lPosition]) then
+            AddUnresolvedUsage(lUnresolved, aSnapshot, lUnit,
+              Copy(lSource, lPosition, Length(lName)), '', '', lLine, lColumn,
+              'occurrence-in-inactive-configuration')
+          else if TDelphiSemanticSourceConditionals.UnknownAtOffset(lSource, lActiveSource,
             lPosition) or (not lCovered.ContainsKey(lKey) and not lHandled.ContainsKey(lKey) and
             not (lVerified and lDeclarations.ContainsKey(lKey))) then
           begin
