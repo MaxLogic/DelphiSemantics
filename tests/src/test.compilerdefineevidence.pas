@@ -19,6 +19,16 @@ type
     [TestCase('Native 32-bit host', 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03')]
     [TestCase('Native 64-bit host', '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9')]
     procedure AdmitsVerifiedNativeCompilerHost(const aCompilerHash: string);
+    [TestCase('Win32 native 32-bit host', 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378')]
+    [TestCase('Win32 native 64-bit host', '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765')]
+    procedure AdmitsVerifiedWin32CompilerHost(const aCompilerHash: string);
+    [TestCase('Win64 table on Win32', 'win64-table')]
+    [TestCase('Win32 table on Win64', 'win32-table')]
+    [TestCase('Win64 hash on Win32', 'win64-hash')]
+    [TestCase('Win32 hash on Win64', 'win32-hash')]
+    [TestCase('Wrong compiler filename', 'filename')]
+    [TestCase('Stale Win32 producer', 'stale')]
+    procedure RejectsMismatchedCompilerSelection(const aShape: string);
     [Test]
     [TestCase('replace emulated defines', 'replace')]
     [TestCase('certified empty', 'empty')]
@@ -209,6 +219,64 @@ begin
   lEvidence := TTestDefineEvidence.Create(lDescriptor);
   Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason),
     lReason);
+end;
+
+procedure TCompilerDefineEvidenceTests.AdmitsVerifiedWin32CompilerHost(const aCompilerHash: string);
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lReason: string;
+begin
+  lDescriptor := ClosedDescriptor;
+  lDescriptor.CaptureKind := 'native-msbuild-dcc-inputs-v1';
+  lDescriptor.Invocation.Platform := 'Win32';
+  lDescriptor.CompilerFileName := TPath.GetFullPath('dcc32.exe');
+  lDescriptor.CompilerHash := aCompilerHash;
+  lDescriptor.PredefinedFormat := 'compiler-predefines-23-win32-v1';
+  lDescriptor.PredefinedIdentity := 'native-dcc32-probe-table';
+  lDescriptor.PredefinedTrue := ['CPU32BITS', 'CPU386', 'CPUX86', 'UNDERSCOREIMPORTNAME', 'WIN32'];
+  lDescriptor.PredefinedFalse := ['CPU64BITS', 'CPUX64', 'WIN64'];
+  lEvidence := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason),
+    lReason);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted,
+    lDescriptor.Sources[0].SourceFileName));
+end;
+
+procedure TCompilerDefineEvidenceTests.RejectsMismatchedCompilerSelection(const aShape: string);
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lReason: string;
+begin
+  lDescriptor := ClosedDescriptor;
+  lDescriptor.CaptureKind := 'native-msbuild-dcc-inputs-v1';
+  lDescriptor.Invocation.Platform := 'Win32';
+  lDescriptor.CompilerFileName := TPath.GetFullPath('dcc32.exe');
+  lDescriptor.CompilerHash := 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
+  lDescriptor.PredefinedFormat := 'compiler-predefines-23-win32-v1';
+  lDescriptor.PredefinedIdentity := 'native-dcc32-probe-table';
+  lDescriptor.PredefinedTrue := ['WIN32'];
+  if aShape = 'win64-table' then
+    lDescriptor.PredefinedFormat := 'compiler-predefines-23-win64-v1';
+  if aShape = 'win32-table' then
+  begin
+    lDescriptor.Invocation.Platform := 'Win64';
+    lDescriptor.CompilerFileName := TPath.GetFullPath('dcc64.exe');
+    lDescriptor.CompilerHash := 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
+  end;
+  if aShape = 'win64-hash' then
+    lDescriptor.CompilerHash := 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
+  if aShape = 'win32-hash' then
+    lDescriptor.Invocation.Platform := 'Win64';
+  if aShape = 'filename' then
+    lDescriptor.CompilerFileName := TPath.GetFullPath('dcc64.exe');
+  if aShape = 'stale' then
+    lDescriptor.ProducerInputIdentity := 'stale';
+  lEvidence := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence, lDescriptor.Invocation, lAdmitted, lReason));
+  Assert.IsNull(lAdmitted);
+  Assert.IsNotEmpty(lReason);
 end;
 
 procedure TCompilerDefineEvidenceTests.AdmitsClosedCompilerInputs(const aShape: string);

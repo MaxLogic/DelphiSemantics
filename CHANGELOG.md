@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Certified compiler define evidence supports verified Delphi 12 Win32 dcc32 hosts with a separate predefined-symbol table and platform-specific admission checks (DS-791).
+
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed

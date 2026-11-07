@@ -284,10 +284,13 @@ function ValidateDescriptor(var aDescriptor: TDelphiSemanticCompilerDefineDescri
 const
   cVerifiedCompilerHash = 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
   cVerifiedCompiler64Hash = '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9';
+  cVerifiedWin32CompilerHash = 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
+  cVerifiedWin32Compiler64Hash = '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765';
 var
   i, j: Integer;
   lNormalized: TArray<string>;
-  lSymbol: string;
+  lSymbol, lPredefinedFormat: string;
+  lWin32: Boolean;
 begin
   aReason := 'invalid compiler define evidence envelope';
   if (aDescriptor.Format <> 'ds-compiler-defines-v1') or (aDescriptor.Producer = '') or
@@ -301,15 +304,26 @@ begin
   if not RequestMatches(aDescriptor.Invocation, aRequest) then
     Exit(False);
   aReason := 'compiler define evidence compiler identity unsupported';
+  lWin32 := SameText(aDescriptor.Invocation.Platform, 'Win32');
   if (aDescriptor.Invocation.DelphiVersion <> '23.0') or
-    not SameText(aDescriptor.Invocation.Platform, 'Win64') or
+    (not lWin32 and not SameText(aDescriptor.Invocation.Platform, 'Win64')) or
     (aDescriptor.CompilerVersion <> '36.0') then
     Exit(False);
-  if (aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1') and
-    ((aDescriptor.CaptureKind <> 'native-msbuild-dcc-inputs-v1') or
-    (not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash) and
-    not SameText(aDescriptor.CompilerHash, cVerifiedCompiler64Hash))) then
-    Exit(False);
+  if aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1' then
+  begin
+    if aDescriptor.CaptureKind <> 'native-msbuild-dcc-inputs-v1' then
+      Exit(False);
+    if lWin32 then
+    begin
+      if not SameText(ExtractFileName(aDescriptor.CompilerFileName), 'dcc32.exe') or
+        (not SameText(aDescriptor.CompilerHash, cVerifiedWin32CompilerHash) and
+        not SameText(aDescriptor.CompilerHash, cVerifiedWin32Compiler64Hash)) then
+        Exit(False);
+    end else if not SameText(ExtractFileName(aDescriptor.CompilerFileName), 'dcc64.exe') or
+      (not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash) and
+      not SameText(aDescriptor.CompilerHash, cVerifiedCompiler64Hash)) then
+      Exit(False);
+  end;
   aReason := 'compiler define evidence contains invalid ordinary symbols';
   if not NormalizeSymbols(aDescriptor.Defines, lNormalized) then
     Exit(False);
@@ -318,7 +332,11 @@ begin
   if (aDescriptor.PredefinedFormat <> '') or (aDescriptor.PredefinedIdentity <> '') or
     (Length(aDescriptor.PredefinedTrue) <> 0) or (Length(aDescriptor.PredefinedFalse) <> 0) then
   begin
-    if (aDescriptor.PredefinedFormat <> 'compiler-predefines-23-win64-v1') or
+    if lWin32 then
+      lPredefinedFormat := 'compiler-predefines-23-win32-v1'
+    else
+      lPredefinedFormat := 'compiler-predefines-23-win64-v1';
+    if (aDescriptor.PredefinedFormat <> lPredefinedFormat) or
       (aDescriptor.PredefinedIdentity = '') then
       Exit(False);
     if not NormalizeSymbols(aDescriptor.PredefinedTrue, lNormalized) then
