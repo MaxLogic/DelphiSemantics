@@ -1034,13 +1034,20 @@ begin
       aActive := False
     else
     begin
-      if TPath.IsPathRooted(lArgument) then
-        lPath := TPath.GetFullPath(lArgument)
-      else
-        lPath := NormalizeProjectPath(aBaseDirectory, lArgument);
-      aActive := TFile.Exists(lPath) or TDirectory.Exists(lPath);
-      if aObservations <> nil then
-        aObservations.AddPresence(lPath, 'exists-condition', aActive);
+      try
+        if TPath.IsPathRooted(lArgument) then
+          lPath := TPath.GetFullPath(lArgument)
+        else
+          lPath := NormalizeProjectPath(aBaseDirectory, lArgument);
+        aActive := TFile.Exists(lPath) or TDirectory.Exists(lPath);
+        if aObservations <> nil then
+          aObservations.AddPresence(lPath, 'exists-condition', aActive);
+      except
+        // DS-790: invalid path syntax is an unproved condition, not a process crash.
+        // IsConditionActive publishes the named diagnostic and withholds define evidence.
+        on E: EArgumentException do
+          Exit(False);
+      end;
     end;
   end else
     aActive := EndsText('\', lArgument) or EndsText('/', lArgument);

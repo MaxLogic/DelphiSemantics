@@ -16,6 +16,8 @@ type
     [Test]
     procedure QualifiedFallbackCompilerComparison;
     [Test]
+    procedure BodyIncludeDeclarationSafety;
+    [Test]
     [TestCase('MSBuild certificate', 'certified')]
     [TestCase('Missing certificate', 'absent')]
     [TestCase('Unexpanded certificate', 'unresolved')]
@@ -355,7 +357,7 @@ begin
 end;
 
 procedure CompareCompiler(const aFull: Boolean; const aRegression: string = '';
-  const aEvidence: string = '');
+  const aEvidence: string = ''; const aSelection: string = '');
 var
   lRoot, lRetainRoot, lArgument, lCaseRoot, lBds, lDenialName, lRouteFile, lScript: string;
   lPhase: Integer;
@@ -402,6 +404,8 @@ begin
   end;
   if aEvidence <> '' then
     lArgument := lArgument + ' --only "msbuild-include-P1,msbuild-include-P2" --include-evidence ' + aEvidence
+  else if aSelection <> '' then
+    lArgument := lArgument + ' --only "' + aSelection + '"'
   else if GetEnvironmentVariable('DS719_NATIVE_ONLY') <> '' then
     lArgument := lArgument + ' --only "' + GetEnvironmentVariable('DS719_NATIVE_ONLY') + '"';
   Assert.AreEqual<Cardinal>(0, RunReference(lArgument,
@@ -580,6 +584,11 @@ end;
 procedure TTypeVisibilityNativeTests.QualifiedFallbackCompilerComparison;
 begin
   CompareCompiler(False, 'ds755');
+end;
+
+procedure TTypeVisibilityNativeTests.BodyIncludeDeclarationSafety;
+begin
+  CompareCompiler(False, '', '', 'ds782-');
 end;
 
 procedure TTypeVisibilityNativeTests.IncludePathEvidenceSafety(const aEvidence: string);

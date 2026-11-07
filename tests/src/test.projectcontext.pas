@@ -186,6 +186,11 @@ type
     [TestCase('Order identity', 'identity')]
     [TestCase('Unresolved supplied macro', 'unresolved')]
     procedure CallerEvaluatedIncludeEvidence(const aKind: string);
+    [TestCase('Additional I remains unproved', 'additional-I')]
+    [TestCase('Optset directory evaluated by MSBuild', 'optset')]
+    [TestCase('Project directory evaluated by MSBuild', 'project')]
+    [TestCase('Raw IncludePath is not the compiler list', 'raw')]
+    procedure NativeIncludeInputsRemainCertifiedOrUnproved(const aShape: string);
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure ExplicitSelfReferentialSearchPathRemainsEffective;
@@ -198,6 +203,21 @@ type
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure EmptyExistsConditionIsFalse;
+    [Test]
+    [Category('RefactoringLightProjectContext,Fast')]
+    [TestCase('Project pipe', '0,False')]
+    [TestCase('Project less than', '1,False')]
+    [TestCase('Project greater than', '2,False')]
+    [TestCase('Project quote', '3,False')]
+    [TestCase('Project star', '4,False')]
+    [TestCase('Project question mark', '5,False')]
+    [TestCase('Import pipe', '0,True')]
+    [TestCase('Import less than', '1,True')]
+    [TestCase('Import greater than', '2,True')]
+    [TestCase('Import quote', '3,True')]
+    [TestCase('Import star', '4,True')]
+    [TestCase('Import question mark', '5,True')]
+    procedure InvalidExistsPathsNeverCrash(const aCharacter: Integer; const aImported: Boolean);
     [Test]
     [Category('RefactoringLightProjectContext,Fast')]
     procedure UnresolvedSourceSearchPathStillReportsMacro;
@@ -248,10 +268,11 @@ implementation
 
 uses
   System.Classes, System.Hash, System.IOUtils, System.Rtti, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectSession,
+  DelphiSemantics.Cache, DelphiSemantics.CompilerProfile,
+  DelphiSemantics.Preprocess, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor.Binding, DelphiSemantics.Refactor.Plan,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
-  DelphiSemantics.Source, Test.CompilerDefineEvidence, Test.Support;
+  DelphiSemantics.Source, Test.CompilerDefineEvidence, Test.CompilerIncludeCapture, Test.Support;
 
 const
   // Increasing precedence for these fixtures: project properties precede the
@@ -2341,6 +2362,91 @@ begin
   end;
 end;
 
+procedure TProjectContextTests.NativeIncludeInputsRemainCertifiedOrUnproved(const aShape: string);
+var
+  lOptions: TDelphiSemanticOptions;
+  lContext: TDelphiSemanticContextResult;
+  lPreprocessOptions: TDelphiSemanticPreprocessOptions;
+  lPreprocessed: TDelphiSemanticPreprocessResult;
+  lEvidence: IDelphiSemanticCompilerDefineEvidence;
+  lRoot, lProject, lProperties, lImport, lCapturedPath, lReason: string;
+begin
+  lProject := ContextEvidenceTempPath('NativeIncludes-' + aShape + '.dproj');
+  lRoot := ExtractFilePath(lProject);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'options\inc'));
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'options\inc\native.inc'),
+    'type TSelected = record Value: Integer; end;');
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'Main.dpr'),
+    'program Main; {$I native.inc} begin Writeln(SizeOf(TSelected)); end.');
+  lImport := '';
+  if aShape = 'additional-I' then
+    lProperties := '<DCC_AdditionalSwitches>-I&quot;options\inc&quot;</DCC_AdditionalSwitches>'
+  else if aShape = 'raw' then
+    lProperties := '<DCC_IncludePath>options\inc</DCC_IncludePath>'
+  else if aShape = 'project' then
+    lProperties := '<DCC_UnitSearchPath>$(MSBuildProjectDirectory)\options\inc</DCC_UnitSearchPath>'
+  else begin
+    lProperties := '';
+    lImport := '<Import Project="options\Local.optset"/>';
+    WriteUtf8Bytes(TPath.Combine(lRoot, 'options\Local.optset'),
+      '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+      '<DCC_UnitSearchPath>$(MSBuildThisFileDirectory)inc</DCC_UnitSearchPath>' +
+      '</PropertyGroup></Project>');
+  end;
+  WriteUtf8Bytes(lProject, '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Main.dpr</MainSource><FrameworkType>None</FrameworkType>' +
+    '<ImportEnvOptions>false</ImportEnvOptions>' + lProperties + '</PropertyGroup>' + lImport +
+    '<ItemGroup><DelphiCompile Include="$(MainSource)"><MainSource>MainSource</MainSource>' +
+    '</DelphiCompile></ItemGroup><Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/></Project>');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Platform := 'Win64';
+  lOptions.Configuration := 'Debug';
+  lContext := TDelphiSemanticProject.Load(lProject, lOptions);
+  Assert.IsTrue(lContext.Success, DiagnosticSummary(lContext));
+  Assert.AreEqual('<include-path-unproved>', lContext.Project.IncludePaths[0],
+    'DS-780: emulated paths never certify the include list.');
+  lPreprocessOptions := Default(TDelphiSemanticPreprocessOptions);
+  lPreprocessOptions.SourceFileName := TPath.Combine(lRoot, 'Main.dpr');
+  lPreprocessOptions.SourceText := TFile.ReadAllText(lPreprocessOptions.SourceFileName);
+  lPreprocessOptions.SearchPaths := [lRoot] + lContext.Project.IncludePaths;
+  lPreprocessed := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
+  Assert.IsFalse(lPreprocessed.Success, 'Uncaptured include input must refuse before planning.');
+  Assert.AreEqual<Integer>(0, Length(lPreprocessed.Includes));
+  if aShape = 'additional-I' then
+  begin
+    lReason := '';
+    try
+      lEvidence := CaptureFixtureCompilerDefineContext(lOptions, lCapturedPath);
+    except
+      on E: EInvalidOpException do
+        lReason := E.Message;
+    end;
+    Assert.IsNull(lEvidence);
+    Assert.IsTrue(ContainsText(lReason, 'Additional compiler option is outside the verified settings grammar'),
+      'DS-780: additional -I must withhold the certificate with a named cause: ' + lReason);
+    Exit;
+  end;
+  lEvidence := CaptureFixtureCompilerDefineContext(lOptions, lCapturedPath);
+  Assert.IsNotNull(lEvidence);
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lOptions.CompilerIncludeSearchPath := lCapturedPath;
+  lContext := TDelphiSemanticProject.Load(lProject, lOptions);
+  Assert.IsTrue(lContext.Success, DiagnosticSummary(lContext));
+  Assert.AreEqual('True', lContext.Project.PropertyValue('DSCompilerIncludePathsKnown'));
+  lPreprocessOptions.SearchPaths := [lRoot] + lContext.Project.IncludePaths;
+  lPreprocessed := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocessOptions);
+  Assert.AreEqual(aShape <> 'raw', lPreprocessed.Success,
+    'Only the evaluated native task IncludePath supplies the compiler directory.');
+  if aShape <> 'raw' then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lPreprocessed.Includes));
+    Assert.AreEqual(TPath.Combine(lRoot, 'options\inc\native.inc'), lPreprocessed.Includes[0].FileName);
+    Assert.IsTrue(ContainsText(lPreprocessed.OutputText, 'type TSelected = record'));
+  end;
+end;
+
 procedure TProjectContextTests.CallerEvaluatedIncludeEvidence(const aKind: string);
 var
   lFirst, lSecond: TDelphiSemanticContextResult;
@@ -2677,6 +2783,44 @@ begin
   Assert.IsTrue(lResult.Success);
   Assert.AreEqual('', lResult.Project.PropertyValue('DCC_Define'),
     'An empty Exists path is not the project directory.');
+end;
+
+procedure TProjectContextTests.InvalidExistsPathsNeverCrash(
+  const aCharacter: Integer; const aImported: Boolean);
+const
+  cCharacters: array[0..5] of string = ('|', '&lt;', '&gt;', '&quot;', '*', '?');
+var
+  lDocument, lDprojFileName, lImportFileName: string;
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lDprojFileName := ContextEvidenceTempPath(Format('InvalidExists-%d-%s.dproj',
+    [aCharacter, BoolToStr(aImported, True)]));
+  lImportFileName := TPath.ChangeExtension(lDprojFileName, '.optset');
+  // The characters are XML escaped, but remain literal path characters after DOM loading.
+  lDocument := '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><DCC_Define>BASE</DCC_Define></PropertyGroup>' +
+    '<PropertyGroup Condition="Exists(''a' + cCharacters[aCharacter] + 'b.flag'')">' +
+    '<DCC_Define>SHOULD_NOT_APPLY</DCC_Define></PropertyGroup></Project>';
+  if aImported then
+  begin
+    WriteUtf8Bytes(lImportFileName, lDocument);
+    lDocument := '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+      '<Import Project="' + ExtractFileName(lImportFileName) + '"/></Project>';
+  end;
+  WriteUtf8Bytes(lDprojFileName, lDocument);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDprojFileName;
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lResult := TDelphiSemanticProject.Load(lDprojFileName, lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.AreEqual('BASE', lResult.Project.PropertyValue('DCC_Define'),
+    'Native MSBuild evaluates these invalid Exists paths as false.');
+  Assert.IsTrue(HasDiagnostic(lResult, 'INVALID_MSBUILD_CONDITION'),
+    'Rejected path syntax must publish the named unproved-condition diagnostic.');
+  Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
+    'A named invalid-condition diagnostic must withhold complete define evidence.');
 end;
 
 procedure TProjectContextTests.UnresolvedSourceSearchPathStillReportsMacro;

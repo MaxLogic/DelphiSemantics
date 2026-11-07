@@ -6,6 +6,9 @@
 
 ### Fixed
 - Certified Delphi 12 Win64 profiles evaluate bounded `CompilerVersion` and `RTLVersion` comparisons when the source scope proves the constants are unshadowed. ASM byte strings no longer hide following conditional directives (DS-756, DS-776).
+- Invalid Exists condition paths report INVALID_MSBUILD_CONDITION and withhold define evidence instead of crashing (DS-790).
+- Certified statement-only routine includes no longer taint declaration names; dependent activity, declaration-capable includes and uncertified selection still refuse. Older parser caches rebuild (DS-782).
+- Source-text include scans require an owning source path instead of borrowing the process current directory; unresolved includes report INCLUDE_SOURCE_ORIGIN_UNPROVED (DS-777).
 - Unsupported directives in possible conditional branches retain diagnostics and unproved activity without failing semantic-model construction. Active unsupported directives still fail; older parser caches rebuild.
 - Invalid include names remain unresolved during preprocessing, including inactive conditional branches, instead of raising path exceptions (DS-772).
 - Compiler predefined evidence identifies the possible project-source and include inventory; a planning context outside that inventory cannot reuse its certificate (DS-772).
