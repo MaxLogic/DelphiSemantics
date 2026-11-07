@@ -193,6 +193,54 @@ type
     [TestCase('Interface project source variation', 'r4c-interface-shadow-active')]
     [TestCase('Inactive new name in include', 'r4b2-include-newname')]
     procedure AlternateImportCapturesRefuseRename(const aCase: string);
+    [TestCase('n1-type-inactive-member', 'n1-type-inactive-member,UCertified.pas,23,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n2-same-unit-record-helper', 'n2-same-unit-record-helper,UCertified.pas,22,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper', 'n3-active-import-inactive-helper,UCertified.pas,14,3,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('n6-method-self-impl-global', 'n6-method-self-impl-global,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
+    [TestCase('m1-nonmember-inactive-oldname', 'm1-nonmember-inactive-oldname,UCertified.pas,3,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('m1-member-inactive-oldname', 'm1-member-inactive-oldname,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-g-dpr', 'n3-active-import-inactive-helper-g-dpr,UCertified.pas,12,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-dpr', 'n3-active-import-inactive-helper-dpr,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n1-type-inactive-member-g', 'n1-type-inactive-member-g,UCertified.pas,21,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-g', 'n3-active-import-inactive-helper-g,UCertified.pas,12,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('n2-same-unit-record-helper-g', 'n2-same-unit-record-helper-g,UCertified.pas,20,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n6d-method-self-objhelper-rel', 'n6d-method-self-objhelper-rel,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
+    [TestCase('x1-bare-inherited', 'x1-bare-inherited,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x1-bare-inherited-reverse', 'x1-bare-inherited-reverse,UCertified.pas,8,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x2-interface-by-name', 'x2-interface-by-name,UCertified.pas,14,15,Exec,implicit-interface-method,Win32,False')]
+    [TestCase('x3-attribute-suffix', 'x3-attribute-suffix,UCertified.pas,6,3,TagAttribute,implicit-attribute-name,Win32,False')]
+    [TestCase('for-in-getenumerator', 'for-in-getenumerator,UCertified.pas,5,10,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-movenext', 'for-in-movenext,UCertified.pas,5,10,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-current', 'for-in-current,UCertified.pas,5,27,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-newname', 'for-in-newname,UCertified.pas,5,10,MoveNext,implicit-for-in-protocol,Win32,False')]
+    [TestCase('property-accessor', 'property-accessor,UCertified.pas,5,10,Other,implicit-property-accessor,Win32,False')]
+    [TestCase('implements', 'implements,UCertified.pas,5,30,Other,implicit-implements,Win32,False')]
+    [TestCase('published-member', 'published-member,UCertified.pas,5,21,Other,published-member,Win32,False')]
+    [TestCase('operator-method', 'operator-method,UCertified.pas,5,16,Other,implicit-operator-method,Win32,False')]
+    [TestCase('unit-name', 'unit-name,UCertified.pas,3,5,UCertified,unit-or-namespace-name,Win32,False')]
+    [TestCase('namespace-name', 'namespace-name,UCertified.pas,3,5,System,unit-or-namespace-name,Win32,False')]
+    [TestCase('declared-old', 'declared-old,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('declared-new', 'declared-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('case-only', 'case-only,UCertified.pas,3,5,counter,,Win32,True')]
+    [TestCase('same-line', 'same-line,UCertified.pas,3,5,Renamed,,Win32,True')]
+    [TestCase('literal-findcomponent', 'literal-findcomponent,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-methodaddress', 'literal-methodaddress,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-findclass', 'literal-findclass,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-getmethod', 'literal-getmethod,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-getproperty', 'literal-getproperty,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('interface-resolution', 'interface-resolution,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
+    [TestCase('interface-inherited', 'interface-inherited,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
+    [TestCase('interface-newname', 'interface-newname,UCertified.pas,8,11,Run,implicit-interface-method,Win32,False')]
+    [TestCase('local-newname-sdk-call', 'local-newname-sdk-call,UCertified.pas,6,5,WriteLn,containment-local-capture,Win32,False')]
+    [TestCase('parameter-newname-sdk-call', 'parameter-newname-sdk-call,UCertified.pas,5,17,WriteLn,containment-local-capture,Win32,False')]
+    [TestCase('inherited-escaped', 'inherited-escaped,UCertified.pas,5,16,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('declared-qualified', 'declared-qualified,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('unit-short-name', 'unit-short-name,UCertified.pas,4,5,Bar,unit-or-namespace-name,Win32,False')]
+    [TestCase('literal-second-argument', 'literal-second-argument,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('declared-qualified-new', 'declared-qualified-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
+      const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
+
     [TestCase('Literal false', 'false')]
     [TestCase('Local define', 'define')]
     [TestCase('Local undef', 'undef')]
@@ -1800,6 +1848,60 @@ begin
   Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'uprov.pas:');
   Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
   Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)), SortedKeysText(PlanUnresolvedKeys(lWarm)));
+end;
+
+procedure TRenameCompletenessTests.KnownUnsoundShapesRefuseRename(
+  const aCase, aFile: string; const aLine, aColumn: Integer;
+  const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
+var
+  lRoot, lFixture, lFileName, lRelative: string;
+  lFiles, lOriginals: TArray<string>;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+  lUsage: TDelphiSemanticUsage;
+  lFound: Boolean;
+  i: Integer;
+begin
+  lFixture := FixturePath(TPath.Combine('rename-containment', aCase));
+  lRoot := RenameTempPath(aCase);
+  lFiles := TDirectory.GetFiles(lFixture, '*', TSearchOption.soAllDirectories);
+  SetLength(lOriginals, Length(lFiles));
+  for i := 0 to High(lFiles) do
+  begin
+    lRelative := Copy(lFiles[i], Length(lFixture) + 2, MaxInt);
+    lFileName := TPath.Combine(lRoot, lRelative);
+    TDirectory.CreateDirectory(ExtractFilePath(lFileName));
+    TFile.Copy(lFiles[i], lFileName);
+    lOriginals[i] := TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(lFileName));
+  end;
+  lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', 'Certified');
+  lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', 'Certified');
+  if aSuccess then
+  begin
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All same-line occurrences must be retained.');
+  end else begin
+    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    lFound := False;
+    for lUsage in lPlan.UnresolvedReferences do
+      if lUsage.Reason = aReason then
+      begin
+        lFound := True;
+        if aCase = 'operator-method' then
+          Assert.AreEqual(aColumn, lUsage.Column, 'Operator refusal must report the exact token column.');
+      end;
+    Assert.IsTrue(lFound, aCase + ': missing named refusal ' + aReason);
+    Assert.AreEqual('', lPlan.ContextFingerprint, 'A refusal must have no apply authority.');
+  end;
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)), SortedKeysText(PlanUnresolvedKeys(lWarm)));
+  for i := 0 to High(lFiles) do
+  begin
+    lRelative := Copy(lFiles[i], Length(lFixture) + 2, MaxInt);
+    Assert.AreEqual(lOriginals[i], TNetEncoding.Base64.EncodeBytesToString(
+      TFile.ReadAllBytes(TPath.Combine(lRoot, lRelative))), lRelative);
+  end;
 end;
 
 procedure TRenameCompletenessTests.AlternateImportCapturesRefuseRename(const aCase: string);

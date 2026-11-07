@@ -64,7 +64,7 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.Math, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.Math, System.RegularExpressions, System.StrUtils, System.SysUtils,
   DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals, MaxLogic.StrUtils;
@@ -771,6 +771,25 @@ begin
   Result := False;
 end;
 
+// DS-797 slice 1: implicit Self lookup precedes unit-level declarations.
+function SnapshotPositionInMethod(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aLine: Integer): Boolean;
+var
+  i: Integer;
+  lFact: TSemanticSymbolFact;
+begin
+  for i := 1 to aUnit.SymbolCount do
+  begin
+    lFact := aUnit.SymbolById(TSemanticSymbolId(i));
+    if (lFact.RoutineId <> 0) and (lFact.EndLine >= aLine) and
+      (lFact.Line <= aLine) and
+      (lFact.OwnerTypeId <> 0) and
+      SameText(SnapshotText(aSnapshot, lFact.KindId), 'routine') then
+      Exit(True);
+  end;
+  Result := False;
+end;
+
 function SnapshotLocalTarget(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; out aUnit: TUnitSnapshot;
   out aFact: TSemanticSymbolFact): Boolean;
@@ -829,9 +848,9 @@ var
   lReference: TSemanticReferenceFact;
   lLocalFact: TSemanticSymbolFact;
   lImports: TObjectDictionary<string, TList<TDelphiSemanticImportFact>>;
-  lSeen, lReported: THashSet<string>;
+  lSeen, lReported, lRetained: THashSet<string>;
   lResult: TList<TDelphiSemanticUsage>;
-  lLocal: Boolean;
+  lLocal, lLocalMemberContext: Boolean;
   lFact: TDelphiSemanticImportFact;
   lEdges: TList<TDelphiSemanticImportFact>;
   lKey: string;
@@ -913,7 +932,9 @@ var
           else if not lImport.Unconditional then
           begin
             if aClosure then
-              Report(aOwner, 'inactive-import-may-capture-member', aName, aLine, aColumn)
+            begin
+              Report(aOwner, 'inactive-import-may-capture-member', aName, aLine, aColumn);
+            end
             else
               Report(aOwner, 'inactive-import-may-capture-name', aName, aLine, aColumn);
           end;
@@ -935,10 +956,24 @@ var
     lTargetUnit: TUnitSnapshot;
     lProvider, lSection, lOwner: string;
     lInWith, lNewLocal: Boolean;
+    lBeforeImports: Integer;
   begin
     if lLocal and ((aCurrentUnit.UnitId <> lLocalUnit.UnitId) or
       not SnapshotInsideLocalRoutine(aSnapshot, lLocalUnit, lLocalFact, aFileName, aLine)) then
+    begin
+      // A capture source need not be inside the local's owning routine. The
+      // containment deliberately keeps all new-name tokens in the project
+      // closure when a renamed local is used under WITH/member lookup.
+      if lLocalMemberContext and not SameText(aName, aSymbol.Name) then
+        Report(aFileName, 'containment-local-capture', aName, aLine, aColumn);
       Exit;
+    end;
+    // A new local spelling can capture an existing call/reference inside its
+    // routine even when the provider is an intrinsic/SDK name with no project
+    // declaration (for example WriteLn). Token presence is enough to refuse;
+    // this containment does not try to prove the proposed binding harmless.
+    if lLocal and not SameText(aName, aSymbol.Name) then
+      Report(aFileName, 'containment-local-capture', aName, aLine, aColumn);
     // Includes have physical token coordinates but share their unit's imports.
     // Possible-only imported units retain their own owner when available.
     lOwner := aFileName;
@@ -955,6 +990,19 @@ var
       Exit;
     end;
     lInWith := (aReference.WithId <> 0) or SnapshotPositionInWith(aCurrentUnit, aLine, aColumn);
+    if not lLocal and SnapshotPositionInMethod(aSnapshot, aCurrentUnit, aLine) then
+    begin
+      // Treat Self as a WITH receiver before considering the same-unit shortcut.
+      if (aReference.TargetSymbolId <> 0) and
+        aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) and
+        SnapshotFactIsRoutineLocal(lTargetUnit.SymbolById(aReference.TargetSymbolId), aSnapshot) then
+        Exit;
+      lInWith := True;
+      lBeforeImports := lResult.Count;
+      CheckImports(lOwner, '', '', aName, True, True, aLine, aColumn);
+      if lResult.Count > lBeforeImports then
+        Report(aFileName, 'implicit-self-may-capture-name', aName, aLine, aColumn);
+    end;
     lProvider := '';
     if (aReference.TargetSymbolId <> 0) and
       aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) then
@@ -974,6 +1022,114 @@ var
     lSection := SnapshotText(aSnapshot, aReference.SectionKindId);
     CheckImports(lOwner, lSection, lProvider, aName, lInWith or aMember, lNewLocal,
       aLine, aColumn);
+  end;
+
+  // Conservative implicit-consumer barriers. These are refusals, not a
+  // substitute for the per-configuration binding matrix (DS-797 slice 4).
+  procedure CheckImplicitConsumers(const aCurrentUnit: TUnitSnapshot);
+  var
+    lRaw, lCode, lName, lPattern, lFileName, lKind, lBase: string;
+    lImport: TDelphiSemanticImportFact;
+    lMatch: TMatch;
+    lNames: TArray<string>;
+    lMember, lType: Boolean;
+    lFact: TSemanticSymbolFact;
+    lIndex, lLine, lColumn: Integer;
+
+    procedure Refuse(const aReason: string);
+    begin
+      Report(lFileName, aReason, lName, lLine, lColumn);
+    end;
+
+  begin
+    lRaw := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
+    lCode := SanitizeCodeText(lRaw);
+    lFileName := SnapshotText(aSnapshot, aCurrentUnit.FileNameId);
+    lNames := [aSymbol.Name] + aNames;
+    lMember := aSymbol.OwnerName <> '';
+    lType := MatchText(aSymbol.Kind, ['class', 'type', 'alias']);
+    for lName in lNames do
+    begin
+      lPattern := TRegEx.Escape(lName);
+      // The rule is project-wide; absent a match span, do not misattribute
+      // the target's coordinates to a different source unit.
+      lLine := 0;
+      lColumn := 0;
+      if SameText(lFileName, aSymbol.FileName) and SameText(aSymbol.Visibility, 'published') then
+        Refuse('published-member');
+      for lIndex := 1 to aCurrentUnit.SymbolCount do
+      begin
+        lFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lIndex));
+        if SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) and
+          SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aSymbol.OwnerName) and
+          SameText(SnapshotText(aSnapshot, lFact.VisibilityId), 'published') then
+          Refuse('published-member');
+      end;
+      if lMember and MatchText(lName, ['GetEnumerator', 'MoveNext', 'Current']) then
+        Refuse('implicit-for-in-protocol');
+      if lMember and TRegEx.IsMatch(lCode,
+        '\b(?:procedure|function|constructor|destructor)\s+(?:[&\w]+\.)+&?' + lPattern +
+        '\b(?:(?!\b(?:procedure|function|constructor|destructor)\b)[\s\S])*?\binherited\s*(?:;|\()',
+        [roIgnoreCase]) then
+        Refuse('implicit-bare-inherited');
+      // By-name implementation can be inherited or introduced by the new name.
+      // Until the matrix owns interface obligations, any matching method in
+      // a project containing an interface is a possible implementation.
+      if lMember and TRegEx.IsMatch(lCode, '=\s*interface\b', [roIgnoreCase]) and
+        TRegEx.IsMatch(lCode, '\b(?:procedure|function)\s+' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-interface-method');
+      if lMember and TRegEx.IsMatch(lCode,
+        '\b(?:procedure|function)\s+[&\w]+\.[&\w]+\s*=\s*' + lPattern + '\b',
+        [roIgnoreCase]) then
+        Refuse('implicit-interface-method');
+      if lMember and TRegEx.IsMatch(lCode, '\bproperty\b[^;]*\b(?:read|write)\s+' +
+        lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-property-accessor');
+      if TRegEx.IsMatch(lCode, '\bproperty\b[^;]*\b' + lPattern +
+        '\b[^;]*\bimplements\b', [roIgnoreCase]) then
+        Refuse('implicit-implements');
+      if lMember and TRegEx.IsMatch(lCode, '\bproperty\s+' + lPattern +
+        '\b[^;]*\bimplements\b|\bimplements\s+' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-implements');
+      if lMember and TRegEx.IsMatch(lCode, '\boperator\s+(?:[&\w]+\.)?' + lPattern +
+        '\b', [roIgnoreCase]) then
+        Refuse('implicit-operator-method');
+      lBase := lName;
+      if EndsText('Attribute', lBase) then
+        SetLength(lBase, Length(lBase) - Length('Attribute'));
+      if lType and (EndsText('Attribute', lName) or
+        (SameText(lFileName, aSymbol.FileName) and TRegEx.IsMatch(lCode,
+        '\b' + TRegEx.Escape(aSymbol.Name) + '\s*=\s*class\s*\([^)]*\bTCustomAttribute\b',
+        [roIgnoreCase])) or TRegEx.IsMatch(lCode, '\[\s*(?:' + lPattern + '|' +
+        TRegEx.Escape(lBase) + '|' + TRegEx.Escape(lBase + 'Attribute') + ')(?:\s*[\],(])', [roIgnoreCase])) then
+        Refuse('implicit-attribute-name');
+      if not SameText(lName, aSymbol.Name) then
+      begin
+        lKind := SnapshotText(aSnapshot, aCurrentUnit.UnitNameId);
+        if SameText(lName, 'System') or MatchText(lName, lKind.Split(['.'])) or
+          StartsText(lName + '.', lKind) then
+          Refuse('unit-or-namespace-name');
+        for lImport in aCurrentUnit.ImportFacts do
+          if MatchText(lName, lImport.Name.Split(['.'])) or StartsText(lName + '.', lImport.Name) then
+            Refuse('unit-or-namespace-name');
+      end;
+      // Declared is a name consumer even when its condition is currently false.
+      if TRegEx.IsMatch(lRaw, '\{\$\s*(?:IF|ELSEIF)\b[^}]*\bDeclared\s*\([^)]*\b' +
+        lPattern + '\b[^)]*\)', [roIgnoreCase]) or
+        TRegEx.IsMatch(lRaw, '\(\*\$\s*(?:IF|ELSEIF)\b[\s\S]*?\bDeclared\s*\([^)]*\b' +
+        lPattern + '\b[^)]*\)', [roIgnoreCase]) then
+        Refuse('declared-name-consumer');
+      // Contain every literal argument position without inventing another
+      // call parser: a consumer call and a matching literal anywhere in its
+      // unit are enough. Unrelated literals may over-refuse until the matrix
+      // owns this consumer closure. Computed names remain outside this rule.
+      if TRegEx.IsMatch(lCode,
+        '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty)\s*\(',
+        [roIgnoreCase]) then
+        for lMatch in TRegEx.Matches(lRaw, '''((?:''''|[^''])*)''', [roIgnoreCase]) do
+          if SameText(lMatch.Groups[1].Value.Replace('''''', ''''), lName) then
+            Refuse('rtti-string-name-consumer');
+    end;
   end;
 
   procedure CheckUnitTokens(const aCurrentUnit: TUnitSnapshot);
@@ -1054,7 +1210,7 @@ var
           // even when the declaring unit has no expression using its old name.
           CheckImports(lFileName, 'implementation', lFileName, lName, False, True, lLine,
             lOffset - lLineStart + 1)
-        else if not lIsDeclaration or
+        else if (lLocalMemberContext and not SameText(lName, aSymbol.Name)) or not lIsDeclaration or
           (lLocal and (not SameText(lName, aSymbol.Name) or
           SnapshotPositionInWith(aCurrentUnit, lLine, lOffset - lLineStart + 1))) then
           CheckOccurrence(aCurrentUnit, lFileName, lName, lLine, lOffset - lLineStart + 1,
@@ -1086,8 +1242,26 @@ begin
   lSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lReported := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lResult := TList<TDelphiSemanticUsage>.Create;
+  lRetained := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
+    for i := 0 to aSnapshot.UnitCount - 1 do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      if aSnapshot.ExactTextOf(lUnit.SourceTextId) <> '' then
+        lRetained.Add(SnapshotText(aSnapshot, lUnit.FileNameId));
+    end;
     lLocal := SnapshotLocalTarget(aSnapshot, aSymbol, lLocalUnit, lLocalFact);
+    lLocalMemberContext := False;
+    if lLocal then
+      for i := 1 to lLocalUnit.ReferenceCount do
+      begin
+        lReference := lLocalUnit.ReferenceById(TSemanticReferenceId(i));
+        if SameText(SnapshotText(aSnapshot, lReference.NameId), aSymbol.Name) and
+          ((lReference.WithId <> 0) or (lReference.ReceiverTypeId <> 0) or
+          SnapshotPositionInWith(lLocalUnit, lReference.Line, lReference.Column) or
+          SnapshotPositionInMethod(aSnapshot, lLocalUnit, lReference.Line)) then
+          lLocalMemberContext := True;
+      end;
     for i := 0 to aSnapshot.UnitCount - 1 do
       for lFact in aSnapshot.UnitByIndex(i).ImportFacts do
       begin
@@ -1103,11 +1277,18 @@ begin
           lImports.Add(lFact.OwnerFileName, lEdges);
         end;
         lEdges.Add(lFact);
+        // Coverage is independent of lexical shadowing and local scope.
+        // Every retained active import must itself have captured raw text;
+        // otherwise its inactive names and further imports are unknown.
+        if lFact.Unconditional and not lFact.SdkBoundary and
+          (lFact.TargetFileName <> '') and not lRetained.Contains(lFact.TargetFileName) then
+          Report(lFact.TargetFileName, 'active-import-source-not-retained', aSymbol.Name, 0, 0);
       end;
     for i := 0 to aSnapshot.UnitCount - 1 do
     begin
       lUnit := aSnapshot.UnitByIndex(i);
       CheckUnitTokens(lUnit);
+      CheckImplicitConsumers(lUnit);
       for j := 1 to lUnit.ReferenceCount do
       begin
         lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
@@ -1122,6 +1303,7 @@ begin
     end;
     Result := SortedUsages(lResult);
   finally
+    lRetained.Free;
     lResult.Free;
     lReported.Free;
     lSeen.Free;

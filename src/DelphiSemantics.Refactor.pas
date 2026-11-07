@@ -73,7 +73,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
+  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils,
   System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceContext, DelphiSemantics.Version,
@@ -1283,12 +1283,11 @@ begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot <> nil then
   begin
-    if HasSnapshotNameCollision(aContext, aName, aNewName) then
-      Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
-        aNewName + '".'));
-
     lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
     Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+    if (Result.Status = 'planned') and HasSnapshotNameCollision(aContext, aName, aNewName) then
+      Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
+        aNewName + '".'));
     Result.IndexMetrics := lUsageResult.IndexMetrics;
     Exit;
   end;
@@ -1307,6 +1306,48 @@ begin
   Result.IndexMetrics := lIndex.Metrics;
 end;
 
+function TryRefuseOperatorAtPosition(const aSnapshot: TDelphiProjectSnapshot;
+  const aFileName: string; const aLine, aColumn: Integer;
+  out aPlan: TDelphiSemanticRenamePlan): Boolean;
+var
+  i: Integer;
+  lUnit: TUnitSnapshot;
+  lLines: TArray<string>;
+  lMatch: TMatch;
+  lGap: TDelphiSemanticUsage;
+begin
+  Result := False;
+  if aSnapshot = nil then
+    Exit;
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    if not SameText(SnapshotText(aSnapshot, lUnit.FileNameId), aFileName) then
+      Continue;
+    lLines := aSnapshot.ExactTextOf(lUnit.SourceTextId).Split([#13#10]);
+    if (aLine < 1) or (aLine > Length(lLines)) then
+      Exit;
+    lMatch := TRegEx.Match(SanitizeCodeText(lLines[aLine - 1]),
+      '\boperator\s+(?:[&\w]+\.)?([&\w]+)', [roIgnoreCase]);
+    if not lMatch.Success or (aColumn < lMatch.Groups[1].Index) or
+      (aColumn >= lMatch.Groups[1].Index + lMatch.Groups[1].Length) then
+      Exit;
+    aPlan := Default(TDelphiSemanticRenamePlan);
+    aPlan.Status := 'incomplete';
+    aPlan.Diagnostic := 'implicit-operator-method: operator names have implicit consumers.';
+    lGap := Default(TDelphiSemanticUsage);
+    lGap.FileName := aFileName;
+    lGap.Name := lMatch.Groups[1].Value;
+    lGap.Line := aLine;
+    lGap.Column := lMatch.Groups[1].Index;
+    lGap.Reason := 'implicit-operator-method';
+    lGap.Role := 'unresolved';
+    lGap.SourceKind := 'project';
+    aPlan.UnresolvedReferences := [lGap];
+    Exit(True);
+  end;
+end;
+
 class function TDelphiSemanticRenamePlanner.PlanRenameAtPosition(
   const aContext: TDelphiSemanticSymbolQueryContext; const aFileName: string; const aLine,
   aColumn: Integer; const aNewName: string): TDelphiSemanticRenamePlan;
@@ -1321,16 +1362,19 @@ begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot <> nil then
   begin
+    if TryRefuseOperatorAtPosition(lSnapshot, aFileName, aLine, aColumn, Result) then
+      Exit;
     lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(aContext, aFileName,
       aLine, aColumn);
     if lUsageResult.Status <> 'resolved' then
       Exit(BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName));
 
-    if HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
+    Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
+    if (Result.Status = 'planned') and
+      HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
       Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
         aNewName + '".'));
 
-    Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
     Result.IndexMetrics := lUsageResult.IndexMetrics;
     Exit;
   end;

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename and find-usages refuse known conditional capture, missing active-source coverage, implicit inherited/interface/attribute/protocol consumers, published members and literal reflection uses. Refusals retain named reasons and no apply authority (DS-797 slice 1).
+
 - Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
 
 - Missing-import checks follow direct import visibility and uses order outside WITH, and interface-uses chains for member lookup. Safe lexical renames remain available when unrelated imports are missing (DS-791).
