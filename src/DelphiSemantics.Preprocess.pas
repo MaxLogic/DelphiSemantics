@@ -1362,12 +1362,15 @@ end;
 
 function TDirectiveScanner.ActivityAt(const aFileName: string;
   const aOffset: Integer): TDelphiSemanticSourceActivity;
+var
+  i: Integer;
 begin
   // A repeated include must never borrow another expansion's activity.
-  for var lSpan in fActivity do
-    if SameText(lSpan.FileName, aFileName) and (lSpan.ExpansionId = fExpansionId) and
-      (aOffset >= lSpan.StartOffset) and (aOffset < lSpan.EndOffset) then
-      Exit(lSpan.Activity);
+  // Reject other coordinates before comparing managed identities, without copying spans.
+  for i := 0 to High(fActivity) do
+    if (aOffset >= fActivity[i].StartOffset) and (aOffset < fActivity[i].EndOffset) and
+      (fActivity[i].ExpansionId = fExpansionId) and SameText(fActivity[i].FileName, aFileName) then
+      Exit(fActivity[i].Activity);
   Result := saUnknown;
 end;
 
