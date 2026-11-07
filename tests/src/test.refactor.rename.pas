@@ -160,6 +160,10 @@ type
     [Category('Fast')]
     [Test]
     procedure PositionResolvesLocalNotEnclosingRoutine;
+    [Test]
+    procedure PlansLaterLocalInNameListAtDeclaration;
+    [Test]
+    procedure NestedTypeBodyDoesNotHideProvenOuterMemberAbsence;
     [Category('Fast')]
     [Test]
     procedure PlansGlobalWhoseNameIsALocalElsewhere;
@@ -2464,6 +2468,36 @@ end;
 
 // The local GValue on line 8 sits inside Touch's range; resolving that position to Touch would
 // rename the routine instead of the local. A position naming no symbol stays refused (DS-652).
+procedure TRenameCompletenessTests.PlansLaterLocalInNameListAtDeclaration;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('ds656-name-list',
+    'program P;'#13#10'procedure Run;'#13#10'var A, B, CVar, X: Integer;'#13#10 +
+    'begin'#13#10'  A := 1; B := 2; CVar := 37; X := 4;'#13#10 +
+    '  WriteLn(A + B + CVar + X);'#13#10'end;'#13#10'begin'#13#10'  Run;'#13#10'end.'#13#10, []);
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 3, 11, 'RenamedValue');
+  AssertCompletePlan(lPlan, OccurrenceKeys(lRoot, ['P.dpr'], 'CVar'), 3);
+end;
+
+procedure TRenameCompletenessTests.NestedTypeBodyDoesNotHideProvenOuterMemberAbsence;
+var
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+begin
+  lRoot := WriteCompletenessProject('ds656-nested-type',
+    'program P;'#13#10'type'#13#10'  TOuter = class'#13#10'  public type'#13#10 +
+    '    TInner = class'#13#10'    public'#13#10'      Limit: Integer;'#13#10'    end;'#13#10 +
+    '  public'#13#10'    Count: Integer;'#13#10'  end;'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  a: TOuter;'#13#10'  Limit: Integer;'#13#10 +
+    'begin'#13#10'  Limit := 37;'#13#10'  a := TOuter.Create;'#13#10 +
+    '  with a do'#13#10'    Count := Limit;'#13#10'  WriteLn(a.Count);'#13#10 +
+    '  a.Free;'#13#10'end;'#13#10'begin'#13#10'  Run;'#13#10'end.'#13#10, []);
+  lPlan := PlanCompletenessRename(lRoot, 'P.dpr', 15, 3, 'RenamedLimit');
+  AssertCompletePlan(lPlan, ['p.dpr:15:3', 'p.dpr:17:3', 'p.dpr:20:14'], 3);
+end;
+
 procedure TRenameCompletenessTests.PositionResolvesLocalNotEnclosingRoutine;
 var
   lPlan: TDelphiSemanticRenamePlan;

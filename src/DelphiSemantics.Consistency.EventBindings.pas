@@ -93,19 +93,19 @@ end;
 
 function ResolveVisibleType(const aModels: TArray<TDelphiSemanticUnitModel>;
   const aTypes: TDelphiSemanticTypeIdentityIndex; const aName: string;
-  const aModel: Integer): TDelphiSemanticTypeLookupResult;
+  const aModel: Integer; const aSection: string = 'interface'): TDelphiSemanticTypeLookupResult;
 var
   lUnit: string;
   lVisible: Boolean;
 begin
   if Pos('.', aName) = 0 then
     Exit(aTypes.ResolveVisibleName(aName, aModels[aModel].UnitName,
-      aTypes.VisibleUnitNames(aModels[aModel].UnitName, 'interface')));
+      aTypes.VisibleUnitNames(aModels[aModel].UnitName, aSection), aSection));
   Result := aTypes.ResolveQualifiedName(aName);
   if not Result.Found then
     Exit;
   lVisible := SameText(Result.Identity.UnitName, aModels[aModel].UnitName);
-  for lUnit in aModels[aModel].InterfaceUses do
+  for lUnit in aTypes.VisibleUnitNames(aModels[aModel].UnitName, aSection) do
     lVisible := lVisible or (SameText(lUnit, Result.Identity.UnitName) and
       SameText(Result.Identity.SectionKind, 'interface'));
   if not lVisible then
@@ -113,22 +113,54 @@ begin
 end;
 
 function HasCompleteClassDeclaration(const aModel: TDelphiSemanticUnitModel;
-  const aName: string): Boolean;
+  const aIdentity: TDelphiSemanticTypeIdentity): Boolean;
 var
-  i, lDeclaration: Integer;
+  i, lDeclaration, lForwards: Integer;
+  lCandidate: TDelphiSemanticDeclaration;
+  lSection: string;
 begin
   lDeclaration := -1;
+  lForwards := 0;
+  lSection := '';
   for i := 0 to High(aModel.Declarations) do
-    if SameText(aModel.Declarations[i].Name, aName) and
-      SameText(aModel.Declarations[i].ScopeKind, 'unit') then
+  begin
+    lCandidate := aModel.Declarations[i];
+    if not SameText(lCandidate.Name, aIdentity.Name) or
+      not SameText(lCandidate.ScopeKind, 'unit') then
+      Continue;
+    // Only one same-section forward/body pair denotes one class. Cross-section
+    // homonyms and duplicate full declarations are not ancestry evidence.
+    if not SameText(lCandidate.Kind, 'type') or
+      not SameText(lCandidate.TypeName, 'class') or
+      not (SameText(lCandidate.DeclarationRole, 'declaration') or
+        SameText(lCandidate.DeclarationRole, 'forward')) or
+      ((lSection <> '') and not SameText(lSection, lCandidate.SectionKind)) then
+      Exit(False);
+    lSection := lCandidate.SectionKind;
+    if lCandidate.TypeBodyEndLine > 0 then
     begin
-      if (lDeclaration >= 0) or not SameText(aModel.Declarations[i].Kind, 'type') or
-        not SameText(aModel.Declarations[i].DeclarationRole, 'declaration') then
+      if (lDeclaration >= 0) or
+        not SameText(lCandidate.DeclarationRole, 'declaration') then
         Exit(False);
       lDeclaration := i;
+    end else begin
+      Inc(lForwards);
+      if (lForwards > 1) or (lDeclaration >= 0) or
+        not SameText(lCandidate.DeclarationRole, 'forward') then
+        Exit(False);
     end;
+  end;
   Result := TDelphiSemanticConsistencyTypeResolver.HasCompleteTypeDeclaration(
     aModel, lDeclaration);
+  if not Result then
+    Exit;
+  lCandidate := aModel.Declarations[lDeclaration];
+  // The type index collapses legitimate forwards onto their full declaration.
+  // Require that exact identity, rather than trusting a name-only lookup.
+  Result := SameText(lCandidate.SectionKind, aIdentity.SectionKind) and
+    (lCandidate.Line = aIdentity.SourceRange.Line) and
+    (lCandidate.Column = aIdentity.SourceRange.Column) and
+    SameText(lCandidate.SymbolId, aIdentity.SemanticSymbolId);
 end;
 
 function TrySourceClass(const aModels: TArray<TDelphiSemanticUnitModel>;
@@ -150,7 +182,7 @@ begin
   if aModel < 0 then
     Exit;
   aReason := 'ancestry.declaration-incomplete';
-  if not HasCompleteClassDeclaration(aModels[aModel], aType.Identity.Name) then
+  if not HasCompleteClassDeclaration(aModels[aModel], aType.Identity) then
     Exit;
   aReason := '';
   Result := True;
@@ -170,7 +202,7 @@ begin
   lOrigin := FindCompleteModelIndex(aModels, aUnitName);
   if lOrigin < 0 then
     Exit;
-  lCurrent := ResolveVisibleType(aModels, aTypes, aClassName, lOrigin);
+  lCurrent := ResolveVisibleType(aModels, aTypes, aClassName, lOrigin, 'implementation');
   while TrySourceClass(aModels, lCurrent, lModel, lReason) do
   begin
     for lPrevious in Result.Classes do
@@ -187,7 +219,8 @@ begin
       Result.Reason := 'ancestry.complete';
       Exit;
     end;
-    lCurrent := ResolveVisibleType(aModels, aTypes, lCurrent.Identity.BaseTypeName, lModel);
+    lCurrent := ResolveVisibleType(aModels, aTypes, lCurrent.Identity.BaseTypeName, lModel,
+      lCurrent.Identity.SectionKind);
   end;
   Result.Reason := lReason;
 end;
@@ -272,7 +305,7 @@ var
       lVisited[High(lVisited)] := lCurrent.Identity.DeclaredId.Value;
       aModel := ModelIndex(lCurrent.Identity.UnitName);
       if (aModel < 0) or not HasCompleteClassDeclaration(aModels[aModel],
-        lCurrent.Identity.Name) then
+        lCurrent.Identity) then
         Exit;
       lMatches := 0;
       for lMember in aModels[aModel].Members do

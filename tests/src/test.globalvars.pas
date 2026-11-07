@@ -49,6 +49,13 @@ type
     [Category('Fast')]
     [Test]
     procedure UsageAccessUsesModelSourceText;
+    [Test]
+    [TestCase('Failed model', 'ast-failed,False')]
+    [TestCase('Failed snapshot', 'ast-failed,True')]
+    [TestCase('Partial model', 'ast-interface-only,False')]
+    [TestCase('Partial snapshot', 'ast-interface-only,True')]
+    procedure UnverifiedClassVarsNeverBecomeGlobalDeclarations(const aStatus: string;
+      const aSnapshot: Boolean);
   end;
 
 implementation
@@ -572,6 +579,48 @@ begin
     'GCounter access should be classified from model SourceText.');
   Assert.AreEqual(0, CountUsages(lAnalysis, 'GCounter', 'readwrite'),
     'Disk source still has Inc(GCounter), but analysis should not reopen it.');
+end;
+
+procedure TGlobalVarsSemanticTests.UnverifiedClassVarsNeverBecomeGlobalDeclarations(
+  const aStatus: string; const aSnapshot: Boolean);
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lSymbolId: TSemanticSymbolId;
+  lUnit: TUnitSnapshot;
+begin
+  lModel := LoadModel('GlobalVarsFixture.Globals.pas');
+  Assert.IsTrue(Length(lModel.Members) > 0);
+  lModel.ScopeModelStatus := aStatus;
+  if aSnapshot then
+  begin
+    lOptions := Default(TDelphiSnapshotBuildOptions);
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+    try
+      lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+      lUnit := lSnapshot.UnitByIndex(0);
+      for lSymbolId := 1 to TSemanticSymbolId(lUnit.SymbolCount) do
+      begin
+        lSymbol := lUnit.SymbolById(lSymbolId);
+        if SameText(lSnapshot.TextOf(lSymbol.KindId), 'class-var') then
+          Assert.AreNotEqual('declaration', lSnapshot.TextOf(lSymbol.DeclarationRoleId),
+            'Unverified members remain queryable without claiming verified declarations.');
+      end;
+    finally
+      lSnapshot.Free;
+    end;
+  end else
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel]);
+  for var i := 0 to High(lAnalysis.Declarations) do
+    Assert.AreNotEqual('classvar', lAnalysis.Declarations[i].Kind,
+      'No class variable from an unverified unit is a verified global.');
+  Assert.AreEqual(0, lAnalysis.VerifiedScopeUnitCount);
+  Assert.IsTrue(HasDiagnostic(lAnalysis, 'SCOPE_MODEL_UNVERIFIED'));
 end;
 
 initialization

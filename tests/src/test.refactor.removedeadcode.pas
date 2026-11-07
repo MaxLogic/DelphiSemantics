@@ -320,6 +320,12 @@ begin
     lContext := Default(TDelphiSemanticSymbolQueryContext);
     lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
     lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext, 'legacy-static');
+    Assert.AreEqual('profile-not-allowed', BlockerReason(lPlan, 'DeadOne'),
+      'DS-662: a bare snapshot cannot prove absence across uncaptured includes.');
+    // Supply captured include evidence to reach the exact declared-name guard below.
+    lContext.UnitModel := lModels[0];
+    lContext.IndexedUnitModels := [lModels[1]];
+    lPlan := TDelphiSemanticApi.PlanDeadCodeRemoval(lContext, 'legacy-static');
     lEdits := '';
     for lEdit in lPlan.Edits do
       lEdits := lEdits + ExtractFileName(lEdit.FileName) + ':' + lEdit.StartLine.ToString + ' ';

@@ -56,8 +56,10 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.QuerySupport,
+  System.Generics.Collections, System.Generics.Defaults, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Preprocess,
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.ContextEvidence,
+  DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.Source,
   DelphiSemantics.Usage,
   MaxLogic.StrUtils;
 
@@ -75,11 +77,15 @@ type
   TDeadCodeSourceIndex = class
   private
     fEntries: TDictionary<string, TDeadCodeSourceEntry>;
+    fFilesByUnit: TDictionary<string, Boolean>;
+    fIncompleteUnits: TDictionary<string, Boolean>;
     // Every unit and program file, with or without known text (DS-659).
     fUnitFiles: TDictionary<string, Boolean>;
     procedure AddEntry(const aFileName, aText: string);
     procedure AddModel(const aModel: TDelphiSemanticUnitModel);
     procedure AddSnapshot(const aSnapshot: TDelphiProjectSnapshot);
+    procedure AddUnitSources(const aUnitName, aFileName: string;
+      const aIncludeFiles: TArray<string>; const aSources: IDelphiSemanticSourceObservations);
   public
     constructor Create(const aContext: TDelphiSemanticSymbolQueryContext);
     destructor Destroy; override;
@@ -116,15 +122,21 @@ type
   TDeadCodeOccurrenceScanner = class
   private
     fCovered: TDictionary<string, Boolean>;
+    fCoveredByUnit: TDictionary<string, Boolean>;
     fResults: TDictionary<string, Boolean>;
     fTexts: TList<TPair<string, string>>;
+    fUnitFiles: TDictionary<string, string>;
+    fSourceIndex: TDeadCodeSourceIndex;
+    fInterfaceNames: TDictionary<string, Boolean>;
     class function PositionKey(const aFileName: string; const aLine, aColumn: Integer): string;
       static;
+    function IsCovered(const aUnitName, aFileName: string; const aLine, aColumn: Integer;
+      const aUnitScoped: Boolean): Boolean;
   public
     constructor Create(const aIndex: TDelphiSemanticProjectSymbolIndex;
       const aSourceIndex: TDeadCodeSourceIndex);
     destructor Destroy; override;
-    function HasUnclassifiedOccurrence(const aName: string): Boolean;
+    function HasUnclassifiedOccurrence(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
   end;
 
 class function TDelphiSemanticDeadCodeProfiles.AllowedNamesText: string;
@@ -197,6 +209,8 @@ begin
   fEntries := TDictionary<string, TDeadCodeSourceEntry>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitFiles := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fFilesByUnit := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fIncompleteUnits := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lSnapshot := ContextProjectSnapshot(aContext);
   AddSnapshot(lSnapshot);
   AddModel(aContext.UnitModel);
@@ -206,6 +220,8 @@ end;
 
 destructor TDeadCodeSourceIndex.Destroy;
 begin
+  fIncompleteUnits.Free;
+  fFilesByUnit.Free;
   fUnitFiles.Free;
   fEntries.Free;
   inherited;
@@ -220,8 +236,6 @@ procedure TDeadCodeSourceIndex.AddEntry(const aFileName, aText: string);
 var
   lEntry: TDeadCodeSourceEntry;
 begin
-  if aFileName <> '' then
-    fUnitFiles.AddOrSetValue(aFileName, True);
   if (aFileName = '') or (aText = '') then
     Exit;
 
@@ -230,15 +244,58 @@ begin
   fEntries.AddOrSetValue(aFileName, lEntry);
 end;
 
+procedure TDeadCodeSourceIndex.AddUnitSources(const aUnitName, aFileName: string;
+  const aIncludeFiles: TArray<string>; const aSources: IDelphiSemanticSourceObservations);
+var
+  lComplete: Boolean;
+  lFileName: string;
+  lSource: TDelphiSemanticSourceText;
+begin
+  if aFileName <> '' then
+  begin
+    fUnitFiles.AddOrSetValue(aFileName, True);
+    fFilesByUnit.AddOrSetValue(aUnitName + #1 + aFileName, True);
+  end;
+  lComplete := Length(aIncludeFiles) > 0;
+  for lFileName in aIncludeFiles do
+  begin
+    fFilesByUnit.AddOrSetValue(aUnitName + #1 + lFileName, True);
+    if Assigned(aSources) and aSources.TryFind(lFileName, lSource) then
+      AddEntry(lFileName, lSource.Text)
+    else
+      // Missing captured text proves no absence. Never reread mutable include files here.
+      lComplete := False;
+  end;
+  if lComplete then
+    fIncompleteUnits.Remove(aUnitName)
+  else if Length(aIncludeFiles) > 0 then
+    fIncompleteUnits.AddOrSetValue(aUnitName, True);
+end;
+
 procedure TDeadCodeSourceIndex.AddModel(const aModel: TDelphiSemanticUnitModel);
+var
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
 begin
   AddEntry(aModel.FileName, aModel.SourceText);
+  AddUnitSources(aModel.UnitName, aModel.FileName, aModel.IncludeFileNames,
+    aModel.SourceObservations);
+  for lDiagnostic in aModel.Diagnostics do
+    if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+      fIncompleteUnits.AddOrSetValue(aModel.UnitName, True);
 end;
 
 procedure TDeadCodeSourceIndex.AddSnapshot(const aSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lEvidence: TDelphiSemanticContextEvidenceExtension;
+  lExtension: TObject;
+  lModel: TDelphiSemanticContextModelEvidence;
+  lDirective: TMatch;
+  lText: string;
   lUnit: TUnitSnapshot;
+  lUnitId: TSemanticUnitId;
+  lUnitName: string;
 begin
   if aSnapshot = nil then
     Exit;
@@ -248,6 +305,35 @@ begin
     lUnit := aSnapshot.UnitByIndex(i);
     AddEntry(SnapshotText(aSnapshot, lUnit.FileNameId),
       aSnapshot.ExactTextOf(lUnit.SourceTextId));
+    lUnitName := SnapshotText(aSnapshot, lUnit.UnitNameId);
+    AddUnitSources(lUnitName, SnapshotText(aSnapshot, lUnit.FileNameId), [], nil);
+    // A bare/persisted snapshot may lack co-produced include text. Keep it conservative
+    // until the model evidence below supplies the closed include inventory and its text.
+    lText := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+    for lDirective in TRegEx.Matches(lText, '(?:\{\$|\(\*\$)(.*?)(?:\}|\*\))',
+      [roSingleLine]) do
+      if TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(
+        lDirective.Groups[1].Value) <> '' then
+        fIncompleteUnits.AddOrSetValue(lUnitName, True);
+  end;
+  if aSnapshot.TryGetExtension(cDelphiSemanticContextEvidenceExtensionName, lExtension) and
+    (lExtension is TDelphiSemanticContextEvidenceExtension) then
+  begin
+    lEvidence := TDelphiSemanticContextEvidenceExtension(lExtension);
+    for i := 0 to lEvidence.ModelCount - 1 do
+    begin
+      lModel := lEvidence.ModelEvidence[i];
+      if aSnapshot.TryFindUnitByFileName(lModel.SourceFileName, lUnitId) and
+        aSnapshot.TryFindUnitById(lUnitId, lUnit) then
+      begin
+        lUnitName := SnapshotText(aSnapshot, lUnit.UnitNameId);
+        AddUnitSources(lUnitName, lModel.SourceFileName, lModel.IncludeFileNames,
+          lModel.SourceObservations);
+        for lDiagnostic in lModel.ModelDiagnostics do
+          if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+            fIncompleteUnits.AddOrSetValue(lUnitName, True);
+      end;
+    end;
   end;
 end;
 
@@ -367,13 +453,29 @@ var
 begin
   inherited Create;
   fCovered := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fCoveredByUnit := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fResults := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fTexts := TList<TPair<string, string>>.Create;
+  fSourceIndex := aSourceIndex;
+  fUnitFiles := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fInterfaceNames := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   for lSymbol in aIndex.Symbols do
+  begin
     fCovered.AddOrSetValue(PositionKey(lSymbol.FileName, lSymbol.Line, lSymbol.Column), True);
+    fCoveredByUnit.AddOrSetValue(lSymbol.UnitName + #1 +
+      PositionKey(lSymbol.FileName, lSymbol.Line, lSymbol.Column), True);
+    if SameText(lSymbol.Kind, 'unit') then
+      fUnitFiles.AddOrSetValue(lSymbol.UnitName, lSymbol.FileName);
+    if SameText(lSymbol.SectionKind, 'interface') then
+      fInterfaceNames.AddOrSetValue(lSymbol.UnitName + #1 + lSymbol.Name, True);
+  end;
   for lReference in aIndex.References do
+  begin
     fCovered.AddOrSetValue(PositionKey(lReference.FileName, lReference.Line, lReference.Column),
       True);
+    fCoveredByUnit.AddOrSetValue(lReference.UnitName + #1 +
+      PositionKey(lReference.FileName, lReference.Line, lReference.Column), True);
+  end;
   // Comments and strings never use a symbol; the scan runs on the sanitized text.
   for lEntry in aSourceIndex.fEntries do
     fTexts.Add(TPair<string, string>.Create(lEntry.Key,
@@ -382,8 +484,11 @@ end;
 
 destructor TDeadCodeOccurrenceScanner.Destroy;
 begin
+  fInterfaceNames.Free;
+  fUnitFiles.Free;
   fTexts.Free;
   fResults.Free;
+  fCoveredByUnit.Free;
   fCovered.Free;
   inherited;
 end;
@@ -394,9 +499,22 @@ begin
   Result := aFileName + #1 + IntToStr(aLine) + #1 + IntToStr(aColumn);
 end;
 
-function TDeadCodeOccurrenceScanner.HasUnclassifiedOccurrence(const aName: string): Boolean;
+// An include position classified in another unit does not cover this unit's occurrence.
+function TDeadCodeOccurrenceScanner.IsCovered(const aUnitName, aFileName: string;
+  const aLine, aColumn: Integer; const aUnitScoped: Boolean): Boolean;
+begin
+  if aUnitScoped then
+    Result := fCoveredByUnit.ContainsKey(aUnitName + #1 + PositionKey(aFileName, aLine, aColumn))
+  else
+    Result := fCovered.ContainsKey(PositionKey(aFileName, aLine, aColumn));
+end;
+
+function TDeadCodeOccurrenceScanner.HasUnclassifiedOccurrence(
+  const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
 var
   lAfter: Integer;
+  lCacheKey: string;
+  lDeclaringFile: string;
   lColumnStart: Integer;
   lLine: Integer;
   lName: string;
@@ -404,12 +522,30 @@ var
   lScanned: Integer;
   lText: TPair<string, string>;
 begin
-  if fResults.TryGetValue(aName, Result) then
+  lDeclaringFile := '';
+  if (SameText(aSymbol.SectionKind, 'implementation') and
+    not fInterfaceNames.ContainsKey(aSymbol.UnitName + #1 + aSymbol.Name)) or
+    MatchText(aSymbol.Kind, ['local', 'parameter']) then
+    fUnitFiles.TryGetValue(aSymbol.UnitName, lDeclaringFile);
+  // DS-662: includes share their declaring unit's boundary. Unknown file identity keeps
+  // the project-wide scan; missing captured include text never proves a name absent.
+  if (lDeclaringFile <> '') and
+    fSourceIndex.fIncompleteUnits.ContainsKey(aSymbol.UnitName) then
+    Exit(True);
+  lName := LowerCase(aSymbol.Name);
+  lCacheKey := lDeclaringFile + #1 + lName;
+  if fResults.TryGetValue(lCacheKey, Result) then
     Exit;
   Result := False;
-  lName := LowerCase(aName);
   for lText in fTexts do
   begin
+    // Preserve the existing project-wide scan for interface names. Captured includes extend
+    // only the declaring-unit scan introduced here, not unrelated interface-name policy.
+    if (lDeclaringFile = '') and not fSourceIndex.IsUnitFile(lText.Key) then
+      Continue;
+    if (lDeclaringFile <> '') and
+      not fSourceIndex.fFilesByUnit.ContainsKey(aSymbol.UnitName + #1 + lText.Key) then
+      Continue;
     lLine := 1;
     lColumnStart := 1;
     lScanned := 1;
@@ -428,14 +564,15 @@ begin
       lAfter := lPosition + Length(lName);
       if ((lPosition = 1) or not IsIdentifierChar(lText.Value[lPosition - 1])) and
         ((lAfter > Length(lText.Value)) or not IsIdentifierChar(lText.Value[lAfter])) and
-        not fCovered.ContainsKey(PositionKey(lText.Key, lLine, lPosition - lColumnStart + 1)) then
+        not IsCovered(aSymbol.UnitName, lText.Key, lLine, lPosition - lColumnStart + 1,
+          lDeclaringFile <> '') then
         Result := True;
       lPosition := Pos(lName, lText.Value, lPosition + 1);
     end;
     if Result then
       Break;
   end;
-  fResults.Add(aName, Result);
+  fResults.Add(lCacheKey, Result);
 end;
 
 function SameSymbolId(const aLeft, aRight: TDelphiSemanticSymbolId): Boolean;
@@ -1016,7 +1153,7 @@ begin
           AddBlocker(lBlockers, 'declared-in-include');
         if IsUnpairedBodyOfUsedInterfaceRoutine(lRoutineGroups, lReferenceIndex, lSymbol) then
           AddBlocker(lBlockers, 'unpaired-implementation');
-        if (lReferenceCount = 0) and lOccurrences.HasUnclassifiedOccurrence(lSymbol.Name) then
+        if (lReferenceCount = 0) and lOccurrences.HasUnclassifiedOccurrence(lSymbol) then
           AddBlocker(lBlockers, 'unclassified-occurrence');
 
         // Members and references of a unit without verified syntax facts may be missing or

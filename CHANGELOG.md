@@ -16,6 +16,13 @@
 - Project define completeness requires an admitted compiler-input certificate. Legacy define lists and XML evaluation remain partial; certificate identity and currentness guard model and planning caches.
 
 
+- AST-failed units retain class-variable member facts without reporting them as verified globals. Older model and snapshot caches rebuild.
+- Dead-code occurrence checks use the declaring unit and captured includes for implementation-only names and parameters; interface names keep project-wide checks.
+- Rename and find-usages can prove outer-type member absence without confusing members of nested type bodies with outer members.
+
+- WITH member binding matches routine ranges by physical file, preserving main-file members beside included routines.
+- Consistency ancestry accepts a unique same-section forward/full class pair and resolves implementation-local classes in implementation visibility.
+
 - WITH planning treats active runtime-package units as unknown and includes caller-supplied search paths in its unit-name witness.
 - Session and compatibility WITH plans use the same routine-end ranges for nested statements.
 - Combined planning-facts cache writes and deletes retry SQLite busy and table-lock contention and preserve the previous payload when publication fails.
