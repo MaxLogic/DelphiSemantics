@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
+
 - Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
 
 - Missing-import checks follow direct import visibility and uses order outside WITH, and interface-uses chains for member lookup. Safe lexical renames remain available when unrelated imports are missing (DS-791).
