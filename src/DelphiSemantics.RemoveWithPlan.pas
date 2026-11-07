@@ -5157,7 +5157,8 @@ function AnonymousRecordTagNames(const aFacts: TRemoveWithPlanFacts;
   const aDecisions: TArray<TFinalSelectorDecision>;
   const aLineCache: TDelphiSemanticSourceContextCache;
   out aQualifiedFieldTags: TArray<string>;
-  out aAnonymousNames: TArray<TArray<string>>): TArray<string>;
+  out aAnonymousNames: TArray<TArray<string>>;
+  out aActivityUnverified: Boolean): TArray<string>;
 var
   i: Integer;
   lActivityKnown, lCaseSelector, lRecordScanned: Boolean;
@@ -5179,6 +5180,7 @@ var
 begin
   Result := nil;
   aQualifiedFieldTags := nil;
+  aActivityUnverified := False;
   SetLength(aAnonymousNames, Length(aDecisions));
   for i := 0 to High(aAnonymousNames) do
     aAnonymousNames[i] := TArray<string>.Create('*');
@@ -5253,6 +5255,13 @@ begin
                 Length(lSymbol.Name))) = '') then
               Continue;
             lLexer.NextNoJunk;
+            while lLexer.TokenID = ptComma do
+            begin
+              lLexer.NextNoJunk;
+              if lLexer.TokenID <> ptIdentifier then
+                Exit(TArray<string>.Create('*'));
+              lLexer.NextNoJunk;
+            end;
             // Class-var inventory can point at a use rather than a declaration.
             // The name alone is not provenance: a following '.' (or any token
             // other than ':') deliberately keeps the conservative refusal.
@@ -5269,6 +5278,13 @@ begin
             lLexer.IncludeHandler := TAnonymousRecordIncludeGuard.Create(lIncludeSeen);
             lLexer.Origin := Copy(lText, lSymbol.Column, MaxInt);
             lLexer.NextNoJunk;
+            while lLexer.TokenID = ptComma do
+            begin
+              lLexer.NextNoJunk;
+              if lLexer.TokenID <> ptIdentifier then
+                Exit(TArray<string>.Create('*'));
+              lLexer.NextNoJunk;
+            end;
             lLexer.NextNoJunk;
             if lLexer.TokenID = ptPacked then
               lLexer.NextNoJunk;
@@ -5279,6 +5295,12 @@ begin
             if not aFacts.ScanActivityKnown.TryGetValue(
               lSymbol.FileName, lActivityKnown) then
               lActivityKnown := False;
+            // Unknown membership cannot authorize either qualification or absence.
+            if not lActivityKnown then
+            begin
+              aActivityUnverified := True;
+              Exit;
+            end;
             lDepth := 1;
             lParenthesisDepth := 0;
             lVariantBaseDepth := -1;
@@ -5468,6 +5490,7 @@ end;
 function TPlannerLookupMemo.ReceiverLineageHasUnindexedRoot(
   const aOwnerIdentity: TDelphiSemanticTypeIdentity): Boolean;
 begin
+  // This unverified-origin rule covers the guard removed in DS-742 round 8.
   if not TypeIdentityHasVerifiedOrigin(aOwnerIdentity) then
     Exit(True);
   if not fRootLineages.TryGetValue(aOwnerIdentity.DeclaredId.Value, Result) then
@@ -5705,6 +5728,7 @@ function PrepareFinalBodyText(const aFacts: TRemoveWithPlanFacts;
 var
   lAnonymousTagNames, lQualifiedFieldTags: TArray<string>;
   lAnonymousNames: TArray<TArray<string>>;
+  lAnonymousActivityUnverified: Boolean;
   lBodyEdits: TArray<TFinalBodyEdit>;
   lProtectedSpans: TArray<TFinalBodyEdit>;
   lReferenceRefusals: TArray<TFinalReferenceRefusal>;
@@ -5946,7 +5970,12 @@ begin
   // A value member must have an actual source edit, not just a successful name lookup.
   // Scan each anonymous declaration once per body, rather than per reference.
   lAnonymousTagNames := AnonymousRecordTagNames(aFacts, aEditDecisions, aLineCache,
-    lQualifiedFieldTags, lAnonymousNames);
+    lQualifiedFieldTags, lAnonymousNames, lAnonymousActivityUnverified);
+  if lAnonymousActivityUnverified then
+  begin
+    aReason := 'OWNER_INHERITED_MEMBERS_UNVERIFIED';
+    Exit;
+  end;
   for lReference in aBinding.References do
   begin
     if (not ReferenceInsideRange(lReference, lBodyRange)) or

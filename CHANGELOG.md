@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- WITH planning excludes certified inactive anonymous-record fields, refuses unknown field activity, and preserves separate anonymous-record members and multi-variable declarations through SQLite reloads.
+- Anonymous-record completeness uses the compiler include classifier for `INCLUDE+name` and `INCLUDE-name`.
+
 - Unknown include references use indexed physical-position replacement and cached line coordinates, preserving reference contents and order while reducing RTL indexing time (DAK-484).
 
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.

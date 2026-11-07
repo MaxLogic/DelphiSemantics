@@ -1278,8 +1278,26 @@ type
     [TestCase('failed-model', 'failed-model')]
     [TestCase('named', 'named')]
     [TestCase('alias', 'alias')]
-    [Category('DS742Fix7b')]
+    [TestCase('conditional-known', 'conditional-known')]
+    [TestCase('conditional-unknown', 'conditional-unknown')]
+    [TestCase('multi-local', 'multi-local')]
+    [TestCase('multi-unit', 'multi-unit')]
+    [TestCase('multi-inline', 'multi-inline')]
+    [TestCase('sanitizer', 'sanitizer')]
+    [Category('DS742Fix7b,DS758')]
     procedure AnonymousRecordRequiresParsedEvidence(const aShape: string);
+
+    [TestCase('INCLUDE plus', 'INCLUDE+x')]
+    [TestCase('INCLUDE minus', 'INCLUDE-x')]
+    [TestCase('I plus tail', 'I+ f')]
+    [TestCase('I plus attached', 'I+f')]
+    [TestCase('I minus attached', 'I-f')]
+    [Category('DS759')]
+    procedure AnonymousRecordIncludeUsesCompilerClassification(const aDirective: string);
+
+    [Test]
+    [Category('DS758')]
+    procedure SameNamedAnonymousRecordsKeepDistinctMembers;
 
     [Test]
     [Category('DS731Planner,Fast')]
@@ -3024,7 +3042,7 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   AutoFree, maxLogic.IOUtils, maxLogic.StrUtils,
-  DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Json,
+  DelphiSemantics.Api.ProjectOptions, DelphiSemantics.Cache, DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json,
   DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan,
   DelphiSemantics.Resolve.MemberResolver, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.SemanticGraph, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
@@ -4190,6 +4208,9 @@ end;
 
 procedure TWithBinderTests.AnonymousRecordRequiresParsedEvidence(const aShape: string);
 var
+  g: TGarbos;
+  lProofRoot: string;
+  lSerializer: TJsonSerializer;
   lFacts: TDelphiSemanticProjectWithBindingFacts;
   lCache: TDelphiSemanticSnapshotSqliteCache;
   lIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -4232,12 +4253,17 @@ begin
     lRecord := lRecord + '  end absolute Storage;'#13#10
   else
     lRecord := lRecord + '  end;'#13#10;
+  if aShape = 'multi-inline' then
+    lRecord := 'record Y: Integer; end;'#13#10;
+  if MatchText(aShape, ['conditional-known', 'conditional-unknown']) then
+    lRecord := 'record'#13#10'    Y: Integer;'#13#10 +
+      '    {$IFNDEF FEATURE}'#13#10'    G: Integer;'#13#10'    {$ENDIF}'#13#10'  end;'#13#10;
   lSelector := 'Item';
   lSource := 'unit Unit1;'#13#10'interface'#13#10 +
     'var G, Tag: Integer;'#13#10;
   if aShape = 'failed-model' then
     lSource := lSource + '{$HINTS OFF}'#13#10;
-  if MatchText(aShape, ['unit-record', 'failed-model']) then
+  if MatchText(aShape, ['unit-record', 'failed-model', 'multi-unit', 'sanitizer']) then
     lSource := lSource + 'var'#13#10'  Item: ' + lRecord;
   if aShape = 'nested' then
   begin
@@ -4260,13 +4286,18 @@ begin
       lSource := lSource + 'var Item: TAlias;'#13#10
     else
       lSource := lSource + 'var Item: TItem;'#13#10;
-  end else if not MatchText(aShape, ['unit-record', 'failed-model', 'nested']) then
+  end else if not MatchText(aShape, ['unit-record', 'failed-model', 'multi-unit', 'sanitizer', 'nested']) then
   begin
     lSource := lSource + 'var'#13#10;
     if aShape = 'packed-local' then
       lSource := lSource + '  Storage: array [0..31] of Byte;'#13#10;
     lSource := lSource + '  Item: ' + lRecord;
   end;
+  if MatchText(aShape, ['multi-local', 'multi-unit', 'multi-inline']) then
+    lSource := StringReplace(lSource, 'Item: record', 'Item, Other: record', []);
+  if aShape = 'sanitizer' then
+    lSource := StringReplace(lSource, 'Item: record',
+      'Item: {$IFDEF DS742_NEVER}{$ENDIF} record', []);
   lSource := lSource + 'begin'#13#10'  G := 77;'#13#10'  Tag := 99;'#13#10;
   if aShape = 'variant' then
     lSource := lSource + '  Item.Tag := 5;'#13#10;
@@ -4287,18 +4318,22 @@ begin
   lOptions := Default(TDelphiSemanticApiOptions);
   lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
   lOptions.DelphiVersion := '23.0';
-  lPlanned := MatchText(aShape, ['packed-local', 'unit-record', 'variant', 'i-plus', 'i-minus', 'undefined-symbol']);
+  lPlanned := MatchText(aShape, ['packed-local', 'unit-record', 'variant', 'i-plus', 'i-minus', 'undefined-symbol',
+    'conditional-known', 'multi-local', 'multi-unit', 'multi-inline', 'sanitizer']);
   lExpectedReplacement := ' Item.Y := G;';
   if aShape = 'variant' then
     lExpectedReplacement := ' Item.Y := G + Item.Tag;'
   else if aShape = 'unit-record' then
     lExpectedReplacement := ' Item.Y := G + Item.fc;';
   // DS-772: this generated fixture explicitly proves ordinary-symbol absence.
-  if aShape = 'undefined-symbol' then
+  if MatchText(aShape, ['undefined-symbol', 'conditional-known', 'sanitizer']) then
   begin
     lOptions.Configuration := 'Debug';
     lOptions.Platform := 'Win64';
-    CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
+    if aShape = 'conditional-known' then
+      CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360', 'FEATURE'])
+    else
+      CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
   end;
   lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
   // The same proof is consumed by compatibility, both snapshot forms and repeated session routes.
@@ -4324,6 +4359,16 @@ begin
         lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lStored, lFacts.Symbols);
         Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded), aShape + ': SQLite reload');
         try
+          if MatchText(aShape, ['multi-local', 'multi-unit', 'multi-inline']) then
+          begin
+            GC(lSerializer, TJsonSerializer.Create, g);
+            Assert.AreEqual(
+              lSerializer.Serialize<TDelphiSemanticValueMemberEvidence>(
+                lStored.RemoveWithPlanningLookupIndex.ExportValueMemberEvidence),
+              lSerializer.Serialize<TDelphiSemanticValueMemberEvidence>(
+                lLoaded.RemoveWithPlanningLookupIndex.ExportValueMemberEvidence),
+              aShape + ': SQLite preserves the exact anonymous member model.');
+          end;
           lPlan := TDelphiSemanticRemoveWithPlanner.Plan(lLoaded);
         finally
           lLoaded.Free;
@@ -4341,6 +4386,20 @@ begin
       finally
         lSession.Session.Free;
       end;
+    end;
+    // Retain the real planner output for independent native compiler comparison.
+    lProofRoot := GetEnvironmentVariable('DS_ANONYMOUS_PROOF_ROOT');
+    if lProofRoot <> '' then
+    begin
+      lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + IntToStr(i));
+      TDirectory.CreateDirectory(lProofRoot);
+      TFile.Copy(TPath.Combine(lRoot, 'Unit1.pas'), TPath.Combine(lProofRoot, 'Unit1.pas'), True);
+      TFile.Copy(TPath.Combine(lRoot, 'P.dpr'), TPath.Combine(lProofRoot, 'P.dpr'), True);
+      GC(lSerializer, TJsonSerializer.Create, g);
+      TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+        lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+      TFile.WriteAllText(TPath.Combine(lProofRoot, 'facts.json'),
+        lSerializer.Serialize<TDelphiSemanticProjectWithBindingFacts>(lFacts), TEncoding.UTF8);
     end;
     Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
     if lPlanned then
@@ -4368,6 +4427,75 @@ begin
       Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
     end;
   end;
+end;
+
+procedure TWithBinderTests.AnonymousRecordIncludeUsesCompilerClassification(const aDirective: string);
+var
+  lModel, lParsed: TDelphiSemanticUnitModel;
+  lVerified: Integer;
+begin
+  // Exercise the physical-source absence check directly: earlier planner guards
+  // can refuse these layouts independently and conceal an incorrect certificate.
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.FileName := WithBinderTempPath('IncludeClassification.pas');
+  lModel.UnitName := 'Unit1';
+  lModel.ScopeModelStatus := 'ast';
+  lModel.SourceText := 'unit Unit1; interface'#13#10 +
+    'var Item: record'#13#10'  Y: Integer;'#13#10 +
+    '  {$' + aDirective + '}'#13#10' end;'#13#10'implementation end.';
+  lModel.VerifiedActiveSourceText := lModel.SourceText;
+  lParsed := TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel);
+  Assert.AreEqual('ast', lParsed.ScopeModelStatus);
+  lVerified := 0;
+  for var lDeclaration in lParsed.Declarations do
+    if SameText(lDeclaration.TypeName, 'record') and (lDeclaration.TypeBodyEndLine > 0) then
+      Inc(lVerified);
+  if StartsText('INCLUDE', aDirective) then
+    Assert.AreEqual(0, lVerified, 'An unexpanded include cannot certify a complete anonymous record.')
+  else
+    Assert.AreEqual(1, lVerified, 'I/O checking switches must retain complete record evidence.');
+end;
+
+procedure TWithBinderTests.SameNamedAnonymousRecordsKeepDistinctMembers;
+var
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lEvidence: TDelphiSemanticValueMemberEvidence;
+  lRoot: string;
+  lCount: Integer;
+begin
+  lRoot := WithBinderTempPath('ds758-same-name');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Unit1.pas'),
+    'unit Unit1; interface implementation'#13#10 +
+    'procedure Run(aValue: Integer); overload;'#13#10 +
+    'var Item: record First: Integer; end;'#13#10'begin end;'#13#10 +
+    'procedure Run(aValue: string); overload;'#13#10 +
+    'var Item: record Second: Integer; end;'#13#10'begin end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; uses Unit1; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Unit1.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  lEvidence := lFacts.LookupIndex.ExportValueMemberEvidence;
+  lCount := 0;
+  for var lOwner in lEvidence.Owners do
+    if StartsText('ds742-anonymous:', lOwner.DeclaredId) then
+    begin
+      Inc(lCount);
+      Assert.AreEqual<Integer>(1, Length(lOwner.ValueNames),
+        'Each declaration has one member, even when its synthetic spelling is shared.');
+      if lCount = 1 then
+        Assert.AreEqual('ds742-anonymous-member:First', lOwner.ValueNames[0])
+      else
+        Assert.AreEqual('ds742-anonymous-member:Second', lOwner.ValueNames[0]);
+    end;
+  Assert.AreEqual(2, lCount, 'Both overloaded routine records need separate evidence.');
 end;
 
 procedure TWithBinderTests.NamedRootProcedureCallsRequireVisibleDeclaration(const aDeclared: Boolean);

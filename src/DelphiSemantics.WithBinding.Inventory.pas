@@ -1419,6 +1419,7 @@ var
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
+  lRecordName: string;
   lConstName: string;
   lCurrentType: string;
   lCursorColumn: Integer;
@@ -1572,15 +1573,18 @@ begin
     begin
       if InventoryTryAnonymousRecordLocalStart(lLine, lConstName, lTypeCategory) then
       begin
-        lTypeName := aRoutineName + '.' + lConstName;
         lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
-        AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
-          aFileName, i + 1, lAnonymousEndLine, aLines[i]);
-        AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', aRoutineName, aUnitName,
-          aFileName, i + 1, aLines[i], 'local');
-        for j := i + 1 to lAnonymousEndLine - 2 do
-          AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
-            aFileName);
+        for lRecordName in lConstName.Split([',']) do
+        begin
+          lTypeName := aRoutineName + '.' + Trim(lRecordName);
+          AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+            aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+          AddDakInventorySymbol(aSymbols, Trim(lRecordName), lTypeName, '', aRoutineName, aUnitName,
+            aFileName, i + 1, aLines[i], 'local');
+          for j := i + 1 to lAnonymousEndLine - 2 do
+            AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+              aFileName);
+        end;
         lSkipUntilLine := lAnonymousEndLine;
         lDeclaration := '';
         lDeclarationLine := 0;
@@ -1619,6 +1623,7 @@ var
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
+  lRecordName: string;
   lCollectedEndLine: Integer;
   lConditionalDepth: Integer;
   lConstName: string;
@@ -1816,15 +1821,18 @@ begin
       Continue;
     if InventoryTryAnonymousRecordLocalStart(lLine, lMemberName, lTypeCategory) then
     begin
-      lTypeName := lCurrentType + '.' + lMemberName;
       lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
-      AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
-        aFileName, i + 1, lAnonymousEndLine, aLines[i]);
-      AddDakInventorySymbol(aSymbols, lMemberName, lTypeName, lCurrentType, '', aUnitName,
-        aFileName, i + 1, aLines[i], 'field');
-      for j := i + 1 to lAnonymousEndLine - 2 do
-        AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
-          aFileName);
+      for lRecordName in lMemberName.Split([',']) do
+      begin
+        lTypeName := lCurrentType + '.' + Trim(lRecordName);
+        AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+          aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+        AddDakInventorySymbol(aSymbols, Trim(lRecordName), lTypeName, lCurrentType, '', aUnitName,
+          aFileName, i + 1, aLines[i], 'field');
+        for j := i + 1 to lAnonymousEndLine - 2 do
+          AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+            aFileName);
+      end;
       lSkipUntilLine := lAnonymousEndLine;
       Continue;
     end;
@@ -1952,6 +1960,7 @@ var
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
+  lRecordName: string;
   lConstName: string;
   lDeclaration: string;
   lDeclarationLine: Integer;
@@ -2040,15 +2049,18 @@ begin
         if (lDeclaration = '') and InventoryTryAnonymousRecordLocalStart(lLine, lConstName,
           lTypeCategory) then
         begin
-          lTypeName := aUnitName + '.' + lConstName;
           lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
-          AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
-            aFileName, i + 1, lAnonymousEndLine, aLines[i]);
-          AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', '', aUnitName, aFileName,
-            i + 1, aLines[i], 'unit-global');
-          for j := i + 1 to lAnonymousEndLine - 2 do
-            AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
-              aFileName);
+          for lRecordName in lConstName.Split([',']) do
+          begin
+            lTypeName := aUnitName + '.' + Trim(lRecordName);
+            AddDakInventoryTypeSymbol(aSymbols, lTypeName, '', lTypeCategory, aUnitName,
+              aFileName, i + 1, lAnonymousEndLine, aLines[i]);
+            AddDakInventorySymbol(aSymbols, Trim(lRecordName), lTypeName, '', '', aUnitName,
+              aFileName, i + 1, aLines[i], 'unit-global');
+            for j := i + 1 to lAnonymousEndLine - 2 do
+              AddDakInventoryRecordFieldsFromLine(aSymbols, aLines, j, lTypeName, aUnitName,
+                aFileName);
+          end;
           i := lAnonymousEndLine - 1;
           Continue;
         end;
@@ -2253,7 +2265,7 @@ procedure AddModelSourceCompatibilitySymbols(
   const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
   i, lFirst: Integer;
-  lActiveLines, lLines: TArray<string>;
+  lActiveLines, lLines, lRawLines: TArray<string>;
   lMember: TDelphiSemanticMember;
   lRoutine: TDelphiSemanticRoutine;
   lDuplicate: Boolean;
@@ -2261,6 +2273,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
   lSource := SourceForCompatibilityInventory(aModel);
+  lRawLines := InventorySourceTextLines(aModel.SourceText);
   lLines := InventorySourceTextLines(lSource);
   lFirst := aSymbols.Count;
   ParseDakInventoryTypeMembers(aSymbols,
@@ -2304,9 +2317,13 @@ begin
     if MatchText(lSymbol.SymbolClass, ['field', 'constant']) and
       (lSymbol.Line > 0) and (lSymbol.Line <= Length(lActiveLines)) and
       (lSymbol.Column > 0) and
-      SameText(Copy(lLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name)), lSymbol.Name) and
-      (Trim(Copy(lActiveLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name))) = '') then
-      aSymbols.Delete(i);
+      SameText(Copy(lRawLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name)), lSymbol.Name) then
+    begin
+      // Routine locals retain raw text for rendering; field membership must still
+      // obey the certified activity at the physically anchored declaration.
+      if Trim(Copy(lActiveLines[lSymbol.Line - 1], lSymbol.Column, Length(lSymbol.Name))) = '' then
+        aSymbols.Delete(i);
+    end;
   end;
 end;
 
