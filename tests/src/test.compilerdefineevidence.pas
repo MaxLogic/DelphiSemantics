@@ -70,7 +70,8 @@ implementation
 uses
   System.Hash, System.IOUtils, System.SysUtils,
   DelphiSemantics.Cache,
-  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession;
+  DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
+  Test.Support;
 
 type
   TTestDefineEvidence = class(TInterfacedObject, IDelphiSemanticCompilerDefineEvidence)
@@ -130,7 +131,7 @@ begin
   Result.SourceApplicabilityIdentity := 'explicit-main-source-v1';
   SetLength(Result.Sources, 1);
   Result.Sources[0].UnitName := 'Fixture';
-  Result.Sources[0].SourceFileName := TPath.GetFullPath('tests\fixtures\ProjectContext\Basic\BasicProject.dpr');
+  Result.Sources[0].SourceFileName := FixturePath('ProjectContext\Basic', 'BasicProject.dpr');
   Result.Sources[0].ContentHash := THashSHA2.GetHashStringFromFile(Result.Sources[0].SourceFileName);
 end;
 
@@ -299,7 +300,7 @@ begin
   lOptions.Configuration := 'Debug';
   lOptions.Platform := 'Win64';
   lOptions.DelphiVersion := '23.0';
-  lOptions.ProjectPath := TPath.GetFullPath('tests\fixtures\ProjectContext\Basic\BasicProject.dproj');
+  lOptions.ProjectPath := FixturePath('ProjectContext\Basic', 'BasicProject.dproj');
   lOriginal := TDelphiSemanticProject.Load(lOptions.ProjectPath, lOptions);
   Assert.IsTrue(lOriginal.Success);
   lDescriptor := ClosedDescriptor;
