@@ -268,6 +268,23 @@ type
     [Category('Fast')]
     [Test]
     procedure ProjectSessionScopedPartialSnapshotCacheHitStoresMissedUnitUnderScopedIdentity;
+    [Test]
+    [TestCase('Unit and file mapping', 'units')]
+    [TestCase('Reference target mapping', 'targets')]
+    [TestCase('Cold unit and file control', 'cold-units')]
+    [TestCase('Cold reference target control', 'cold-targets')]
+    procedure PartialHitInsertionKeepsUnitIdentity(const aCheck: string);
+    [Category('Fast')]
+    [Test]
+    [TestCase('Removal retains hit identity', 'removal')]
+    [TestCase('Reorder retains hits and targets', 'reorder')]
+    [TestCase('Separate generations remap targets', 'collision')]
+    [TestCase('Changed target retains proven source hit', 'changed-target')]
+    [TestCase('Missing lineage rebuilds source', 'legacy')]
+    [TestCase('Corrupt target slot rebuilds source', 'bad-slot')]
+    [TestCase('Old storage format rebuilds units', 'old-format')]
+    [TestCase('Removed target rebuilds source', 'removed-target')]
+    procedure CachedUnitIdentitySurvivesTopology(const aCheck: string);
     [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheRebuildResolvesReferencesToCachedUnits;
@@ -5238,6 +5255,320 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.PartialHitInsertionKeepsUnitIdentity(const aCheck: string);
+var
+  i: Integer;
+  lBuild: TDelphiSemanticProjectSnapshotBuildResult;
+  lCold: Boolean;
+  lExpectedUnit: TUnitSnapshot;
+  lOptions: TDelphiSemanticOptions;
+  lProject: TDelphiSemanticProjectInfo;
+  lReference: TSemanticReferenceFact;
+  lReferenceId: TSemanticReferenceId;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoot, lDproj, lFirst, lSecond, lInserted: string;
+  lSession: TDelphiSemanticProjectSession;
+  lSnapshot: TDelphiProjectSnapshot;
+  lTarget: TUnitSnapshot;
+  lTargetCount: Integer;
+  lUnit: TUnitSnapshot;
+begin
+  lCold := (aCheck = 'cold-units') or (aCheck = 'cold-targets');
+  lRoot := ProjectSessionTempPath('snapshot-partial-insertion-' + aCheck);
+  TDirectory.CreateDirectory(lRoot);
+  lDproj := TPath.Combine(lRoot, 'Insertion.dproj');
+  lFirst := TPath.Combine(lRoot, 'BFirst.pas');
+  lSecond := TPath.Combine(lRoot, 'CSecond.pas');
+  lInserted := TPath.Combine(lRoot, 'AInserted.pas');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Insertion.dpr'),
+    'program Insertion; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lDproj,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Insertion.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="AInserted.pas"/>' +
+    '<DCCReference Include="BFirst.pas"/>' +
+    '<DCCReference Include="CSecond.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'shared.inc'),
+    'CommonGlobal := 1;', TEncoding.ASCII);
+  TFile.WriteAllText(lFirst, 'unit BFirst;'#13#10'interface'#13#10 +
+    'var CommonGlobal: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'{$I shared.inc}'#13#10'end;'#13#10'end.',
+    TEncoding.ASCII);
+  TFile.WriteAllText(lSecond, 'unit CSecond;'#13#10'interface'#13#10 +
+    'var CommonGlobal: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'{$I shared.inc}'#13#10'end;'#13#10'end.',
+    TEncoding.ASCII);
+  TFile.WriteAllText(lInserted, 'unit AInserted;'#13#10'interface'#13#10 +
+    'implementation'#13#10'uses BFirst;'#13#10'procedure Run;'#13#10 +
+    'begin'#13#10'  CommonGlobal := 2;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDproj;
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite3');
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lProject := lResult.Session.Project;
+  finally
+    lResult.Session.Free;
+  end;
+
+  // Seed a subset in one captured project context. Reopening a changed project
+  // would change its fingerprint and conceal the partial-hit merge under test.
+  lProject.MainSourceFileName := '';
+  lProject.SourceFileNames := [lFirst, lSecond];
+  lSession := TDelphiSemanticProjectSession.Create(lOptions, lProject, [],
+    TDelphiSemanticProjectSessionStatus.psOpen, 'DS-697 partial-hit seed');
+  try
+    lBuild := lSession.BuildSnapshotResult;
+    try
+      Assert.IsNotNull(lBuild.Snapshot);
+      Assert.AreEqual(2, lBuild.Snapshot.UnitCount);
+      Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheMisses);
+    finally
+      lBuild.Snapshot.Free;
+    end;
+  finally
+    lSession.Free;
+  end;
+
+  lProject.SourceFileNames := [lInserted, lFirst, lSecond];
+  if lCold then
+    lOptions.SqliteCacheFileName := '';
+  lSession := TDelphiSemanticProjectSession.Create(lOptions, lProject, [],
+    TDelphiSemanticProjectSessionStatus.psOpen, 'DS-697 partial-hit insertion');
+  try
+    lBuild := lSession.BuildSnapshotResult;
+    lSnapshot := lBuild.Snapshot;
+    try
+      Assert.IsNotNull(lSnapshot);
+      if lCold then
+      begin
+        Assert.AreEqual(0, lBuild.Metrics.SnapshotCacheProbes);
+      end else begin
+        Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheHits,
+          'The unchanged units must actually hit their production cache keys.');
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheMisses);
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCachePartialHitCount);
+      end;
+      Assert.AreEqual(3, lSnapshot.UnitCount);
+      System.Writeln('DS-697 partial insertion: hits=', lBuild.Metrics.SnapshotCacheHits,
+        ' misses=', lBuild.Metrics.SnapshotCacheMisses,
+        ' partial=', lBuild.Metrics.SnapshotCachePartialHitCount);
+      for i := 0 to lSnapshot.UnitCount - 1 do
+      begin
+        lUnit := lSnapshot.UnitByIndex(i);
+        System.Writeln('unit id=', Integer(lUnit.UnitId), ' file=',
+          lSnapshot.TextOf(lUnit.FileNameId));
+      end;
+      if (aCheck = 'units') or (aCheck = 'cold-units') then
+      begin
+        for i := 0 to lSnapshot.UnitCount - 1 do
+        begin
+          lUnit := lSnapshot.UnitByIndex(i);
+          Assert.IsTrue(lSnapshot.TryFindUnitById(lUnit.UnitId, lExpectedUnit));
+          Assert.AreEqual(lSnapshot.TextOf(lUnit.FileNameId),
+            lSnapshot.TextOf(lExpectedUnit.FileNameId),
+            'Each unit ID must map back to its own canonical file.');
+        end;
+      end else begin
+        lUnit := lSnapshot.UnitByIndex(0);
+        Assert.AreEqual(lInserted, lSnapshot.TextOf(lUnit.FileNameId));
+        lTargetCount := 0;
+        for lReferenceId := 1 to TSemanticReferenceId(lUnit.ReferenceCount) do
+        begin
+          lReference := lUnit.ReferenceById(lReferenceId);
+          if not SameText('CommonGlobal', lSnapshot.TextOf(lReference.NameId)) then
+            Continue;
+          Inc(lTargetCount);
+          Assert.AreNotEqual(0, Integer(lReference.TargetUnitId),
+            'The inserted unit must retain its imported global target.');
+          Assert.IsTrue(lSnapshot.TryFindUnitById(lReference.TargetUnitId, lTarget));
+          Assert.AreEqual(lFirst, lSnapshot.TextOf(lTarget.FileNameId));
+          Assert.AreEqual('CommonGlobal', lSnapshot.TextOf(
+            lTarget.SymbolById(lReference.TargetSymbolId).NameId));
+        end;
+        Assert.AreEqual(1, lTargetCount);
+      end;
+    finally
+      lSnapshot.Free;
+    end;
+  finally
+    lSession.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.CachedUnitIdentitySurvivesTopology(const aCheck: string);
+var
+  lBuild: TDelphiSemanticProjectSnapshotBuildResult;
+  lFirstId, lSecondId, lUnitId: TSemanticUnitId;
+  lOptions: TDelphiSemanticOptions;
+  lProject: TDelphiSemanticProjectInfo;
+  lReference: TSemanticReferenceFact;
+  lReferenceId: TSemanticReferenceId;
+  lResult: TDelphiSemanticProjectSessionResult;
+  lRoot, lDproj, lFirst, lSecond, lOther: string;
+  lTarget, lUnit: TUnitSnapshot;
+  lTargetCount: Integer;
+
+  function Build(const aFiles: TArray<string>): TDelphiSemanticProjectSnapshotBuildResult;
+  var
+    lSession: TDelphiSemanticProjectSession;
+  begin
+    lProject.SourceFileNames := aFiles;
+    lSession := TDelphiSemanticProjectSession.Create(lOptions, lProject, [],
+      TDelphiSemanticProjectSessionStatus.psOpen, 'DS-794 topology');
+    try
+      Result := lSession.BuildSnapshotResult;
+    finally
+      lSession.Free;
+    end;
+  end;
+
+  procedure CheckUnit(const aFile: string; const aExpectedId: TSemanticUnitId);
+  begin
+    Assert.IsTrue(lBuild.Snapshot.TryFindUnitByFileName(aFile, lUnitId));
+    Assert.AreEqual(Integer(aExpectedId), Integer(lUnitId));
+    Assert.IsTrue(lBuild.Snapshot.TryFindUnitById(lUnitId, lUnit));
+    Assert.AreEqual(aFile, lBuild.Snapshot.TextOf(lUnit.FileNameId));
+  end;
+
+begin
+  lRoot := ProjectSessionTempPath('ds794-' + aCheck);
+  TDirectory.CreateDirectory(lRoot);
+  lDproj := TPath.Combine(lRoot, 'Identity.dproj');
+  lFirst := TPath.Combine(lRoot, 'BFirst.pas');
+  lSecond := TPath.Combine(lRoot, 'CSecond.pas');
+  lOther := TPath.Combine(lRoot, 'AOther.pas');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Identity.dpr'),
+    'program Identity; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lDproj,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Identity.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="AOther.pas"/>' +
+    '<DCCReference Include="BFirst.pas"/>' +
+    '<DCCReference Include="CSecond.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(lFirst, 'unit BFirst;'#13#10'interface'#13#10 +
+    'var CommonGlobal: Integer;'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(lSecond, 'unit CSecond;'#13#10'interface'#13#10 +
+    'implementation'#13#10'uses BFirst;'#13#10'procedure Run;'#13#10 +
+    'begin'#13#10'  CommonGlobal := 2;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(lOther, 'unit AOther;'#13#10'interface'#13#10 +
+    'var CommonGlobal: Integer;'#13#10'implementation'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lDproj;
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.sqlite3');
+  lResult := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lResult.Success);
+    lProject := lResult.Session.Project;
+  finally
+    lResult.Session.Free;
+  end;
+  lProject.MainSourceFileName := '';
+  lBuild := Build([lFirst, lSecond]);
+  try
+    Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheMisses);
+    lFirstId := lBuild.Snapshot.UnitByIndex(0).UnitId;
+    lSecondId := lBuild.Snapshot.UnitByIndex(1).UnitId;
+  finally
+    lBuild.Snapshot.Free;
+  end;
+  if aCheck = 'collision' then
+  begin
+    lBuild := Build([lOther]);
+    try
+      Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheMisses);
+      Assert.AreEqual(Integer(lFirstId), Integer(lBuild.Snapshot.UnitByIndex(0).UnitId));
+    finally
+      lBuild.Snapshot.Free;
+    end;
+  end else if aCheck = 'changed-target' then
+    TFile.WriteAllText(lFirst, 'unit BFirst;'#13#10'interface'#13#10 +
+      'var Earlier: Integer;'#13#10'  CommonGlobal: Integer;'#13#10 +
+      'implementation'#13#10'end.', TEncoding.ASCII)
+  else if aCheck = 'legacy' then
+    ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+      'delete from snapshot_target_lineage where cache_key in ' +
+      '(select cache_key from snapshot_units where source_file_name like ''%CSecond.pas'')')
+  else if aCheck = 'bad-slot' then
+    ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+      'update snapshot_references set target_symbol_id = 999999 where target_unit_id <> 0')
+  else if aCheck = 'old-format' then
+    ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
+      'update meta set value_text = ''35'' where key_name = ''snapshot_schema_version''');
+
+  if aCheck = 'removal' then
+    lBuild := Build([lFirst])
+  else if aCheck = 'removed-target' then
+    lBuild := Build([lSecond])
+  else if aCheck = 'collision' then
+    lBuild := Build([lSecond, lFirst, lOther])
+  else
+    lBuild := Build([lSecond, lFirst]);
+  try
+    if aCheck = 'removal' then
+    begin
+      Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheHits);
+      CheckUnit(lFirst, lFirstId);
+    end else begin
+      if aCheck = 'reorder' then
+      begin
+        Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheHits);
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheFullHitCount);
+        CheckUnit(lFirst, lFirstId);
+        CheckUnit(lSecond, lSecondId);
+      end else if aCheck = 'collision' then
+      begin
+        Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheHits);
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheMisses);
+        CheckUnit(lOther, lFirstId);
+        CheckUnit(lSecond, lSecondId);
+        Assert.IsTrue(lBuild.Snapshot.TryFindUnitByFileName(lFirst, lUnitId));
+        Assert.AreNotEqual(Integer(lFirstId), Integer(lUnitId));
+      end else if (aCheck = 'legacy') or (aCheck = 'bad-slot') or
+        (aCheck = 'changed-target') then
+      begin
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheHits);
+        Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheMisses);
+      end else begin
+        Assert.AreEqual(0, lBuild.Metrics.SnapshotCacheHits);
+        Assert.IsTrue(lBuild.Metrics.SnapshotCacheMisses > 0);
+      end;
+      Assert.IsTrue(lBuild.Snapshot.TryFindUnitByFileName(lSecond, lUnitId));
+      Assert.IsTrue(lBuild.Snapshot.TryFindUnitById(lUnitId, lUnit));
+      lTargetCount := 0;
+      for lReferenceId := 1 to TSemanticReferenceId(lUnit.ReferenceCount) do
+      begin
+        lReference := lUnit.ReferenceById(lReferenceId);
+        if not SameText('CommonGlobal', lBuild.Snapshot.TextOf(lReference.NameId)) then
+          Continue;
+        Inc(lTargetCount);
+        if aCheck = 'removed-target' then
+          Assert.AreEqual(0, Integer(lReference.TargetUnitId))
+        else begin
+          Assert.IsTrue(lBuild.Snapshot.TryFindUnitById(lReference.TargetUnitId, lTarget));
+          Assert.AreEqual(lFirst, lBuild.Snapshot.TextOf(lTarget.FileNameId));
+          Assert.AreEqual('CommonGlobal', lBuild.Snapshot.TextOf(
+            lTarget.SymbolById(lReference.TargetSymbolId).NameId));
+        end;
+      end;
+      Assert.AreEqual(1, lTargetCount);
+    end;
+  finally
+    lBuild.Snapshot.Free;
+  end;
+
+  // Every build above closes its cache. Reopen it again to verify repaired rows.
+  lBuild := Build(lProject.SourceFileNames);
+  try
+    Assert.AreEqual(Integer(Length(lProject.SourceFileNames)), lBuild.Metrics.SnapshotCacheHits);
+    Assert.AreEqual(0, lBuild.Metrics.SnapshotCacheMisses);
+    Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheFullHitCount);
+  finally
+    lBuild.Snapshot.Free;
   end;
 end;
 

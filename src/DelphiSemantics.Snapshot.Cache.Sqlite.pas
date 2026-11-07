@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils,
-  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.WithBinding;
+  DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.WithBinding;
 
 const
   cCombinedFactsPayloadMaxCharacters = 128 * 1024 * 1024;
@@ -54,6 +54,11 @@ type
     fConnection: TObject;
     fDriverLink: TObject;
     fMetrics: TDelphiSemanticSnapshotCacheMetrics;
+    fTargetIdentities: TSnapshotTargetIdentities;
+    procedure StoreTargetIdentities(const aCacheKey: string; const aConnection: TObject;
+      const aUnit: TUnitSnapshot; const aIdentities: TSnapshotTargetIdentities);
+    procedure LoadTargetIdentities(const aCacheKey: string; const aConnection: TObject;
+      const aBuilder: TDelphiProjectSnapshotBuilder; const aUnit: TUnitSnapshot);
     procedure CloseSharedConnection;
     procedure DeleteCacheKey(const aCacheKey: string);
     procedure DeleteCacheKeyRows(const aConnection: TObject; const aCacheKey: string);
@@ -113,7 +118,8 @@ type
       const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
     procedure StoreUnitWithExactStrings(
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
+      const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+      const aIdentities: TSnapshotTargetIdentities = nil);
     procedure StoreWithStatements(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
   public
@@ -168,7 +174,7 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  cSnapshotCacheSchemaVersion = '35';
+  cSnapshotCacheSchemaVersion = '36';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -341,15 +347,15 @@ begin
       ' a unit snapshot without a schema version.');
 end;
 
-procedure ValidateStringId(const aStrings: TSemanticStringPool; const aId: TSemanticStringId;
+procedure ValidateStringId(const aStrings: TSemanticStringPool; const id: TSemanticStringId;
   const aFieldName: string);
 begin
-  if aId = 0 then
+  if id = 0 then
     Exit;
 
-  if aId > aStrings.Count then
+  if id > aStrings.Count then
     raise Exception.Create('Snapshot string ID outside string pool: ' + aFieldName);
-  if aStrings.TextOf(aId) = '' then
+  if aStrings.TextOf(id) = '' then
     raise Exception.Create('Snapshot string ID resolves to empty text: ' + aFieldName);
 end;
 
@@ -627,6 +633,7 @@ end;
 
 destructor TDelphiSemanticSnapshotSqliteCache.Destroy;
 begin
+  fTargetIdentities.Free;
   CloseSharedConnection;
   inherited;
 end;
@@ -696,6 +703,7 @@ begin
     aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_symbols where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_strings where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_target_lineage where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_units where cache_key = ?', aCacheKey);
 end;
 
@@ -739,6 +747,9 @@ begin
     if (lVersion <> '') and (lVersion <> cSnapshotCacheSchemaVersion) then
       RebuildSnapshotTables(lConnection);
 
+    lConnection.ExecSQL('create table if not exists snapshot_target_lineage (' +
+      'cache_key text primary key not null, unit_id integer not null, ' +
+      'value_count integer not null, payload blob not null)');
     lConnection.ExecSQL('create table if not exists snapshot_units (' +
       'cache_key text primary key not null, identity_key text not null, ' +
       'source_file_name text not null, file_hash text not null, context_hash text not null, ' +
@@ -2420,6 +2431,9 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
   lConnection.ExecSQL('drop table if exists snapshot_symbols');
   lConnection.ExecSQL('drop table if exists snapshot_strings');
+  lConnection.ExecSQL('drop table if exists snapshot_target_lineage');
+  lConnection.ExecSQL('drop table if exists snapshot_target_symbols');
+  lConnection.ExecSQL('drop table if exists snapshot_target_units');
   lConnection.ExecSQL('drop table if exists snapshot_units');
   ExecWideSql(lConnection, 'delete from meta where key_name = ?', cSnapshotSchemaMetaKey);
 end;
@@ -2938,22 +2952,22 @@ begin
 end;
 
 function RemapSnapshotStringId(const aSnapshot: TDelphiProjectSnapshot;
-  const aTargetStrings: TSemanticStringPool; const aId: TSemanticStringId): TSemanticStringId;
+  const aTargetStrings: TSemanticStringPool; const id: TSemanticStringId): TSemanticStringId;
 begin
-  if aId = 0 then
+  if id = 0 then
     Exit(0);
 
-  Result := aTargetStrings.Intern(aSnapshot.TextOf(aId));
+  Result := aTargetStrings.Intern(aSnapshot.TextOf(id));
 end;
 
 function RemapSnapshotExactStringId(const aSnapshot: TDelphiProjectSnapshot;
-  const aTargetExactStrings: TSemanticStringPool; const aId: TSemanticStringId):
+  const aTargetExactStrings: TSemanticStringPool; const id: TSemanticStringId):
   TSemanticStringId;
 begin
-  if aId = 0 then
+  if id = 0 then
     Exit(0);
 
-  Result := aTargetExactStrings.Intern(aSnapshot.ExactTextOf(aId));
+  Result := aTargetExactStrings.Intern(aSnapshot.ExactTextOf(id));
 end;
 
 function RemapSnapshotSymbolFact(const aSnapshot: TDelphiProjectSnapshot;
@@ -3060,7 +3074,8 @@ end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitWithExactStrings(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-  const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
+  const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
+  const aIdentities: TSnapshotTargetIdentities);
 var
   lConnectionObject: TObject;
   lConnection: TFDConnection;
@@ -3090,6 +3105,7 @@ begin
       StoreWithStatements(aIdentity, lConnection, aUnit);
       StoreReferences(aIdentity, lConnection, aUnit);
       StoreExactStringPool(aIdentity, lConnection, aExactStrings);
+      StoreTargetIdentities(aIdentity.CacheKey, lConnection, aUnit, aIdentities);
       lConnection.Commit;
       Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
       Exit;
@@ -3137,7 +3153,9 @@ begin
   try
     lLocalUnit := BuildLocalUnitSnapshot(aSnapshot, aUnit, lLocalStrings,
       lExactStrings);
-    StoreUnitWithExactStrings(aIdentity, lLocalStrings, lExactStrings, lLocalUnit);
+    FreeAndNil(fTargetIdentities);
+    fTargetIdentities := BuildSnapshotTargetIdentities(aSnapshot, aUnit);
+    StoreUnitWithExactStrings(aIdentity, lLocalStrings, lExactStrings, lLocalUnit, fTargetIdentities);
   finally
     lLocalUnit.Free;
     lExactStrings.Free;
@@ -3379,6 +3397,62 @@ begin
   end;
 end;
 
+procedure TDelphiSemanticSnapshotSqliteCache.StoreTargetIdentities(
+  const aCacheKey: string; const aConnection: TObject; const aUnit: TUnitSnapshot;
+  const aIdentities: TSnapshotTargetIdentities);
+var
+  lPayload: TBytes;
+  lQuery: TFDQuery;
+  lStream: TBytesStream;
+  lValueCount: Integer;
+begin
+  if aIdentities = nil then
+    Exit;
+  lPayload := aIdentities.Encode(lValueCount);
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_target_lineage(cache_key, unit_id, value_count, payload) values (?, ?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[1].AsLargeInt := aUnit.UnitId;
+    lQuery.Params[2].AsInteger := lValueCount;
+    lStream := TBytesStream.Create(lPayload);
+    try
+      lQuery.Params[3].LoadFromStream(lStream, ftBlob);
+    finally
+      lStream.Free;
+    end;
+    lQuery.ExecSQL;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.LoadTargetIdentities(
+  const aCacheKey: string; const aConnection: TObject;
+  const aBuilder: TDelphiProjectSnapshotBuilder; const aUnit: TUnitSnapshot);
+var
+  lIdentities: TSnapshotTargetIdentities;
+  lQuery: TFDQuery;
+begin
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select unit_id, value_count, payload from snapshot_target_lineage where cache_key = ?');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Open;
+    // The low-level StoreUnit API can intentionally omit target evidence. Such
+    // snapshots remain readable but cannot establish ProjectSession cache hits.
+    if lQuery.Eof then
+      Exit;
+    if lQuery.Fields[0].AsLargeInt <> aUnit.UnitId then
+      raise EInvalidOpException.Create('Snapshot target lineage unit mismatch.');
+    lIdentities := TSnapshotTargetIdentities.Decode(lQuery.Fields[2].AsBytes,
+      lQuery.Fields[1].AsLargeInt, aUnit, aBuilder.Strings.TextOf(aUnit.FileNameId));
+    aBuilder.SetExtensionOwned(cSnapshotTargetIdentityExtension, lIdentities);
+  finally
+    lQuery.Free;
+  end;
+end;
+
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
   const aUnit: TUnitSnapshot; const aStringCount: Integer);
@@ -3518,6 +3592,7 @@ begin
   end;
 
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lBuilder.DeferTargetMetadata := True;
   try
     try
       LoadStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.Strings);
@@ -3528,6 +3603,7 @@ begin
       LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadReferences(aIdentity.CacheKey, lConnectionObject, lUnit);
+      LoadTargetIdentities(aIdentity.CacheKey, lConnectionObject, lBuilder, lUnit);
       ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount);
       ValidateUnitStringIds(lBuilder.Strings, lUnit);

@@ -214,7 +214,7 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.JSON.Serializers,
+  System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.JSON.Serializers,
   System.RegularExpressions, System.SysUtils,
   Winapi.Windows,
   DelphiAST.ProjectIndexer,
@@ -225,11 +225,12 @@ uses
   DelphiSemantics.Snapshot.Cache.Sqlite,
   {$ENDIF}
   DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.Snapshot.TargetIdentity,
   DelphiSemantics.Source, DelphiSemantics.Version,
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v69';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v71';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v100';
 
@@ -2031,6 +2032,30 @@ var
   lStoreUnitFlags: TArray<Boolean>;
   lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lUnitSnapshots: TArray<TDelphiProjectSnapshot>;
+  lCachedUnits: TArray<Boolean>;
+  lTargetResolver: TSnapshotTargetResolver;
+  lUnitIds: TArray<TSemanticUnitId>;
+  lUsedIds: THashSet<TSemanticUnitId>;
+  lAllocationFiles: TList<string>;
+  lIndexByFile: TDictionary<string, Integer>;
+  lAllocationFile: string;
+  lNextId: TSemanticUnitId;
+  lRebuildFiles: TArray<string>;
+  lAdditionalExtraction: TProjectModelExtractionResult;
+  j: Integer;
+
+  procedure RejectHit(const aIndex: Integer);
+  begin
+    FreeAndNil(lUnitSnapshots[aIndex]);
+    lCachedUnits[aIndex] := False;
+    Dec(lCacheSnapshotMetrics.SnapshotCacheHits);
+    Dec(lCacheSnapshotMetrics.SnapshotCacheUnitHits);
+    Inc(lCacheSnapshotMetrics.SnapshotCacheMisses);
+    Inc(lCacheSnapshotMetrics.SnapshotCacheUnitMisses);
+    Inc(lCacheSnapshotMetrics.SnapshotCacheInvalidations);
+    Inc(lCacheSnapshotMetrics.SnapshotCacheUnitStaleEntries);
+  end;
+
 begin
   Result := Default(TDelphiSemanticProjectSnapshotBuildResult);
   lSourceFileNames := ProjectModelFileNames(fProject);
@@ -2067,6 +2092,50 @@ begin
       end;
       AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
     end;
+    SetLength(lCachedUnits, Length(lSourceFileNames));
+    // Canonical filename wins when separately cached generations reused an ID.
+    // Losers rebuild; target lineage remains per source entry, never per number.
+    for i := 0 to High(lUnitSnapshots) do
+      if lUnitSnapshots[i] <> nil then
+      begin
+        lCachedUnits[i] := True;
+        for j := 0 to i - 1 do
+          if (lUnitSnapshots[j] <> nil) and
+            (lUnitSnapshots[j].UnitByIndex(0).UnitId = lUnitSnapshots[i].UnitByIndex(0).UnitId) then
+          begin
+            if TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lSourceFileNames[j]) <
+              TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lSourceFileNames[i]) then
+              RejectHit(i)
+            else
+              RejectHit(j);
+            Break;
+          end;
+      end;
+    lTargetResolver := TSnapshotTargetResolver.Create(lUnitSnapshots);
+    try
+      for i := 0 to High(lUnitSnapshots) do
+        if (lUnitSnapshots[i] <> nil) and
+          ((TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lUnitSnapshots[i].TextOf(
+            lUnitSnapshots[i].UnitByIndex(0).FileNameId)) <>
+            TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lSourceFileNames[i])) or
+          not CachedSnapshotTargetsMatch(lUnitSnapshots[i], lTargetResolver, True, lSourceFileNames)) then
+          lCachedUnits[i] := False;
+    finally
+      lTargetResolver.Free;
+    end;
+    for i := 0 to High(lUnitSnapshots) do
+      if (lUnitSnapshots[i] <> nil) and not lCachedUnits[i] then
+        RejectHit(i);
+    lLoadedAllUnits := True;
+    lLoadedAnyUnit := False;
+    lMissingSourceFileNames := [];
+    for i := 0 to High(lUnitSnapshots) do
+      if lUnitSnapshots[i] <> nil then
+        lLoadedAnyUnit := True
+      else begin
+        lLoadedAllUnits := False;
+        lMissingSourceFileNames := lMissingSourceFileNames + [lSourceFileNames[i]];
+      end;
     lCacheHadPartialHit := lLoadedAnyUnit and (not lLoadedAllUnits);
 
     if lLoadedAllUnits then
@@ -2092,6 +2161,42 @@ begin
     end;
   end;
 
+  SetLength(lUnitIds, Length(lSourceFileNames));
+  lUsedIds := THashSet<TSemanticUnitId>.Create;
+  try
+    for i := 0 to High(lUnitSnapshots) do
+      if lUnitSnapshots[i] <> nil then
+      begin
+        lUnitIds[i] := lUnitSnapshots[i].UnitByIndex(0).UnitId;
+        lUsedIds.Add(lUnitIds[i]);
+      end;
+    lAllocationFiles := TList<string>.Create;
+    lIndexByFile := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.Ordinal);
+    try
+      for i := 0 to High(lUnitIds) do
+        if lUnitIds[i] = 0 then
+        begin
+          lAllocationFile := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lSourceFileNames[i]);
+          lAllocationFiles.Add(lAllocationFile);
+          lIndexByFile.Add(lAllocationFile, i);
+        end;
+      lAllocationFiles.Sort(TStringComparer.Ordinal);
+      lNextId := 1;
+      for lAllocationFile in lAllocationFiles do
+      begin
+        while lUsedIds.Contains(lNextId) do
+          Inc(lNextId);
+        lUnitIds[lIndexByFile[lAllocationFile]] := lNextId;
+        lUsedIds.Add(lNextId);
+      end;
+    finally
+      lIndexByFile.Free;
+      lAllocationFiles.Free;
+    end;
+  finally
+    lUsedIds.Free;
+  end;
+
   lExtractionSourceFileNames := lSourceFileNames;
   lExtractionScopeSourceFileNames := aScopedSourceFileNames;
   lExtractionUsesScopedSourceFileNames := Length(aScopedSourceFileNames) > 0;
@@ -2109,7 +2214,7 @@ begin
   Result.FailedModel := FirstFailedModel(lExtraction.Models);
   SetLength(lExtractionModelUnitIds, Length(lExtractionSourceFileNames));
   for i := 0 to High(lExtractionModelUnitIds) do
-    lExtractionModelUnitIds[i] := TSemanticUnitId(i + 1);
+    lExtractionModelUnitIds[i] := lUnitIds[i];
   lParseAvoidedEstimateMilliseconds :=
     VisibleMetricMilliseconds(lExtraction.ExtractionMilliseconds);
   if lCacheHadPartialHit then
@@ -2125,6 +2230,35 @@ begin
             lCacheSnapshotMetrics);
           lStoreUnitFlags[i] := True;
         end;
+      repeat
+        lRebuildFiles := [];
+        lTargetResolver := TSnapshotTargetResolver.Create(lUnitSnapshots);
+        try
+          for i := 0 to High(lUnitSnapshots) do
+            if lCachedUnits[i] and
+              not CachedSnapshotTargetsMatch(lUnitSnapshots[i], lTargetResolver, False, lSourceFileNames) then
+            begin
+              lCachedUnits[i] := False;
+              lRebuildFiles := lRebuildFiles + [lSourceFileNames[i]];
+            end;
+        finally
+          lTargetResolver.Free;
+        end;
+        for i := 0 to High(lUnitSnapshots) do
+          if not lCachedUnits[i] and not lStoreUnitFlags[i] then
+            RejectHit(i);
+        if Length(lRebuildFiles) = 0 then
+          Break;
+        lAdditionalExtraction := ExtractProjectModels(fProject, fOptions,
+          lSourceFileNames, lRebuildFiles, True);
+        for i := 0 to High(lSourceFileNames) do
+          if lUnitSnapshots[i] = nil then
+          begin
+            lUnitSnapshots[i] := BuildSingleUnitSnapshotFromModels(lAdditionalExtraction.Models,
+              lExtractionModelUnitIds, i, lUnitSnapshots, lCacheSnapshotMetrics);
+            lStoreUnitFlags[i] := True;
+          end;
+      until False;
       lSnapshot := BuildProjectSnapshotFromUnitSnapshots(lUnitSnapshots, lBuilderMetrics);
     finally
       FreeSnapshots(lUnitSnapshots);

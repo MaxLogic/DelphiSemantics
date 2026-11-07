@@ -3,7 +3,7 @@ unit DelphiSemantics.Snapshot;
 interface
 
 uses
-  System.Generics.Collections,
+  System.Generics.Collections, System.SysUtils,
   MaxLogic.FastList;
 
 const
@@ -17,6 +17,12 @@ type
   TSemanticSymbolId = Cardinal;
   TSemanticWithId = Cardinal;
   TSemanticReferenceId = Cardinal;
+
+  // Immutable lineage metadata; returned by value, with no shared mutable bytes.
+  TSemanticTargetKey = packed record
+    Available: Boolean;
+    Digest: array[0..31] of Byte;
+  end;
 
   TSemanticSymbolRef = record
     UnitId: TSemanticUnitId;
@@ -123,6 +129,11 @@ type
     fSourceTextId: TSemanticStringId;
     fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
+    fOrderedTargetFingerprint: string;
+    fTargetMetadataDeferred: Boolean;
+    fTargetStrings: TSemanticStringPool;
+    fTargetSymbolKeyReady: TBytes;
+    fTargetSymbolKeys: TArray<TSemanticTargetKey>;
     fUnitId: TSemanticUnitId;
     fUnitNameId: TSemanticStringId;
     fWithBySourceLine: TSortedList<Integer, TSemanticWithId>;
@@ -131,6 +142,8 @@ type
     function GetSymbolCount: Integer;
     function GetWithStatementCount: Integer;
     procedure CheckMutable;
+    procedure BuildTargetMetadata(const aStrings: TSemanticStringPool; const aDefer: Boolean);
+    function GetOrderedTargetFingerprint: string;
     procedure Freeze;
   public
     constructor Create(const aUnitId: TSemanticUnitId); overload;
@@ -145,6 +158,7 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    function TargetSymbolKeyById(const id: TSemanticSymbolId): TSemanticTargetKey;
     procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
@@ -157,6 +171,7 @@ type
     function WithIdBySourceLineIndex(const aIndex: Integer): TSemanticWithId;
     function WithStatementById(const aId: TSemanticWithId): TSemanticWithStatementFact;
     property FileNameId: TSemanticStringId read fFileNameId;
+    property OrderedTargetFingerprint: string read GetOrderedTargetFingerprint;
     property ReferenceCount: Integer read GetReferenceCount;
     property RejectedDeclarationCount: Integer read fRejectedDeclarationCount;
     property ScopeDiagnosticId: TSemanticStringId read fScopeDiagnosticId;
@@ -179,6 +194,7 @@ type
 
   TDelphiProjectSnapshotBuilder = class
   private
+    fDeferTargetMetadata: Boolean;
     fExactStrings: TSemanticStringPool;
     fExtensions: TObjectDictionary<string, TObject>;
     fStrings: TSemanticStringPool;
@@ -190,6 +206,8 @@ type
     procedure AddUnit(const aUnit: TUnitSnapshot);
     function Build: TDelphiProjectSnapshot;
     procedure SetExtensionOwned(const aName: string; const aExtension: TObject);
+    // Defers derived identity metadata only; storage evidence is validated before publication.
+    property DeferTargetMetadata: Boolean read fDeferTargetMetadata write fDeferTargetMetadata;
     property ExactStrings: TSemanticStringPool read fExactStrings;
     property Strings: TSemanticStringPool read fStrings;
     property UnitCount: Integer read GetUnitCount;
@@ -219,8 +237,9 @@ type
       out aUnitId: TSemanticUnitId): Boolean;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
-      var aExtensions: TObjectDictionary<string, TObject>);
-    procedure FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
+      var aExtensions: TObjectDictionary<string, TObject>; const aDeferTargetMetadata: Boolean);
+    procedure FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>;
+      const aStrings: TSemanticStringPool; const aDeferTargetMetadata: Boolean);
     function GetUnitCount: Integer;
     procedure BuildIndexes(const aStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>);
@@ -272,8 +291,9 @@ function SnapshotPublicSymbolKind(const aKind: string): string;
 implementation
 
 uses
-  System.Generics.Defaults, System.SysUtils,
-  MaxLogic.StrUtils;
+  System.Generics.Defaults,
+  MaxLogic.StrUtils,
+  DelphiSemantics.Snapshot.TargetIdentity;
 
 const
   cSemanticSymbolKindAlias = 'alias';
@@ -619,6 +639,63 @@ begin
   Result := fReferences.Count;
 end;
 
+procedure TUnitSnapshot.BuildTargetMetadata(const aStrings: TSemanticStringPool;
+  const aDefer: Boolean);
+var
+  i: Integer;
+begin
+  CheckMutable;
+  // The owning project keeps this frozen pool alive until after its units die.
+  fTargetStrings := aStrings;
+  fTargetMetadataDeferred := aDefer;
+  if aDefer then
+    Exit;
+  fOrderedTargetFingerprint := CalculateOrderedTargetFingerprint(aStrings, Self);
+  SetLength(fTargetSymbolKeys, SymbolCount);
+  for i := 0 to SymbolCount - 1 do
+    fTargetSymbolKeys[i] := CalculateStableTargetSymbolKey(aStrings, SymbolById(i + 1));
+end;
+
+function TUnitSnapshot.GetOrderedTargetFingerprint: string;
+begin
+  if not fTargetMetadataDeferred then
+    Exit(fOrderedTargetFingerprint);
+  TMonitor.Enter(Self);
+  try
+    if fOrderedTargetFingerprint = '' then
+      fOrderedTargetFingerprint := CalculateOrderedTargetFingerprint(fTargetStrings, Self);
+    Result := fOrderedTargetFingerprint;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
+function TUnitSnapshot.TargetSymbolKeyById(const id: TSemanticSymbolId): TSemanticTargetKey;
+begin
+  if (id = 0) or (id > Cardinal(SymbolCount)) or (fTargetStrings = nil) then
+    raise EArgumentOutOfRangeException.Create('Snapshot target symbol ID is outside frozen metadata.');
+  if not fTargetMetadataDeferred then
+    Exit(fTargetSymbolKeys[id - 1]);
+  // This memo only derives values from immutable, already validated facts. It
+  // never validates a cache lazily or publishes an unchecked target association.
+  TMonitor.Enter(Self);
+  try
+    if Length(fTargetSymbolKeyReady) = 0 then
+    begin
+      SetLength(fTargetSymbolKeys, SymbolCount);
+      SetLength(fTargetSymbolKeyReady, SymbolCount);
+    end;
+    if fTargetSymbolKeyReady[id - 1] = 0 then
+    begin
+      fTargetSymbolKeys[id - 1] := CalculateStableTargetSymbolKey(fTargetStrings, SymbolById(id));
+      fTargetSymbolKeyReady[id - 1] := 1;
+    end;
+    Result := fTargetSymbolKeys[id - 1];
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
 procedure TUnitSnapshot.Freeze;
 begin
   fFrozen := True;
@@ -770,7 +847,12 @@ begin
 end;
 
 procedure TDelphiProjectSnapshotBuilder.AddUnit(const aUnit: TUnitSnapshot);
+var
+  lUnit: TUnitSnapshot;
 begin
+  for lUnit in fUnits do
+    if lUnit.UnitId = aUnit.UnitId then
+      raise EInvalidOpException.Create('Duplicate snapshot unit ID.');
   fUnits.Add(aUnit);
 end;
 
@@ -791,7 +873,7 @@ begin
         lNewUnits := TObjectList<TUnitSnapshot>.Create(True);
         try
           Result := TDelphiProjectSnapshot.Create(fStrings, fExactStrings, fUnits,
-            fExtensions);
+            fExtensions, fDeferTargetMetadata);
           fStrings := lNewStrings;
           fExactStrings := lNewExactStrings;
           fUnits := lNewUnits;
@@ -838,7 +920,7 @@ end;
 constructor TDelphiProjectSnapshot.Create(const aStrings,
   aExactStrings: TSemanticStringPool;
   const aUnits: TObjectList<TUnitSnapshot>;
-  var aExtensions: TObjectDictionary<string, TObject>);
+  var aExtensions: TObjectDictionary<string, TObject>; const aDeferTargetMetadata: Boolean);
 begin
   inherited Create;
   try
@@ -864,7 +946,7 @@ begin
     BuildIndexes(aStrings, aUnits);
     aStrings.Freeze;
     aExactStrings.Freeze;
-    FreezeUnits(aUnits);
+    FreezeUnits(aUnits, aStrings, aDeferTargetMetadata);
     fStrings := aStrings;
     fExactStrings := aExactStrings;
     fUnits := aUnits;
@@ -1016,12 +1098,14 @@ begin
   fTypesByName.sort;
 end;
 
-procedure TDelphiProjectSnapshot.FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
+procedure TDelphiProjectSnapshot.FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>;
+  const aStrings: TSemanticStringPool; const aDeferTargetMetadata: Boolean);
 var
   i: Integer;
 begin
   for i := 0 to aUnits.Count - 1 do
   begin
+    aUnits[i].BuildTargetMetadata(aStrings, aDeferTargetMetadata);
     aUnits[i].Freeze;
   end;
 end;

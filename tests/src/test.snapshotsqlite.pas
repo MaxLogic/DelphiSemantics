@@ -36,6 +36,23 @@ type
     procedure CacheKeyReuseWithDifferentIdentityDoesNotLoadStoredUnit;
     [Category('Fast')]
     [Test]
+    procedure CachedTargetSurvivesCaseOnlyPoolSpelling;
+    [Category('Fast')]
+    [Test]
+    procedure PackedTargetLineageUsesOneBlobPerUnit;
+    [Category('Fast')]
+    [Test]
+    [TestCase('Unknown format', 'format')]
+    [TestCase('Truncated payload', 'truncated')]
+    [TestCase('Trailing bytes', 'trailing')]
+    [TestCase('Nonminimal varint', 'overlong')]
+    [TestCase('Overflowing varint', 'overflow')]
+    [TestCase('Negative value count', 'negative-count')]
+    [TestCase('Mismatched value count', 'count')]
+    [TestCase('Wrong owning unit', 'unit')]
+    procedure PackedTargetLineageRejectsCorruption(const aMutation: string);
+    [Category('Fast')]
+    [Test]
     procedure ContextSpecificSnapshotVariantsShareIdentityWithoutEviction;
     [Category('Fast')]
     [Test]
@@ -167,7 +184,7 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.IOUtils, System.StrUtils,
+  System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
   System.SysUtils, System.Variants,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
@@ -175,7 +192,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
   DelphiSemantics.Model.Json, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding,
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.WithBinding,
   Test.Support;
 
 var
@@ -194,6 +211,216 @@ begin
   end;
   TDirectory.CreateDirectory(GSnapshotSqliteTempRoot);
   Result := GSnapshotSqliteTempRoot;
+end;
+
+function CasePoolUnitSnapshot(const aRoot, aName, aSymbolName: string; const id: TSemanticUnitId;
+  const aField, aReference: Boolean): TDelphiProjectSnapshot;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lUnit: TUnitSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lReference: TSemanticReferenceFact;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lUnit := TUnitSnapshot.Create(id, lBuilder.Strings.Intern(TPath.Combine(aRoot, aName + '.pas')),
+      lBuilder.Strings.Intern(aName));
+    try
+      if aReference then
+      begin
+        lReference := Default(TSemanticReferenceFact);
+        lReference.NameId := lBuilder.Strings.Intern('Value');
+        lReference.TargetUnitId := 1;
+        lReference.TargetSymbolId := 1;
+        lUnit.AddReference(lReference);
+      end else begin
+        lSymbol := Default(TSemanticSymbolFact);
+        lSymbol.NameId := lBuilder.Strings.Intern(aSymbolName);
+        if aField then
+        begin
+          lSymbol.KindId := lBuilder.Strings.Intern('field');
+          lSymbol.OwnerTypeId := lBuilder.Strings.Intern('Holder');
+        end else begin
+          lSymbol.KindId := lBuilder.Strings.Intern('var');
+          lSymbol.SemanticSymbolId := lBuilder.Strings.Intern('a|var|value');
+        end;
+        lUnit.AddSymbol(lSymbol);
+      end;
+      lBuilder.AddUnit(lUnit);
+      lUnit := nil;
+    finally
+      lUnit.Free;
+    end;
+    Result := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function CasePoolIdentity(const aRoot, aName: string): TDelphiSemanticSnapshotCacheIdentity;
+begin
+  Result := Default(TDelphiSemanticSnapshotCacheIdentity);
+  Result.SourceFileName := TPath.Combine(aRoot, aName + '.pas');
+  Result.CacheKey := THashSHA2.GetHashString(Result.SourceFileName);
+  Result.IdentityKey := Result.CacheKey;
+  Result.FileHash := THashSHA2.GetHashString(aName);
+  Result.ContextHash := THashSHA2.GetHashString('case-probe');
+  Result.IncludeGraphHash := THashSHA2.GetHashString('no-includes');
+  Result.SchemaVersion := 'case-probe';
+end;
+
+procedure TSnapshotSqliteTests.PackedTargetLineageUsesOneBlobPerUnit;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lConnection: TFDConnection;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lQuery: TFDQuery;
+  lRoot, lDatabase: string;
+begin
+  lRoot := TempPath('ds794-packed-lineage');
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lIdentity := CasePoolIdentity(lRoot, 'BTarget');
+  lSnapshot := CasePoolUnitSnapshot(lRoot, 'BTarget', 'Value', 1, True, False);
+  lLoaded := nil;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded));
+    lConnection := TFDConnection.Create(nil);
+    try
+      lConnection.Params.Values['DriverID'] := 'SQLite';
+      lConnection.Params.Values['Database'] := lDatabase;
+      lConnection.LoginPrompt := False;
+      lConnection.Connected := True;
+      lQuery := TFDQuery.Create(nil);
+      try
+        lQuery.Connection := lConnection;
+        lQuery.SQL.Text := 'select count(*) from sqlite_master where type=''table'' and name=''snapshot_target_lineage''';
+        lQuery.Open;
+        Assert.AreEqual(1, lQuery.Fields[0].AsInteger,
+          'Target evidence must use the packed per-unit lineage table');
+        lQuery.Close;
+        lQuery.SQL.Text := 'select count(*) from snapshot_target_lineage where length(payload)>1 and value_count>0';
+        lQuery.Open;
+        Assert.AreEqual(1, lQuery.Fields[0].AsInteger);
+      finally
+        lQuery.Free;
+      end;
+    finally
+      lConnection.Free;
+    end;
+  finally
+    lCache.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.PackedTargetLineageRejectsCorruption(const aMutation: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lDatabase, lRoot, lSql: string;
+begin
+  lRoot := TempPath('ds794-lineage-' + aMutation);
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lIdentity := CasePoolIdentity(lRoot, 'BTarget');
+  lSnapshot := CasePoolUnitSnapshot(lRoot, 'BTarget', 'Value', 1, True, False);
+  lLoaded := nil;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    if aMutation = 'format' then
+      lSql := 'payload=cast(x''ff'' || substr(payload,2) as blob)'
+    else if aMutation = 'truncated' then
+      lSql := 'payload=substr(payload,1,length(payload)-1)'
+    else if aMutation = 'trailing' then
+      lSql := 'payload=cast(payload || x''00'' as blob)'
+    else if aMutation = 'overlong' then
+      lSql := 'payload=cast(substr(payload,1,1) || x''8000'' || substr(payload,3) as blob)'
+    else if aMutation = 'overflow' then
+      lSql := 'payload=cast(substr(payload,1,1) || x''80808080808080808002'' || substr(payload,3) as blob)'
+    else if aMutation = 'negative-count' then
+      lSql := 'value_count=-1'
+    else if aMutation = 'count' then
+      lSql := 'value_count=value_count+1'
+    else if aMutation = 'unit' then
+      lSql := 'unit_id=unit_id+1'
+    else
+      raise EArgumentException.Create('Unknown lineage corruption case.');
+    ExecCacheSql(lDatabase, 'update snapshot_target_lineage set ' + lSql);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded),
+      'Corrupt target lineage must invalidate before publication: ' + aMutation);
+    Assert.IsNull(lLoaded);
+    Assert.AreEqual(1, lCache.Metrics.Invalidations);
+    Assert.AreEqual(0, TableRowCount(lDatabase, 'snapshot_target_lineage'));
+
+    // A refused row must remain rebuildable and reusable after close/reopen.
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded));
+    Assert.AreEqual(1, lLoaded.UnitCount);
+  finally
+    lCache.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.CachedTargetSurvivesCaseOnlyPoolSpelling;
+var
+  lRoot: string;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lOther, lTarget, lSource, lLoadedTarget, lLoadedSource, lMerged: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lResolver: TSnapshotTargetResolver;
+begin
+  lRoot := TempPath('ds794-case-pool');
+  TDirectory.CreateDirectory(lRoot);
+  lOther := nil;
+  lTarget := nil;
+  lSource := nil;
+  lLoadedTarget := nil;
+  lLoadedSource := nil;
+  lMerged := nil;
+  lCache := nil;
+  lResolver := nil;
+  try
+    lOther := CasePoolUnitSnapshot(lRoot, 'AOther', 'value', 3, False, False);
+    lTarget := CasePoolUnitSnapshot(lRoot, 'BTarget', 'Value', 1, True, False);
+    lSource := CasePoolUnitSnapshot(lRoot, 'CSource', '', 2, False, True);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+    lCache.StoreUnitFromSnapshot(CasePoolIdentity(lRoot, 'BTarget'), lTarget, 0);
+    if not lCache.TryLoadUnit(CasePoolIdentity(lRoot, 'BTarget'), lLoadedTarget) then
+      raise Exception.Create('Target did not hit');
+    lMerged := BuildProjectSnapshotFromUnitSnapshots([lOther, lLoadedTarget, lSource], lMetrics);
+    lCache.StoreUnitFromSnapshot(CasePoolIdentity(lRoot, 'CSource'), lMerged, 2);
+    FreeAndNil(lCache);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+    if not lCache.TryLoadUnit(CasePoolIdentity(lRoot, 'CSource'), lLoadedSource) then
+      raise Exception.Create('Source did not hit');
+    lResolver := TSnapshotTargetResolver.Create([lLoadedSource, lLoadedTarget]);
+    Assert.IsTrue(CachedSnapshotTargetsMatch(lLoadedSource, lResolver, False, []),
+      'Case-only pool spelling must preserve a genuine source hit');
+  finally
+    lResolver.Free;
+    lCache.Free;
+    lMerged.Free;
+    lLoadedSource.Free;
+    lLoadedTarget.Free;
+    lSource.Free;
+    lTarget.Free;
+    lOther.Free;
+  end;
 end;
 
 procedure TSnapshotSqliteTests.AssertIdentityChangeMissesWithoutEviction(const aName: string;
