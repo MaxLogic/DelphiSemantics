@@ -794,7 +794,7 @@ begin
   Result.Modifier := aParameter.Modifier;
   Result.RoutineName := aRoutineName;
   Result.UnitName := aModel.UnitName;
-  Result.FileName := aModel.FileName;
+  Result.FileName := FactSourceFileName(aModel.FileName, aParameter.FileName);
   Result.Line := aParameter.Line;
   Result.Column := aParameter.Column;
   Result.EndLine := aParameter.Line;
@@ -812,7 +812,8 @@ begin
   Result.TypeName := aLocal.TypeName;
   Result.RoutineName := aLocal.RoutineName;
   Result.UnitName := aModel.UnitName;
-  Result.FileName := aModel.FileName;
+  Result.FileName := FactSourceFileName(aModel.FileName, aLocal.FileName);
+  Result.RoutineScopeId := aLocal.RoutineScopeId;
   Result.Line := aLocal.Line;
   Result.Column := aLocal.Column;
   Result.EndLine := aLocal.Line;
@@ -888,6 +889,7 @@ begin
       for lParameter in lRoutine.Parameters do
       begin
         lSymbol := RoutineParameterSymbol(lModel, lRoutineName, lParameter);
+        lSymbol.RoutineScopeId := lRoutine.ScopeId;
         AddRoutineSymbol(lRoutine.Name, lSymbol);
         AddRoutineSymbol(lRoutineName, lSymbol);
       end;

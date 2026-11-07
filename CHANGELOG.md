@@ -7,6 +7,7 @@
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed
+- Global usage analysis retains captured include positions and access, reports missing evidence, and preserves distinct expansions. Semantic graph and WITH inventory facts retain include origins; older WITH facts caches rebuild (DS-690, DS-693).
 - Certified Delphi 12 Win64 profiles evaluate bounded `CompilerVersion` and `RTLVersion` comparisons when the source scope proves the constants are unshadowed. ASM byte strings no longer hide following conditional directives (DS-756, DS-776).
 - Invalid Exists condition paths report INVALID_MSBUILD_CONDITION and withhold define evidence instead of crashing (DS-790).
 - Certified statement-only routine includes no longer taint declaration names; dependent activity, declaration-capable includes and uncertified selection still refuse. Older parser caches rebuild (DS-782).

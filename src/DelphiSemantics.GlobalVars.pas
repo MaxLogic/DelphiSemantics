@@ -94,7 +94,7 @@ uses
   System.Classes, System.Generics.Collections, System.RegularExpressions,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.Model.Text;
+  DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text, DelphiSemantics.Source;
 
 type
   TSnapshotDeclarationIndexList = TList<Integer>;
@@ -469,6 +469,22 @@ begin
     Result := 'read';
 end;
 
+function DetectPhysicalAccess(const aLine, aName: string; const aColumn: Integer): string;
+var
+  lFirst, lLast: Integer;
+begin
+  // Sidecar tokens on the same physical line remain separate occurrences.
+  // Limit the existing access classifier to the captured statement so one
+  // assignment cannot turn a later assignment into an apparent read.
+  lFirst := aColumn;
+  while (lFirst > 1) and (aLine[lFirst - 1] <> ';') do
+    Dec(lFirst);
+  lLast := aColumn;
+  while (lLast <= Length(aLine)) and (aLine[lLast] <> ';') do
+    Inc(lLast);
+  Result := DetectAccess(Copy(aLine, lFirst, lLast - lFirst), aName);
+end;
+
 function UsageKey(const aUnitName, aRoutineName, aName: string; const aLine: Integer): string;
 begin
   Result := LowerCase(aUnitName) + '|' + LowerCase(aRoutineName) + '|' + LowerCase(aName) + '|' +
@@ -633,7 +649,7 @@ begin
   lUsage.UnitName := aModel.UnitName;
   lUsage.RoutineName := aRoutineName;
   lUsage.RoutineScopeId := aReference.RoutineScopeId;
-  lUsage.FileName := aModel.FileName;
+  lUsage.FileName := FactSourceFileName(aModel.FileName, aReference.FileName);
   lUsage.Access := aAccess;
   lUsage.Line := aReference.Line;
   lUsage.Column := aReference.Column;
@@ -649,7 +665,7 @@ begin
   lAmbiguity.Name := aReference.Name;
   lAmbiguity.UnitName := aModel.UnitName;
   lAmbiguity.RoutineName := aRoutineName;
-  lAmbiguity.FileName := aModel.FileName;
+  lAmbiguity.FileName := FactSourceFileName(aModel.FileName, aReference.FileName);
   lAmbiguity.Access := aAccess;
   lAmbiguity.Candidates := BuildCandidateText(aCandidates);
   lAmbiguity.Line := aReference.Line;
@@ -668,10 +684,158 @@ begin
       aCandidates.Add(lDeclaration);
 end;
 
+function PhysicalReferenceHasLocalShadow(const aModel: TDelphiSemanticUnitModel;
+  const aReference: TDelphiSemanticReference; out aScopeVerified: Boolean): Boolean;
+var
+  lBody: TDelphiSemanticRoutine;
+  lCount, lDepth: Integer;
+  lLocal: TDelphiSemanticLocal;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+  lScopeId: string;
+begin
+  Result := False;
+  aScopeVerified := False;
+  lScopeId := aReference.RoutineScopeId;
+  if lScopeId = '' then
+    Exit;
+  // Physical lines belong to different files. Only captured scope IDs can
+  // establish local shadowing or walk the enclosing routine chain.
+  for lDepth := 0 to Length(aModel.Routines) do
+  begin
+    lCount := 0;
+    lBody := Default(TDelphiSemanticRoutine);
+    for lRoutine in aModel.Routines do
+      if SameText(lRoutine.ScopeId, lScopeId) and SameText(lRoutine.AstScopeKind, 'body') then
+      begin
+        Inc(lCount);
+        lBody := lRoutine;
+      end;
+    if lCount <> 1 then
+      Exit;
+    for lParameter in lBody.Parameters do
+      if SameText(lParameter.Name, aReference.Name) then
+      begin
+        aScopeVerified := True;
+        Exit(True);
+      end;
+    for lLocal in aModel.Locals do
+      if SameText(lLocal.RoutineScopeId, lScopeId) and SameText(lLocal.Name, aReference.Name) then
+      begin
+        aScopeVerified := True;
+        Exit(True);
+      end;
+    lScopeId := lBody.ParentScopeId;
+    if lScopeId = '' then
+    begin
+      aScopeVerified := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure AnalyzePhysicalModelUsages(const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
+  const aUsages: TList<TDelphiSemanticGlobalUsage>;
+  const aAmbiguities: TList<TDelphiSemanticGlobalAmbiguity>;
+  const aDiagnostics: TList<TDelphiSemanticGlobalDiagnostic>;
+  const aSeenUsages: TDictionary<string, Boolean>; const aModel: TDelphiSemanticUnitModel);
+var
+  lAccess, lKey, lLine: string;
+  lCandidates: TList<TDelphiSemanticGlobalDeclaration>;
+  lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  lReference: TDelphiSemanticReference;
+  lScopeVerified: Boolean;
+  lSource: TDelphiSemanticSourceText;
+  lSourceLines: TStringList;
+  lSources: TObjectDictionary<string, TStringList>;
+begin
+  if not aModel.PhysicalReferenceOccurrencesAvailable then
+  begin
+    AddDiagnostic(aDiagnostics, 'GLOBAL_SOURCE_ORIGIN_INCOMPLETE',
+      'Captured physical reference enumeration is unavailable.', aModel.FileName, 0);
+    Exit;
+  end;
+  lCandidates := nil;
+  lSources := nil;
+  try
+    lCandidates := TList<TDelphiSemanticGlobalDeclaration>.Create;
+    lSources := TObjectDictionary<string, TStringList>.Create([doOwnsValues],
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    for lOccurrence in aModel.PhysicalReferenceOccurrences do
+    begin
+      if lOccurrence.RoutineName = '' then
+        Continue;
+      lCandidates.Clear;
+      FindCandidates(aDeclarations, aModel, lOccurrence.Name, lCandidates);
+      if lCandidates.Count = 0 then
+        Continue;
+      if not TryPhysicalReference(lOccurrence, lReference) then
+      begin
+        AddDiagnostic(aDiagnostics, 'GLOBAL_SOURCE_ORIGIN_INCOMPLETE',
+          'Global reference has no verified physical position: ' + lOccurrence.Name,
+          lOccurrence.FileName, lOccurrence.Line);
+        Continue;
+      end;
+      if PhysicalReferenceHasLocalShadow(aModel, lReference, lScopeVerified) then
+        Continue;
+      if not lScopeVerified then
+      begin
+        AddDiagnostic(aDiagnostics, 'GLOBAL_SCOPE_INCOMPLETE',
+          'Global reference has no unique captured routine scope: ' + lOccurrence.Name,
+          lReference.FileName, lReference.Line);
+        Continue;
+      end;
+      if not lSources.TryGetValue(lReference.FileName, lSourceLines) then
+      begin
+        if (aModel.SourceObservations = nil) or
+          not aModel.SourceObservations.TryFind(lReference.FileName, lSource) then
+        begin
+          AddDiagnostic(aDiagnostics, 'GLOBAL_CAPTURED_SOURCE_MISSING',
+            'Captured physical source is unavailable for global reference: ' + lOccurrence.Name,
+            lReference.FileName, lReference.Line);
+          Continue;
+        end;
+        lSourceLines := TStringList.Create;
+        try
+          lSourceLines.Text := SanitizeCodeText(lSource.Text);
+          lSources.Add(lReference.FileName, lSourceLines);
+        except
+          lSourceLines.Free;
+          raise;
+        end;
+      end;
+      lLine := ReadModelSourceLine(lSourceLines, lReference.Line);
+      if not SameText(Copy(lLine, lReference.Column, Length(lReference.Name)), lReference.Name) then
+      begin
+        AddDiagnostic(aDiagnostics, 'GLOBAL_SOURCE_ORIGIN_INCOMPLETE',
+          'Global reference position does not match its captured source: ' + lOccurrence.Name,
+          lReference.FileName, lReference.Line);
+        Continue;
+      end;
+      lKey := UsageKey(aModel.UnitName, lReference.RoutineScopeId, lReference.Name,
+        lReference.Line) + '|' + lReference.FileName + '|' + IntToStr(lReference.Column) +
+        '|' + lOccurrence.ExpansionId + '|' + IntToStr(lOccurrence.OutputStartOffset) +
+        '|' + IntToStr(lOccurrence.OutputEndOffset);
+      if aSeenUsages.ContainsKey(lKey) then
+        Continue;
+      lAccess := DetectPhysicalAccess(lLine, lReference.Name, lReference.Column);
+      if lCandidates.Count = 1 then
+        AddUsage(aUsages, lCandidates[0], aModel, lReference.RoutineName, lAccess, lReference)
+      else
+        AddAmbiguity(aAmbiguities, lCandidates, aModel, lReference.RoutineName, lAccess, lReference);
+      aSeenUsages.Add(lKey, True);
+    end;
+  finally
+    lSources.Free;
+    lCandidates.Free;
+  end;
+end;
+
 procedure AnalyzeModelUsages(const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
   const aUsages: TList<TDelphiSemanticGlobalUsage>;
   const aAmbiguities: TList<TDelphiSemanticGlobalAmbiguity>; const aSeenUsages: TDictionary<string,
-  Boolean>; const aModel: TDelphiSemanticUnitModel);
+  Boolean>; const aModel: TDelphiSemanticUnitModel;
+  const aDiagnostics: TList<TDelphiSemanticGlobalDiagnostic>);
 var
   lAccess: string;
   lCandidates: TList<TDelphiSemanticGlobalDeclaration>;
@@ -682,6 +846,12 @@ var
   lRoutineStartLine: Integer;
   lSourceLines: TStringList;
 begin
+  if Length(aModel.IncludeFileNames) > 0 then
+  begin
+    AnalyzePhysicalModelUsages(aDeclarations, aUsages, aAmbiguities, aDiagnostics,
+      aSeenUsages, aModel);
+    Exit;
+  end;
   lSourceLines := nil;
   lCandidates := TList<TDelphiSemanticGlobalDeclaration>.Create;
   try
@@ -1015,7 +1185,7 @@ begin
     end;
 
     for lModel in aModels do
-      AnalyzeModelUsages(lDeclarations, lUsages, lAmbiguities, lSeenUsages, lModel);
+      AnalyzeModelUsages(lDeclarations, lUsages, lAmbiguities, lSeenUsages, lModel, lDiagnostics);
 
     Result.Declarations := lDeclarations.ToArray;
     Result.Usages := lUsages.ToArray;

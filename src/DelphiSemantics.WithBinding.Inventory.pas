@@ -24,7 +24,7 @@ implementation
 uses
   System.Character, System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TRelatedInventoryMemberRelation = record
@@ -3118,7 +3118,7 @@ begin
     lSymbol.TypeName := lDeclaration.TypeName;
     lSymbol.RelatedTypeName := InventorySimpleTypeName(lDeclaration.TypeName);
     lSymbol.UnitName := aModel.UnitName;
-    lSymbol.FileName := aModel.FileName;
+    lSymbol.FileName := FactSourceFileName(aModel.FileName, lDeclaration.FileName);
     lSymbol.SectionKind := lDeclaration.SectionKind;
     lSymbol.RoutineScopeId := lDeclaration.OwnerScopeId;
     lSymbol.OwnerScopeId := lDeclaration.OwnerScopeId;
@@ -3182,7 +3182,7 @@ begin
         SameText(lDeclaration.TypeName, 'interface') then
         lSymbol.TypeCategory := lDeclaration.TypeName;
       lSymbol.UnitName := aModel.UnitName;
-      lSymbol.FileName := aModel.FileName;
+      lSymbol.FileName := FactSourceFileName(aModel.FileName, lDeclaration.FileName);
       lSymbol.SectionKind := lDeclaration.SectionKind;
       lSymbol.RoutineScopeId := lDeclaration.OwnerScopeId;
       lSymbol.OwnerScopeId := lDeclaration.OwnerScopeId;
@@ -3336,7 +3336,7 @@ begin
         else
           lSymbol.RoutineName := lParameter.RoutineName;
         lSymbol.UnitName := aModel.UnitName;
-        lSymbol.FileName := aModel.FileName;
+        lSymbol.FileName := FactSourceFileName(aModel.FileName, lParameter.FileName);
         lSymbol.RoutineScopeId := lRoutine.ScopeId;
         lSymbol.Line := lParameter.Line;
         lSymbol.Column := lParameter.Column;
@@ -3356,7 +3356,7 @@ begin
       lSymbol.RoutineName := lLocal.RoutineName;
       lSymbol.RoutineScopeId := lLocal.RoutineScopeId;
       lSymbol.UnitName := aModel.UnitName;
-      lSymbol.FileName := aModel.FileName;
+      lSymbol.FileName := FactSourceFileName(aModel.FileName, lLocal.FileName);
       lSymbol.Line := lLocal.Line;
       lSymbol.Column := lLocal.Column;
       lSymbol.EndLine := lLocal.Line;

@@ -13,6 +13,16 @@ type
     function ProjectInfo: TDelphiSemanticProjectInfo;
     function UnitModel: TDelphiSemanticUnitModel;
   public
+    [Test]
+    [TestCase('unknown', 'unknown,0,0')]
+    [TestCase('declaration', 'declaration,2,3')]
+    [TestCase('member', 'member,3,5')]
+    [TestCase('routine', 'routine,5,11')]
+    [TestCase('parameter', 'parameter,5,23')]
+    [TestCase('local', 'local,7,3')]
+    [TestCase('reference', 'reference,9,3')]
+    procedure IncludedGraphFactOrigins(const aKind: string;
+      const aLine, aColumn: Integer);
     [Category('Fast')]
     [Test]
     procedure GraphStoresDeclarationTypeMemberRoutineParameterAndLocalDtos;
@@ -265,6 +275,63 @@ begin
     Assert.AreEqual(1, lRoutine.SourceRange.Column);
     Assert.AreEqual(10, lRoutine.SourceRange.EndLine);
     Assert.IsTrue(lRoutine.SourceRange.EndColumn > lRoutine.SourceRange.Column);
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TSemanticGraphDeclarationTests.IncludedGraphFactOrigins(const aKind: string;
+  const aLine, aColumn: Integer);
+var
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRange: TDelphiSemanticSourceRange;
+  lRoot, lInclude: string;
+begin
+  lRoot := CreateTestTempRoot('include-graph-probe-temp');
+  lInclude := TPath.Combine(lRoot, 'facts.inc');
+  TFile.WriteAllText(lInclude,
+    'type'#13#10'  TIncluded = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    'procedure IncludedRun(aValue: Integer);'#13#10'var'#13#10'  lValue: Integer;'#13#10 +
+    'begin'#13#10'  lValue := aValue;'#13#10'end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeFactProbe.pas'),
+    'unit IncludeFactProbe;'#13#10'interface'#13#10'implementation'#13#10 +
+    '{$I facts.inc}'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeFactProbe.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  if aKind = 'unknown' then
+  begin
+    lModel.Declarations[0].Line := 0;
+    lModel.Declarations[0].Column := 0;
+  end;
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lRange := Default(TDelphiSemanticSourceRange);
+    if (aKind = 'declaration') or (aKind = 'unknown') then
+      lRange := lGraph.Declarations[0].SourceRange
+    else if aKind = 'member' then
+      lRange := lGraph.Members[0].SourceRange
+    else if aKind = 'routine' then
+      lRange := lGraph.Routines[0].SourceRange
+    else if aKind = 'parameter' then
+      lRange := lGraph.Parameters[0].SourceRange
+    else if aKind = 'local' then
+      lRange := lGraph.Locals[0].SourceRange
+    else
+      for var i := 0 to High(lGraph.References) do
+        if (lGraph.References[i].Name = 'lValue') and
+          (lGraph.References[i].SourceRange.Line = aLine) then
+          lRange := lGraph.References[i].SourceRange;
+    Assert.AreEqual(lInclude, lRange.FileName);
+    Assert.AreEqual(aLine, lRange.Line);
+    Assert.AreEqual(aColumn, lRange.Column);
+    if aKind = 'unknown' then
+      Assert.AreEqual(0, lRange.EndColumn, 'Unknown positions cannot acquire a made-up endpoint.');
   finally
     lGraph.Free;
   end;

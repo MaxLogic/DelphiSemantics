@@ -31,6 +31,14 @@ type
     function HasDiagnostic(const aAnalysis: TDelphiSemanticGlobalAnalysis;
       const aCode: string): Boolean;
   public
+    [Test]
+    [TestCase('Direct unknown position', 'direct,unknown')]
+    [TestCase('Direct file', 'direct,file')]
+    [TestCase('Direct access', 'direct,access')]
+    [TestCase('Direct distinct', 'direct,distinct')]
+    [TestCase('Direct inactive', 'direct,inactive')]
+    [TestCase('Direct missing captured source', 'direct,missing')]
+    procedure IncludeUsageUsesCapturedPhysicalEvidence(const aRoute, aCheck: string);
     [Category('Fast')]
     [Test]
     procedure AnalyzesGlobalDeclarationsUsagesShadowingAndAmbiguity;
@@ -50,6 +58,14 @@ type
     [Test]
     procedure UsageAccessUsesModelSourceText;
     [Test]
+    [TestCase('Repeated expansion', 'repeat')]
+    [TestCase('Distinct columns', 'columns')]
+    [TestCase('Scoped shadow', 'shadow')]
+    [TestCase('Unavailable capture', 'unavailable')]
+    [TestCase('Unknown physical column', 'position')]
+    [TestCase('Duplicate routine scope', 'scope')]
+    procedure IncludedUsagesKeepTokenAndScopeIdentity(const aShape: string);
+    [Test]
     [TestCase('Failed model', 'ast-failed,False')]
     [TestCase('Failed snapshot', 'ast-failed,True')]
     [TestCase('Partial model', 'ast-interface-only,False')]
@@ -61,9 +77,9 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
-  DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
+  DelphiSemantics.Cache, DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   Test.Support;
 
 
@@ -621,6 +637,192 @@ begin
       'No class variable from an unverified unit is a verified global.');
   Assert.AreEqual(0, lAnalysis.VerifiedScopeUnitCount);
   Assert.IsTrue(HasDiagnostic(lAnalysis, 'SCOPE_MODEL_UNVERIFIED'));
+end;
+
+procedure TGlobalVarsSemanticTests.IncludeUsageUsesCapturedPhysicalEvidence(
+  const aRoute, aCheck: string);
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCache: TDelphiSemanticUnitCache;
+  lCount: Integer;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+  lSnapshot, lReassembled: TDelphiProjectSnapshot;
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  lRoot := CreateTestTempRoot('include-global-probe-temp');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'),
+    'GF := 7;'#13#10'{$I nested.inc}'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'), 'GF := 11;', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'nested.inc'), 'Inc(GF);', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeGlobalProbe.pas'),
+    'unit IncludeGlobalProbe;'#13#10'interface'#13#10'var GF, GInactive: Integer;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '{$I first.inc}{$I second.inc}'#13#10 +
+    '{$IF False}GInactive := 9;{$IFEND}'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeGlobalProbe.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  if aRoute = 'cache' then
+  begin
+    lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+    try
+      lModel := lCache.GetOrExtractUnitModel(lOptions);
+      lModel := lCache.GetOrExtractUnitModel(lOptions);
+      Assert.AreEqual(1, lCache.Metrics.CacheHits);
+    finally
+      lCache.Free;
+    end;
+  end else
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  if aCheck = 'unknown' then
+  begin
+    for var i := 0 to High(lModel.References) do
+    begin
+      lModel.References[i].Line := 0;
+      lModel.References[i].Column := 0;
+    end;
+    for var i := 0 to High(lModel.PhysicalReferenceOccurrences) do
+    begin
+      lModel.PhysicalReferenceOccurrences[i].Line := 0;
+      lModel.PhysicalReferenceOccurrences[i].Column := 0;
+      lModel.PhysicalReferenceOccurrences[i].Verified := False;
+    end;
+  end;
+  // Current disk text must not replace the bytes captured by extraction.
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'), 'Inc(GF);', TEncoding.ASCII);
+  if aCheck = 'missing' then
+    lModel.SourceObservations := nil;
+  if (aRoute = 'direct') or (aRoute = 'cache') then
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel])
+  else begin
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts),
+      Default(TDelphiSnapshotBuildOptions), lMetrics);
+    try
+      if aRoute = 'reassembled' then
+      begin
+        lReassembled := BuildProjectSnapshotFromUnitSnapshots([lSnapshot], lMetrics);
+        try
+          lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lReassembled);
+        finally
+          lReassembled.Free;
+        end;
+      end else
+        lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+    finally
+      lSnapshot.Free;
+    end;
+  end;
+  lCount := 0;
+  for lUsage in lAnalysis.Usages do
+  begin
+    if aCheck = 'inactive' then
+      Assert.AreNotEqual('GInactive', lUsage.Name);
+    if lUsage.Name <> 'GF' then
+      Continue;
+    Inc(lCount);
+    if aCheck = 'file' then
+    begin
+      Assert.IsTrue(SameText(ExtractFileExt(lUsage.FileName), '.inc'),
+        'Included usage must retain its captured physical file: ' + lUsage.FileName);
+      Assert.AreEqual(1, lUsage.Line);
+      Assert.IsTrue(lUsage.Column > 0);
+    end;
+    if aCheck = 'access' then
+      if SameText(ExtractFileName(lUsage.FileName), 'nested.inc') then
+        Assert.AreEqual('readwrite', lUsage.Access)
+      else
+        Assert.AreEqual('write', lUsage.Access, 'Captured assignment must not become a parent-line read.');
+    if (aCheck = 'missing') or (aCheck = 'unknown') then
+      Assert.IsFalse((lUsage.Access = 'read') or (lUsage.Access = 'write') or
+        (lUsage.Access = 'readwrite'), 'Missing captured include text cannot certify an access.');
+  end;
+  if aCheck = 'distinct' then
+    Assert.AreEqual(3, lCount, 'Two same-line include files plus their nested occurrence stay distinct.')
+  else if (aCheck = 'missing') or (aCheck = 'unknown') then
+    Assert.IsTrue((Length(lAnalysis.Diagnostics) > 0) or (Length(lAnalysis.Ambiguities) > 0),
+      'Missing captured text must be named incomplete or ambiguous.')
+  else
+    Assert.IsTrue(lCount > 0, 'Public global analyzer must discover included GF usages.');
+end;
+
+procedure TGlobalVarsSemanticTests.IncludedUsagesKeepTokenAndScopeIdentity(const aShape: string);
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lBody, lRoot, lInclude, lStatements, lRoutines: string;
+  lCount: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  lRoot := CreateTestTempRoot('include-global-identity-temp');
+  lInclude := TPath.Combine(lRoot, 'body.inc');
+  lBody := 'GF := 7;';
+  if aShape = 'columns' then
+    lBody := lBody + ' GF := 11;';
+  TFile.WriteAllText(lInclude, lBody, TEncoding.ASCII);
+  lStatements := '{$I body.inc}';
+  if aShape = 'repeat' then
+    lStatements := lStatements + '{$I body.inc}';
+  lRoutines := 'procedure Run;'#13#10'begin'#13#10 + lStatements + #13#10'end;'#13#10;
+  if aShape = 'shadow' then
+    lRoutines := 'procedure Run;'#13#10'var GF: Integer;'#13#10'begin'#13#10 +
+      lStatements + #13#10'end;'#13#10'procedure Outer;'#13#10'begin'#13#10 +
+      lStatements + #13#10'end;'#13#10;
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'GlobalIdentity.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit GlobalIdentity;'#13#10'interface'#13#10'var GF: Integer;'#13#10 +
+    'implementation'#13#10 + lRoutines + 'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsTrue(lModel.PhysicalReferenceOccurrencesAvailable);
+  if aShape = 'unavailable' then
+    lModel.PhysicalReferenceOccurrencesAvailable := False;
+  if aShape = 'position' then
+    for var i := 0 to High(lModel.PhysicalReferenceOccurrences) do
+      lModel.PhysicalReferenceOccurrences[i].Column := 0;
+  if aShape = 'scope' then
+  begin
+    Assert.AreEqual<Integer>(1, Length(lModel.Routines));
+    lModel.Routines := lModel.Routines + [lModel.Routines[0]];
+  end;
+  TFile.WriteAllText(lInclude, 'Inc(GF);', TEncoding.ASCII);
+  lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel]);
+  if MatchText(aShape, ['unavailable', 'position', 'scope']) then
+  begin
+    Assert.AreEqual<Integer>(0, Length(lAnalysis.Usages));
+    if aShape = 'scope' then
+      Assert.IsTrue(HasDiagnostic(lAnalysis, 'GLOBAL_SCOPE_INCOMPLETE'))
+    else
+      Assert.IsTrue(HasDiagnostic(lAnalysis, 'GLOBAL_SOURCE_ORIGIN_INCOMPLETE'));
+    Exit;
+  end;
+  lCount := 0;
+  for lUsage in lAnalysis.Usages do
+    if lUsage.Name = 'GF' then
+    begin
+      Inc(lCount);
+      Assert.AreEqual(lInclude, lUsage.FileName);
+      Assert.AreEqual(1, lUsage.Line);
+      Assert.IsTrue(lUsage.Column > 0);
+      Assert.AreEqual('write', lUsage.Access);
+      Assert.AreNotEqual('', lUsage.RoutineScopeId);
+      if aShape = 'shadow' then
+        Assert.AreEqual('Outer', lUsage.RoutineName);
+    end;
+  if aShape = 'shadow' then
+    Assert.AreEqual(1, lCount, 'An include in a different routine cannot borrow a homonym local.')
+  else
+    Assert.AreEqual(2, lCount, 'Each captured column or expansion contributes its own usage.');
 end;
 
 initialization

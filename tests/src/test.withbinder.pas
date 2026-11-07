@@ -36,6 +36,14 @@ type
       TDelphiSemanticInventorySymbol): Boolean;
   public
     [Test]
+    [TestCase('declaration', 'TIncluded,2,3')]
+    [TestCase('member', 'Value,3,5')]
+    [TestCase('routine', 'IncludedRun,5,11')]
+    [TestCase('parameter', 'aValue,5,23')]
+    [TestCase('local', 'lValue,7,3')]
+    procedure IncludedInventoryFactOrigins(const aName: string;
+      const aLine, aColumn: Integer);
+    [Test]
     [Category('DS708747')]
     procedure IncludedRoutineRangesDoNotCaptureMainFileMembers;
     [Test]
@@ -23107,6 +23115,44 @@ begin
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status);
     Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits));
   end;
+end;
+
+procedure TWithBinderTests.IncludedInventoryFactOrigins(const aName: string;
+  const aLine, aColumn: Integer);
+var
+  lInventory: TDelphiSemanticRemoveWithInventory;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot, lInclude: string;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lFound: Boolean;
+begin
+  lRoot := CreateTestTempRoot('include-inventory-probe-temp');
+  lInclude := TPath.Combine(lRoot, 'facts.inc');
+  TFile.WriteAllText(lInclude,
+    'type'#13#10'  TIncluded = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    'procedure IncludedRun(aValue: Integer);'#13#10'var'#13#10'  lValue: Integer;'#13#10 +
+    'begin'#13#10'  lValue := aValue;'#13#10'end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeFactProbe.pas'),
+    'unit IncludeFactProbe;'#13#10'interface'#13#10'implementation'#13#10 +
+    '{$I facts.inc}'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeFactProbe.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lInventory := TDelphiSemanticWithBinder.BuildInventory(lModel);
+  lFound := False;
+  for lSymbol in lInventory.Symbols do
+    if (lSymbol.Name = aName) and (lSymbol.SymbolClass <> 'type-body-range') then
+    begin
+      lFound := True;
+      Assert.AreEqual(lInclude, lSymbol.FileName, lSymbol.SymbolClass + ':' + lSymbol.Kind);
+      Assert.AreEqual(aLine, lSymbol.Line);
+      Assert.AreEqual(aColumn, lSymbol.Column);
+    end;
+  Assert.IsTrue(lFound, 'Public WITH inventory must expose ' + aName);
 end;
 
 initialization
