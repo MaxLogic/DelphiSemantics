@@ -1235,10 +1235,37 @@ def native(root, bds, tag, defines=()):
 
 def apply_edits(root, plan):
     grouped = {}
+    expected = {(str(Path(statement['file']).resolve()).lower(), plain)
+                for statement in plan['statements'] if statement['status'] == 'planned'
+                for plain in statement['pointer_initializations']}
+    verified = set()
     for statement in plan["statements"]:
         if statement["status"] == "planned":
             for edit in statement["edits"]:
+                # Missing metadata is an exporter failure, never permission to
+                # compile an unchecked pointer initialization. Check all files
+                # before writing the first one.
+                code = {m.start(): m.group() for m in _TOKEN.finditer(edit['text'])
+                        if not m.group().startswith(("'", '//', '{', '(*'))}
+                filename = str(Path(edit['file']).resolve()).lower()
+                required = {(offset, plain) for owner, plain in expected if owner == filename
+                            for offset in code if edit['text'].startswith(plain, offset)}
+                recipes = set()
+                previous = len(edit['text']) + 1
+                for recipe in edit['verification']:
+                    offset = recipe['offset'] - 1
+                    plain = recipe['plain']
+                    typed = '{$IFOPT T-}{$T+}' + plain + '{$T-}{$ELSE}' + plain + '{$ENDIF}'
+                    assert 0 <= offset and offset + len(plain) <= previous
+                    assert edit['text'][offset:offset + len(plain)] == plain
+                    assert offset in code and plain.startswith(code[offset])
+                    assert recipe['typed'] == typed, 'Invalid typed-address wrapper'
+                    verified.add((filename, plain))
+                    recipes.add((offset, plain))
+                    previous = offset
+                assert required <= recipes, ('temp-address-initialization-unverified', required - recipes)
                 grouped.setdefault(edit["file"], []).append(edit)
+    assert expected <= verified, ('temp-address-initialization-unverified', expected - verified)
     for filename, edits in grouped.items():
         path = Path(filename).resolve()
         assert path.is_relative_to(root.resolve()), path
@@ -1264,7 +1291,7 @@ def apply_edits(root, plan):
             # Preserve mutations of real edit text: never replace it with a stale
             # pre-rendered variant that could conceal an oracle challenge.
             previous_verification = len(replacement) + 1
-            for verification in edit.get("verification", []):
+            for verification in edit["verification"]:
                 offset = verification['offset'] - 1
                 plain = verification['plain']
                 assert offset + len(plain) <= previous_verification
@@ -1947,6 +1974,8 @@ def challenge(root, bds):
             if mutation == 'temp-address':
                 count = 0
                 for statement in plan['statements']:
+                    statement['pointer_initializations'] = [plain.replace('@A;', '@B.X;')
+                                                           for plain in statement['pointer_initializations']]
                     for edit in statement['edits']:
                         count += edit['text'].count('@A;')
                         edit['text'] = edit['text'].replace('@A;', '@B.X;')

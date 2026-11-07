@@ -22,7 +22,7 @@ uses
 function RemoveWithVerificationText(const aText: string; const aInitializations: TArray<string>;
   out aReplacements: TArray<TDelphiSemanticRemoveWithVerificationReplacement>): string;
 var
-  lInitialization, lTyped, lCode, lName: string;
+  lInitialization, lTyped, lCode, lName, lInitializationCode: string;
   lOffset, lIndex: Integer;
   lReplacement: TDelphiSemanticRemoveWithVerificationReplacement;
   lSeen: TArray<string>;
@@ -49,6 +49,11 @@ begin
       // length-preserving Pascal sanitizer rather than assuming a line start.
       if (lName <> '') and IsWordAt(lCode, lOffset, lName) then
       begin
+        // T+ covers the complete assignment. A nested address can change
+        // overload resolution, so only the leading address is admissible.
+        lInitializationCode := SanitizeCodeText(lInitialization);
+        if PosEx('@', lInitializationCode, Pos('@', lInitializationCode) + 1) > 0 then
+          raise EInvalidOpException.Create('temp-address-nested-address-unverified: ' + lName);
         lIndex := Length(aReplacements);
         SetLength(aReplacements, lIndex + 1);
         aReplacements[lIndex].PlainOffset := lOffset;

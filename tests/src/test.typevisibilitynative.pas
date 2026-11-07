@@ -11,6 +11,15 @@ type
   public
     [Test]
     procedure FastCompilerComparison;
+    [TestCase('Nested call address', 'call')]
+    [TestCase('Nested array address', 'array')]
+    [TestCase('Quoted address', 'quoted')]
+    [TestCase('Comment address', 'comment')]
+    procedure VerificationAddressSafety(const aShape: string);
+    [Test]
+    procedure ExporterRejectsUnverifiedPointerTemp;
+    [Test]
+    procedure VerificationMetadataSafety;
     [Test]
     procedure InterfaceLifetimeCompilerComparison;
     [Test]
@@ -35,7 +44,7 @@ type
 implementation
 
 uses
-  System.Diagnostics, System.IOUtils, System.JSON, System.SysUtils,
+  System.Diagnostics, System.IOUtils, System.JSON, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite,
   DelphiSemantics.Api, DelphiSemantics.Api.ProjectOptions,
@@ -45,6 +54,34 @@ uses
   DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   Test.CompilerIncludeCapture, Test.Support;
+
+procedure TTypeVisibilityNativeTests.VerificationAddressSafety(const aShape: string);
+var
+  lText, lError: string;
+  lReplacements: TArray<TDelphiSemanticRemoveWithVerificationReplacement>;
+begin
+  lText := 'lWithFooPtr := @Items(@X)^;';
+  if aShape = 'array' then
+    lText := 'lWithFooPtr := @Recs[SizeOf(@X)-8];'
+  else if aShape = 'quoted' then
+    lText := 'lWithFooPtr := @Recs[''@''];'
+  else if aShape = 'comment' then
+    lText := 'lWithFooPtr := @Recs[0 { @X }];';
+  lError := '';
+  try
+    RemoveWithVerificationText(lText, [lText], lReplacements);
+  except
+    on E: EInvalidOpException do
+      lError := E.Message;
+  end;
+  if (aShape = 'call') or (aShape = 'array') then
+    Assert.Contains(lError, 'temp-address-nested-address-unverified')
+  else begin
+    Assert.AreEqual<string>('', lError);
+    Assert.AreEqual<Integer>(1, Length(lReplacements));
+    Assert.AreEqual(lText, lReplacements[0].PlainText);
+  end;
+end;
 
 function RunReference(const aArguments, aLogFile: string;
   const aScript: string = 'ds719-native-reference.py'): Cardinal;
@@ -110,7 +147,10 @@ var
   lReplacements: TArray<TDelphiSemanticRemoveWithVerificationReplacement>;
   lVerification: TJSONArray;
   lVerificationItem: TJSONObject;
+  lPointerInitializations: TJSONArray;
+  lVerified: TArray<string>;
 begin
+  lVerified := nil;
   lJson := TJSONObject.Create;
   try
     lStatements := TJSONArray.Create;
@@ -131,6 +171,12 @@ begin
       // DS-719 A-369/A-371: export the full refusal publication boundary.
       lStatement.AddPair('replacement', lItem.ReplacementText);
       lStatement.AddPair('temp_count', TJSONNumber.Create(Length(lItem.Temps)));
+      // Independent inventory lets the compiler oracle reject missing recipes.
+      lPointerInitializations := TJSONArray.Create;
+      lStatement.AddPair('pointer_initializations', lPointerInitializations);
+      for var lTemp in lItem.Temps do
+        if lTemp.Strategy = 'record-pointer-temp' then
+          lPointerInitializations.Add(lTemp.InitializationText);
       lStatement.AddPair('recipe_status', lItem.RewriteRecipe.Status);
       lStatement.AddPair('recipe_replacement', lItem.RewriteRecipe.ReplacementText);
       lStatement.AddPair('recipe_edit_count', TJSONNumber.Create(Length(lItem.RewriteRecipe.TextEdits)));
@@ -163,9 +209,16 @@ begin
           lVerificationItem.AddPair('offset', TJSONNumber.Create(lReplacement.PlainOffset));
           lVerificationItem.AddPair('plain', lReplacement.PlainText);
           lVerificationItem.AddPair('typed', lReplacement.VerificationText);
+          lVerified := lVerified + [lTextEdit.FileName + #0 + lReplacement.PlainText];
         end;
       end;
     end;
+    for var lItem in aPlan.FinalStatements do
+      if lItem.Status = 'planned' then
+        for var lTemp in lItem.Temps do
+          if (lTemp.Strategy = 'record-pointer-temp') and
+            not MatchStr(lItem.FileName + #0 + lTemp.InitializationText, lVerified) then
+            raise EInvalidOpException.Create('temp-address-initialization-unverified: ' + lTemp.TempName);
     // Covered children have no final DTO. Export their explicit parent identity
     // so the oracle proves coverage and checks every absorbed receiver too.
     lEdits := TJSONArray.Create;
@@ -333,6 +386,46 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TTypeVisibilityNativeTests.ExporterRejectsUnverifiedPointerTemp;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPath, lError: string;
+begin
+  lPlan := Default(TDelphiSemanticRemoveWithPlan);
+  lFacts := Default(TDelphiSemanticProjectWithBindingFacts);
+  SetLength(lPlan.FinalStatements, 1);
+  lPlan.FinalStatements[0].FileName := 'Unit1.pas';
+  lPlan.FinalStatements[0].Status := 'planned';
+  SetLength(lPlan.FinalStatements[0].Temps, 1);
+  lPlan.FinalStatements[0].Temps[0].Strategy := 'record-pointer-temp';
+  lPlan.FinalStatements[0].Temps[0].InitializationText := 'lWithFooPtr := @Item;';
+  SetLength(lPlan.FinalStatements[0].Edits, 1);
+  lPlan.FinalStatements[0].Edits[0].FileName := 'Unit1.pas';
+  // An identical quoted initialization must not satisfy code coverage.
+  lPlan.FinalStatements[0].Edits[0].ReplacementText := 'Writeln(''lWithFooPtr := @Item;'');';
+  lPath := TPath.Combine(CreateTestTempRoot('ds787-export-temp'), 'route.json');
+  lError := '';
+  try
+    WriteRoute(lPath, lPlan, lFacts);
+  except
+    on E: EInvalidOpException do
+      lError := E.Message;
+  end;
+  Assert.Contains(lError, 'temp-address-initialization-unverified');
+  Assert.IsFalse(TFile.Exists(lPath), 'An incomplete verification route must not be published.');
+end;
+
+procedure TTypeVisibilityNativeTests.VerificationMetadataSafety;
+var
+  lRoot, lLog: string;
+begin
+  lRoot := CreateTestTempRoot('ds787-metadata-temp');
+  lLog := TPath.Combine(lRoot, 'tests.log');
+  Assert.AreEqual(Cardinal(0), RunReference('', lLog, 'ds787-verification-tests.py'),
+    TFile.ReadAllText(lLog));
 end;
 
 procedure CheckCollisionDenial(const aFileName, aName: string);
