@@ -80,6 +80,11 @@ type
     [Test]
     procedure ActivityEvidenceCoversGapsAndInclusiveEnd;
     [Category('Fast')]
+    [TestCase('ASM double quoted apostrophe', 'asm')]
+    [TestCase('ASM double quoted directive lookalike', 'lookalike')]
+    [TestCase('Pascal double quote inside string', 'pascal')]
+    procedure AsmStringBytesCannotHideFollowingDirectives(const aShape: string);
+    [Category('Fast')]
     [Test]
     procedure ActiveDefinesSelectExpectedConditionalRegions;
     [Category('Fast')]
@@ -489,6 +494,28 @@ begin
   Assert.AreEqual(Pos('{$IFOPT R-}, C', lOptions.SourceText), lFacts.Spans[0].StartOffset,
     'Only the directive after the literal may supply import proof.');
   Assert.AreEqual(1, Integer(Length(lFacts.Spans)), 'The conditional following the closing delimiter is recorded.');
+  Assert.IsFalse(lFacts.UnitUnproved);
+end;
+
+procedure TPreprocessTests.AsmStringBytesCannotHideFollowingDirectives(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lFacts: TDelphiSemanticDirectiveFacts;
+  lLiteral: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('asm-directive'), 'Unit1.pas');
+  lLiteral := 'procedure Bytes; asm db "' + #39 + '" end;'#13#10;
+  if aShape = 'lookalike' then
+    lLiteral := 'procedure Bytes; asm db "{$IFOPT Q+}' + #39 + '" end;'#13#10
+  else if aShape = 'pascal' then
+    lLiteral := 'const Text = ' + #39 + '"{$IFOPT Q+}"' + #39 + ';'#13#10;
+  lOptions.SourceText := 'unit Unit1;'#13#10'interface'#13#10'implementation'#13#10 +
+    lLiteral + '{$IFOPT R+}type Hidden = Integer;{$ENDIF}'#13#10'end.';
+  lFacts := TDelphiSemanticPreprocessor.ScanDirectiveFacts(lOptions);
+  Assert.AreEqual(1, Integer(Length(lFacts.Spans)), 'Only the real IFOPT span must be recorded.');
+  Assert.AreEqual(Pos('{$IFOPT R+}', lOptions.SourceText), lFacts.Spans[0].StartOffset);
+  Assert.AreEqual('DECLARATIONS_DIRECTIVE_UNPROVED', lFacts.NameCause('Hidden'));
   Assert.IsFalse(lFacts.UnitUnproved);
 end;
 

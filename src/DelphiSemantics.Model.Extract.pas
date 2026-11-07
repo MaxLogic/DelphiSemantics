@@ -6586,6 +6586,7 @@ begin
     lPreprocessOptions.SourceText := lSourceResult.Source.Text;
     lPreprocessOptions.Defines := aOptions.Defines;
     lPreprocessOptions.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
+    lPreprocessOptions.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
     lPreprocessOptions.CompilerDefineEvidenceFingerprint :=
       TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence);
     if aOptions.DefineEvidenceComplete and (aOptions.CompilerDefineEvidence <> nil) then

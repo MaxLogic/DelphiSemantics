@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from ds756_conditional_cases import conditional_cases
 
 
 SHAPES = ("plain", "field", "pointer", "array", "class-field", "function",
@@ -941,6 +942,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
     if full:
         cases.extend(ds772_define_cases(root))
         cases.extend(ds772_apptype_cases(root))
+        cases.extend(conditional_cases(root, write, project))
     # Recovery design 0.24: native regressions for B1, M1 and Fix D follow-ups.
     for retained in json.loads((repo / 'tests/fixtures/ds719-freeze-findings.json').read_text()):
         case = {key: value for key, value in retained.items() if key not in ('files', 'refs')}
@@ -1020,7 +1022,7 @@ def generate(repo, root, full, only="", include_evidence="certified"):
                                       if case['name'] == 'r7-later-var-indexed-1'
                                       else 'property-selector')
     # Full dispatch includes retained Freeze regressions; selection never changes this roster.
-    assert cases and (len(cases) == 689 if full and not only else len(cases) <= 500), len(cases)
+    assert cases and (len(cases) == 689 + len(conditional_cases(None, None, None)) if full and not only else len(cases) <= 500), len(cases)
     if os.environ.get('DS719_NATIVE_ALL_ROUTES') == '1':
         for case in cases:
             case.pop('excluded_routes', None)
@@ -1239,7 +1241,7 @@ def apply_edits(root, plan):
 _TOKEN = re.compile(r"(?P<multiline_quotes>'{3}(?:'{2})*)(?:\r\n|\r|\n).*?(?P=multiline_quotes)(?!')|//[^\r\n]*|\{[^}]*\}|\(\*.*?\*\)|'(?:''|[^'])*'|[A-Za-z_][A-Za-z_0-9]*|[^\s]", re.S)
 
 
-def source_targets(folder):
+def source_targets(folder, conditional_with_prefix=False):
     targets = []
     for path in sorted([*folder.rglob('*.pas'), *folder.rglob('*.dpr')]):
         if 'native' in path.relative_to(folder).parts or path.name == 'Ds719NativeProbe.pas':
@@ -1298,6 +1300,19 @@ def source_targets(folder):
             targets.append({'file': relative, 'line': line, 'column': column,
                             'selectors': selectors, 'start': token.start(),
                             'end': body_end(cursor + 1)})
+    if conditional_with_prefix:
+        # DS has no definition certificate for FEATURE in these fixtures.
+        # Its non-emitted prefix is deliberately outside the planned source
+        # universe, while dcc64 still exercises it both set and unset. Pin the
+        # exact excluded header and keep full coverage of the active Item site.
+        text = (folder / 'Unit1.pas').read_bytes().decode('utf-8-sig')
+        header = '{$IFDEF FEATURE}with Inner do {$ENDIF}'
+        assert text.count(header) == 1 and len(targets) == 2
+        excluded = [target for target in targets if target['selectors'] == ['Inner']]
+        assert len(excluded) == 1
+        assert excluded[0]['start'] == text.index(header) + len('{$IFDEF FEATURE}')
+        targets.remove(excluded[0])
+        assert targets[0]['selectors'] == ['Item']
     # Binder DTOs carry the complete enclosing WITH context, outermost first.
     # Derive that shape from source intervals, independently of exported DTOs.
     # Each context slot retains its original selector position for the oracle.
@@ -1439,7 +1454,18 @@ def native_identity(case, bds, targets):
             if index + 1 < len(target['selectors']):
                 prefix += f'with {expression} do begin '
         prefix += 'end; ' * (len(target['selectors']) - 1)
-        changes.setdefault(path, []).extend([(target['start'], prefix), (target['end'], ' end')])
+        if case.get('identity_prelude_marker'):
+            # False controllers must stay false in the runtime equality run.
+            # These bounded fixtures have the same lexical Item declaration
+            # before the prefix; Inner has no Item member. Observe its native
+            # type before the controller, without moving the actual WITH.
+            assert target['selectors'] == ['Item'] and len(target['context']) == 1
+            marker = case['identity_prelude_marker']
+            text = originals[path].decode('utf-8-sig')
+            assert text.count(marker) == 1
+            changes.setdefault(path, []).append((text.index(marker), prefix + 'end; '))
+        else:
+            changes.setdefault(path, []).extend([(target['start'], prefix), (target['end'], ' end')])
     try:
         for path, inserts in changes.items():
             text = originals[path].decode('utf-8-sig')
@@ -1590,7 +1616,8 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
     stopped = False
     cases = json.loads((root / 'cases.json').read_text())
     by_name = {c['name']: c for c in cases}
-    inventories = {c['name']: source_targets(Path(c['root'])) for c in cases}
+    inventories = {c['name']: source_targets(Path(c['root']), c.get('conditional_with_prefix', False))
+                   for c in cases}
     def failure(case, route, field, cause, **details):
         failures.append(dict(case=case['name'], route=route, field=field, cause=cause, **details))
     def load(case, route):
@@ -1706,6 +1733,16 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                             case['expect_directive_cause'] not in statement_causes(statement).values()):
                         failure(case, route, 4, 'directive-cause-required',
                                 expected=case['expect_directive_cause'], statement=statement)
+            if case.get('expect_member_activity'):
+                models = [model for model in plan.get('models', [])
+                          if model['unit'] == case['expect_member_activity']]
+                if (len(models) != 1 or 'MEMBERS_ACTIVITY_UNVERIFIED' not in
+                        models[0].get('diagnostic_codes', [])):
+                    failure(case, route, 4, 'member-activity-witness-required', models=models)
+            if case.get('expect_no_skipped_includes'):
+                models = [model for model in plan.get('models', []) if model['unit'] == 'Unit1']
+                if len(models) != 1 or models[0].get('skipped_include_count') != 0:
+                    failure(case, route, 4, 'source-witness-is-not-an-include', models=models)
             if case.get('require_named_refusal'):
                 for statement in plan['statements']:
                     if (statement['status'] != 'skipped' or statement['edits'] or
@@ -1729,6 +1766,15 @@ def compare(root, bds, baseline=None, allowed_changes=None, stop_runtime=False):
                     elif statement['status'] != 'planned':
                         failure(case, route, 4, 'positive-control-refused',
                                 reason=statement.get('reason'), target=target_key(statement, folder))
+            if case.get('expect_no_temps'):
+                for statement in plan['statements']:
+                    if statement.get('temp_count') != 0:
+                        failure(case, route, 4, 'direct-single-statement-required', statement=statement)
+            if case.get('expect_control_wrapper'):
+                for statement in plan['statements']:
+                    if (statement['status'] == 'planned' and statement.get('temp_count', 0) > 0 and
+                            not re.match(r'^\s*begin\b', statement['replacement'], re.I)):
+                        failure(case, route, 4, 'compound-control-wrapper-required', statement=statement)
             # Target selection NEVER depends on the returned type/unit/name or
             # whether the planner emitted any statement. Every source selector
             # has its own compiler oracle key; mismatches require refusal.

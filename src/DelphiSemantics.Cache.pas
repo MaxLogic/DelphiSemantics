@@ -506,6 +506,7 @@ begin
   lOptions.SourceText := aSource.Source.Text;
   lOptions.Defines := aOptions.Defines;
   lOptions.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
+  lOptions.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
   lOptions.CompilerDefineEvidenceFingerprint :=
     TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence);
   if aOptions.DefineEvidenceComplete and (aOptions.CompilerDefineEvidence <> nil) then

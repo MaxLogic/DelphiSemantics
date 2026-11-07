@@ -14794,5 +14794,9 @@
   {
     "selection": "Test.WithScan.TWithScanTests.ApiFacadeReturnsLightweightWithScan",
     "seconds": 0.0
+  },
+  {
+    "selection": "Test.TypeVisibilityNative.TTypeVisibilityNativeSlowTests.FullCompilerComparison",
+    "seconds": 3151.264
   }
 ]

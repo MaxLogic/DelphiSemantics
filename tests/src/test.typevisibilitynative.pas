@@ -102,7 +102,7 @@ var
   lJson, lStatement, lEdit, lSelector, lModelJson, lDeclarationJson: TJSONObject;
   lStatements, lEdits, lSelectors, lModels, lDiagnostics, lDeclarations: TJSONArray;
   lSelectorIndex: Integer;
-  lReferences: TJSONArray;
+  lReferences, lDiagnosticCodes: TJSONArray;
   lReference: TJSONObject;
 begin
   lJson := TJSONObject.Create;
@@ -199,6 +199,7 @@ begin
       lModelJson.AddPair('directive_import_cause', lModel.DirectiveFacts.ImportCause);
       lModelJson.AddPair('directive_count_cause', lModel.DirectiveFacts.NameCause('Count'));
       lModelJson.AddPair('define_complete', TJSONBool.Create(lModel.DefineEvidenceComplete));
+      lModelJson.AddPair('skipped_include_count', TJSONNumber.Create(Length(lModel.SkippedIncludeFileNames)));
       lDeclarations := TJSONArray.Create;
       lModelJson.AddPair('declarations', lDeclarations);
       for var lDeclaration in TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel).Declarations do
@@ -212,8 +213,13 @@ begin
       end;
       lDiagnostics := TJSONArray.Create;
       lModelJson.AddPair('diagnostics', lDiagnostics);
+      lDiagnosticCodes := TJSONArray.Create;
+      lModelJson.AddPair('diagnostic_codes', lDiagnosticCodes);
       for var lDiagnostic in lModel.Diagnostics do
+      begin
         lDiagnostics.Add(lDiagnostic.Message);
+        lDiagnosticCodes.Add(lDiagnostic.Code);
+      end;
     end;
     if aSnapshot <> nil then
     begin
