@@ -575,7 +575,7 @@ type
     [TestCase('inactive direct import', 'InactiveConsumer.pas,18')]
     procedure FinalDtoSkipsCaptureTypeOutsideVisibleScope(const aFileName: string;
       const aLine: Integer);
-    [Category('Fast')]
+    [Category('Fast,DS787Slice')]
     [Test]
     [TestCase('direct import', 'DirectConsumer.pas,15,THiddenItem')]
     procedure FinalDtoCapturesVisibleReceiverType(const aFileName: string;
@@ -3205,14 +3205,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"408a22e0dfc407509d698f1badc2f12a0ea38280' +
       'db8b9efc8581c460cad1af79","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-13:6","range":"9:1-13:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'acementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
       'FDEF LINUX}{$I Body.inc}{$ENDIF}\r\n  end;","semanticId":"{statement-semantic-id}","verifi' +
       'cationHash":"408a22e0dfc407509d698f1badc2f12a0ea38280db8b9efc8581c460cad1af79","verificati' +
       'onSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$IFDEF LINUX}{$I Body.inc}{$E' +
@@ -3222,14 +3222,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"16adf92f6064063ae8e25b0552c1cf2efbbc4b55' +
       '7914f331fc81e404ef504396","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'acementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
       'FDEF LINUX}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId":"{stat' +
       'ement-semantic-id}","verificationHash":"16adf92f6064063ae8e25b0552c1cf2efbbc4b557914f331fc' +
       '81e404ef504396","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n    {$I' +
@@ -3239,14 +3239,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"8ec72ef807830dd26a069d51df10d6142685815d' +
       '63b6ef3d3a9914c0fa469d61","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    {$IFNDEF LINUX}\r\n    lWithRecPtr^' +
+      'acementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    {$IFNDEF LINUX}\r\n    lWithRecPtr^' +
       '.Other := 2;\r\n    {$ENDIF}\r\n    lWithRecPtr^.Count := 1;\r\n  end;","semanticId":"{sta' +
       'tement-semantic-id}","verificationHash":"8ec72ef807830dd26a069d51df10d6142685815d63b6ef3d3' +
       'a9914c0fa469d61","verificationSource":"with Rec do\r\n  begin\r\n    {$IFNDEF LINUX}\r\n  ' +
@@ -3276,14 +3276,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"6482aaba26060c0f22a7f35c20d3b635c37b0abe' +
       '9bf099f26bc74d19e923c517","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'acementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
       'FDEF RELEASE_TRACE}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId' +
       '":"{statement-semantic-id}","verificationHash":"6482aaba26060c0f22a7f35c20d3b635c37b0abe9b' +
       'f099f26bc74d19e923c517","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\' +
@@ -3293,14 +3293,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"c5a7eb0a495fd6fb6521cf37b4c4559dea652770' +
       'c0105a7d10a6254a787dd8ea","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-15:6","range":"9:1-15:6","repl' +
-      'acementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
+      'acementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    {$I' +
       'FDEF MSWINDOWS}\r\n    lWithRecPtr^.Other := 2;\r\n    {$ENDIF}\r\n  end;","semanticId":"{' +
       'statement-semantic-id}","verificationHash":"c5a7eb0a495fd6fb6521cf37b4c4559dea652770c0105a' +
       '7d10a6254a787dd8ea","verificationSource":"with Rec do\r\n  begin\r\n    Count := 1;\r\n   ' +
@@ -3310,7 +3310,7 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       // DS-740: the replacement is wrapped because the
       // `{$IFDEF LINUX} if Ready then` prefix may control it in another build; the unwrapped base output
@@ -3320,7 +3320,7 @@ begin
       'Id":"{statement-semantic-id}","verificationHash":"9d19349284c50034f27672542ee919d59567e233' +
       'cd8ef53df8d137cdad024b07","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:3-14:6","range":"10:1-14:6","re' +
-      'placementText":"begin\r\n  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
+      'placementText":"begin\r\n  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
       'WithRecPtr^.Other := 2;\r\n  end;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
       'h":"9d19349284c50034f27672542ee919d59567e233cd8ef53df8d137cdad024b07","verificationSource"' +
       ':"with Rec do\r\n  begin\r\n    Count := 1;\r\n    Other := 2;\r\n  end;"}]';
@@ -3329,14 +3329,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"fc04a1b991b6d455f4c5fcb9cd3169df92e04775' +
       'd1a2f04a5c2b2d58a6ffd2d3","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:50","range":"9:1-10:50","re' +
-      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'placementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
       'EF LINUX} + lWithRecPtr^.Other {$ENDIF}","semanticId":"{statement-semantic-id}","verificat' +
       'ionHash":"fc04a1b991b6d455f4c5fcb9cd3169df92e04775d1a2f04a5c2b2d58a6ffd2d3","verificationS' +
       'ource":"with Rec do\r\n    Count := Count {$IFDEF LINUX} + Other {$ENDIF}"}]';
@@ -3345,14 +3345,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"bc147d7913cd961530489ab7c8518dc663da4b62' +
       '7a4968d8dbb0f6c2353b6e32","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:51","range":"9:1-10:51","re' +
-      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'placementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
       'EF LINUX} + lWithRecPtr^.Other {$ENDIF};","semanticId":"{statement-semantic-id}","verifica' +
       'tionHash":"bc147d7913cd961530489ab7c8518dc663da4b627a4968d8dbb0f6c2353b6e32","verification' +
       'Source":"with Rec do\r\n    Count := Count {$IFDEF LINUX} + Other {$ENDIF};"}]';
@@ -3361,14 +3361,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"fc6b12678cc7456f8ee9335990f1179eb9c371df' +
       '3720af91c8cadb2d2ace590b","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:58","range":"10:1-10:58","' +
-      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1 {$IF' +
+      'replacementText":"    begin\r\n      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n lWithRecPtr^.Count := 1 {$IF' +
       'DEF LINUX} + lWithRecPtr^.Other {$ENDIF}\r\n    end","semanticId":"{statement-semantic-id}' +
       '","verificationHash":"fc6b12678cc7456f8ee9335990f1179eb9c371df3720af91c8cadb2d2ace590b","v' +
       'erificationSource":"with Rec do Count := 1 {$IFDEF LINUX} + Other {$ENDIF}"}]';
@@ -3377,14 +3377,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"ac6df9d8a2255c5174cbf50f3fa71f31446ad36b' +
       'c812bdf84e1e6e51c27f001f","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"9:3-10:58","range":"9:1-10:58","re' +
-      'placementText":"  lWithRecPtr := @Rec;\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
+      'placementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFD' +
       'EF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}","semanticId":"{statement-semantic-id}","v' +
       'erificationHash":"ac6df9d8a2255c5174cbf50f3fa71f31446ad36bc812bdf84e1e6e51c27f001f","verif' +
       'icationSource":"with Rec do\r\n    Count := Count {$IFDEF RELEASE_TRACE} + Other {$ENDIF}"' +
@@ -3394,14 +3394,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"2c3c760e90413d0521a48185840adb68aad8525d' +
       'ce6c9ab6253072b88bc2c1db","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:66","range":"10:1-10:66","' +
-      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1 {$IF' +
+      'replacementText":"    begin\r\n      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n lWithRecPtr^.Count := 1 {$IF' +
       'DEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}\r\n    end","semanticId":"{statement-sema' +
       'ntic-id}","verificationHash":"2c3c760e90413d0521a48185840adb68aad8525dce6c9ab6253072b88bc2' +
       'c1db","verificationSource":"with Rec do Count := 1 {$IFDEF RELEASE_TRACE} + Other {$ENDIF}' +
@@ -3411,14 +3411,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"8:1-8:1","range":"8:1-8:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"c2645ebef6753c136ef435b36f3c31a340b84e44' +
       'c62bae8b1c99c09b9e9e6437","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:5-10:26","range":"10:1-10:26","' +
-      'replacementText":"    begin\r\n      lWithRecPtr := @Rec;\r\n lWithRecPtr^.Count := 1\r\n ' +
+      'replacementText":"    begin\r\n      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n lWithRecPtr^.Count := 1\r\n ' +
       '   end","semanticId":"{statement-semantic-id}","verificationHash":"c2645ebef6753c136ef435b' +
       '36f3c31a340b84e44c62bae8b1c99c09b9e9e6437","verificationSource":"with Rec do Count := 1"}]';
     end;
@@ -3426,14 +3426,14 @@ begin
     begin
       lExpectedTemps := '[{"selectorText":"Rec","receiverType":"TRec","qualifierText":"lWithRecPtr^","strategy":"re' +
       'cord-pointer-temp","tempName":"lWithRecPtr","declarationText":"lWithRecPtr: ^TRec;","initi' +
-      'alizationText":"lWithRecPtr := @Rec;","reason":"record-pointer-preserves-alias","semanticI' +
+      'alizationText":"{$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}","reason":"record-pointer-preserves-alias","semanticI' +
       'd":"{statement-semantic-id}"}]';
       lExpectedEdits := '[{"kind":"declare-temp","fileName":"Unit1.pas","statementId":"with-1","verificationRange":' +
       '"9:1-9:1","range":"9:1-9:1","replacementText":"var\r\n  lWithRecPtr: ^TRec;\r\n","semantic' +
       'Id":"{statement-semantic-id}","verificationHash":"3384c4ba69355641deb2eed51fb59fb44d2c1d43' +
       'd37ee1158073f16882f16470","verificationSource":""},{"kind":"replace-statement","fileName":' +
       '"Unit1.pas","statementId":"with-1","verificationRange":"10:3-14:6","range":"10:1-14:6","re' +
-      'placementText":"  lWithRecPtr := @Rec;\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
+      'placementText":"  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}\r\n  begin\r\n    lWithRecPtr^.Count := 1;\r\n    l' +
       'WithRecPtr^.Other := 3;\r\n  end;","semanticId":"{statement-semantic-id}","verificationHas' +
       'h":"3384c4ba69355641deb2eed51fb59fb44d2c1d43d37ee1158073f16882f16470","verificationSource"' +
       ':"with Rec do\r\n  begin\r\n    Count := 1;\r\n    Other := 3;\r\n  end;"}]';
@@ -3584,7 +3584,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 13;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    {$IFDEF LINUX}{$I Body.inc}{$ENDIF}' + #13#10 +
@@ -3601,7 +3601,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    {$IFDEF LINUX}' + #13#10 +
@@ -3633,7 +3633,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    {$IFNDEF LINUX}' + #13#10 +
         '    lWithRecPtr^.Other := 2;' + #13#10 +
@@ -3890,7 +3890,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    {$IFDEF RELEASE_TRACE}' + #13#10 +
@@ -3935,7 +3935,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 15;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    {$IFDEF MSWINDOWS}' + #13#10 +
@@ -3956,7 +3956,7 @@ begin
       lBaseRange.EndColumn := 6;
       // DS-740: the conditional prefix can retain its IF in another build.
       lBaseReplacement := 'begin' + #13#10 +
-        '  lWithRecPtr := @Rec;' + #13#10 +
+        '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    lWithRecPtr^.Other := 2;' + #13#10 +
@@ -3974,7 +3974,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 50;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF}';
     end;
     33:
@@ -3988,7 +3988,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 51;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF};';
     end;
     34:
@@ -4003,7 +4003,7 @@ begin
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 58;
       lBaseReplacement := '    begin' + #13#10 +
-        '      lWithRecPtr := @Rec;' + #13#10 +
+        '      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         ' lWithRecPtr^.Count := 1 {$IFDEF LINUX} + lWithRecPtr^.Other {$ENDIF}' + #13#10 +
         '    end';
     end;
@@ -4018,7 +4018,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 58;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  lWithRecPtr^.Count := lWithRecPtr^.Count {$IFDEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}';
     end;
     36:
@@ -4033,7 +4033,7 @@ begin
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 66;
       lBaseReplacement := '    begin' + #13#10 +
-        '      lWithRecPtr := @Rec;' + #13#10 +
+        '      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         ' lWithRecPtr^.Count := 1 {$IFDEF RELEASE_TRACE} + lWithRecPtr^.Other {$ENDIF}' + #13#10 +
         '    end';
     end;
@@ -4049,7 +4049,7 @@ begin
       lBaseRange.EndLine := 10;
       lBaseRange.EndColumn := 26;
       lBaseReplacement := '    begin' + #13#10 +
-        '      lWithRecPtr := @Rec;' + #13#10 +
+        '      {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         ' lWithRecPtr^.Count := 1' + #13#10 +
         '    end';
     end;
@@ -4090,7 +4090,7 @@ begin
       lBaseRange.StartColumn := 3;
       lBaseRange.EndLine := 14;
       lBaseRange.EndColumn := 6;
-      lBaseReplacement := '  lWithRecPtr := @Rec;' + #13#10 +
+      lBaseReplacement := '  {$IFOPT T-}{$T+}lWithRecPtr := @Rec;{$T-}{$ELSE}lWithRecPtr := @Rec;{$ENDIF}' + #13#10 +
         '  begin' + #13#10 +
         '    lWithRecPtr^.Count := 1;' + #13#10 +
         '    lWithRecPtr^.Other := 3;' + #13#10 +
@@ -5652,7 +5652,7 @@ begin
   lTemp.ReceiverType := 'TRecord';
   lTemp.TempName := 'lWithRecordPtr';
   lTemp.DeclarationText := 'lWithRecordPtr: ^TRecord;';
-  lTemp.InitializationText := 'lWithRecordPtr := @lRecord;';
+  lTemp.InitializationText := '{$IFOPT T-}{$T+}lWithRecordPtr := @lRecord;{$T-}{$ELSE}lWithRecordPtr := @lRecord;{$ENDIF}';
   lTemp.Reason := 'addressable-record';
   lTemp.SemanticId := lPlan.Edits[0].SemanticId;
 
@@ -5905,7 +5905,7 @@ begin
     'Expected if-controlled statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    '      lWithPlannerRecordPtr := @lRecord;'),
+    '      {$IFOPT T-}{$T+}lWithPlannerRecordPtr := @lRecord;{$T-}{$ELSE}lWithPlannerRecordPtr := @lRecord;{$ENDIF}'),
     'Expected controlled statement temp initialization to be indented inside wrapper.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     '      begin'),
@@ -5917,7 +5917,7 @@ begin
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'lWithPlannerRecordPtr1^.Name'),
     'Expected second routine record temp to be reserved separately.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
-    '        lWithPlannerRecordPtr1 := @lRecord;'),
+    '        {$IFOPT T-}{$T+}lWithPlannerRecordPtr1 := @lRecord;{$T-}{$ELSE}lWithPlannerRecordPtr1 := @lRecord;{$ENDIF}'),
     'Expected case-label temp initialization to be indented inside wrapper.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     '        begin'),
@@ -5949,7 +5949,7 @@ begin
     'Capture the selected receiver before executing its body.');
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)),
     'Expected declaration and replacement edits.');
-  Assert.AreEqual('  lWithChainLeafPtr := @aParent^.Child;' + sLineBreak +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithChainLeafPtr := @aParent^.Child;{$T-}{$ELSE}lWithChainLeafPtr := @aParent^.Child;{$ENDIF}' + sLineBreak +
     '  lWithChainLeafPtr^.Count := lWithChainLeafPtr^.Count + 1;',
     lStatement.ReplacementText);
   Assert.AreEqual(22, lStatement.Edits[1].Range.StartLine);
@@ -5980,7 +5980,7 @@ begin
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  lWithQueueNodePtr := @aFptr^;' + #10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithQueueNodePtr := @aFptr^;{$T-}{$ELSE}lWithQueueNodePtr := @aFptr^;{$ENDIF}' + #10 +
     '  if Queue = nil then' + #10 +
     '    begin' + #10 +
     '      lWithQueueNodePtr^.next := aFptr;' + #10 +
@@ -6004,7 +6004,7 @@ begin
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  lWithQueueNodePtr := @aFptr^;' + #10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithQueueNodePtr := @aFptr^;{$T-}{$ELSE}lWithQueueNodePtr := @aFptr^;{$ENDIF}' + #10 +
     '  begin' + #10 +
     '    lWithQueueNodePtr^.last^.next := lWithQueueNodePtr^.next;' + #10 +
     '    lWithQueueNodePtr^.next^.last := lWithQueueNodePtr^.last;' + #10 +
@@ -6037,8 +6037,8 @@ begin
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  lWithSelectorNodePtr := @aNode^;' + #10 +
-    '  lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;' + #10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithSelectorNodePtr := @aNode^;{$T-}{$ELSE}lWithSelectorNodePtr := @aNode^;{$ENDIF}' + #10 +
+    '  {$IFOPT T-}{$T+}lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;{$T-}{$ELSE}lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;{$ENDIF}' + #10 +
     '  aValue := lWithSelectorPtr^.count;', lReplacementText);
 end;
 
@@ -6062,8 +6062,8 @@ begin
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('  lWithSelectorNodePtr := @aNode^;' + #10 +
-    '  lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;' + #10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithSelectorNodePtr := @aNode^;{$T-}{$ELSE}lWithSelectorNodePtr := @aNode^;{$ENDIF}' + #10 +
+    '  {$IFOPT T-}{$T+}lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;{$T-}{$ELSE}lWithSelectorPtr := @lWithSelectorNodePtr^.Sel;{$ENDIF}' + #10 +
     '  begin' + #10 +
     '    aValue := lWithSelectorPtr^.count;' + #10 +
     '    lWithSelectorNodePtr^.n := nil;' + #10 +
@@ -6191,7 +6191,7 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected source-backed property-chain statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('  lWithChainLeafPtr := @aParent^.Child;' + sLineBreak +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithChainLeafPtr := @aParent^.Child;{$T-}{$ELSE}lWithChainLeafPtr := @aParent^.Child;{$ENDIF}' + sLineBreak +
     '  lWithChainLeafPtr^.Count := lWithChainLeafPtr^.Count + 1;',
     lStatement.ReplacementText);
 
@@ -6466,7 +6466,7 @@ begin
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('    begin' + #10 +
-    '      lWithRewriteShapeRecordPtr := @aLeftPtr^;' + #10 +
+    '      {$IFOPT T-}{$T+}lWithRewriteShapeRecordPtr := @aLeftPtr^;{$T-}{$ELSE}lWithRewriteShapeRecordPtr := @aLeftPtr^;{$ENDIF}' + #10 +
     '      lWithRewriteShapeRecordPtr^.Name := ''controlled-left-before-else''' + #10 +
     '    end', lReplacementText);
 
@@ -6556,7 +6556,7 @@ begin
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('    begin' + #10 +
-    '      lWithCommentedElseRecordPtr := @aLeftPtr^;' + #10 +
+    '      {$IFOPT T-}{$T+}lWithCommentedElseRecordPtr := @aLeftPtr^;{$T-}{$ELSE}lWithCommentedElseRecordPtr := @aLeftPtr^;{$ENDIF}' + #10 +
     '      lWithCommentedElseRecordPtr^.Name := ''left''' + #10 +
     '    end', lReplacementText);
 end;
@@ -7198,7 +7198,7 @@ begin
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'if lWithLowFilePtr^.v_handle_ptr <> nil then' + sLineBreak +
     '      begin' + sLineBreak +
-    '        lWithVirtualHandlePtr := @lWithLowFilePtr^.v_handle_ptr^;'),
+    '        {$IFOPT T-}{$T+}lWithVirtualHandlePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualHandlePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}'),
     'Capture the nested receiver only inside the existing nil guard.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'FreeMem(lWithVirtualHandlePtr^.v_Mem, aSize);'));
@@ -7757,7 +7757,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('lWithTempPolicyRecordPtr', lStatement.Temps[0].TempName,
     'Expected constructor routine not to reserve names from other routines.');
-  Assert.AreEqual('  lWithTempPolicyRecordPtr := @lRecord;' + sLineBreak +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithTempPolicyRecordPtr := @lRecord;{$T-}{$ELSE}lWithTempPolicyRecordPtr := @lRecord;{$ENDIF}' + sLineBreak +
     '  begin' + sLineBreak +
     '    lWithTempPolicyRecordPtr^.Name := ''constructor'';' + sLineBreak +
     '  end;', lStatement.ReplacementText);
@@ -7775,7 +7775,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('lWithTempPolicyRecordPtr3', lStatement.Temps[0].TempName);
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('lWithTempPolicyRecordPtr3 := @lRecordPtr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithTempPolicyRecordPtr3 := @lRecordPtr^;{$T-}{$ELSE}lWithTempPolicyRecordPtr3 := @lRecordPtr^;{$ENDIF}',
     lStatement.Temps[0].InitializationText);
 
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-4', lStatement),
@@ -7831,7 +7831,7 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-1', lStatement),
     'Expected existing var-section record selector.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('  lWithTempAggregationRecordPtr := @aFirstRecord;' + sLineBreak +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithTempAggregationRecordPtr := @aFirstRecord;{$T-}{$ELSE}lWithTempAggregationRecordPtr := @aFirstRecord;{$ENDIF}' + sLineBreak +
     '  begin' + sLineBreak +
     '    lWithTempAggregationRecordPtr^.Count := lMarker + lWithTempAggregationRecordPtr^.Count;' +
     sLineBreak +
@@ -7884,7 +7884,7 @@ begin
     '            END;' + #10 +
     '          END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('          begin' + #13#10 +
-    '            lWithIndexFilePtr := @IndFiles[AktIndex]^;' + #13#10 +
+    '            {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[AktIndex]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[AktIndex]^;{$ENDIF}' + #13#10 +
     '            BEGIN' + #10 +
     '            j := 1;' + #10 +
     '            WHILE lWithIndexFilePtr^.IV[j].Feld <> 0 DO' + #10 +
@@ -7905,7 +7905,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[AktIndex]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[AktIndex]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[AktIndex]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -7951,7 +7951,7 @@ begin
     '        FileQueue := NIL;' + #10 +
     '    END;' + #10 +
     '  END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithLowFilePtr := @fptr^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #10 +
     '    lWithLowFilePtr^.last^.next := lWithLowFilePtr^.next;' + #10 +
     '    lWithLowFilePtr^.next^.last := lWithLowFilePtr^.last;' + #10 +
@@ -7969,7 +7969,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -7997,7 +7997,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -8096,7 +8096,8 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)),
     'A call can change CurrentPointer; with must retain its originally selected record.');
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual(lStatement.Temps[0].TempName + ' := @CurrentPointer^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}' + lStatement.Temps[0].TempName + ' := @CurrentPointer^;' + '{$T-}{$ELSE}' +
+    lStatement.Temps[0].TempName + ' := @CurrentPointer^;' + '{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.IsFalse(ContainsText(lStatement.ReplacementText, 'CurrentPointer^.Value'),
     'Receiver fields must not re-evaluate the pointer after SwitchReceiver.');
@@ -8128,7 +8129,8 @@ begin
     ((not lRefused) and (lStatement.Temps[0].Strategy = 'record-pointer-temp')));
   Assert.IsTrue((lRefused and (lStatement.SafetyReason = 'receiver-type-not-visible')) or
     ((not lRefused) and (lStatement.Temps[0].InitializationText =
-    lStatement.Temps[0].TempName + ' := @' + aSelector + ';')));
+    '{$IFOPT T-}{$T+}' + lStatement.Temps[0].TempName + ' := @' + aSelector + ';' + '{$T-}{$ELSE}' +
+    lStatement.Temps[0].TempName + ' := @' + aSelector + ';' + '{$ENDIF}')));
   Assert.IsTrue((lRefused and (Length(lStatement.Edits) = 0)) or
     ((not lRefused) and not ContainsText(lStatement.ReplacementText, aSelector + '.Value')));
   Assert.IsTrue((lRefused and (lStatement.ReplacementText = '')) or
@@ -8182,10 +8184,9 @@ begin
     lStatement.Temps[0].TempName + '^.Value := 1;'));
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     lStatement.Temps[1].TempName + '^.Value := 2;'));
-  lFirstAssignment := Pos(' := @CurrentPointer^;', lStatement.ReplacementText);
+  lFirstAssignment := Pos(lStatement.Temps[0].InitializationText, lStatement.ReplacementText);
   lSwitchCall := Pos('SwitchReceiver;', lStatement.ReplacementText);
-  lSecondAssignment := PosEx(' := @CurrentPointer^;', lStatement.ReplacementText,
-    lFirstAssignment + 1);
+  lSecondAssignment := Pos(lStatement.Temps[1].InitializationText, lStatement.ReplacementText);
   Assert.IsTrue((lFirstAssignment > 0) and (lFirstAssignment < lSwitchCall) and
     (lSwitchCall < lSecondAssignment),
     'The inner receiver must be captured after SwitchReceiver.');
@@ -8203,12 +8204,12 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   case aCase of
-    0: lExpected := '    lWithItemPtr := @ItemPtr^;' + sLineBreak +
+    0: lExpected := '    {$IFOPT T-}{$T+}lWithItemPtr := @ItemPtr^;{$T-}{$ELSE}lWithItemPtr := @ItemPtr^;{$ENDIF}' + sLineBreak +
       '    lWithItemPtr^.Value := 1;';
-    1: lExpected := '      lWithItemPtr := @Items[0]^;' + sLineBreak +
+    1: lExpected := '      {$IFOPT T-}{$T+}lWithItemPtr := @Items[0]^;{$T-}{$ELSE}lWithItemPtr := @Items[0]^;{$ENDIF}' + sLineBreak +
       '      lWithItemPtr^.Value := 2;';
     2: lExpected := '    begin' + sLineBreak +
-      '      lWithItemPtr := @ItemPtr^;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithItemPtr := @ItemPtr^;{$T-}{$ELSE}lWithItemPtr := @ItemPtr^;{$ENDIF}' + sLineBreak +
       '      lWithItemPtr^.Value := 3;' + sLineBreak + '    end;';
   else
     raise Exception.Create('Unexpected indentation test case.');
@@ -8329,8 +8330,10 @@ begin
   Assert.IsTrue(FindFinalStatement(lPlan, 'with-3', lStatement));
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
-    lStatement.Temps[0].TempName + '^.Sel;', lStatement.Temps[1].InitializationText,
+  Assert.AreEqual('{$IFOPT T-}{$T+}' + lStatement.Temps[1].TempName + ' := @' +
+    lStatement.Temps[0].TempName + '^.Sel;' + '{$T-}{$ELSE}' +
+    lStatement.Temps[1].TempName + ' := @' +
+    lStatement.Temps[0].TempName + '^.Sel;' + '{$ENDIF}', lStatement.Temps[1].InitializationText,
     'Qualify only the selector expression, even when its name occurs inside the temp name.');
 end;
 
@@ -8464,7 +8467,7 @@ begin
   begin
     Assert.AreEqual('  lWithDerived := aDerived;' + #13#10 +
     '      begin' + #13#10 +
-    '      lWithLeafPtr := @lWithDerived.Child;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLeafPtr := @lWithDerived.Child;{$T-}{$ELSE}lWithLeafPtr := @lWithDerived.Child;{$ENDIF}' + #13#10 +
     '      aValue := lWithLeafPtr^.Value;' + #13#10 +
     '    end;',
       lStatement.ReplacementText);
@@ -8473,8 +8476,10 @@ begin
     // reached through the temp itself, not through a dereferenced pointer.
     Assert.AreEqual('reference-temp', lStatement.Temps[0].Strategy);
     Assert.AreEqual(lStatement.Temps[0].TempName, lStatement.Temps[0].QualifierText);
-    Assert.AreEqual(lStatement.Temps[1].TempName + ' := @' +
-      lStatement.Temps[0].QualifierText + '.Child;', lStatement.Temps[1].InitializationText,
+    Assert.AreEqual('{$IFOPT T-}{$T+}' + lStatement.Temps[1].TempName + ' := @' +
+      lStatement.Temps[0].QualifierText + '.Child;' + '{$T-}{$ELSE}' +
+      lStatement.Temps[1].TempName + ' := @' +
+      lStatement.Temps[0].QualifierText + '.Child;' + '{$ENDIF}', lStatement.Temps[1].InitializationText,
       'The parent recipe must capture the inherited Child from its selected receiver.');
   end;
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
@@ -8788,6 +8793,12 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(lStatement.Temps[0].TempName + ': ^' + aTypeName + ';',
     lStatement.Temps[0].DeclarationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}' + lStatement.Temps[0].TempName + ' := @' +
+    lStatement.Temps[0].SelectorText + ';{$T-}{$ELSE}' +
+    lStatement.Temps[0].TempName + ' := @' +
+    lStatement.Temps[0].SelectorText + ';{$ENDIF}',
+    lStatement.Temps[0].InitializationText,
+    'DS-787: capture assignments require typed addresses and exact option restoration.');
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     lStatement.Temps[0].TempName + '^.Value := ' +
     lStatement.Temps[0].TempName + '^.Value + 1;'));
@@ -9027,7 +9038,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
-  Assert.AreEqual('lWithValueRecordPtr := @aRecord;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithValueRecordPtr := @aRecord;{$T-}{$ELSE}lWithValueRecordPtr := @aRecord;{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText,
     'lWithValueRecordPtr^.Value := lWithValueRecordPtr^.Value + aStep;'),
@@ -10173,11 +10184,11 @@ begin
     9,
     'DelRecord',
     [
-    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}'],
     'var'#13#10 +
     '  lWithIndexFilePtr: ^IndexFile;'#13#10,
     '        begin'#13#10 +
-    '          lWithIndexFilePtr := @IndFiles[i]^;'#13#10 +
+    '          {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}'#13#10 +
     '          begin'#13#10 +
     '          MachIndex(d, i, Dat^, lWithIndexFilePtr^.IV, FileSize, Ind);'#13#10 +
     '          loesche_Index(d, i);'#13#10 +
@@ -10191,10 +10202,10 @@ begin
     '        end;');
   // tdb01.pas:1789:7 AppendRec
   AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1789, 7, 'AppendRec', [
-    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}'],
     '  lWithIndexFilePtr: ^IndexFile;' + #13#10,
     '      begin' + #13#10 +
-    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        if not CheckIndexOpen(d, i, True) then' + #13#10 +
     '        begin' + #13#10 +
@@ -10217,11 +10228,11 @@ begin
     '      end;');
   // tdb01.pas:1994:9 ReplaceRecord
   AssertMaxTdbNewlyPlanned(lPlan, 'tdb01.pas', 1994, 9, 'ReplaceRecord', [
-    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|lWithIndexFilePtr := @IndFiles[i]^;'],
+    'IndFiles[i]^|record-pointer-temp|IndexFile|lWithIndexFilePtr|lWithIndexFilePtr: ^IndexFile;|{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}'],
     'var' + #13#10 +
     '  lWithIndexFilePtr: ^IndexFile;' + #13#10,
     '        begin' + #13#10 +
-    '          lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '          if not CheckIndexOpen(d, i, True) then' + #13#10 +
     '          begin' + #13#10 +
@@ -10247,19 +10258,19 @@ begin
     '        end;');
   // tdbvars.pas:1648:3 GetArrayVarPtr
   AssertMaxTdbNewlyPlanned(lPlan, 'tdbvars.pas', 1648, 3, 'GetArrayVarPtr', [
-    'VarList[n]|record-pointer-temp|EasyVar|lWithEasyVarPtr|lWithEasyVarPtr: ^EasyVar;|lWithEasyVarPtr := @VarList[n];',
-    'p^|record-pointer-temp|ArrayVarRec|lWithArrayVarRecPtr|lWithArrayVarRecPtr: ^ArrayVarRec;|lWithArrayVarRecPtr := @p^;',
-    'ArrayVar|record-pointer-temp|ArrayRec|lWithArrayRecPtr|lWithArrayRecPtr: ^ArrayRec;|lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;'],
+    'VarList[n]|record-pointer-temp|EasyVar|lWithEasyVarPtr|lWithEasyVarPtr: ^EasyVar;|{$IFOPT T-}{$T+}lWithEasyVarPtr := @VarList[n];{$T-}{$ELSE}lWithEasyVarPtr := @VarList[n];{$ENDIF}',
+    'p^|record-pointer-temp|ArrayVarRec|lWithArrayVarRecPtr|lWithArrayVarRecPtr: ^ArrayVarRec;|{$IFOPT T-}{$T+}lWithArrayVarRecPtr := @p^;{$T-}{$ELSE}lWithArrayVarRecPtr := @p^;{$ENDIF}',
+    'ArrayVar|record-pointer-temp|ArrayRec|lWithArrayRecPtr|lWithArrayRecPtr: ^ArrayRec;|{$IFOPT T-}{$T+}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$T-}{$ELSE}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$ENDIF}'],
     '  lWithEasyVarPtr: ^EasyVar;' + #13#10 +
     '  lWithArrayVarRecPtr: ^ArrayVarRec;' + #13#10 +
     '  lWithArrayRecPtr: ^ArrayRec;' + #13#10,
-    '  lWithEasyVarPtr := @VarList[n];' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithEasyVarPtr := @VarList[n];{$T-}{$ELSE}lWithEasyVarPtr := @VarList[n];{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + #13#10 +
     '    begin' + #13#10 +
     '      p := Pointer(lWithEasyVarPtr^.VarCont);' + #13#10 +
-    '      lWithArrayVarRecPtr := @p^;' + #13#10 +
-    '      lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithArrayVarRecPtr := @p^;{$T-}{$ELSE}lWithArrayVarRecPtr := @p^;{$ENDIF}' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$T-}{$ELSE}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '        if (nmax = 0) or (nmax + offset > lWithArrayVarRecPtr^.ArrayVar.gSize) then' + #13#10 +
     '          nmax := lWithArrayVarRecPtr^.ArrayVar.gSize - offset;' + #13#10 +
@@ -10284,7 +10295,8 @@ begin
     Inc(lCount);
     lPos := Pos('lWithArrayRecPtr', lStatement.ReplacementText, lPos + 1);
   end;
-  Assert.AreEqual(1, lCount, 'The unused ArrayVar temp is only assigned.');
+  Assert.AreEqual(2, lCount,
+    'The unused ArrayVar temp appears only in the mutually exclusive assignments.');
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbFileIoSearchRecordReplacement;
@@ -10484,7 +10496,7 @@ begin
     '              ready := FALSE;' + #10 +
     '            END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('          begin' + #13#10 +
-    '            lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '            {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '            IF InSet(ShowFiles, i) AND (lWithDatFilePtr^.LINKFILE <> 0)' + #10 +
     '              AND NOT InSet(ShowFiles, lWithDatFilePtr^.LINKFILE)' + #10 +
     '            THEN' + #10 +
@@ -10500,7 +10512,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -10527,7 +10539,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -10618,7 +10630,7 @@ begin
     '      END' + #10 +
     '      ELSE' + #10 +
     '        DISPOSE(p);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithStatLinkTypePtr := @p^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithStatLinkTypePtr := @p^;{$T-}{$ELSE}lWithStatLinkTypePtr := @p^;{$ENDIF}' + #13#10 +
     '    IF SplitLink(1, S, lWithStatLinkTypePtr^.f1, lWithStatLinkTypePtr^.IV1) AND SplitLink(2, S, lWithStatLinkTypePtr^.f2, lWithStatLinkTypePtr^.IV2) AND NOT Test' + #10 +
     '      THEN' + #10 +
     '      BEGIN' + #10 +
@@ -10634,7 +10646,7 @@ begin
   Assert.AreEqual('StatLinkType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithStatLinkTypePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithStatLinkTypePtr := @p^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithStatLinkTypePtr := @p^;{$T-}{$ELSE}lWithStatLinkTypePtr := @p^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -10696,7 +10708,7 @@ begin
     '      END' + #10 +
     '      ELSE' + #10 +
     '        INC(i);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithStatLinkTypePtr := @StatLinks[i]^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithStatLinkTypePtr := @StatLinks[i]^;{$T-}{$ELSE}lWithStatLinkTypePtr := @StatLinks[i]^;{$ENDIF}' + #13#10 +
     '    IF (lWithStatLinkTypePtr^.f1 > FilesOffen) OR (lWithStatLinkTypePtr^.f2 > FilesOffen)' + #10 +
     '      THEN' + #10 +
     '      BEGIN' + #10 +
@@ -10716,7 +10728,7 @@ begin
   Assert.AreEqual('StatLinkType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithStatLinkTypePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithStatLinkTypePtr := @StatLinks[i]^;{$T-}{$ELSE}lWithStatLinkTypePtr := @StatLinks[i]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -10743,7 +10755,7 @@ begin
   Assert.AreEqual('lWithStatLinkTypePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithStatLinkTypePtr: ^StatLinkType;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithStatLinkTypePtr := @StatLinks[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithStatLinkTypePtr := @StatLinks[i]^;{$T-}{$ELSE}lWithStatLinkTypePtr := @StatLinks[i]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -10779,7 +10791,7 @@ begin
     '        LinkIndex := LI;' + #10 +
     '        LINKFILE := LF;' + #10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '        fillchar(lWithDatFilePtr^.LinkIV, SizeOf(lWithDatFilePtr^.LinkIV), 0);' + #10 +
     '        lWithDatFilePtr^.LinkIV[1].Feld := FL;' + #10 +
@@ -10795,7 +10807,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -10823,7 +10835,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -10904,7 +10916,7 @@ begin
     '            AktIndex := LinkIndex' + #10 +
     '          END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr1 := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[i]^;{$ENDIF}' + #13#10 +
     '          IF i <> FileNo THEN' + #10 +
     '          BEGIN' + #10 +
     '            lWithDatFilePtr1^.Zugriff := IndexZgr;' + #10 +
@@ -10918,7 +10930,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[i]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -10942,7 +10954,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[i]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -10950,19 +10962,19 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('linkfile.pas', 682, 9), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.AreEqual(250, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(314, Integer(Length(lStatement.ReplacementText)));
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
   Assert.AreEqual('        begin' + #10 +
-    '          lWithDatFilePtr1 := @DF[i]^;' + #10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[i]^;{$ENDIF}' + #10 +
     '          IF i <> FileNo THEN' + #10 +
     '          BEGIN' + #10 +
     '            lWithDatFilePtr1^.Zugriff := IndexZgr;' + #10 +
     '            lWithDatFilePtr1^.AktIndex := lWithDatFilePtr1^.LinkIndex' + #10 +
     '          END;' + #10 +
     '        end;', lReplacementText);
-  Assert.AreEqual(247, Integer(Length(lReplacementText)));
+  Assert.AreEqual(311, Integer(Length(lReplacementText)));
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'linkfile.pas', 646, 9, lOwnerStatement));
   Assert.AreEqual('planned', lOwnerStatement.Status);
   Assert.AreEqual('', lOwnerStatement.Reason);
@@ -10984,7 +10996,7 @@ begin
     '              Gesamt := Gesamt OR (FileSet(1) SHL i);' + #10 +
     '        END;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '          BEGIN' + #10 +
     '          lWithDatFilePtr^.LINKFILE := 0;' + #10 +
     '          LegalFiles := LegalFiles OR (FileSet(1) SHL i);' + #10 +
@@ -11003,7 +11015,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11030,7 +11042,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11079,7 +11091,7 @@ begin
     '    ELSE' + #10 +
     '      open := FALSE' + #10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithLowFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '  BEGIN' + #10 +
     '    IO_Error := 0;' + #10 +
     '    TDB_SetRW(f.handle);' + #10 +
@@ -11099,7 +11111,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11126,7 +11138,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -11167,7 +11179,7 @@ begin
     '      next^.last := fptr;' + #10 +
     '      FileQueue := fptr;' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithLowFilePtr := @fptr^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}' + #13#10 +
     '  IF FileQueue = NIL THEN' + #10 +
     '    BEGIN' + #10 +
     '      lWithLowFilePtr^.next := fptr;' + #10 +
@@ -11188,7 +11200,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11216,7 +11228,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -11245,7 +11257,7 @@ begin
     '        FileQueue := NIL;' + #10 +
     '    END;' + #10 +
     '  END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithLowFilePtr := @fptr^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #10 +
     '    lWithLowFilePtr^.last^.next := lWithLowFilePtr^.next;' + #10 +
     '    lWithLowFilePtr^.next^.last := lWithLowFilePtr^.last;' + #10 +
@@ -11263,7 +11275,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11289,7 +11301,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @fptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @fptr^;{$T-}{$ELSE}lWithLowFilePtr := @fptr^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11321,7 +11333,7 @@ begin
     '      IO_Error := TDB_Closefile(FileQueue^.last^.handle);' + #10 +
     '      open := FALSE;' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithLowFilePtr := @FileQueue^.last^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}' + #13#10 +
     '    BEGIN' + #10 +
     '      IO_Error := TDB_Closefile(FileQueue^.last^.handle);' + #10 +
     '      lWithLowFilePtr^.open := FALSE;' + #10 +
@@ -11333,7 +11345,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11347,7 +11359,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('200:1-204:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(230, Integer(Length(lStatement.ReplacementText)));
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11362,7 +11374,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -11385,7 +11397,7 @@ begin
     '      IO_Error := TDB_Closefile(FileQueue^.last^.handle);' + #10 +
     '      open := FALSE;' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithLowFilePtr := @FileQueue^.last^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}' + #13#10 +
     '    BEGIN' + #10 +
     '      IO_Error := TDB_Closefile(FileQueue^.last^.handle);' + #10 +
     '      lWithLowFilePtr^.open := FALSE;' + #10 +
@@ -11397,7 +11409,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11409,7 +11421,7 @@ begin
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('235:1-239:8', SourceRangeText(lStatement.Edits[1].Range));
   Assert.AreEqual(lStatement.ReplacementText, lStatement.Edits[1].ReplacementText);
-  Assert.AreEqual(157, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(230, Integer(Length(lStatement.ReplacementText)));
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('lowFiles.pas', 235, 5), lStatement.SemanticId);
@@ -11423,7 +11435,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @FileQueue^.last^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @FileQueue^.last^;{$T-}{$ELSE}lWithLowFilePtr := @FileQueue^.last^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11502,13 +11514,13 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      // writeln(''v_close lowfile<br>'');' + #10 +
     #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr <> NIL THEN' + #10 +
     '      BEGIN' + #10 +
-    '        lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '        freemem(lWithVirtualFilePtr^.v_Mem, lWithVirtualFilePtr^.a_size);' + #10 +
     '        DISPOSE(lWithLowFilePtr^.v_handle_ptr);' + #10 +
     '        lWithLowFilePtr^.v_handle_ptr := NIL;' + #10 +
@@ -11526,7 +11538,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -11538,7 +11550,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11635,7 +11647,7 @@ begin
     '      end else' + #10 +
     '        IO_Error := 2;' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithLowFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '    BEGIN' + #10 +
     '      // writeln(''v_reset lowfile: '',name,''<br>'');' + #10 +
     '      lWithLowFilePtr^.v_handle_ptr := NIL;' + #10 +
@@ -11650,7 +11662,7 @@ begin
     '            IO_Error := 99' + #10 +
     '          else begin' + #10 +
     '            NEW(lWithLowFilePtr^.v_handle_ptr);' + #10 +
-    '            lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '            {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '            BEGIN' + #10 +
     '              getmem(lWithVirtualFilePtr^.v_Mem, fs);' + #10 +
     '              io := TDB_BlockRead(v_handle, lWithVirtualFilePtr^.v_Mem^, fs, bytes);' + #10 +
@@ -11673,7 +11685,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11684,7 +11696,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11813,11 +11825,11 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      // writeln(''v_rewrite lowfile: '',name,''<br>'');' + #10 +
     '      NEW(lWithLowFilePtr^.v_handle_ptr);' + #10 +
-    '      lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '        getmem(lWithLowFilePtr^.v_handle_ptr, Inc_Virtual_FileSize);' + #10 +
     '        lWithVirtualFilePtr^.a_size := Inc_Virtual_FileSize;' + #10 +
@@ -11835,7 +11847,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11846,7 +11858,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -11889,7 +11901,7 @@ begin
     Assert.AreNotEqual(lCoveredStatement.SemanticId, lPlan.SkippedStatements[i].SemanticId);
 
   // T-209: The inner WITH keeps its original receiver when GetMem replaces the outer pointer.
-  Assert.IsTrue(Pos('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
+  Assert.IsTrue(Pos('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}',
     lStatement.ReplacementText) < Pos('getmem(lWithLowFilePtr^.v_handle_ptr, Inc_Virtual_FileSize);',
     lStatement.ReplacementText));
   Assert.AreEqual(0, Pos('lWithLowFilePtr^.v_handle_ptr^.a_size', lStatement.ReplacementText));
@@ -12012,14 +12024,14 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      // writeln(''v_readnbytes lowfile<br>'');' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr = NIL THEN' + #10 +
     '        IO_Error := 1' + #10 +
     '      ELSE' + #10 +
     '        begin' + #13#10 +
-    '          lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '          BEGIN' + #10 +
     '          IF ab + n > lWithVirtualFilePtr^.v_size THEN' + #10 +
     '            IO_Error := 2' + #10 +
@@ -12044,7 +12056,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12056,7 +12068,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12084,14 +12096,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('lowFiles.pas', 434, 5), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual(665, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(814, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 440, 9, lCoveredFinal));
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -12165,14 +12177,14 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      // writeln(''v_writenbytes lowfile<br>'');' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr = NIL THEN' + #10 +
     '        IO_Error := 1' + #10 +
     '      ELSE' + #10 +
     '        begin' + #13#10 +
-    '          lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '          BEGIN' + #10 +
     '          IF ab + n > Max_Virtual_Filesize THEN' + #10 +
     '            IO_Error := 2' + #10 +
@@ -12207,7 +12219,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12219,7 +12231,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12247,14 +12259,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('lowFiles.pas', 484, 5), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual(1168, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(1317, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 490, 9, lCoveredFinal));
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -12291,7 +12303,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('    begin' + sLineBreak +
-    '      lWithLowFilePtr := @f;' + sLineBreak +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + sLineBreak +
     '      BEGIN' + #10 +
     '      // writeln(''v_filesize lowfile<br>'');' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr = NIL' + #10 +
@@ -12302,7 +12314,7 @@ begin
     '      EXIT' + #10 +
     '    END;' + sLineBreak +
     '    end;', lStatement.ReplacementText);
-  Assert.AreEqual(280, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(338, Integer(Length(lStatement.ReplacementText)));
   Assert.AreEqual(543, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual('var' + sLineBreak + '  lWithLowFilePtr: ^LowFile;' +
     sLineBreak, lStatement.Edits[0].ReplacementText);
@@ -12325,7 +12337,7 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      // writeln(''v_filesize lowfile<br>'');' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr = NIL' + #10 +
@@ -12343,7 +12355,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12371,7 +12383,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -12400,13 +12412,13 @@ begin
     '      EXIT' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr = NIL THEN' + #10 +
     '        IO_Error := 1' + #10 +
     '      ELSE' + #10 +
     '        begin' + #13#10 +
-    '          lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '          IF lWithVirtualFilePtr^.v_size > pos THEN' + #10 +
     '            lWithVirtualFilePtr^.v_size := pos;' + #13#10 +
     '        end;' + #10 +
@@ -12420,7 +12432,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -12431,7 +12443,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12459,7 +12471,7 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12521,11 +12533,11 @@ begin
     '        END' + #10 +
     '    END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithLowFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}' + #13#10 +
     '      BEGIN' + #10 +
     '      IF lWithLowFilePtr^.v_handle_ptr <> NIL THEN' + #10 +
     '        begin' + #13#10 +
-    '          lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}' + #13#10 +
     '          BEGIN' + #10 +
     '          TDB_AssignFile(v_handle, path);' + #10 +
     '          io := TDB_RewriteFile(v_handle, 1);' + #10 +
@@ -12546,7 +12558,7 @@ begin
   Assert.AreEqual('LowFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithLowFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12558,7 +12570,7 @@ begin
   Assert.AreEqual('VirtualFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithVirtualFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithVirtualFilePtr: ^VirtualFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$T-}{$ELSE}lWithVirtualFilePtr := @lWithLowFilePtr^.v_handle_ptr^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12586,14 +12598,14 @@ begin
   Assert.AreEqual('lWithLowFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithLowFilePtr: ^LowFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithLowFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithLowFilePtr := @f;{$T-}{$ELSE}lWithLowFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('lowFiles.pas', 696, 5), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
-  Assert.AreEqual(556, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(705, Integer(Length(lStatement.ReplacementText)));
   Assert.IsFalse(FindFinalStatementAt(lPlan, 'lowFiles.pas', 699, 9, lCoveredFinal));
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -12652,7 +12664,7 @@ begin
     '    Count[1] := 0;' + #10 +
     '    FillChar(Buffer, SizeOf(TMD5Buffer), 0);' + #10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithMD5ContextPtr := @Context;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithMD5ContextPtr := @Context;{$T-}{$ELSE}lWithMD5ContextPtr := @Context;{$ENDIF}' + #13#10 +
     '  begin' + #10 +
     '    lWithMD5ContextPtr^.State[0] := $67452301;' + #10 +
     '    lWithMD5ContextPtr^.State[1] := $EFCDAB89;' + #10 +
@@ -12669,7 +12681,7 @@ begin
   Assert.AreEqual('TMD5Context', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithMD5ContextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithMD5ContextPtr := @Context;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithMD5ContextPtr := @Context;{$T-}{$ELSE}lWithMD5ContextPtr := @Context;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12697,7 +12709,7 @@ begin
   Assert.AreEqual('lWithMD5ContextPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithMD5ContextPtr: ^TMD5Context;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithMD5ContextPtr := @Context;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithMD5ContextPtr := @Context;{$T-}{$ELSE}lWithMD5ContextPtr := @Context;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -12705,7 +12717,7 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('md5.pas', 237, 3), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.AreEqual(380, Integer(Length(lStatement.ReplacementText)));
+  Assert.AreEqual(447, Integer(Length(lStatement.ReplacementText)));
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbRamFilesCheckRamTextReplacement;
@@ -12953,7 +12965,7 @@ begin
     '    GetMem(Cont, n);' + #13#10 +
     '    RewriteRamText(CGIBuffer, 0);' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamTextPtr := @CGIBuffer;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if lWithRamTextPtr^.Cont <> nil then' + #13#10 +
     '      FreeMem(lWithRamTextPtr^.Cont, lWithRamTextPtr^._MaxFileSize);' + #13#10 +
@@ -12968,7 +12980,7 @@ begin
   Assert.AreEqual('TRamText', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -12996,7 +13008,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -13166,7 +13178,7 @@ begin
     '      rt^.State := _close;' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithRamTextPtr := @rt^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithRamTextPtr := @rt^;{$T-}{$ELSE}lWithRamTextPtr := @rt^;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      ResetRamText(rt^, 0);' + #13#10 +
     '      TDB_BlockWrite(f, lWithRamTextPtr^.Cont^, lWithRamTextPtr^._FileSize);' + #13#10 +
@@ -13181,7 +13193,7 @@ begin
   Assert.AreEqual('TRamText', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @rt^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @rt^;{$T-}{$ELSE}lWithRamTextPtr := @rt^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -13208,7 +13220,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @rt^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @rt^;{$T-}{$ELSE}lWithRamTextPtr := @rt^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -13329,7 +13341,7 @@ begin
     '    Inc(ActChar, n);' + #13#10 +
     '    Inc(_FileSize, n)' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamTextPtr := @CGIBuffer;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if lWithRamTextPtr^._FileSize + n >= lWithRamTextPtr^._MaxFileSize then' + #13#10 +
     '    begin' + #13#10 +
@@ -13352,7 +13364,7 @@ begin
   Assert.AreEqual('TRamText', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -13380,7 +13392,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @CGIBuffer;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @CGIBuffer;{$T-}{$ELSE}lWithRamTextPtr := @CGIBuffer;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -13753,7 +13765,7 @@ begin
     '    fn := nil;' + #13#10 +
     '    r[s] := #0;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithRamFilePtr^.s := toread;' + #13#10 +
     '    GetMem(lWithRamFilePtr^.r, lWithRamFilePtr^.s + 1);' + #13#10 +
@@ -13771,7 +13783,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -13798,7 +13810,7 @@ begin
   Assert.AreEqual('lWithRamFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -13893,7 +13905,7 @@ begin
     '      Inc(v, nBytes)' + #13#10 +
     '    end;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if (lWithRamFilePtr^.s - lWithRamFilePtr^.w) < nBytes then' + #13#10 +
     '      RamFileResult := 2' + #13#10 +
@@ -13911,7 +13923,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -13968,7 +13980,7 @@ begin
     '    MakeDynString(FileName, fn);' + #13#10 +
     '    RamFileResult := 0' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    { s:=_MaxRamFileSize; }' + #13#10 +
     '    lWithRamFilePtr^.s := $40000;' + #13#10 +
@@ -13986,7 +13998,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -14048,7 +14060,7 @@ begin
     '      o := False' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithRamFilePtr := @f;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      if lWithRamFilePtr^.fn <> nil then' + #13#10 +
     '      begin' + #13#10 +
@@ -14072,7 +14084,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -14124,7 +14136,7 @@ begin
     '    if pos > s then' + #13#10 +
     '      RamFileResult := 2' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithRamFilePtr^.v := lWithRamFilePtr^.r;' + #13#10 +
     '    Inc(lWithRamFilePtr^.v, pos);' + #13#10 +
@@ -14139,7 +14151,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -14195,7 +14207,7 @@ begin
     '      Inc(v, nBytes)' + #13#10 +
     '    end;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamFilePtr := @f;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if lWithRamFilePtr^.s - lWithRamFilePtr^.w < nBytes then' + #13#10 +
     '      RamFileResult := 2' + #13#10 +
@@ -14213,7 +14225,7 @@ begin
   Assert.AreEqual('RamFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamFilePtr: ^RamFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamFilePtr := @f;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamFilePtr := @f;{$T-}{$ELSE}lWithRamFilePtr := @f;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -14285,7 +14297,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('      begin' + sLineBreak +
-    '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+    '        {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[i];{$ENDIF}' + sLineBreak +
     '        begin' + sLineBreak +
     '        if StrCmpI(lWithRamTextSaveItemPtr^.Name^, nn) = 0 then' + sLineBreak +
     '        begin' + sLineBreak +
@@ -14304,7 +14316,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('      begin' + sLineBreak +
-    '        lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+    '        {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[i];{$ENDIF}' + sLineBreak +
     '        begin' + sLineBreak +
     '        if StrCmpI(lWithRamTextSaveItemPtr^.Name^, nn) = 0 then' + sLineBreak +
     '        begin' + sLineBreak +
@@ -14323,7 +14335,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
-    '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+    '      {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[i];{$ENDIF}' + sLineBreak +
     '      begin' + sLineBreak +
     '      if StrCmpI(lWithRamTextSaveItemPtr^.Name^, n) = 0 then' + sLineBreak +
     '      begin' + sLineBreak +
@@ -14342,7 +14354,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('    begin' + sLineBreak +
-    '      lWithRamTextSaveItemPtr := @RamTextSave[i];' + sLineBreak +
+    '      {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[i];{$ENDIF}' + sLineBreak +
     '      begin' + sLineBreak +
     '      if StrCmpI(lWithRamTextSaveItemPtr^.Name^, n) = 0 then' + sLineBreak +
     '      begin' + sLineBreak +
@@ -14436,7 +14448,7 @@ begin
     '      Name := t_files[i].Name' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithRamTextSaveItemPtr := @RamTextSave[1 + i];' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      lWithRamTextSaveItemPtr^.rt := t_files[i].rt;' + #13#10 +
     '      lWithRamTextSaveItemPtr^.Name := t_files[i].Name' + #13#10 +
@@ -14449,7 +14461,7 @@ begin
   Assert.AreEqual('TRamTextSaveItem', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamTextSaveItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14478,7 +14490,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1 + i];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1 + i];{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14648,8 +14660,8 @@ begin
     lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with RamTextSave[1], rt do' + #13#10 +
     '    _FileSize := n;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRamTextSaveItemPtr := @RamTextSave[1];' + #13#10 +
-    '  lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1];{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$T-}{$ELSE}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$ENDIF}' + #13#10 +
     '  lWithRamTextPtr^._FileSize := n;', lStatement.ReplacementText);
   Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('RamTextSave[1]', lStatement.Temps[0].SelectorText);
@@ -14658,7 +14670,7 @@ begin
   Assert.AreEqual('TRamTextSaveItem', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRamTextSaveItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -14670,7 +14682,7 @@ begin
   Assert.AreEqual('TRamText', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithRamTextPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$T-}{$ELSE}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14700,7 +14712,7 @@ begin
   Assert.AreEqual('lWithRamTextSaveItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRamTextSaveItemPtr: ^TRamTextSaveItem;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRamTextSaveItemPtr := @RamTextSave[1];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextSaveItemPtr := @RamTextSave[1];{$T-}{$ELSE}lWithRamTextSaveItemPtr := @RamTextSave[1];{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14714,7 +14726,7 @@ begin
   Assert.AreEqual('lWithRamTextPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
   Assert.AreEqual('lWithRamTextPtr: ^TRamText;',
     lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$T-}{$ELSE}lWithRamTextPtr := @lWithRamTextSaveItemPtr^.rt;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14843,7 +14855,7 @@ begin
     '    if Modus and 4 = 4 then' + #13#10 +
     '      FileSize := 0;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr1 := @DF[RelFile]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[RelFile]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[RelFile]^;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithDatFilePtr1^.IndFiles[2]^.nn := lWithDatFilePtr1^.FileSize;' + #13#10 +
     '    if Modus and 4 = 4 then' + #13#10 +
@@ -14856,7 +14868,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[RelFile]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[RelFile]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -14880,7 +14892,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[RelFile]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[RelFile]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[RelFile]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -14899,7 +14911,7 @@ begin
     lOwnerStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with DF[IndexFile]^ do' + #13#10 +
     '    gDoCount := (RecZahl > 2) and (Maske[2].Art and 15 = A_Int16);', lOwnerStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[IndexFile]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}' + #13#10 +
     '  gDoCount := (lWithDatFilePtr^.RecZahl > 2) and (lWithDatFilePtr^.Maske[2].Art and 15 = A_Int16);', lOwnerStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
   Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.Temps[0].SelectorText);
@@ -14908,7 +14920,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -14936,7 +14948,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -14984,7 +14996,7 @@ begin
     '    if not WriteIndexFile then' + #13#10 +
     '      FileSize := -1;' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr2 := @DF[IndexFile]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr2 := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr2 := @DF[IndexFile]^;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if lWithDatFilePtr2^.HatAuto then' + #13#10 +
     '      WriteNBytes(lWithDatFilePtr2^.f^, lWithDatFilePtr2^.FileOffset - 4, 4, lWithDatFilePtr2^.AutoNum, 0);' + #13#10 +
@@ -14999,7 +15011,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr2', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr2: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr2 := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr2 := @DF[IndexFile]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15023,7 +15035,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr2', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr2: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr2 := @DF[IndexFile]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr2 := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr2 := @DF[IndexFile]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -15042,7 +15054,7 @@ begin
     lOwnerStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with DF[IndexFile]^ do' + #13#10 +
     '    gDoCount := (RecZahl > 2) and (Maske[2].Art and 15 = A_Int16);', lOwnerStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[IndexFile]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}' + #13#10 +
     '  gDoCount := (lWithDatFilePtr^.RecZahl > 2) and (lWithDatFilePtr^.Maske[2].Art and 15 = A_Int16);', lOwnerStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lOwnerStatement.Temps)));
   Assert.AreEqual('DF[IndexFile]^', lOwnerStatement.Temps[0].SelectorText);
@@ -15051,7 +15063,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15079,7 +15091,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[IndexFile]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[IndexFile]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[IndexFile]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15135,7 +15147,7 @@ begin
     '    ReadDat(g_Index_File);' + #13#10 +
     '    GetField(FromRec, g_Index_File, 1, res, t_a);' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[g_Index_File]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[g_Index_File]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[g_Index_File]^;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithDatFilePtr^.DateiZeiger := findauto(g_Index_File, a_no);' + #13#10 +
     '    ReadDat(g_Index_File);' + #13#10 +
@@ -15148,7 +15160,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[g_Index_File]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[g_Index_File]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15175,7 +15187,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[g_Index_File]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[g_Index_File]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[g_Index_File]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -15223,13 +15235,13 @@ begin
     '    else' + #13#10 +
     '      q := nil' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithEasyVarPtr := @VarList[Vnr];' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithEasyVarPtr := @VarList[Vnr];{$T-}{$ELSE}lWithEasyVarPtr := @VarList[Vnr];{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if TestFlags(lWithEasyVarPtr^.tFlags, TArray) then' + #13#10 +
     '    begin' + #13#10 +
     '      p := Pointer(lWithEasyVarPtr^.VarCont);' + #13#10 +
-    '      lWithArrayVarRecPtr := @p^;' + #13#10 +
-    '      lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithArrayVarRecPtr := @p^;{$T-}{$ELSE}lWithArrayVarRecPtr := @p^;{$ENDIF}' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$T-}{$ELSE}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '        q := Pointer(lWithArrayVarRecPtr^.Memory)' + #13#10 +
     '      end' + #13#10 +
@@ -15244,7 +15256,7 @@ begin
   Assert.AreEqual('EasyVar', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithEasyVarPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithEasyVarPtr: ^EasyVar;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithEasyVarPtr := @VarList[Vnr];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithEasyVarPtr := @VarList[Vnr];{$T-}{$ELSE}lWithEasyVarPtr := @VarList[Vnr];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15256,7 +15268,7 @@ begin
   Assert.AreEqual('ArrayVarRec', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithArrayVarRecPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithArrayVarRecPtr: ^ArrayVarRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithArrayVarRecPtr := @p^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithArrayVarRecPtr := @p^;{$T-}{$ELSE}lWithArrayVarRecPtr := @p^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15267,7 +15279,7 @@ begin
   Assert.AreEqual('ArrayRec', lStatement.Temps[2].ReceiverType);
   Assert.AreEqual('lWithArrayRecPtr', lStatement.Temps[2].TempName);
   Assert.AreEqual('lWithArrayRecPtr: ^ArrayRec;', lStatement.Temps[2].DeclarationText);
-  Assert.AreEqual('lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;', lStatement.Temps[2].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$T-}{$ELSE}lWithArrayRecPtr := @lWithArrayVarRecPtr^.ArrayVar;{$ENDIF}', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15343,7 +15355,7 @@ begin
     lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
     '    ReadNBytes(f^, 0, 4, FileSize, 0);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '  ReadNBytes(lWithDatFilePtr^.f^, 0, 4, lWithDatFilePtr^.FileSize, 0);', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
@@ -15352,7 +15364,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15380,7 +15392,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -15399,7 +15411,7 @@ begin
     lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH DF[D]^ DO' + #13#10 +
     '    WriteNBytes(f^, 0, 4, FileSize, 0);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '  WriteNBytes(lWithDatFilePtr^.f^, 0, 4, lWithDatFilePtr^.FileSize, 0);', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('DF[D]^', lStatement.Temps[0].SelectorText);
@@ -15408,7 +15420,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15434,7 +15446,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15485,7 +15497,7 @@ begin
     '       IndexName:= str255(IndexName) + str255(ext);' + #13#10 +
     '    END;' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @D;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    IO := 0;' + #13#10 +
     '    IF lWithDatFilePtr^.IndFiles[INr] = NIL THEN' + #13#10 +
@@ -15498,7 +15510,7 @@ begin
     '      END;' + #13#10 +
     '    END;' + #13#10 +
     '    FillChar(lWithDatFilePtr^.IndFiles[INr]^, SizeOf(IndexFile), 0);' + #13#10 +
-    '    lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;' + #13#10 +
+    '    {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}' + #13#10 +
     '    BEGIN' + #13#10 +
     '      lWithIndexFilePtr^.IndexName := F_Name(STR255(FN))^;' + #13#10 +
     '       lWithIndexFilePtr^.IndexName:= str255(lWithIndexFilePtr^.IndexName) + str255(ext);' + #13#10 +
@@ -15511,7 +15523,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15523,7 +15535,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15595,7 +15607,7 @@ begin
     '       IndexName:= str255(IndexName) + str255(ext);' + #13#10 +
     '    END;' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @D;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    IO := 0;' + #13#10 +
     '    IF lWithDatFilePtr^.IndFiles[INr] = NIL THEN' + #13#10 +
@@ -15608,7 +15620,7 @@ begin
     '      END;' + #13#10 +
     '    END;' + #13#10 +
     '    FillChar(lWithDatFilePtr^.IndFiles[INr]^, SizeOf(IndexFile), 0);' + #13#10 +
-    '    lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;' + #13#10 +
+    '    {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}' + #13#10 +
     '    BEGIN' + #13#10 +
     '      lWithIndexFilePtr^.IndexName := F_Name(STR255(FN))^;' + #13#10 +
     '       lWithIndexFilePtr^.IndexName:= str255(lWithIndexFilePtr^.IndexName) + str255(ext);' + #13#10 +
@@ -15621,7 +15633,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15633,7 +15645,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -15700,8 +15712,8 @@ begin
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
-    '  lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    fm := lWithDatFilePtr^.FMode;' + #13#10 +
     '    tFN := lWithDatFilePtr^.Pfad;' + #13#10 +
@@ -15727,7 +15739,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual('IndFiles[INr]^', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
@@ -15735,7 +15747,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -15746,8 +15758,8 @@ begin
     '', lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('223:1-241:5', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
-    '  lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[INr]^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    fm := lWithDatFilePtr^.FMode;' + #13#10 +
     '    tFN := lWithDatFilePtr^.Pfad;' + #13#10 +
@@ -15922,7 +15934,7 @@ begin
     '    IndFiles[indiziert] := NIL;' + #13#10 +
     '    DEC(indiziert);' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    FreeMem(lWithDatFilePtr^.IndFiles[Nr], SizeOf(IndexFile));' + #13#10 +
     '    FOR I := Nr TO lWithDatFilePtr^.indiziert - 1 DO' + #13#10 +
@@ -15937,7 +15949,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -15964,7 +15976,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -16132,7 +16144,7 @@ begin
     '        IF V_Base = 0 THEN' + #13#10 +
     '          IndexName[length(IndexName)] := ansiChar(48 + I);' + #13#10 +
     '      END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;' + #13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$T-}{$ELSE}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$ENDIF}' + #13#10 +
     '      BEGIN' + #13#10 +
     '        I := 1;' + #13#10 +
     '        lWithIndexFilePtr1^.IV := t_IV;' + #13#10 +
@@ -16150,7 +16162,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr1: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$T-}{$ELSE}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -16175,7 +16187,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr1: ^IndexFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$T-}{$ELSE}lWithIndexFilePtr1 := @IndFiles[indiziert + 1]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -16216,7 +16228,7 @@ begin
     '          UNTIL j = 0;' + #13#10 +
     '        END;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithIndexFilePtr := @IndFiles[I]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[I]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[I]^;{$ENDIF}' + #13#10 +
     '        IF CheckIndexOpen(D, I, TRUE) THEN' + #13#10 +
     '        BEGIN' + #13#10 +
     '          j := 1;' + #13#10 +
@@ -16247,7 +16259,7 @@ begin
   Assert.AreEqual('IndexFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[I]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[I]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -16273,7 +16285,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[I]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[I]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[I]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -16342,7 +16354,7 @@ begin
     '        EXIT' + #13#10 +
     '      END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithIndexFilePtr := @g^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithIndexFilePtr := @g^;{$T-}{$ELSE}lWithIndexFilePtr := @g^;{$ENDIF}' + #13#10 +
     '      IF (lWithIndexFilePtr^.IndFile = NIL) OR (M <> einf) AND (lWithIndexFilePtr^.IndFile^.Height = 0) THEN' + #13#10 +
     '      BEGIN' + #13#10 +
     '        GOTO GenFault' + #13#10 +
@@ -16372,7 +16384,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @g^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @g^;{$T-}{$ELSE}lWithIndexFilePtr := @g^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -16713,7 +16725,7 @@ begin
     lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH IndFiles[1]^ DO' + #13#10 +
     '        IV := ID_IV', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      lWithIndexFilePtr := @IndFiles[1]^;'#13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[1]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[1]^;{$ENDIF}'#13#10 +
     '      lWithIndexFilePtr^.IV := ID_IV', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('IndFiles[1]^', lStatement.Temps[0].SelectorText);
@@ -16722,7 +16734,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @IndFiles[1]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[1]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[1]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -16781,8 +16793,8 @@ begin
     '          EXIT' + #13#10 +
     '      END { WHILE }' + #13#10 +
     '    END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithDatFilePtr := @DF[D]^;' + #13#10 +
-    '    lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
+    '    {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$ENDIF}' + #13#10 +
     '    BEGIN' + #13#10 +
     '      WHILE ImPuffer > 0 DO' + #13#10 +
     '      BEGIN' + #13#10 +
@@ -16801,7 +16813,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -16813,7 +16825,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -16843,7 +16855,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -16857,7 +16869,7 @@ begin
   Assert.AreEqual('lWithIndexFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;',
     lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[Nr]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -17035,7 +17047,7 @@ begin
     '    Push(LinkFile, SizeOf(LinkFile));' + #13#10 +
     '    Push(Ind, SizeOf(Ind));' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    Push(lWithDatFilePtr^.DateiZeiger, SizeOf(lWithDatFilePtr^.DateiZeiger));' + #13#10 +
     '    Push(lWithDatFilePtr^.Dat^, lWithDatFilePtr^.SatzGroesse);' + #13#10 +
@@ -17052,7 +17064,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17080,7 +17092,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -17107,7 +17119,7 @@ begin
     '    Pop(Dat^, SatzGroesse);' + #13#10 +
     '    Pop(DateiZeiger, SizeOf(DateiZeiger));' + #13#10 +
     '  END', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[D]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    Pop(lWithDatFilePtr^.Ind, SizeOf(lWithDatFilePtr^.Ind));' + #13#10 +
     '    Pop(lWithDatFilePtr^.LinkFile, SizeOf(lWithDatFilePtr^.LinkFile));' + #13#10 +
@@ -17124,7 +17136,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -17150,7 +17162,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[D]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[D]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[D]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17185,7 +17197,7 @@ begin
     '    end;' + #13#10 +
     '    CacheInit := True;' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithDatFilePtr^.CacheSize := MIN(cMaxInt16 div lWithDatFilePtr^.SatzGroesse, MaxCache);' + #13#10 +
     '    for i := 1 to lWithDatFilePtr^.CacheSize do' + #13#10 +
@@ -17202,7 +17214,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17244,7 +17256,7 @@ begin
     '      end;' + #13#10 +
     '    CacheInit := False;' + #13#10 +
     '  end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if lWithDatFilePtr^.CacheInit then' + #13#10 +
     '      for i := 1 to lWithDatFilePtr^.CacheSize do' + #13#10 +
@@ -17260,7 +17272,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17307,7 +17319,7 @@ begin
     '          end;' + #13#10 +
     '        end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '          if lWithDatFilePtr^.Pfad + lWithDatFilePtr^.DBName = GFName then' + #13#10 +
     '          begin' + #13#10 +
@@ -17323,7 +17335,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -17350,7 +17362,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17375,7 +17387,7 @@ begin
     '          end;' + #13#10 +
     '        end;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '          if lWithDatFilePtr^.Pfad + lWithDatFilePtr^.DBName = GFName then' + #13#10 +
     '          begin' + #13#10 +
@@ -17391,7 +17403,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -17418,7 +17430,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17441,7 +17453,7 @@ begin
   Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   AssertCapturedRecipe(lStatement);
@@ -17600,7 +17612,7 @@ begin
     '          end;' + #13#10 +
     '        end;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '          if lWithDatFilePtr^.Pfad + lWithDatFilePtr^.DBName = GFName then' + #13#10 +
     '          begin' + #13#10 +
@@ -17616,7 +17628,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -17643,7 +17655,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17666,7 +17678,7 @@ begin
   Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   AssertCapturedRecipe(lStatement);
@@ -17854,7 +17866,7 @@ begin
     '          end;' + #13#10 +
     '        end;', lOwnerStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '          if lWithDatFilePtr^.Pfad + lWithDatFilePtr^.DBName = GFName then' + #13#10 +
     '          begin' + #13#10 +
@@ -17870,7 +17882,7 @@ begin
   Assert.AreEqual('DatFile', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -17897,7 +17909,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}',
     lOwnerStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17920,7 +17932,7 @@ begin
   Assert.AreEqual(lOwnerStatement.Verification.ExpectedFileHash, lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   AssertCapturedRecipe(lStatement);
@@ -17960,14 +17972,14 @@ begin
     '      if HatBlob then' + #13#10 +
     '        io := io + abs(CopyLowFile(Blob^, dir + F_Name(DBName)^ + ''.blb''));' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '  if lWithDatFilePtr^.Rights and 256 = 256 then' + #13#10 +
     '    begin' + #13#10 +
     '      io := abs(CopyLowFile(lWithDatFilePtr^.f^, dir + lWithDatFilePtr^.DBName));' + #13#10 +
     '      for i := Ord(not lWithDatFilePtr^.HatAuto) to lWithDatFilePtr^.indiziert do' + #13#10 +
     '        if CheckIndexOpen(d, i, False) then' + #13#10 +
     '                    begin' + #13#10 +
-    '            lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;' + #13#10 +
+    '            {$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;{$ENDIF}' + #13#10 +
     '            io := io + abs(CopyLowFile(lWithIndexFilePtr^.IndFile^.FileHandle, dir + lWithIndexFilePtr^.IndexName));' + #13#10 +
     '          end;' + #13#10 +
     '      if lWithDatFilePtr^.HatMemo then' + #13#10 +
@@ -17982,7 +17994,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -17994,7 +18006,7 @@ begin
   Assert.AreEqual('IndexFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithIndexFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithIndexFilePtr: ^IndexFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @lWithDatFilePtr^.IndFiles[i]^;{$ENDIF}',
     lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -18022,7 +18034,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -18092,7 +18104,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -18107,7 +18119,7 @@ begin
   Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
   Assert.AreEqual(817, lStatement.Edits[1].Range.EndLine);
   Assert.AreEqual(17, lStatement.Edits[1].Range.EndColumn);
-  Assert.IsTrue(Pos('  lWithRelRecPtr := @RelRec;', lStatement.ReplacementText) > 0);
+  Assert.IsTrue(Pos('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('        exit(lWithRelRecPtr^.n + 1)', lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('          if lWithRelRecPtr^.w[i].lf = d then',
     lStatement.ReplacementText) > 0);
@@ -18294,8 +18306,8 @@ begin
     '    lf := d;' + #13#10 +
     '    hh := True' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRelRecPtr := @RelRec;' + #13#10 +
-    '  lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithRelRecPtr^.aktiv := True;' + #13#10 +
     '    lWithRelRecPtr^.n := 0;' + #13#10 +
@@ -18309,7 +18321,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'tdb01.pas', '914:3-920:6').SemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual('w[0]', lStatement.Temps[1].SelectorText);
@@ -18318,7 +18330,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'tdb01.pas', '914:3-920:6').SemanticId, lStatement.Temps[1].SemanticId);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
@@ -18334,8 +18346,8 @@ begin
     '', lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('914:1-920:6', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual('  lWithRelRecPtr := @RelRec;' + #13#10 +
-    '  lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[0];{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    lWithRelRecPtr^.aktiv := True;' + #13#10 +
     '    lWithRelRecPtr^.n := 0;' + #13#10 +
@@ -18370,8 +18382,8 @@ begin
     '              end;' + #13#10 +
     '            end;' + #13#10 +
     '          end', 2, lOwnerStatement);
-  Assert.IsTrue(Pos('          lWithRelRecPtr1 := @RelRec;' + #13#10 +
-    '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
+  Assert.IsTrue(Pos('          {$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18400,13 +18412,13 @@ begin
   Assert.AreEqual('', lOwnerStatement.Reason);
   Assert.AreEqual('', lOwnerStatement.SafetyReason);
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        if (lWithDatFilePtr^.LinkFile = 0) or InSet(Gelesen, lWithDatFilePtr^.LinkFile) then' + #13#10 +
     '        begin' + #13#10 +
     '          Inc(RelRec.n);' + #13#10 +
-    '          lWithRelRecPtr1 := @RelRec;' + #13#10 +
-    '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18451,7 +18463,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lOwnerStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   Assert.AreEqual('RelRec', lOwnerStatement.Temps[1].SelectorText);
   Assert.AreEqual('TRelRec', lOwnerStatement.Temps[1].ReceiverType);
@@ -18459,7 +18471,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[1].Strategy);
   Assert.AreEqual('lWithRelRecPtr1', lOwnerStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecPtr1: ^TRelRec;', lOwnerStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr1 := @RelRec;', lOwnerStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}', lOwnerStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[1].Reason);
   Assert.AreEqual('w[n]', lOwnerStatement.Temps[2].SelectorText);
   Assert.AreEqual('TRelRecSubRec', lOwnerStatement.Temps[2].ReceiverType);
@@ -18467,19 +18479,19 @@ begin
   Assert.AreEqual('record-pointer-temp', lOwnerStatement.Temps[2].Strategy);
   Assert.AreEqual('lWithRelRecSubRecPtr1', lOwnerStatement.Temps[2].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lOwnerStatement.Temps[2].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];', lOwnerStatement.Temps[2].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}', lOwnerStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[2].Reason);
   Assert.AreEqual(1, Integer(Length(lOwnerStatement.Edits)));
   Assert.AreEqual('replace-statement', lOwnerStatement.Edits[0].Kind);
   Assert.AreEqual('929:1-970:10', SourceRangeText(lOwnerStatement.Edits[0].Range));
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        if (lWithDatFilePtr^.LinkFile = 0) or InSet(Gelesen, lWithDatFilePtr^.LinkFile) then' + #13#10 +
     '        begin' + #13#10 +
     '          Inc(RelRec.n);' + #13#10 +
-    '          lWithRelRecPtr1 := @RelRec;' + #13#10 +
-    '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18534,13 +18546,13 @@ begin
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        if (lWithDatFilePtr^.LinkFile = 0) or InSet(Gelesen, lWithDatFilePtr^.LinkFile) then' + #13#10 +
     '        begin' + #13#10 +
     '          Inc(RelRec.n);' + #13#10 +
-    '          lWithRelRecPtr1 := @RelRec;' + #13#10 +
-    '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18585,7 +18597,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[i]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual('RelRec', lStatement.Temps[1].SelectorText);
   Assert.AreEqual('TRelRec', lStatement.Temps[1].ReceiverType);
@@ -18593,7 +18605,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[1].Strategy);
   Assert.AreEqual('lWithRelRecPtr1', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecPtr1: ^TRelRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr1 := @RelRec;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   Assert.AreEqual('w[n]', lStatement.Temps[2].SelectorText);
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[2].ReceiverType);
@@ -18601,19 +18613,19 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[2].Strategy);
   Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.Temps[2].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[2].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];', lStatement.Temps[2].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('929:1-970:10', SourceRangeText(lStatement.Edits[0].Range));
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithDatFilePtr := @DF[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[i]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[i]^;{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        if (lWithDatFilePtr^.LinkFile = 0) or InSet(Gelesen, lWithDatFilePtr^.LinkFile) then' + #13#10 +
     '        begin' + #13#10 +
     '          Inc(RelRec.n);' + #13#10 +
-    '          lWithRelRecPtr1 := @RelRec;' + #13#10 +
-    '          lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecPtr1 := @RelRec;{$T-}{$ELSE}lWithRelRecPtr1 := @RelRec;{$ENDIF}' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @lWithRelRecPtr1^.w[lWithRelRecPtr1^.n];{$ENDIF}' + #13#10 +
     '          begin' + #13#10 +
     '            lWithRelRecSubRecPtr1^.lf := i;' + #13#10 +
     '            Include(Gelesen, i);' + #13#10 +
@@ -18731,8 +18743,8 @@ begin
     '        init := False;' + #13#10 +
     '        exit' + #13#10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithRelRecPtr := @RelRec;' + #13#10 +
-    '    lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}' + #13#10 +
+    '    {$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$ENDIF}' + #13#10 +
     '  if ReadDat(lWithRelRecSubRecPtr^.lf) <> 0 then' + #13#10 +
     '      begin' + #13#10 +
     '        init := False;' + #13#10 +
@@ -18745,7 +18757,7 @@ begin
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -18757,7 +18769,7 @@ begin
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -18787,7 +18799,7 @@ begin
   Assert.AreEqual('lWithRelRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -18801,7 +18813,7 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;',
     lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[i];{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -18832,7 +18844,7 @@ begin
     '        end;' + #13#10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('      begin' + #13#10 +
-    '        lWithRelRecSubRecPtr1 := @RelRec.w[i];' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$ENDIF}' + #13#10 +
     '        begin' + #13#10 +
     '        lWithRelRecSubRecPtr1^.hh := ReadLinkRec(lWithRelRecSubRecPtr1^.lf) or ((i > 1) and InSet(Leaving, i));' + #13#10 +
     '        if lWithRelRecSubRecPtr1^.hh then' + #13#10 +
@@ -18851,7 +18863,7 @@ begin
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -18873,14 +18885,14 @@ begin
   Assert.AreEqual('lWithRelRecSubRecPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr1: ^TRelRecSubRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr1 := @RelRec.w[i];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('tdb01.pas', 994, 7), lStatement.RewriteRecipe.SelectorDecisions[0].SemanticId);
 
-  Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1 := @RelRec.w[i];',
+  Assert.IsTrue(Pos('        {$IFOPT T-}{$T+}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$T-}{$ELSE}lWithRelRecSubRecPtr1 := @RelRec.w[i];{$ENDIF}',
     lStatement.ReplacementText) > 0);
   Assert.IsTrue(Pos('        lWithRelRecSubRecPtr1^.hh := ReadLinkRec(lWithRelRecSubRecPtr1^.lf)',
     lStatement.ReplacementText) > 0);
@@ -18975,16 +18987,16 @@ begin
     '            end'#13#10 +
     '          end;'#13#10 +
     '      end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRelRecPtr := @RelRec;'#13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}'#13#10 +
     '  while h > 0 do'#13#10 +
     '            begin'#13#10 +
-    '        lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];'#13#10 +
+    '        {$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];{$ENDIF}'#13#10 +
     '        begin'#13#10 +
     '        if not lWithRelRecSubRecPtr^.hh then'#13#10 +
     '          Dec(h)'#13#10 +
     '        else'#13#10 +
     '          begin'#13#10 +
-    '            lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;'#13#10 +
+    '            {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;{$ENDIF}'#13#10 +
     '            begin'#13#10 +
     '            if lWithDatFilePtr^.LinkFile = 0 then'#13#10 +
     '            begin { nicht ber Index gekoppelt }'#13#10 +
@@ -19036,7 +19048,7 @@ begin
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19048,7 +19060,7 @@ begin
   Assert.AreEqual('TRelRecSubRec', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithRelRecSubRecPtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithRelRecSubRecPtr: ^TRelRecSubRec;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];{$T-}{$ELSE}lWithRelRecSubRecPtr := @lWithRelRecPtr^.w[h];{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19059,7 +19071,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[2].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[2].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[2].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;', lStatement.Temps[2].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[lWithRelRecSubRecPtr^.lf]^;{$ENDIF}', lStatement.Temps[2].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[2].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19372,7 +19384,7 @@ begin
     '            move(TI0, Ind, SizeOf(Index));' + #13#10 +
     '        end;' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '  case lWithDatFilePtr^.Zugriff of' + #13#10 +
     '      MarkZgr:' + #13#10 +
     '        begin' + #13#10 +
@@ -19425,7 +19437,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19487,7 +19499,7 @@ begin
     '          exit' + #13#10 +
     '        end' + #13#10 +
     '  end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRelRecPtr := @RelRec;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}' + #13#10 +
     '  begin' + #13#10 +
     '    if FileNo > FilesOffen then' + #13#10 +
     '      lWithRelRecPtr^.aktiv := False;' + #13#10 +
@@ -19506,7 +19518,7 @@ begin
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19549,8 +19561,8 @@ begin
   Assert.AreEqual('29f244ab68fb92522262b36bb725dc627d9a7142071d7f4a0e1207c75659b118', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('with DirektChain[0], DF[fd]^ do' + #13#10 +
     '    CopyRecTemp(n, Dat^, Nr^, Maske);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDirektChainItemPtr := @DirektChain[0];' + #13#10 +
-    '  lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDirektChainItemPtr := @DirektChain[0];{$T-}{$ELSE}lWithDirektChainItemPtr := @DirektChain[0];{$ENDIF}' + #13#10 +
+    '  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$ENDIF}' + #13#10 +
     '  CopyRecTemp(lWithDirektChainItemPtr^.n, lWithDatFilePtr^.Dat^, Nr^, lWithDatFilePtr^.Maske);', lStatement.ReplacementText);
   Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('DirektChain[0]', lStatement.Temps[0].SelectorText);
@@ -19559,7 +19571,7 @@ begin
   Assert.AreEqual('TDirektChainItem', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDirektChainItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDirektChainItemPtr := @DirektChain[0];{$T-}{$ELSE}lWithDirektChainItemPtr := @DirektChain[0];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19571,7 +19583,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19595,7 +19607,7 @@ begin
   Assert.AreEqual('TDirektChainItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
   Assert.AreEqual('lWithDirektChainItemPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDirektChainItemPtr: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDirektChainItemPtr := @DirektChain[0];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDirektChainItemPtr := @DirektChain[0];{$T-}{$ELSE}lWithDirektChainItemPtr := @DirektChain[0];{$ENDIF}', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19607,7 +19619,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[lWithDirektChainItemPtr^.fd]^;{$ENDIF}', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19678,8 +19690,8 @@ begin
     '        exit' + #13#10 +
     '    end', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithDirektChainItemPtr1 := @DirektChain[i];' + #13#10 +
-    '      lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithDirektChainItemPtr1 := @DirektChain[i];{$T-}{$ELSE}lWithDirektChainItemPtr1 := @DirektChain[i];{$ENDIF}' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      if (lWithDirektChainItemPtr1^.fd = 0) or not lWithDatFilePtr1^.HatAuto then' + #13#10 +
     '      begin' + #13#10 +
@@ -19722,7 +19734,7 @@ begin
   Assert.AreEqual('TDirektChainItem', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDirektChainItemPtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDirektChainItemPtr1 := @DirektChain[i];{$T-}{$ELSE}lWithDirektChainItemPtr1 := @DirektChain[i];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19733,7 +19745,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[1].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[1].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[1].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.Temps[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$ENDIF}', lStatement.Temps[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19750,7 +19762,7 @@ begin
   Assert.AreEqual('TDirektChainItem', lStatement.RewriteRecipe.SelectorDecisions[0].ReceiverType);
   Assert.AreEqual('lWithDirektChainItemPtr1', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDirektChainItemPtr1: ^TDirektChainItem;', lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDirektChainItemPtr1 := @DirektChain[i];', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDirektChainItemPtr1 := @DirektChain[i];{$T-}{$ELSE}lWithDirektChainItemPtr1 := @DirektChain[i];{$ENDIF}', lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19761,7 +19773,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.RewriteRecipe.SelectorDecisions[1].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr1', lStatement.RewriteRecipe.SelectorDecisions[1].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.RewriteRecipe.SelectorDecisions[1].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$T-}{$ELSE}lWithDatFilePtr1 := @DF[lWithDirektChainItemPtr1^.fd]^;{$ENDIF}', lStatement.RewriteRecipe.SelectorDecisions[1].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[1].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19820,7 +19832,7 @@ begin
     '          exit' + #13#10 +
     '        end' + #13#10 +
     '      end', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithRelRecPtr := @RelRec;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}' + #13#10 +
     '  if lWithRelRecPtr^.aktiv then' + #13#10 +
     '      for i := 0 to lWithRelRecPtr^.n do' + #13#10 +
     '      begin' + #13#10 +
@@ -19838,7 +19850,7 @@ begin
   Assert.AreEqual('TRelRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithRelRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithRelRecPtr: ^TRelRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithRelRecPtr := @RelRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithRelRecPtr := @RelRec;{$T-}{$ELSE}lWithRelRecPtr := @RelRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -19899,7 +19911,7 @@ begin
     '      else' + #13#10 +
     '        AutoLinkNummer := AutoNr(d)' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithDatFilePtr := @DF[d]^;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '  if not lWithDatFilePtr^.HatAuto then' + #13#10 +
     '      AutoLinkNummer := 0' + #13#10 +
     '    else' + #13#10 +
@@ -19919,7 +19931,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -19947,7 +19959,7 @@ begin
   Assert.AreEqual('lWithDatFilePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -19986,7 +19998,7 @@ begin
     '      end' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithDatFilePtr := @DF[d]^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      if (lWithDatFilePtr^.FileSize = 0) or (lWithDatFilePtr^.Zugriff = MarkZgr) and (AnzMarkiert(d) = 0) then' + #13#10 +
     '        Empty := True' + #13#10 +
@@ -20006,7 +20018,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[d]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[d]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[d]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -21530,7 +21542,8 @@ begin
   end;
   Assert.IsTrue(lNodeQualifier <> '', 'The nearest pointer receiver requires a capture.');
   Assert.IsTrue(lInnerTemp.TempName <> '', 'The field receiver requires its own capture.');
-  Assert.AreEqual(lInnerTemp.TempName + ' := @' + lNodeQualifier + '.Inner;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}' + lInnerTemp.TempName + ' := @' + lNodeQualifier + '.Inner;' + '{$T-}{$ELSE}' +
+    lInnerTemp.TempName + ' := @' + lNodeQualifier + '.Inner;' + '{$ENDIF}',
     lInnerTemp.InitializationText, 'The field must belong to the nearest pointer receiver.');
   Assert.IsTrue(ContainsText(lStatement.RewriteRecipe.ReplacementText,
     lInnerTemp.QualifierText + '.Value := 1;'));
@@ -21597,7 +21610,7 @@ begin
   Assert.AreEqual('6cceab5cd3bbb02e387a2d296d2d4d3e8aab31bcb272897ee92a8e1e5a485d3b', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH D^ DO' + #13#10 +
     '      MachMaske(DBF, Maske, SatzGroesse, RecZahl);', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithDatFilePtr := @D^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr := @D^;{$T-}{$ELSE}lWithDatFilePtr := @D^;{$ENDIF}' + #13#10 +
     '    MachMaske(DBF, lWithDatFilePtr^.Maske, lWithDatFilePtr^.SatzGroesse, lWithDatFilePtr^.RecZahl);', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D^', lStatement.Temps[0].SelectorText);
@@ -21606,7 +21619,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D^;{$T-}{$ELSE}lWithDatFilePtr := @D^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -21653,7 +21666,7 @@ begin
   Assert.AreEqual('6cceab5cd3bbb02e387a2d296d2d4d3e8aab31bcb272897ee92a8e1e5a485d3b', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH D^ DO' + #13#10 +
     '      Maske.Free;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithDatFilePtr1 := @D^;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr1 := @D^;{$T-}{$ELSE}lWithDatFilePtr1 := @D^;{$ENDIF}' + #13#10 +
     '    lWithDatFilePtr1^.Maske.Free;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D^', lStatement.Temps[0].SelectorText);
@@ -21662,7 +21675,7 @@ begin
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @D^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @D^;{$T-}{$ELSE}lWithDatFilePtr1 := @D^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -21991,7 +22004,7 @@ lDeclarationCount := 0;
     '      pl := pl^.Next' + #13#10 +
     '    end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('    begin' + #13#10 +
-    '      lWithParamRecPtr := @pl^;' + #13#10 +
+    '      {$IFOPT T-}{$T+}lWithParamRecPtr := @pl^;{$T-}{$ELSE}lWithParamRecPtr := @pl^;{$ENDIF}' + #13#10 +
     '      begin' + #13#10 +
     '      if lWithParamRecPtr^.VNr <> nil then' + #13#10 +
     '      begin' + #13#10 +
@@ -22009,7 +22022,7 @@ lDeclarationCount := 0;
   Assert.AreEqual('ParamRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithParamRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithParamRecPtr: ^ParamRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithParamRecPtr := @pl^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithParamRecPtr := @pl^;{$T-}{$ELSE}lWithParamRecPtr := @pl^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
@@ -22326,7 +22339,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('DatFile', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
-  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(119, lStatement.Edits[0].Range.StartLine);
@@ -22340,7 +22353,7 @@ begin
   lReplacementText := StringReplace(lStatement.ReplacementText, #13#10, #10,
     [rfReplaceAll]);
   lReplacementText := StringReplace(lReplacementText, #13, #10, [rfReplaceAll]);
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + #10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}' + #10 +
     '    BEGIN' + #10 +
     '      WriteNBytes(lWithDatFilePtr^.f^, lWithDatFilePtr^.FileOffset, n, V, 0);' + #10 +
     '      INC(lWithDatFilePtr^.FileOffset, n);' + #10 +
@@ -22552,7 +22565,7 @@ begin
     '          CalcIndSize(IV, IndSize);' + #13#10 +
     '          MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
     '        END;', 1, 1,
-    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}' + #13#10 +
     '        BEGIN' + #13#10 +
     '          lWithIndexFilePtr^.eindeutig := TRUE;' + #13#10 +
     '          CalcIndSize(lWithIndexFilePtr^.IV, lWithIndexFilePtr^.IndSize);' + #13#10 +
@@ -22586,8 +22599,8 @@ begin
     2,
     2,
     '      begin'#13#10 +
-    '        lWithSelRecPtr := @p^;'#13#10 +
-    '        lWithSelektorPtr := @lWithSelRecPtr^.Sel;'#13#10 +
+    '        {$IFOPT T-}{$T+}lWithSelRecPtr := @p^;{$T-}{$ELSE}lWithSelRecPtr := @p^;{$ENDIF}'#13#10 +
+    '        {$IFOPT T-}{$T+}lWithSelektorPtr := @lWithSelRecPtr^.Sel;{$T-}{$ELSE}lWithSelektorPtr := @lWithSelRecPtr^.Sel;{$ENDIF}'#13#10 +
     '        BEGIN'#13#10 +
     '        IF WriteFailed(lWithSelektorPtr^.M_Az * SizeOf(SelektString), lWithSelektorPtr^.Menu^) THEN'#13#10 +
     '          GOTO EXCEPTION;'#13#10 +
@@ -22606,8 +22619,8 @@ begin
     '        q := q^.n' + #13#10 +
     '      END;', 2, 1,
     '      begin' + #13#10 +
-    '        lWithForRecPtr := @q^;' + #13#10 +
-    '        lWithFormelPtr := @lWithForRecPtr^.Form;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithForRecPtr := @q^;{$T-}{$ELSE}lWithForRecPtr := @q^;{$ENDIF}' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithFormelPtr := @lWithForRecPtr^.Form;{$T-}{$ELSE}lWithFormelPtr := @lWithForRecPtr^.Form;{$ENDIF}' + #13#10 +
     '        BEGIN' + #13#10 +
     '        IF WriteFailed(SizeOf(lWithFormelPtr^.Fml), lWithFormelPtr^.Fml) THEN' + #13#10 +
     '          GOTO EXCEPTION;' + #13#10 +
@@ -22625,8 +22638,8 @@ begin
     '        r := r^.n' + #13#10 +
     '      END;', 2, 1,
     '      begin' + #13#10 +
-    '        lWithBereichsRecPtr := @r^;' + #13#10 +
-    '        lWithBereichPtr := @lWithBereichsRecPtr^.B;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithBereichsRecPtr := @r^;{$T-}{$ELSE}lWithBereichsRecPtr := @r^;{$ENDIF}' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithBereichPtr := @lWithBereichsRecPtr^.B;{$T-}{$ELSE}lWithBereichPtr := @lWithBereichsRecPtr^.B;{$ENDIF}' + #13#10 +
     '        BEGIN' + #13#10 +
     '        IF WriteFailed(2 * SizeOf(REAL), lWithBereichPtr^.B_von) THEN' + #13#10 +
     '          GOTO EXCEPTION;' + #13#10 +
@@ -22691,7 +22704,7 @@ begin
     '          CalcIndSize(IV, IndSize);' + #13#10 +
     '          MustBeUnique := HatAuto AND (i = 1) AND IDUnique' + #13#10 +
     '        END;', 1, 1,
-    '        lWithIndexFilePtr := @IndFiles[i]^;' + #13#10 +
+    '        {$IFOPT T-}{$T+}lWithIndexFilePtr := @IndFiles[i]^;{$T-}{$ELSE}lWithIndexFilePtr := @IndFiles[i]^;{$ENDIF}' + #13#10 +
     '        BEGIN' + #13#10 +
     '          lWithIndexFilePtr^.eindeutig := TRUE;' + #13#10 +
     '          CalcIndSize(lWithIndexFilePtr^.IV, lWithIndexFilePtr^.IndSize);' + #13#10 +
@@ -22708,7 +22721,7 @@ begin
   Assert.AreEqual('ccd8e2413bd463da755b9ce994dc164cb0bf2fe0706687f93c7f0d7257123db7', lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH D DO' + #13#10 +
     '      Maske:= MaskSave;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}' + #13#10 +
     '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('D', lStatement.Temps[0].SelectorText);
@@ -22717,13 +22730,13 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @D;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(MaxTdbStatementMetadata(lPlan, 'TDB06.pas', '272:5-273:23').SemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual('272:1-273:23', SourceRangeText(lStatement.Edits[0].Range));
-  Assert.AreEqual('    lWithDatFilePtr := @D;' + #13#10 +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr := @D;{$T-}{$ELSE}lWithDatFilePtr := @D;{$ENDIF}' + #13#10 +
     '  lWithDatFilePtr^.Maske:= MaskSave;', lStatement.Edits[0].ReplacementText);
   AssertFinalRecipe(lStatement, 'record-pointer-temp');
   AssertCapturedRecipe(lStatement);
@@ -22755,7 +22768,7 @@ begin
     '    tMBreak := MustBreak;' + #13#10 +
     '    tOldMode := OldMode;' + #13#10 +
     '  END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithPrgBlockPtr := @PB;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    lWithPrgBlockPtr^.tProgramm := Programm;' + #13#10 +
     '    lWithPrgBlockPtr^.tgPC := gPC;' + #13#10 +
@@ -22770,7 +22783,7 @@ begin
   Assert.AreEqual('PrgBlock', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithPrgBlockPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
@@ -22793,7 +22806,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithPrgBlockPtr := @PB;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   Assert.AreEqual(lSemanticId,
@@ -22817,7 +22830,7 @@ begin
     '    MustBreak := tMBreak;' + #13#10 +
     '    OldMode := tOldMode;' + #13#10 +
     '  END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithPrgBlockPtr := @PB;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}' + #13#10 +
     '  BEGIN' + #13#10 +
     '    Programm := lWithPrgBlockPtr^.tProgramm;' + #13#10 +
     '    gPC := lWithPrgBlockPtr^.tgPC;' + #13#10 +
@@ -22832,7 +22845,7 @@ begin
   Assert.AreEqual('PrgBlock', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithPrgBlockPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithPrgBlockPtr := @PB;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
@@ -22855,7 +22868,7 @@ begin
   Assert.AreEqual('lWithPrgBlockPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithPrgBlockPtr: ^PrgBlock;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithPrgBlockPtr := @PB;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithPrgBlockPtr := @PB;{$T-}{$ELSE}lWithPrgBlockPtr := @PB;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   Assert.AreEqual(lSemanticId,
@@ -22889,7 +22902,7 @@ begin
   Assert.AreEqual(1, lStatement.Edits[1].Range.StartColumn);
   Assert.AreEqual(588, lStatement.Edits[1].Range.EndLine);
   Assert.AreEqual(8, lStatement.Edits[1].Range.EndColumn);
-  Assert.AreEqual('  lWithParaTypePtr := @Parameter;' + sLineBreak +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithParaTypePtr := @Parameter;{$T-}{$ELSE}lWithParaTypePtr := @Parameter;{$ENDIF}' + sLineBreak +
     '  CASE GetPB OF' + sLineBreak +
     '      DE:' + sLineBreak +
     '        IResult := ORD(NOT lWithParaTypePtr^.Auf);' + sLineBreak +
@@ -22959,7 +22972,7 @@ begin
     lStatement.Verification.ExpectedFileHash);
   Assert.AreEqual('WITH SubR[SubCount]^ DO' + #13#10 +
     '          sFiles := sFiles OR vFiles;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('        lWithESubTypePtr := @SubR[SubCount]^;' + #13#10 +
+  Assert.AreEqual('        {$IFOPT T-}{$T+}lWithESubTypePtr := @SubR[SubCount]^;{$T-}{$ELSE}lWithESubTypePtr := @SubR[SubCount]^;{$ENDIF}' + #13#10 +
     '        lWithESubTypePtr^.sFiles := lWithESubTypePtr^.sFiles OR vFiles;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('SubR[SubCount]^', lStatement.Temps[0].SelectorText);
@@ -22968,7 +22981,7 @@ begin
   Assert.AreEqual('ESubType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithESubTypePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithESubTypePtr: ^ESubType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithESubTypePtr := @SubR[SubCount]^;{$T-}{$ELSE}lWithESubTypePtr := @SubR[SubCount]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
@@ -22992,7 +23005,7 @@ begin
   Assert.AreEqual('lWithESubTypePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithESubTypePtr: ^ESubType;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithESubTypePtr := @SubR[SubCount]^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithESubTypePtr := @SubR[SubCount]^;{$T-}{$ELSE}lWithESubTypePtr := @SubR[SubCount]^;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   Assert.AreEqual(lSemanticId,
@@ -23049,7 +23062,7 @@ begin
     '                VNr := NewVar;' + #13#10 +
     '              END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('              begin' + #13#10 +
-    '                lWithVarInitRecPtr := @InitVar;' + #13#10 +
+    '                {$IFOPT T-}{$T+}lWithVarInitRecPtr := @InitVar;{$T-}{$ELSE}lWithVarInitRecPtr := @InitVar;{$ENDIF}' + #13#10 +
     '                BEGIN' + #13#10 +
     '                lWithVarInitRecPtr^.V_Name := ADDR(Name);' + #13#10 +
     '                lWithVarInitRecPtr^.V_NewName := TRUE;' + #13#10 +
@@ -23068,7 +23081,7 @@ begin
   Assert.AreEqual('VarInitRec', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithVarInitRecPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithVarInitRecPtr := @InitVar;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVarInitRecPtr := @InitVar;{$T-}{$ELSE}lWithVarInitRecPtr := @InitVar;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
   // DS-719 A-374: strict identity pin; fingerprint-only change reproduced.
@@ -23095,7 +23108,7 @@ begin
   Assert.AreEqual('lWithVarInitRecPtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithVarInitRecPtr: ^VarInitRec;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithVarInitRecPtr := @InitVar;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVarInitRecPtr := @InitVar;{$T-}{$ELSE}lWithVarInitRecPtr := @InitVar;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   // DS-719 A-368: strict identity pin; fingerprint-only change reproduced.
@@ -23197,7 +23210,7 @@ begin
     '          ShortSel := TRUE' + #13#10 +
     '        END;' + #13#10 +
     '      END;', lOwnerStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('      lWithJumpItemPtr := @Jump[Jumps];' + #13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithJumpItemPtr := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr := @Jump[Jumps];{$ENDIF}' + #13#10 +
     '      BEGIN' + #13#10 +
     '        lWithJumpItemPtr^.PC0 := gPC;' + #13#10 +
     '        k_Offset := m + 1;' + #13#10 +
@@ -23222,7 +23235,7 @@ begin
   Assert.AreEqual('TJumpItem', lOwnerStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithJumpItemPtr', lOwnerStatement.Temps[0].TempName);
   Assert.AreEqual('lWithJumpItemPtr: ^TJumpItem;', lOwnerStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr := @Jump[Jumps];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithJumpItemPtr := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr := @Jump[Jumps];{$ENDIF}',
     lOwnerStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lOwnerStatement.Temps[0].Reason);
   Assert.AreEqual(lOwnerId, lOwnerStatement.Temps[0].SemanticId);
@@ -23240,7 +23253,7 @@ begin
   Assert.AreEqual('lWithJumpItemPtr1', lPredecessorStatement.Temps[0].TempName);
   Assert.AreEqual('lWithJumpItemPtr1: ^TJumpItem;',
     lPredecessorStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr1 := @Jump[Jumps];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithJumpItemPtr1 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr1 := @Jump[Jumps];{$ENDIF}',
     lPredecessorStatement.Temps[0].InitializationText);
   Assert.AreEqual('TJumpItem', lPredecessorStatement.Temps[0].ReceiverType);
   Assert.AreEqual(lPredecessorId, lPredecessorStatement.Temps[0].SemanticId);
@@ -23265,7 +23278,7 @@ begin
     '                SetZero;' + #13#10 +
     '              END;', lSecondStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('              begin' + #13#10 +
-    '                lWithJumpItemPtr2 := @Jump[Jumps];' + #13#10 +
+    '                {$IFOPT T-}{$T+}lWithJumpItemPtr2 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr2 := @Jump[Jumps];{$ENDIF}' + #13#10 +
     '                BEGIN' + #13#10 +
     '                expected[Jumps] := [s_then, s_else, s_elsif, s_end];' + #13#10 +
     '                SetCommand(P_JMP);' + #13#10 +
@@ -23281,7 +23294,7 @@ begin
   Assert.AreEqual(1, Integer(Length(lSecondStatement.Temps)));
   Assert.AreEqual('lWithJumpItemPtr2', lSecondStatement.Temps[0].TempName);
   Assert.AreEqual('lWithJumpItemPtr2: ^TJumpItem;', lSecondStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr2 := @Jump[Jumps];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithJumpItemPtr2 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr2 := @Jump[Jumps];{$ENDIF}',
     lSecondStatement.Temps[0].InitializationText);
   Assert.AreEqual('TJumpItem', lSecondStatement.Temps[0].ReceiverType);
   Assert.AreEqual(lSecondId, lSecondStatement.Temps[0].SemanticId);
@@ -23343,7 +23356,7 @@ begin
     '                PC0 := gPC;' + #13#10 +
     '                K0 := k' + #13#10 +
     '              END;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('              lWithJumpItemPtr3 := @Jump[Jumps];' + #13#10 +
+  Assert.AreEqual('              {$IFOPT T-}{$T+}lWithJumpItemPtr3 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr3 := @Jump[Jumps];{$ENDIF}' + #13#10 +
     '              BEGIN' + #13#10 +
     '                lWithJumpItemPtr3^.PC0 := gPC;' + #13#10 +
     '                lWithJumpItemPtr3^.K0 := k' + #13#10 +
@@ -23355,7 +23368,7 @@ begin
   Assert.AreEqual('TJumpItem', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithJumpItemPtr3', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithJumpItemPtr3: ^TJumpItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr3 := @Jump[Jumps];', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithJumpItemPtr3 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr3 := @Jump[Jumps];{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
@@ -23375,7 +23388,7 @@ begin
   Assert.AreEqual('lWithJumpItemPtr3', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithJumpItemPtr3: ^TJumpItem;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithJumpItemPtr3 := @Jump[Jumps];',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithJumpItemPtr3 := @Jump[Jumps];{$T-}{$ELSE}lWithJumpItemPtr3 := @Jump[Jumps];{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   Assert.AreEqual(lSemanticId,
@@ -23425,7 +23438,7 @@ begin
     '                END;' + #13#10 +
     '              END;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('              begin' + #13#10 +
-    '                lWithESubTypePtr1 := @SubR[0]^;' + #13#10 +
+    '                {$IFOPT T-}{$T+}lWithESubTypePtr1 := @SubR[0]^;{$T-}{$ELSE}lWithESubTypePtr1 := @SubR[0]^;{$ENDIF}' + #13#10 +
     '                BEGIN' + #13#10 +
     '                GSortStr := Argument;' + #13#10 +
     '                IF (GSortStr <> '''') AND (GSortStr[1] = ''!'')' + #13#10 +
@@ -23455,7 +23468,7 @@ begin
   Assert.AreEqual('ESubType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithESubTypePtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithESubTypePtr1: ^ESubType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithESubTypePtr1 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithESubTypePtr1 := @SubR[0]^;{$T-}{$ELSE}lWithESubTypePtr1 := @SubR[0]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
@@ -23484,7 +23497,7 @@ begin
   Assert.AreEqual(2311, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(11, lStatement.Edits[0].Range.EndColumn);
   Assert.AreEqual('        begin' + #13#10 +
-    '          lWithESubTypePtr3 := @SubR[0]^;' + #13#10 +
+    '          {$IFOPT T-}{$T+}lWithESubTypePtr3 := @SubR[0]^;{$T-}{$ELSE}lWithESubTypePtr3 := @SubR[0]^;{$ENDIF}' + #13#10 +
     '          BEGIN' + #13#10 +
     '          RTL[S_Report] := 0;' + #13#10 +
     '          RTL[S_Data] := tPC;' + #13#10 +
@@ -23533,7 +23546,7 @@ begin
   Assert.AreEqual('ESubType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithESubTypePtr3', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithESubTypePtr3: ^ESubType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithESubTypePtr3 := @SubR[0]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithESubTypePtr3 := @SubR[0]^;{$T-}{$ELSE}lWithESubTypePtr3 := @SubR[0]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId, lStatement.Temps[0].SemanticId);
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
@@ -23562,7 +23575,7 @@ begin
   Assert.AreEqual('WITH Parameter DO' + #13#10 +
     '    IF NOT SingleReport THEN' + #13#10 +
     '      Reihen := 0;', lStatement.Verification.ExpectedSourceText);
-  Assert.AreEqual('  lWithParaTypePtr := @Parameter;' + #13#10 +
+  Assert.AreEqual('  {$IFOPT T-}{$T+}lWithParaTypePtr := @Parameter;{$T-}{$ELSE}lWithParaTypePtr := @Parameter;{$ENDIF}' + #13#10 +
     '  IF NOT SingleReport THEN' + #13#10 +
     '      lWithParaTypePtr^.Reihen := 0;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
@@ -23572,7 +23585,7 @@ begin
   Assert.AreEqual('ParaType', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('lWithParaTypePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithParaTypePtr: ^ParaType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithParaTypePtr := @Parameter;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithParaTypePtr := @Parameter;{$T-}{$ELSE}lWithParaTypePtr := @Parameter;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(lSemanticId,
     lStatement.Temps[0].SemanticId);
@@ -23596,7 +23609,7 @@ begin
   Assert.AreEqual('lWithParaTypePtr', lStatement.RewriteRecipe.SelectorDecisions[0].TempName);
   Assert.AreEqual('lWithParaTypePtr: ^ParaType;',
     lStatement.RewriteRecipe.SelectorDecisions[0].DeclarationText);
-  Assert.AreEqual('lWithParaTypePtr := @Parameter;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithParaTypePtr := @Parameter;{$T-}{$ELSE}lWithParaTypePtr := @Parameter;{$ENDIF}',
     lStatement.RewriteRecipe.SelectorDecisions[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.RewriteRecipe.SelectorDecisions[0].Reason);
   Assert.AreEqual(lSemanticId,
@@ -23616,7 +23629,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status);
   Assert.AreEqual('', lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
-  Assert.AreEqual('      lWithSubTypePtr := @Sub^;' + #13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithSubTypePtr := @Sub^;{$T-}{$ELSE}lWithSubTypePtr := @Sub^;{$ENDIF}' + #13#10 +
     '      BEGIN' + #13#10 +
     '        komplett := lWithSubTypePtr^.Alles;' + #13#10 +
     '        IF ProgrammModus AND (lWithSubTypePtr^.sFiles <> 0) AND NOT InSet(lWithSubTypePtr^.sFiles, FileNo)' + #13#10 +
@@ -23704,7 +23717,7 @@ begin
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithSubTypePtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithSubTypePtr: ^SubType;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithSubTypePtr := @Sub^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithSubTypePtr := @Sub^;{$T-}{$ELSE}lWithSubTypePtr := @Sub^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -23714,7 +23727,7 @@ begin
     '', lStatement.Edits[0].ReplacementText);
   Assert.AreEqual('replace-statement', lStatement.Edits[1].Kind);
   Assert.AreEqual('2704:1-2784:10', SourceRangeText(lStatement.Edits[1].Range));
-  Assert.AreEqual('      lWithSubTypePtr := @Sub^;' + #13#10 +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithSubTypePtr := @Sub^;{$T-}{$ELSE}lWithSubTypePtr := @Sub^;{$ENDIF}' + #13#10 +
     '      BEGIN' + #13#10 +
     '        komplett := lWithSubTypePtr^.Alles;' + #13#10 +
     '        IF ProgrammModus AND (lWithSubTypePtr^.sFiles <> 0) AND NOT InSet(lWithSubTypePtr^.sFiles, FileNo)' + #13#10 +
@@ -23921,7 +23934,7 @@ begin
   Assert.AreEqual('lWithPrgSaveRecPtr1', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithPrgSaveRecPtr1^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('lWithPrgSaveRecPtr1: ^TPrgSaveRec;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithPrgSaveRecPtr1 := @PrgSaveRec;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithPrgSaveRecPtr1 := @PrgSaveRec;{$T-}{$ELSE}lWithPrgSaveRecPtr1 := @PrgSaveRec;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
@@ -23930,7 +23943,7 @@ begin
   Assert.AreEqual(3218, lStatement.Edits[0].Range.EndLine);
   Assert.AreEqual(10, lStatement.Edits[0].Range.EndColumn);
   Assert.AreEqual('      begin' + sLineBreak +
-    '        lWithPrgSaveRecPtr1 := @PrgSaveRec;' + sLineBreak +
+    '        {$IFOPT T-}{$T+}lWithPrgSaveRecPtr1 := @PrgSaveRec;{$T-}{$ELSE}lWithPrgSaveRecPtr1 := @PrgSaveRec;{$ENDIF}' + sLineBreak +
     '        BEGIN' + sLineBreak +
     '        Programm := lWithPrgSaveRecPtr1^.tPrg;' + sLineBreak +
     '        MaxPrg := lWithPrgSaveRecPtr1^.tMP;' + sLineBreak +
@@ -24891,12 +24904,12 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 945, 5, lStatement),
     'Expected maxTdb NewDATFile D^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('    lWithDatFilePtr1 := @D^;' + sLineBreak +
+  Assert.AreEqual('    {$IFOPT T-}{$T+}lWithDatFilePtr1 := @D^;{$T-}{$ELSE}lWithDatFilePtr1 := @D^;{$ENDIF}' + sLineBreak +
     '    lWithDatFilePtr1^.Maske.Free;', lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr1: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr1 := @D^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr1 := @D^;{$T-}{$ELSE}lWithDatFilePtr1 := @D^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(1, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('replace-statement', lStatement.Edits[0].Kind);
   Assert.AreEqual(945, lStatement.Edits[0].Range.StartLine);
@@ -24930,13 +24943,13 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'DBFUTIL.pas', 1064, 7, lStatement),
     'Expected maxTdb ConvertFile DF[FilesOffen]^ with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual('      lWithDatFilePtr := @DF[FilesOffen]^;' + sLineBreak +
+  Assert.AreEqual('      {$IFOPT T-}{$T+}lWithDatFilePtr := @DF[FilesOffen]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[FilesOffen]^;{$ENDIF}' + sLineBreak +
     '      Convert(DBF, FilesOffen, DBF.Labels, lWithDatFilePtr^.Maske, lWithDatFilePtr^.RecZahl, DBF.E^, lWithDatFilePtr^.Dat^);',
     lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('record-pointer-temp', lStatement.Temps[0].Strategy);
   Assert.AreEqual('lWithDatFilePtr: ^DatFile;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithDatFilePtr := @DF[FilesOffen]^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithDatFilePtr := @DF[FilesOffen]^;{$T-}{$ELSE}lWithDatFilePtr := @DF[FilesOffen]^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(1043, lStatement.Edits[0].Range.StartLine);
@@ -25259,7 +25272,7 @@ begin
     lExpected := lIndent + 'begin' + sLineBreak;
     lInnerIndent := lIndent + '  ';
   end;
-  lExpected := lExpected + lInnerIndent + 'lWithItemPtr := @' + lSelector + ';' +
+  lExpected := lExpected + lInnerIndent + '{$IFOPT T-}{$T+}lWithItemPtr := @' + lSelector + ';{$T-}{$ELSE}lWithItemPtr := @' + lSelector + ';{$ENDIF}' +
     sLineBreak + lInnerIndent + 'begin' + sLineBreak +
     lIndent + '  Inc(lWithItemPtr^.Value);' + sLineBreak +
     lIndent + '  Inc(' + lIndexName + ');' + sLineBreak +
@@ -25275,7 +25288,7 @@ begin
   Assert.AreEqual('lWithItemPtr', lStatement.Temps[0].TempName);
   Assert.AreEqual('lWithItemPtr^', lStatement.Temps[0].QualifierText);
   Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithItemPtr := @' + lSelector + ';',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @' + lSelector + ';{$T-}{$ELSE}lWithItemPtr := @' + lSelector + ';{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual('record-pointer-preserves-alias', lStatement.Temps[0].Reason);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
@@ -25309,7 +25322,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'InlineLexerUnit.pas', cStartLines[aCase], 3,
     lStatement));
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  lExpected := '  lWithItemPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak;
+  lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @aValue;{$T-}{$ELSE}lWithItemPtr := @aValue;{$ENDIF}' + sLineBreak + '  begin' + sLineBreak;
   if aCase = 0 then
     lExpected := lExpected +
       '    lWithItemPtr^.n := 1;' + sLineBreak +
@@ -25325,7 +25338,7 @@ begin
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithItemPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aValue;{$T-}{$ELSE}lWithItemPtr := @aValue;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.StartLine);
   Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.EndLine);
@@ -25360,7 +25373,7 @@ begin
     Exit;
   end;
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  lExpected := '  lWithVectorPtr := @aValue;' + sLineBreak +
+  lExpected := '  {$IFOPT T-}{$T+}lWithVectorPtr := @aValue;{$T-}{$ELSE}lWithVectorPtr := @aValue;{$ENDIF}' + sLineBreak +
     '  begin' + sLineBreak;
   case aCase of
     0: lExpected := lExpected +
@@ -25380,7 +25393,7 @@ begin
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithVectorPtr: ^TVector;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithVectorPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVectorPtr := @aValue;{$T-}{$ELSE}lWithVectorPtr := @aValue;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(cStartLines[aCase] - 1, lStatement.Edits[0].Range.StartLine);
@@ -25426,11 +25439,11 @@ begin
   lReceiver := 'v';
   if aCase in [3, 5] then
     lReceiver := 'aValue';
-  lExpected := '  lWithVectorPtr := @' + lReceiver + ';' + sLineBreak +
+  lExpected := '  {$IFOPT T-}{$T+}lWithVectorPtr := @' + lReceiver + ';{$T-}{$ELSE}lWithVectorPtr := @' + lReceiver + ';{$ENDIF}' + sLineBreak +
     '  begin' + sLineBreak;
   case aCase of
     0: lExpected := '    begin' + sLineBreak +
-      '      lWithVectorPtr := @v;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithVectorPtr := @v;{$T-}{$ELSE}lWithVectorPtr := @v;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak +
       '      Inc(lWithVectorPtr^.n);' + sLineBreak +
       '      lWithVectorPtr^.v[1, lWithVectorPtr^.n] := 7;' + sLineBreak +
@@ -25478,7 +25491,7 @@ begin
   Assert.AreEqual(lColumn + 3, lStatement.Range.EndColumn);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithVectorPtr: ^TVector;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithVectorPtr := @' + lReceiver + ';',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithVectorPtr := @' + lReceiver + ';{$T-}{$ELSE}lWithVectorPtr := @' + lReceiver + ';{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
@@ -25562,18 +25575,19 @@ begin
     if i = 0 then
     begin
       lTempName := 'lWithItemPtr';
-      lExpected := '  lWithItemPtr := @lPointer^;' + sLineBreak +
+      lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @lPointer^;{$T-}{$ELSE}lWithItemPtr := @lPointer^;{$ENDIF}' + sLineBreak +
         '  lWithItemPtr^.Value := 1;';
       lFirst := lStatement;
     end else begin
       lTempName := 'lWithItemPtr1';
-      lExpected := '  lWithItemPtr1 := @lPointer^;' + sLineBreak +
+      lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr1 := @lPointer^;{$T-}{$ELSE}lWithItemPtr1 := @lPointer^;{$ENDIF}' + sLineBreak +
         '  Inc(lWithItemPtr1^.Value);';
     end;
     Assert.AreEqual(lExpected, lStatement.ReplacementText);
     Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
     Assert.AreEqual(lTempName + ': ^TItem;', lStatement.Temps[0].DeclarationText);
-    Assert.AreEqual(lTempName + ' := @lPointer^;', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual('{$IFOPT T-}{$T+}' + lTempName + ' := @lPointer^;' + '{$T-}{$ELSE}' +
+    lTempName + ' := @lPointer^;' + '{$ENDIF}', lStatement.Temps[0].InitializationText);
     Assert.AreEqual(2 - i, Integer(Length(lStatement.Edits)));
     Assert.AreEqual('replace-statement', lStatement.Edits[1 - i].Kind);
     Assert.AreEqual(lExpected, lStatement.Edits[1 - i].ReplacementText);
@@ -25609,18 +25623,18 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   if aCase < 2 then
   begin
-    lExpected := '  lWithItemPtr := @aItem;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}' + sLineBreak +
       '  begin' + sLineBreak +
       '    Integer(aRaw) := lWithItemPtr^.Value + aAdd;' + sLineBreak +
       '    ' + cRoutineNames[aCase] + ' := Later(lWithItemPtr^.Value, aAdd);' + sLineBreak +
       '  end;';
   end else
-    lExpected := '  lWithItemPtr := @aItem;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}' + sLineBreak +
       '  Shadowed := lWithItemPtr^.Value + aShadow;';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
@@ -25637,7 +25651,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Bump(aAdd);'));
   Assert.IsTrue(ContainsText(lStatement.ReplacementText, 'Inner := lWithItemPtr^.Value > 0;'));
   AssertCapturedRecipe(lStatement);
@@ -25682,17 +25696,17 @@ begin
   if aCase < 2 then
   begin
     Assert.AreEqual(2, Integer(Length(lStatement.Temps)));
-    Assert.AreEqual('lWithItemPtr := @aOuter;', lStatement.Temps[0].InitializationText);
-    Assert.AreEqual('lWithItemPtr1 := @PItem(aPointer)^;', lStatement.Temps[1].InitializationText);
+    Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aOuter;{$T-}{$ELSE}lWithItemPtr := @aOuter;{$ENDIF}', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr1 := @PItem(aPointer)^;{$T-}{$ELSE}lWithItemPtr1 := @PItem(aPointer)^;{$ENDIF}', lStatement.Temps[1].InitializationText);
     Assert.AreEqual('lWithItemPtr1: ^TItem;', lStatement.Temps[1].DeclarationText);
     Assert.AreEqual('21:1-21:1', SourceRangeText(lStatement.Edits[0].Range));
     Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak +
       '  lWithItemPtr1: ^TItem;' + sLineBreak, lStatement.Edits[0].ReplacementText);
     Assert.AreEqual('23:1-29:7', SourceRangeText(lStatement.Edits[1].Range));
     lExpected := '    begin' + sLineBreak +
-      '      lWithItemPtr := @aOuter;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithItemPtr := @aOuter;{$T-}{$ELSE}lWithItemPtr := @aOuter;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak +
-      '      lWithItemPtr1 := @PItem(aPointer)^;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithItemPtr1 := @PItem(aPointer)^;{$T-}{$ELSE}lWithItemPtr1 := @PItem(aPointer)^;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak +
       '        lWithItemPtr1^.Value := lWithItemPtr1^.Value + 1' + sLineBreak +
       '      end' + sLineBreak + '    end' + sLineBreak + '    end';
@@ -25708,12 +25722,12 @@ begin
     end;
   end else begin
     Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-    Assert.AreEqual('lWithItemPtr := @PItem(aPointer)^;', lStatement.Temps[0].InitializationText);
+    Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @PItem(aPointer)^;{$T-}{$ELSE}lWithItemPtr := @PItem(aPointer)^;{$ENDIF}', lStatement.Temps[0].InitializationText);
     Assert.AreEqual('34:1-34:1', SourceRangeText(lStatement.Edits[0].Range));
     Assert.AreEqual('var' + sLineBreak + '  lWithItemPtr: ^TItem;' + sLineBreak,
       lStatement.Edits[0].ReplacementText);
     Assert.AreEqual('35:1-42:17', SourceRangeText(lStatement.Edits[1].Range));
-    lExpected := '  lWithItemPtr := @PItem(aPointer)^;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @PItem(aPointer)^;{$T-}{$ELSE}lWithItemPtr := @PItem(aPointer)^;{$ENDIF}' + sLineBreak +
       '  if lWithItemPtr^.Value < 0 then' + sLineBreak +
       '      Result := -1' + sLineBreak + '    else if aFlag then' + sLineBreak +
       '    begin' + sLineBreak + '      Result := lWithItemPtr^.Value' + sLineBreak +
@@ -25751,14 +25765,14 @@ begin
   Assert.AreEqual('9ed4dd49c56864b2850a869a7e95b55fb2b7824ebdb3636138ffb43287c007c6',
     lStatement.Verification.ExpectedFileHash);
   lExpected := '    begin' + sLineBreak +
-    '      lWithItemPtr := @aItem;' + sLineBreak +
+    '      {$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}' + sLineBreak +
     '      begin' + sLineBreak +
     '      lWithItemPtr^.Value := lWithItemPtr^.Value + 1' + sLineBreak +
     '    end' + sLineBreak + '    end';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual('46:1-46:1', SourceRangeText(lStatement.Edits[0].Range));
@@ -25792,21 +25806,21 @@ begin
     Assert.AreEqual(Format('%d:5-%d:7', [cStartLines[aCase], cEndLines[aCase]]),
       SourceRangeText(lStatement.Range));
     lExpected := '    begin' + sLineBreak +
-      '      lWithItemPtr := @aItem;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak +
       '      lWithItemPtr^.Value := lWithItemPtr^.Value + 1' + sLineBreak +
       '    end' + sLineBreak + '    end';
   end else begin
     Assert.AreEqual('49:5-54:8', SourceRangeText(lStatement.Range));
     lExpected := '    begin' + sLineBreak +
-      '      lWithItemPtr := @aItem;' + sLineBreak +
+      '      {$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak + '      begin' + sLineBreak +
       '        lWithItemPtr^.Value := lWithItemPtr^.Value + 1' + sLineBreak +
       '      end' + sLineBreak + '    end;' + sLineBreak + '    end;';
   end;
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithItemPtr := @aItem;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aItem;{$T-}{$ELSE}lWithItemPtr := @aItem;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual(lExpected, lStatement.Edits[1].ReplacementText);
   AssertCapturedRecipe(lStatement);
@@ -25868,13 +25882,13 @@ begin
   Assert.AreEqual('698cfab2b68fe50acdf9b30a389b27fcab867dc0ee047be1c7e9749db8ae5e6f',
     lStatement.Verification.ExpectedFileHash);
   lExpected := '    begin' + sLineBreak +
-    '      lWithBodyCastRecordPtr := @aReceiver;' + sLineBreak +
+    '      {$IFOPT T-}{$T+}lWithBodyCastRecordPtr := @aReceiver;{$T-}{$ELSE}lWithBodyCastRecordPtr := @aReceiver;{$ENDIF}' + sLineBreak +
     '      begin' + sLineBreak + '      ' + cRewrittenBodies[aCase] + sLineBreak +
     '    end;' + sLineBreak + '    end;';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithBodyCastRecordPtr: ^TBodyCastRecord;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithBodyCastRecordPtr := @aReceiver;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithBodyCastRecordPtr := @aReceiver;{$T-}{$ELSE}lWithBodyCastRecordPtr := @aReceiver;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(Format('%d:1-%d:1', [lStartLine - 2, lStartLine - 2]),
@@ -25934,11 +25948,11 @@ begin
   Assert.AreEqual(Format('%d:3-%d:6', [cStartLines[aCase], cStartLines[aCase] + 3]),
     SourceRangeText(lStatement.Range));
   if aCase < 2 then
-    lExpected := '  lWithBodyCastRecordPtr := @aReceiver;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithBodyCastRecordPtr := @aReceiver;{$T-}{$ELSE}lWithBodyCastRecordPtr := @aReceiver;{$ENDIF}' + sLineBreak +
       '  begin' + sLineBreak + '    aResult := Double(lWithBodyCastRecordPtr^.IntValue)' +
       sLineBreak + '  end;'
   else
-    lExpected := '  lWithShadowRecordPtr := @lReceiver;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithShadowRecordPtr := @lReceiver;{$T-}{$ELSE}lWithShadowRecordPtr := @lReceiver;{$ENDIF}' + sLineBreak +
       '  begin' + sLineBreak +
       '    aResult := lWithShadowRecordPtr^.Double(lWithShadowRecordPtr^.IntValue)' +
       sLineBreak + '  end;';
@@ -26008,14 +26022,14 @@ begin
   lBody := StringReplace(lBody, 'fValue', 'lWithItemPtr^.fValue', [rfReplaceAll]);
   if (aCase = 1) or (aCase = 2) then
     lExpected := lIndent + 'begin' + sLineBreak + lIndent +
-      '  lWithItemPtr := @' + lSelector + ';' + sLineBreak + '  ' + lBody +
+      '  {$IFOPT T-}{$T+}lWithItemPtr := @' + lSelector + ';{$T-}{$ELSE}lWithItemPtr := @' + lSelector + ';{$ENDIF}' + sLineBreak + '  ' + lBody +
       sLineBreak + lIndent + 'end;'
   else
-    lExpected := lIndent + 'lWithItemPtr := @' + lSelector + ';' + sLineBreak + lBody;
+    lExpected := lIndent + '{$IFOPT T-}{$T+}lWithItemPtr := @' + lSelector + ';{$T-}{$ELSE}lWithItemPtr := @' + lSelector + ';{$ENDIF}' + sLineBreak + lBody;
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithItemPtr: ^TItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithItemPtr := @' + lSelector + ';', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @' + lSelector + ';{$T-}{$ELSE}lWithItemPtr := @' + lSelector + ';{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('declare-temp', lStatement.Edits[0].Kind);
   Assert.AreEqual(Format('%d:1-%d:1', [cDeclarationLines[aCase], cDeclarationLines[aCase]]),
@@ -26044,7 +26058,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastReceiverUnit.pas', 69, 3, lStatement));
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('lWithItemPtr := @aReceiver^;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithItemPtr := @aReceiver^;{$T-}{$ELSE}lWithItemPtr := @aReceiver^;{$ENDIF}', lStatement.Temps[0].InitializationText);
   AssertCapturedRecipe(lStatement);
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'PointerCastReceiverUnit.pas', 89, 3, lStatement));
   Assert.AreEqual('skipped', lStatement.Status);
@@ -26057,9 +26071,9 @@ procedure TRemoveWithPlanTests.FinalDtoKeepsRetainedParentMemberScope(const aCas
 const
   cParentLines: array[0..4] of Integer = (39, 59, 78, 101, 124);
   cInitialization: array[0..4] of string = (
-    'lWithInnerPtr := @lInner;', 'lWithShadowPtr := @lInner;',
-    'lWithInnerPtr := @lInner;', 'lWithInnerPtr := @lItems[v[0]]^;',
-    'lWithInnerPtr := @lInner;');
+    '{$IFOPT T-}{$T+}lWithInnerPtr := @lInner;{$T-}{$ELSE}lWithInnerPtr := @lInner;{$ENDIF}', '{$IFOPT T-}{$T+}lWithShadowPtr := @lInner;{$T-}{$ELSE}lWithShadowPtr := @lInner;{$ENDIF}',
+    '{$IFOPT T-}{$T+}lWithInnerPtr := @lInner;{$T-}{$ELSE}lWithInnerPtr := @lInner;{$ENDIF}', '{$IFOPT T-}{$T+}lWithInnerPtr := @lItems[v[0]]^;{$T-}{$ELSE}lWithInnerPtr := @lItems[v[0]]^;{$ENDIF}',
+    '{$IFOPT T-}{$T+}lWithInnerPtr := @lInner;{$T-}{$ELSE}lWithInnerPtr := @lInner;{$ENDIF}');
   cBody: array[0..4] of string = (
     '  lWithInnerPtr^.Count := v[0];',
     '  lWithShadowPtr^.Count := lWithShadowPtr^.v[0];',
@@ -26121,15 +26135,15 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   if aCase < 2 then
   begin
-    lExpected := '  lWithOuterPtr := @aOuter;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithOuterPtr := @aOuter;{$T-}{$ELSE}lWithOuterPtr := @aOuter;{$ENDIF}' + sLineBreak +
       '      begin' + sLineBreak;
     if aCase = 1 then
-      lExpected := lExpected + '      lWithItemPtr := @aKnown;' + sLineBreak +
-        '      lWithItemPtr1 := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;' + sLineBreak +
+      lExpected := lExpected + '      {$IFOPT T-}{$T+}lWithItemPtr := @aKnown;{$T-}{$ELSE}lWithItemPtr := @aKnown;{$ENDIF}' + sLineBreak +
+        '      {$IFOPT T-}{$T+}lWithItemPtr1 := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;{$T-}{$ELSE}lWithItemPtr1 := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;{$ENDIF}' + sLineBreak +
         '      AdvanceCount(lWithItemPtr1^.Value);' + sLineBreak
     else
       lExpected := lExpected +
-        '      lWithItemPtr := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;' + sLineBreak +
+        '      {$IFOPT T-}{$T+}lWithItemPtr := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;{$T-}{$ELSE}lWithItemPtr := @gOwners[0]^.Items[lWithOuterPtr^.Indexes[0, 0]]^;{$ENDIF}' + sLineBreak +
         '      AdvanceCount(lWithItemPtr^.Value);' + sLineBreak;
     lExpected := lExpected + '    end;';
     Assert.AreEqual(2 + aCase, Integer(Length(lStatement.Temps)));
@@ -26140,7 +26154,7 @@ begin
       lStatement.Temps[High(lStatement.Temps)].SelectorText);
     Assert.AreEqual('TItem', lStatement.Temps[High(lStatement.Temps)].ReceiverType);
   end else begin
-    lExpected := '  lWithItemPtr := @aKnown;' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithItemPtr := @aKnown;{$T-}{$ELSE}lWithItemPtr := @aKnown;{$ENDIF}' + sLineBreak +
       '  AdvanceCount(lWithItemPtr^.Value);';
     Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   end;
@@ -26334,12 +26348,12 @@ begin
     '    AdvanceCount(Count);' + sLineBreak + '  end;', lStatement.Verification.ExpectedSourceText);
   Assert.AreEqual('6b05b5cd1ff270a1e660f17e40ff532abaec11dabf9afd462eb5d83a0d82a560',
     lStatement.Verification.ExpectedFileHash);
-  lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+  lExpected := '  {$IFOPT T-}{$T+}lWithImportedRecordPtr := @aValue;{$T-}{$ELSE}lWithImportedRecordPtr := @aValue;{$ENDIF}' + sLineBreak + '  begin' + sLineBreak +
     '    AdvanceCount(lWithImportedRecordPtr^.Count);' + sLineBreak + '  end;';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithImportedRecordPtr: ^TImportedRecord;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithImportedRecordPtr := @aValue;', lStatement.Temps[0].InitializationText);
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithImportedRecordPtr := @aValue;{$T-}{$ELSE}lWithImportedRecordPtr := @aValue;{$ENDIF}', lStatement.Temps[0].InitializationText);
   Assert.AreEqual('TImportedRecord', lStatement.Temps[0].ReceiverType);
   Assert.AreEqual('aValue', lStatement.Temps[0].SelectorText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
@@ -26368,7 +26382,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'ImportedProcedureConsumer.pas', cLines[aCase], 3, lStatement));
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   Assert.AreEqual('', lStatement.SafetyReason);
-  lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+  lExpected := '  {$IFOPT T-}{$T+}lWithImportedRecordPtr := @aValue;{$T-}{$ELSE}lWithImportedRecordPtr := @aValue;{$ENDIF}' + sLineBreak + '  begin' + sLineBreak +
     '    ' + cBodies[aCase] + sLineBreak + '  end;';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
@@ -26439,7 +26453,7 @@ begin
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
   if aCase = 0 then
   begin
-    lExpected := '  lWithImportedRecordPtr := @aValue;' + sLineBreak + '  begin' + sLineBreak +
+    lExpected := '  {$IFOPT T-}{$T+}lWithImportedRecordPtr := @aValue;{$T-}{$ELSE}lWithImportedRecordPtr := @aValue;{$ENDIF}' + sLineBreak + '  begin' + sLineBreak +
       '    AdvanceCount(lWithImportedRecordPtr^.Count);' + sLineBreak + '  end;';
     Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
     Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
@@ -26675,7 +26689,7 @@ begin
   begin
     Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
     if aCase in [0, 7, 8] then
-      Assert.AreEqual('  lWithLocalPtr := @Item;'#13#10' lWithLocalPtr^.Value := 1;',
+      Assert.AreEqual('  {$IFOPT T-}{$T+}lWithLocalPtr := @Item;{$T-}{$ELSE}lWithLocalPtr := @Item;{$ENDIF}'#13#10' lWithLocalPtr^.Value := 1;',
         lStatement.ReplacementText)
     else
       Assert.AreEqual(' Item.Value := 1;', lStatement.ReplacementText);
@@ -27130,14 +27144,14 @@ begin
     '  begin' + sLineBreak + '    fValue := fValue + 1;' + sLineBreak +
     '    aSlot.fData := aOther;' + sLineBreak + '    fValue := fValue + 10;' +
     sLineBreak + '  end;', lStatement.Verification.ExpectedSourceText);
-  lExpected := '  lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;' + sLineBreak +
+  lExpected := '  {$IFOPT T-}{$T+}lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;{$T-}{$ELSE}lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;{$ENDIF}' + sLineBreak +
     '  begin' + sLineBreak + '    lWithForeignItemPtr^.fValue := lWithForeignItemPtr^.fValue + 1;' +
     sLineBreak + '    aSlot.fData := aOther;' + sLineBreak +
     '    lWithForeignItemPtr^.fValue := lWithForeignItemPtr^.fValue + 10;' + sLineBreak + '  end;';
   Assert.AreEqual(lExpected, lStatement.ReplacementText);
   Assert.AreEqual(1, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('lWithForeignItemPtr: ^TForeignItem;', lStatement.Temps[0].DeclarationText);
-  Assert.AreEqual('lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;',
+  Assert.AreEqual('{$IFOPT T-}{$T+}lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;{$T-}{$ELSE}lWithForeignItemPtr := @PForeignItem(aSlot.fData)^;{$ENDIF}',
     lStatement.Temps[0].InitializationText);
   Assert.AreEqual(2, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('18:1-18:1', SourceRangeText(lStatement.Edits[0].Range));
