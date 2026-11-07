@@ -28,6 +28,9 @@ type
     function TempPath(const aName: string): string;
   public
     [Test]
+    procedure PhysicalSymbolOriginsSurviveCacheHitAndClone;
+    [Test]
+
     [TestCase('Miss refusal', 'reject')]
     [TestCase('Hit refusal', 'hit-reject')]
     [TestCase('Exception refusal', 'raise')]
@@ -486,8 +489,8 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.92', lIdentity.ParserVersion,
-      'Integrated headings, owner references, conditional safety, compiler define evidence and batch extraction require fresh extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.96', lIdentity.ParserVersion,
+      'Integrated extraction and physical symbol origins require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');
@@ -636,6 +639,70 @@ begin
   finally
     lCache.Free;
   end;
+end;
+
+procedure TCacheTests.PhysicalSymbolOriginsSurviveCacheHitAndClone;
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lDocument: TJSONObject;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+  lWriter: TDelphiSemanticSqliteUnitCache;
+begin
+  lRoot := TPath.GetDirectoryName(TempPath('CachedSymbols.pas'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'symbols.inc'), 'var IncludedValue: Integer;'#13#10,
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'CachedSymbols.pas');
+  lOptions.SearchPaths := [lRoot];
+  TFile.WriteAllText(lOptions.SourceFileName, 'unit CachedSymbols;'#13#10 +
+    'interface'#13#10 + '{$I symbols.inc}'#13#10 + 'implementation'#13#10 + 'end.', TEncoding.ASCII);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  GC(lCache, TDelphiSemanticUnitCache.Create(lCacheOptions), g);
+  lCache.GetOrExtractUnitModel(lOptions);
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual(1, lCache.Metrics.CacheHits);
+  GC(lDocument, TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject, g);
+  Assert.IsTrue(lDocument.GetValue('PhysicalSymbolOccurrences') is TJSONArray,
+    'Cache hit lost physical symbol enumeration');
+  Assert.AreEqual('true', lDocument.GetValue('PhysicalSymbolOccurrencesAvailable').Value);
+  Assert.AreEqual(ModelToJson(lModel), ModelToJson(JsonToUnitCacheModel(UnitCacheModelToJson(lModel))));
+  Assert.AreEqual(1, Integer(Length(lModel.PhysicalSymbolOccurrences)));
+  Assert.AreEqual('IncludedValue', lModel.PhysicalSymbolOccurrences[0].Name);
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrences[0].Verified);
+  Assert.AreEqual(TPath.Combine(lRoot, 'symbols.inc'), lModel.PhysicalSymbolOccurrences[0].FileName);
+  lModel.PhysicalSymbolOccurrences[0].Name := 'Corrupted';
+  lModel.PhysicalSymbolOccurrences[0].FileName := 'Wrong.inc';
+  lModel.PhysicalSymbolOccurrences[0].Line := -1;
+  lModel.PhysicalSymbolOccurrences[0].Verified := False;
+  lModel.PhysicalSymbolOccurrencesAvailable := False;
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual(2, lCache.Metrics.CacheHits);
+  Assert.AreEqual('IncludedValue', lModel.PhysicalSymbolOccurrences[0].Name);
+  Assert.AreEqual(1, lModel.PhysicalSymbolOccurrences[0].Line);
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrences[0].Verified);
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrencesAvailable);
+  lModel.PhysicalSymbolOccurrences[0].Verified := False;
+  lModel.PhysicalSymbolOccurrencesAvailable := False;
+  lModel := JsonToUnitCacheModel(UnitCacheModelToJson(lModel));
+  Assert.IsFalse(lModel.PhysicalSymbolOccurrences[0].Verified);
+  Assert.IsFalse(lModel.PhysicalSymbolOccurrencesAvailable);
+  lCacheOptions.SqliteCacheFileName := TempPath('physical-symbols.sqlite3');
+  lWriter := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lWriter.GetOrExtractUnitModel(lOptions);
+  finally
+    lWriter.Free;
+  end;
+  GC(lCache, TDelphiSemanticSqliteUnitCache.Create(lCacheOptions), g);
+  lModel := lCache.GetOrExtractUnitModel(lOptions);
+  Assert.AreEqual(1, lCache.Metrics.CacheHits, 'Reopening SQLite must load the captured sidecar');
+  Assert.AreEqual('IncludedValue', lModel.PhysicalSymbolOccurrences[0].Name);
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrences[0].Verified);
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrencesAvailable);
 end;
 
 procedure TCacheTests.CacheHitKeepsPhysicalIncludeReferenceOccurrences;

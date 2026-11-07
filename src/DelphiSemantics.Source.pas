@@ -50,6 +50,11 @@ type
     class function LoadFile(const aFileName: string): TDelphiSemanticSourceLoadResult; static;
   end;
 
+// Empty filenames are the legacy spelling of an owning-unit fact, never a
+// reason to replace a nonempty physical include origin.
+function FactSourceFileName(const aUnitFileName, aFactFileName: string): string;
+function SourcePositionKnown(const aLine, aColumn: Integer): Boolean;
+
 implementation
 
 uses
@@ -67,6 +72,18 @@ type
     function GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
     function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
   end;
+
+function FactSourceFileName(const aUnitFileName, aFactFileName: string): string;
+begin
+  Result := aFactFileName;
+  if Result = '' then
+    Result := aUnitFileName;
+end;
+
+function SourcePositionKnown(const aLine, aColumn: Integer): Boolean;
+begin
+  Result := (aLine > 0) and (aColumn > 0);
+end;
 
 constructor TSourceObservations.Create(const aItems: TArray<TDelphiSemanticSourceText>);
 var

@@ -56,6 +56,8 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Test]
+    procedure PhysicalSymbolsKeepExactIncludedOrigins;
     [Category('DS703Slice')]
     [TestCase('Nested record owner', 'nested')]
     [TestCase('Nested array record owner', 'array')]
@@ -611,7 +613,7 @@ uses
   System.SysUtils,
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
+  DelphiSemantics.Cache, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json, DelphiSemantics.Preprocess,
   DelphiSemantics.WithBinding.Inventory,
   Test.CompilerDefineEvidence, Test.Support;
 
@@ -4676,6 +4678,206 @@ begin
   Assert.AreEqual('unit:scopefixture', lRestored.Routines[0].ParentScopeId);
   Assert.AreEqual('routine:scopefixture.run', lRestored.Locals[0].RoutineScopeId);
   Assert.AreEqual('routine:scopefixture.run', lRestored.References[0].RoutineScopeId);
+end;
+
+procedure TUnitModelTests.PhysicalSymbolsKeepExactIncludedOrigins;
+const
+  cFirst = 'type TFirst = class'#13#10 +
+    'public FieldA: Integer; procedure RunA(aValue: Integer);'#13#10 +
+    'end;'#13#10 + 'var FirstValue: Integer;'#13#10 + '{$I nested.inc}'#13#10;
+  cSecond = 'type TSecond = record const CodeB = 5; var ValueB: Integer; end;'#13#10;
+  cRepeated = 'procedure RepeatMe;'#13#10;
+  cBody = 'procedure Included(aParam: Integer);'#13#10 +
+    'type TLocal = Integer;'#13#10 + 'var LocalValue: Integer;'#13#10 +
+    'begin LocalValue := aParam; end;'#13#10;
+var
+  g: TGarbos;
+  i: Integer;
+  lColumn: Integer;
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lDocument: TJSONObject;
+  lEntry: TJSONObject;
+  lExpanded: TDelphiSemanticPreprocessResult;
+  lFacts: TJSONArray;
+  lFileName: string;
+  lKinds: TStringList;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lOffset: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+  lPair: TJSONPair;
+  lPreprocess: TDelphiSemanticPreprocessOptions;
+  lRepeatCount: Integer;
+  lRepeatExpansion: string;
+  lRestored: TDelphiSemanticUnitModel;
+  lRoot: string;
+  lSource: string;
+  lText: string;
+begin
+  lRoot := UnitModelTempPath('physical-symbols');
+  TDirectory.CreateDirectory(lRoot);
+  lSource := 'unit PhysicalSymbols;'#13#10 + 'interface'#13#10 +
+    '{$I first.inc} {$I second.inc} var RootTail: Integer;'#13#10 +
+    '{$I repeated.inc} {$I repeated.inc}'#13#10 +
+    '{$IF 0}{$I inactive.inc}{$IFEND}'#13#10 +
+    'implementation'#13#10 + '{$I body.inc}'#13#10 + 'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'first.inc'), cFirst, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'second.inc'), cSecond, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'nested.inc'), 'var NestedValue: Integer;'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'repeated.inc'), cRepeated, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'inactive.inc'), 'var InactiveValue: Integer;', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'body.inc'), cBody, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'PhysicalSymbols.pas');
+  lOptions.SearchPaths := [lRoot];
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  GC(lDocument, TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject, g);
+  Assert.IsTrue(lDocument.GetValue('PhysicalSymbolOccurrences') is TJSONArray,
+    'Physical symbol enumeration is missing');
+  Assert.AreEqual('true', lDocument.GetValue('PhysicalSymbolOccurrencesAvailable').Value);
+  lFacts := lDocument.GetValue('PhysicalSymbolOccurrences') as TJSONArray;
+  Assert.IsTrue(lFacts.Count > 0);
+  lPreprocess := Default(TDelphiSemanticPreprocessOptions);
+  lPreprocess.SourceFileName := lOptions.SourceFileName;
+  lPreprocess.SearchPaths := [lRoot];
+  lExpanded := TDelphiSemanticPreprocessor.PreprocessFile(lPreprocess);
+  Assert.IsTrue(lExpanded.Success);
+  GC(lKinds, TStringList.Create, g);
+  lRepeatCount := 0;
+  lCount := 0;
+  for i := 0 to Pred(lFacts.Count) do
+  begin
+    lEntry := lFacts.Items[i] as TJSONObject;
+    lName := lEntry.GetValue('Name').Value;
+    Assert.AreNotEqual('InactiveValue', lName);
+    if MatchText(lName, ['TFirst', 'FieldA', 'RunA', 'aValue', 'FirstValue', 'TSecond',
+      'ValueB', 'CodeB', 'TLocal', 'NestedValue', 'RepeatMe', 'RootTail', 'Included', 'aParam', 'LocalValue']) then
+    begin
+      Inc(lCount);
+      Assert.AreEqual('true', lEntry.GetValue('Verified').Value, lName);
+      Assert.AreNotEqual('', lEntry.GetValue('ExpansionId').Value, lName);
+      lKinds.Add(lEntry.GetValue('FactKind').Value);
+      lKinds.Add(lEntry.GetValue('FactKind').Value + ':' + lName);
+      lFileName := ExtractFileName(lEntry.GetValue('FileName').Value);
+      lText := '';
+      if lFileName = 'first.inc' then lText := cFirst
+      else if lFileName = 'second.inc' then lText := cSecond
+      else if lFileName = 'nested.inc' then lText := 'var NestedValue: Integer;'#13#10
+      else if lFileName = 'repeated.inc' then lText := cRepeated
+      else if lFileName = 'body.inc' then lText := cBody
+      else if lFileName = 'PhysicalSymbols.pas' then lText := lSource;
+      Assert.AreNotEqual('', lText, lName + ' physical filename');
+      lOffset := Pos(lName, lText);
+      lColumn := ColumnOfSourceOffset(lText, lOffset);
+      Assert.AreEqual(lColumn, StrToInt(lEntry.GetValue('Column').Value), lName);
+      Assert.AreEqual(LineContaining(lText, lName), StrToInt(lEntry.GetValue('Line').Value), lName);
+      Assert.AreEqual(lColumn + Length(lName) - 1,
+        StrToInt(lEntry.GetValue('EndColumn').Value), lName);
+      Assert.AreEqual(lName, Copy(lExpanded.OutputText,
+        StrToInt(lEntry.GetValue('OutputStartOffset').Value), Length(lName)), lName);
+      Assert.AreEqual(Length(lName), StrToInt(lEntry.GetValue('OutputEndOffset').Value) -
+        StrToInt(lEntry.GetValue('OutputStartOffset').Value), lName);
+      if (lName = 'RepeatMe') and (lEntry.GetValue('FactKind').Value = 'routine') then
+      begin
+        Inc(lRepeatCount);
+        Assert.AreNotEqual(lRepeatExpansion, lEntry.GetValue('ExpansionId').Value);
+        lRepeatExpansion := lEntry.GetValue('ExpansionId').Value;
+      end;
+      if MatchText(lEntry.GetValue('FactKind').Value, ['routine', 'parameter', 'local']) then
+        Assert.AreNotEqual('', lEntry.GetValue('RoutineScopeId').Value, lName);
+    end;
+  end;
+  Assert.IsTrue(lCount >= 13, 'Each named symbol category must be enumerated');
+  Assert.AreEqual(2, lRepeatCount);
+  for lName in ['declaration:TFirst', 'member:FieldA', 'member:RunA', 'declaration:FirstValue',
+    'declaration:TSecond', 'member:ValueB', 'declaration:NestedValue', 'declaration:RootTail',
+    'routine:Included', 'parameter:aParam', 'local:LocalValue', 'declaration:TLocal',
+    'type-value-member:CodeB'] do
+    Assert.IsTrue(lKinds.IndexOf(lName) >= 0, lName);
+  for lName in ['declaration', 'member', 'routine', 'parameter', 'local'] do
+    Assert.IsTrue(lKinds.IndexOf(lName) >= 0, lName);
+  Assert.IsTrue(FindDeclaration(lModel, 'TFirst', 'type', 'interface', lDeclaration));
+  Assert.AreEqual(lOptions.SourceFileName, lDeclaration.FileName,
+    'The existing mixed-line directive attribution must remain unchanged');
+  Assert.AreEqual(3, lDeclaration.Line);
+  Assert.AreEqual(1, lDeclaration.Column);
+  Assert.AreEqual(0, lDeclaration.Offset);
+  lRestored := JsonToModel(lDocument.ToJSON);
+  Assert.AreEqual(lDocument.ToJSON, ModelToJson(lRestored), 'JSON round trip changes facts');
+  lPair := lDocument.RemovePair('PhysicalSymbolOccurrences');
+  lPair.Free;
+  lPair := lDocument.RemovePair('PhysicalSymbolOccurrencesAvailable');
+  lPair.Free;
+  lRestored := JsonToModel(lDocument.ToJSON);
+  GC(lDocument, TJSONObject.ParseJSONValue(ModelToJson(lRestored)) as TJSONObject, g);
+  Assert.AreEqual('false', lDocument.GetValue('PhysicalSymbolOccurrencesAvailable').Value,
+    'Missing sidecar must remain unavailable');
+  // The same public round trip must fail closed for damaged witness payloads.
+  for lName in ['empty', 'duplicate', 'index', 'name', 'span', 'unknown', 'fraction', 'entry'] do
+  begin
+    GC(lDocument, TJSONObject.ParseJSONValue(ModelToJson(lModel)) as TJSONObject, g);
+    lFacts := lDocument.GetValue('PhysicalSymbolOccurrences') as TJSONArray;
+    lEntry := lFacts.Items[0] as TJSONObject;
+    if lName = 'empty' then
+    begin
+      while lFacts.Count > 0 do lFacts.Remove(0).Free;
+    end else if lName = 'duplicate' then
+      lFacts.AddElement(TJSONObject.ParseJSONValue(lEntry.ToJSON))
+    else if lName = 'entry' then
+    begin
+      lFacts.Remove(0).Free;
+      lFacts.AddElement(TJSONString.Create('malformed'));
+    end else begin
+      if MatchText(lName, ['index', 'fraction']) then lText := 'FactIndex'
+      else if lName = 'name' then lText := 'Name'
+      else if lName = 'span' then lText := 'EndColumn'
+      else lText := 'ExpansionId';
+      lPair := lEntry.RemovePair(lText);
+      lPair.Free;
+      if lName = 'fraction' then lEntry.AddPair(lText, TJSONNumber.Create(0.5))
+      else if MatchText(lName, ['index', 'span']) then lEntry.AddPair(lText, TJSONNumber.Create(-1))
+      else if lName = 'name' then lEntry.AddPair(lText, 'WrongName')
+      else lEntry.AddPair(lText, '');
+    end;
+    lRestored := JsonToModel(lDocument.ToJSON);
+    Assert.IsTrue(HasDiagnostic(lRestored, 'PHYSICAL_SYMBOL_JSON_UNVERIFIED'), lName);
+    if MatchText(lName, ['empty', 'duplicate', 'index', 'name', 'fraction', 'entry']) then
+      Assert.IsFalse(lRestored.PhysicalSymbolOccurrencesAvailable, lName)
+    else
+      Assert.IsFalse(lRestored.PhysicalSymbolOccurrences[0].Verified, lName);
+  end;
+  lModel.PhysicalSymbolOccurrences[0].Verified := False;
+  lRestored := JsonToModel(ModelToJson(lModel));
+  Assert.IsFalse(lRestored.PhysicalSymbolOccurrences[0].Verified);
+  lRestored.PhysicalSymbolOccurrences[0].Name := 'Mutated';
+  Assert.AreNotEqual('Mutated', lModel.PhysicalSymbolOccurrences[0].Name);
+  // Extraction availability is separate from the number of facts and from references.
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit EmptySymbols; interface implementation end.', TEncoding.ASCII);
+  lRestored := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lRestored.PhysicalSymbolOccurrencesAvailable);
+  Assert.AreEqual(0, Integer(Length(lRestored.PhysicalSymbolOccurrences)));
+  lRestored := JsonToModel(ModelToJson(lRestored));
+  Assert.IsTrue(lRestored.PhysicalSymbolOccurrencesAvailable);
+  lOptions.SkipBodyAnalysis := True;
+  lRestored := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsFalse(lRestored.PhysicalSymbolOccurrencesAvailable);
+  lOptions.SkipBodyAnalysis := False;
+  lOptions.SkipReferenceExtraction := True;
+  lRestored := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lRestored.PhysicalSymbolOccurrencesAvailable);
+  lOptions.WithStatementsOnly := True;
+  lRestored := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsFalse(lRestored.PhysicalSymbolOccurrencesAvailable);
+  lOptions.WithStatementsOnly := False;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit BrokenSymbols; interface {$I missing.inc} implementation end.', TEncoding.ASCII);
+  lRestored := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsFalse(lRestored.PhysicalSymbolOccurrencesAvailable);
 end;
 
 procedure TUnitModelTests.PhysicalOccurrencesJsonRoundTripRetainsStatusAndIndependentArray;

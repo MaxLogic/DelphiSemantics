@@ -194,6 +194,36 @@ type
     Verified: Boolean;
   end;
 
+  // DS-696: array identity links an expanded symbol token to its unchanged legacy fact.
+  // FactIndex is zero-based in FactKind's array. For parameters ParentFactIndex
+  // selects Routines and FactIndex selects Parameters; otherwise ParentFactIndex = -1.
+  // Output offsets are 1-based, end-exclusive, in the BOM-stripped expanded parse text.
+  // Physical end coordinates are inclusive. Verified concerns the captured origin,
+  // not name resolution; unknown scope identities remain empty.
+  TDelphiSemanticPhysicalSymbolOccurrence = record
+    FactKind: string;
+    FactIndex: Integer;
+    ParentFactIndex: Integer;
+    Name: string;
+    Kind: string;
+    OwnerName: string;
+    OwnerScopeId: string;
+    SymbolId: string;
+    OwnerSymbolId: string;
+    RoutineName: string;
+    RoutineScopeId: string;
+    SectionKind: string;
+    OutputStartOffset: Integer;
+    OutputEndOffset: Integer;
+    FileName: string;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    ExpansionId: string;
+    Verified: Boolean;
+  end;
+
   TDelphiSemanticWithStatement = record
     Line: Integer;
     Column: Integer;
@@ -307,6 +337,9 @@ type
     References: TArray<TDelphiSemanticReference>;
     PhysicalReferenceOccurrences: TArray<TDelphiSemanticPhysicalReferenceOccurrence>;
     PhysicalReferenceOccurrencesAvailable: Boolean;
+    PhysicalSymbolOccurrences: TArray<TDelphiSemanticPhysicalSymbolOccurrence>;
+    // True only after a complete symbol enumeration, including an empty one.
+    PhysicalSymbolOccurrencesAvailable: Boolean;
     // Syntax occurrences in the routine label namespace, never value-symbol references.
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;

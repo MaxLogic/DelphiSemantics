@@ -362,7 +362,8 @@ begin
   Result := aRange;
   if (Result.Line > 0) and (Result.Column > 0) and (Result.EndLine = 0) then
     Result.EndLine := Result.Line;
-  if (Result.EndLine = Result.Line) and (Result.EndColumn = 0) then
+  if SourcePositionKnown(Result.Line, Result.Column) and
+    (Result.EndLine = Result.Line) and (Result.EndColumn = 0) then
     Result.EndColumn := Result.Column + Length(aName);
   if (Result.Offset > 0) and (Result.EndOffset = 0) then
     Result.EndOffset := Result.Offset + Length(aName);
@@ -948,7 +949,7 @@ function ReferenceSourceRange(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference): TDelphiSemanticSourceRange;
 begin
   Result := Default(TDelphiSemanticSourceRange);
-  Result.FileName := aModel.FileName;
+  Result.FileName := FactSourceFileName(aModel.FileName, aReference.FileName);
   Result.Line := aReference.Line;
   Result.Column := aReference.Column;
   Result.EndLine := aReference.EndLine;

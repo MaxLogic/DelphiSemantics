@@ -42,11 +42,16 @@ procedure ReconcileRoutineCoordinates(const aSourceText: string;
 procedure ReconcileLocalCoordinates(const aSourceText: string;
   const aLocals: TList<TDelphiSemanticLocal>);
 
+// Consume the witnessed token directly. Legacy reference coordinates cannot
+// recover distinct mixed-line expansions after attribution/deduplication.
+function TryPhysicalReference(const aOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  out aReference: TDelphiSemanticReference): Boolean;
+
 implementation
 
 uses
   System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model.Text;
+  DelphiSemantics.Model.Text, DelphiSemantics.Source;
 
 type
   TSourceCoordinateIndex = record
@@ -70,6 +75,26 @@ type
 
   TReferenceCandidateList = TList<TReferenceCoordinateCandidate>;
   TReferenceOccurrenceIndex = TObjectDictionary<string, TReferenceCandidateList>;
+
+function TryPhysicalReference(const aOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+  out aReference: TDelphiSemanticReference): Boolean;
+begin
+  aReference := Default(TDelphiSemanticReference);
+  Result := aOccurrence.Verified and (aOccurrence.FileName <> '') and
+    (aOccurrence.ExpansionId <> '') and
+    SourcePositionKnown(aOccurrence.Line, aOccurrence.Column);
+  if not Result then
+    Exit;
+  aReference.Name := aOccurrence.Name;
+  aReference.Role := aOccurrence.Role;
+  aReference.RoutineName := aOccurrence.RoutineName;
+  aReference.RoutineScopeId := aOccurrence.RoutineScopeId;
+  aReference.FileName := aOccurrence.FileName;
+  aReference.Line := aOccurrence.Line;
+  aReference.Column := aOccurrence.Column;
+  aReference.EndLine := aOccurrence.EndLine;
+  aReference.EndColumn := aOccurrence.EndColumn;
+end;
 
 procedure TSourceCoordinateIndex.Initialize(const aSourceText: string);
 var

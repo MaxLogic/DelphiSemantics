@@ -213,8 +213,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated headings, owner references, conditional safety, compiler define evidence and batch extraction.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.92';
+  // Integrated extraction and DS-696 physical origins require a fresh generation above all lane values.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.96';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -489,6 +489,7 @@ begin
   Result.Locals := Copy(aModel.Locals);
   Result.References := Copy(aModel.References);
   Result.PhysicalReferenceOccurrences := Copy(aModel.PhysicalReferenceOccurrences);
+  Result.PhysicalSymbolOccurrences := Copy(aModel.PhysicalSymbolOccurrences);
   Result.LocalLabelReferences := Copy(aModel.LocalLabelReferences);
   Result.WithStatements := Copy(aModel.WithStatements);
   Result.UnindexedHelpers := Copy(aModel.UnindexedHelpers);

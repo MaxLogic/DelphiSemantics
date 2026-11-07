@@ -6103,6 +6103,194 @@ begin
   end;
 end;
 
+procedure CapturePhysicalSymbolOrigin(const aExpandedText: string;
+  const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>; const aOutputOffsetShift: Integer;
+  var aOccurrence: TDelphiSemanticPhysicalSymbolOccurrence);
+var
+  lLength: Integer;
+  lLineStartValid: Boolean;
+  lSourceOffset: Integer;
+  lSpan: TDelphiSemanticCopiedSourceSpan;
+  lSpanIndex: Integer;
+  lToken: string;
+  lWitnessOffset: Integer;
+begin
+  aOccurrence.Verified := False;
+  if (aOccurrence.OutputStartOffset <= 0) or
+    (aOccurrence.OutputEndOffset <= aOccurrence.OutputStartOffset) or
+    (aOccurrence.OutputEndOffset > Length(aExpandedText) + 1) then
+    Exit;
+  lLength := aOccurrence.OutputEndOffset - aOccurrence.OutputStartOffset;
+  lToken := Copy(aExpandedText, aOccurrence.OutputStartOffset, lLength);
+  // Compare only the captured span. Never search text or infer a file from a name.
+  if not SameText(lToken.Replace('&', ''), aOccurrence.Name.Replace('&', '')) then
+    Exit;
+  lWitnessOffset := aOccurrence.OutputStartOffset + aOutputOffsetShift;
+  lSpanIndex := CopiedSpanAtOffset(aSpans, lWitnessOffset);
+  if lSpanIndex < 0 then
+    Exit;
+  lSpan := aSpans[lSpanIndex];
+  aOccurrence.FileName := lSpan.FileName;
+  aOccurrence.ExpansionId := lSpan.ExpansionId;
+  if (lSpan.OutputStartOffset <= 0) or
+    (lSpan.OutputEndOffset < lWitnessOffset + lLength) or
+    (lSpan.OutputEndOffset > Length(aExpandedText) + aOutputOffsetShift + 1) or
+    (lSpan.FileName = '') or (lSpan.ExpansionId = '') or
+    (lSpan.Line <= 0) or (lSpan.Column <= 0) or
+    (lSpan.SourceLineStartOffset <= 0) or
+    (lSpan.SourceLineStartOffset > Length(lSpan.SourceText)) or
+    (lSpan.SourceStartOffset <> lSpan.SourceLineStartOffset + lSpan.Column - 1) then
+    Exit;
+  lSourceOffset := lSpan.SourceStartOffset + lWitnessOffset - lSpan.OutputStartOffset;
+  if (lSourceOffset <= 0) or (lSourceOffset > Length(lSpan.SourceText)) or
+    (lLength > Length(lSpan.SourceText) - lSourceOffset + 1) then
+    Exit;
+  lLineStartValid := (lSpan.Line = 1) and (lSpan.SourceLineStartOffset = 1);
+  if (lSpan.Line > 1) and (lSpan.SourceLineStartOffset > 1) then
+    lLineStartValid := CharInSet(lSpan.SourceText[lSpan.SourceLineStartOffset - 1], [#10, #13]);
+  if not lLineStartValid or (Copy(lSpan.SourceText, lSourceOffset, lLength) <> lToken) or
+    (Pos(#10, lToken) > 0) or (Pos(#13, lToken) > 0) then
+    Exit;
+  aOccurrence.Line := lSpan.Line;
+  aOccurrence.Column := lSpan.Column + lWitnessOffset - lSpan.OutputStartOffset;
+  if (lSpan.Line = 1) and (lSpan.SourceText[1] = #$FEFF) then
+    Dec(aOccurrence.Column);
+  aOccurrence.EndLine := aOccurrence.Line;
+  aOccurrence.EndColumn := aOccurrence.Column + lLength - 1;
+  aOccurrence.Verified := aOccurrence.Column > 0;
+end;
+
+procedure CapturePhysicalSymbolOccurrences(const aExpandedText: string;
+  const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aMembers, aTypeValueMembers: TList<TDelphiSemanticMember>;
+  const aRoutines: TList<TDelphiSemanticRoutine>; const aLocals: TList<TDelphiSemanticLocal>;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aOutputOffsetShift: Integer; var aModel: TDelphiSemanticUnitModel);
+var
+  i: Integer;
+  j: Integer;
+  lCount: Integer;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lLocal: TDelphiSemanticLocal;
+  lMember: TDelphiSemanticMember;
+  lMembers: TList<TDelphiSemanticMember>;
+  lOccurrence: TDelphiSemanticPhysicalSymbolOccurrence;
+  lOccurrences: TList<TDelphiSemanticPhysicalSymbolOccurrence>;
+  lParameter: TDelphiSemanticParameter;
+  lRoutine: TDelphiSemanticRoutine;
+begin
+  lOccurrences := TList<TDelphiSemanticPhysicalSymbolOccurrence>.Create;
+  try
+    for i := 0 to Pred(aDeclarations.Count) do
+    begin
+      lDeclaration := aDeclarations[i];
+      lOccurrence := Default(TDelphiSemanticPhysicalSymbolOccurrence);
+      lOccurrence.FactKind := 'declaration';
+      lOccurrence.FactIndex := i;
+      lOccurrence.ParentFactIndex := -1;
+      lOccurrence.Name := lDeclaration.Name;
+      lOccurrence.Kind := lDeclaration.Kind;
+      lOccurrence.OwnerName := lDeclaration.OwnerName;
+      lOccurrence.OwnerScopeId := lDeclaration.OwnerScopeId;
+      lOccurrence.SymbolId := lDeclaration.SymbolId;
+      lOccurrence.SectionKind := lDeclaration.SectionKind;
+      lOccurrence.OutputStartOffset := lDeclaration.Offset;
+      lOccurrence.OutputEndOffset := lDeclaration.EndOffset;
+      lOccurrences.Add(lOccurrence);
+    end;
+    for lCount := 0 to 1 do
+    begin
+      if lCount = 0 then
+        lMembers := aMembers
+      else
+        lMembers := aTypeValueMembers;
+      for i := 0 to Pred(lMembers.Count) do
+      begin
+        lMember := lMembers[i];
+        lOccurrence := Default(TDelphiSemanticPhysicalSymbolOccurrence);
+        if lCount = 0 then
+          lOccurrence.FactKind := 'member'
+        else
+          lOccurrence.FactKind := 'type-value-member';
+        lOccurrence.FactIndex := i;
+        lOccurrence.ParentFactIndex := -1;
+        lOccurrence.Name := lMember.Name;
+        lOccurrence.Kind := lMember.Kind;
+        lOccurrence.OwnerName := lMember.OwnerName;
+        lOccurrence.OwnerScopeId := lMember.OwnerScopeId;
+        lOccurrence.OwnerSymbolId := lMember.OwnerSymbolId;
+        lOccurrence.OutputStartOffset := lMember.Offset;
+        lOccurrence.OutputEndOffset := lMember.EndOffset;
+        lOccurrences.Add(lOccurrence);
+      end;
+    end;
+    for i := 0 to Pred(aRoutines.Count) do
+    begin
+      lRoutine := aRoutines[i];
+      lOccurrence := Default(TDelphiSemanticPhysicalSymbolOccurrence);
+      lOccurrence.FactKind := 'routine';
+      lOccurrence.FactIndex := i;
+      lOccurrence.ParentFactIndex := -1;
+      lOccurrence.Name := lRoutine.Name;
+      lOccurrence.Kind := lRoutine.AstScopeKind;
+      lOccurrence.OwnerName := lRoutine.OwnerName;
+      lOccurrence.OwnerScopeId := lRoutine.ParentScopeId;
+      lOccurrence.RoutineName := lRoutine.Name;
+      lOccurrence.RoutineScopeId := lRoutine.ScopeId;
+      lOccurrence.SectionKind := lRoutine.SectionKind;
+      lOccurrence.OutputStartOffset := lRoutine.Offset;
+      lOccurrence.OutputEndOffset := lRoutine.EndOffset;
+      lOccurrences.Add(lOccurrence);
+      for j := 0 to High(lRoutine.Parameters) do
+      begin
+        lParameter := lRoutine.Parameters[j];
+        lOccurrence.FactKind := 'parameter';
+        lOccurrence.FactIndex := j;
+        lOccurrence.ParentFactIndex := i;
+        lOccurrence.Name := lParameter.Name;
+        lOccurrence.Kind := 'parameter';
+        lOccurrence.OwnerName := lRoutine.Name;
+        lOccurrence.OwnerScopeId := lRoutine.ScopeId;
+        lOccurrence.OutputStartOffset := lParameter.Offset;
+        lOccurrence.OutputEndOffset := lParameter.EndOffset;
+        lOccurrences.Add(lOccurrence);
+      end;
+    end;
+    for i := 0 to Pred(aLocals.Count) do
+    begin
+      lLocal := aLocals[i];
+      lOccurrence := Default(TDelphiSemanticPhysicalSymbolOccurrence);
+      lOccurrence.FactKind := 'local';
+      lOccurrence.FactIndex := i;
+      lOccurrence.ParentFactIndex := -1;
+      lOccurrence.Name := lLocal.Name;
+      lOccurrence.Kind := lLocal.Kind;
+      lOccurrence.OwnerName := lLocal.RoutineName;
+      lOccurrence.OwnerScopeId := lLocal.RoutineScopeId;
+      lOccurrence.RoutineName := lLocal.RoutineName;
+      lOccurrence.RoutineScopeId := lLocal.RoutineScopeId;
+      lOccurrence.OutputStartOffset := lLocal.Offset;
+      lOccurrence.OutputEndOffset := lLocal.EndOffset;
+      lOccurrences.Add(lOccurrence);
+    end;
+    for i := 0 to Pred(lOccurrences.Count) do
+    begin
+      lOccurrence := lOccurrences[i];
+      CapturePhysicalSymbolOrigin(aExpandedText, aSpans, aOutputOffsetShift, lOccurrence);
+      if not lOccurrence.Verified then
+        AddDiagnostic(aDiagnostics, 'PHYSICAL_SYMBOL_ORIGIN_UNVERIFIED',
+          'No matching copied-source witness for expanded ' + lOccurrence.FactKind +
+          ' ' + lOccurrence.Name + ' at offset ' + IntToStr(lOccurrence.OutputStartOffset) + '.',
+          aModel.FileName, 0);
+      lOccurrences[i] := lOccurrence;
+    end;
+    aModel.PhysicalSymbolOccurrences := lOccurrences.ToArray;
+  finally
+    lOccurrences.Free;
+  end;
+end;
+
 procedure CapturePhysicalReferenceOccurrences(const aExpandedText: string;
   const aSpans: TArray<TDelphiSemanticCopiedSourceSpan>;
   const aReferences: TList<TDelphiSemanticReference>;
@@ -6760,6 +6948,14 @@ begin
       CapturePhysicalReferenceOccurrences(lText, lPreprocessResult.CopiedSourceSpans,
         lReferences, lDiagnostics, Result.FileName, lOutputOffsetShift, Result);
       Result.PhysicalReferenceOccurrencesAvailable :=
+        not aOptions.SkipBodyAnalysis and SameText(Result.ScopeModelStatus, 'ast');
+    end;
+    if Result.Success and (lPreprocessResult.OutputText <> '') then
+    begin
+      CapturePhysicalSymbolOccurrences(lText, lPreprocessResult.CopiedSourceSpans,
+        lDeclarations, lMembers, lExtractionContext.TypeValueMembers, lRoutines, lLocals,
+        lDiagnostics, lOutputOffsetShift, Result);
+      Result.PhysicalSymbolOccurrencesAvailable :=
         not aOptions.SkipBodyAnalysis and SameText(Result.ScopeModelStatus, 'ast');
     end;
     // DS-659: with includes, output lines no longer match source lines. Each fact moves to the
