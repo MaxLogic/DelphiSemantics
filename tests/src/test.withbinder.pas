@@ -36,6 +36,18 @@ type
       TDelphiSemanticInventorySymbol): Boolean;
   public
     [Test]
+    [TestCase('datfile open=False', 'datfile,False')]
+    [TestCase('datfile open=True', 'datfile,True')]
+    [TestCase('marklist open=False', 'marklist,False')]
+    [TestCase('marklist open=True', 'marklist,True')]
+    [TestCase('bitarray open=False', 'bitarray,False')]
+    [TestCase('bitarray open=True', 'bitarray,True')]
+    [TestCase('ramtext open=False', 'ramtext,False')]
+    [TestCase('ramtext open=True', 'ramtext,True')]
+    [TestCase('array open=False', 'array,False')]
+    [TestCase('array open=True', 'array,True')]
+    procedure RecordReceiversDistinguishOpenHelperScope(const aShape: string; const aOpen: Boolean);
+    [Test]
     [Category('DS708747')]
     procedure IncludedRoutineRangesDoNotCaptureMainFileMembers;
     [Test]
@@ -3085,6 +3097,142 @@ begin
   end;
   TDirectory.CreateDirectory(GWithBinderTempRoot);
   Result := BoundedWithBinderPath(GWithBinderTempRoot, aName);
+end;
+
+procedure TWithBinderTests.RecordReceiversDistinguishOpenHelperScope(
+  const aShape: string; const aOpen: Boolean);
+var
+  g: TGarbos;
+  lOptions: TDelphiSemanticApiOptions;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lSerializer: TJsonSerializer;
+  lRoot, lProofRoot, lTypes, lLocals, lSelector, lSetup, lHeader, lCaller: string;
+  lMemberFound: Boolean;
+begin
+  lRoot := WithBinderTempPath('ds795-' + aShape + BoolToStr(aOpen, True));
+  TDirectory.CreateDirectory(lRoot);
+  lTypes := 'TItem = record Value: Integer; end;'#13#10 +
+    'PItem = ^TItem;'#13#10 +
+    'TItemPointers = array [0..0] of PItem;'#13#10;
+  lLocals := 'Item: TItem; f: PItem;';
+  lSelector := 'f^';
+  lSetup := 'Item.Value := 3; f := @Item;';
+  lHeader := 'procedure Run;';
+  if aShape = 'datfile' then
+  begin
+    lLocals := 'Item: TItem; DF: TItemPointers;';
+    lSetup := 'Item.Value := 3; DF[0] := @Item;';
+    lSelector := 'DF[0]^';
+  end else if aShape = 'marklist' then
+  begin
+    lTypes := lTypes + 'TContainer = record MarkListe: TItem; end;'#13#10 +
+      'PContainer = ^TContainer;'#13#10 +
+      'TContainerPointers = array [0..0] of PContainer;'#13#10;
+    lLocals := 'Item: TContainer; DF: TContainerPointers;';
+    lSetup := 'Item.MarkListe.Value := 3; DF[0] := @Item;';
+    lSelector := 'DF[0]^.MarkListe';
+  end else if aShape = 'bitarray' then
+  begin
+    lHeader := 'procedure Run(var BA: TItem);';
+    lLocals := '';
+    lSetup := '';
+    lSelector := 'BA';
+  end else if aShape = 'array' then
+  begin
+    lTypes := lTypes + 'TItems = array [0..0] of TItem;'#13#10 +
+      'PItems = ^TItems;'#13#10;
+    lLocals := 'Items: TItems; f: PItems;';
+    lSetup := 'Items[0].Value := 3; f := @Items;';
+    lSelector := 'f^[0]';
+  end;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'TypesUnit.pas'),
+    'unit TypesUnit;'#13#10'interface'#13#10'type'#13#10 + lTypes +
+    'implementation'#13#10'end.'#13#10, TEncoding.ASCII);
+  lCaller := 'unit Caller;'#13#10'interface'#13#10'uses ';
+  if aOpen then
+  begin
+    lCaller := lCaller + 'OpaqueHelpers, ';
+    TFile.WriteAllText(TPath.Combine(lRoot, 'OpaqueHelpers.pas'),
+      'unit OpaqueHelpers; interface implementation end.'#13#10, TEncoding.ASCII);
+  end;
+  lCaller := lCaller + 'TypesUnit;'#13#10'implementation'#13#10 + lHeader + #13#10 +
+    'var lOther: Integer; ' + lLocals + #13#10'begin'#13#10 +
+    '  lOther := 5; ' + lSetup + #13#10'  with ' + lSelector + ' do lOther := Value;' +
+    #13#10'  Writeln(lOther);'#13#10'end;'#13#10;
+  if aShape = 'bitarray' then
+    lCaller := lCaller + 'var Item: TItem;'#13#10 +
+      'initialization Item.Value := 3; Run(Item);'#13#10
+  else
+    lCaller := lCaller + 'initialization Run;'#13#10;
+  lCaller := lCaller + 'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Caller.pas'), lCaller, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dpr'),
+    'program P; {$APPTYPE CONSOLE} uses Caller in ''Caller.pas''; begin end.'#13#10,
+    TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="TypesUnit.pas"/>' +
+    '<DCCReference Include="Caller.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.DelphiVersion := '23.0';
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  CertifyClosedGeneratedProject(lOptions, lRoot, ['MSWINDOWS', 'WIN64', 'UNICODE', 'VER360']);
+  lOptions.CompilerIncludeSearchPath := lRoot;
+  lOptions.CompilerIncludeSearchPathProvided := True;
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  Assert.AreEqual<Integer>(1, Length(lFacts.Bindings), aShape);
+  Assert.AreEqual('resolved', lFacts.Bindings[0].Selectors[0].Status, aShape);
+  Assert.IsTrue(lFacts.Bindings[0].Selectors[0].TypeIdentity.DeclaredId.Value <> '', aShape);
+  lMemberFound := False;
+  for var lReference in lFacts.Bindings[0].References do
+    if SameText(lReference.Name, 'Value') and SameText(lReference.Classification, 'member') then
+      lMemberFound := True;
+  Assert.IsTrue(lMemberFound, 'The record member already resolves: ' + aShape);
+  for var i := 0 to 1 do
+  begin
+    if i = 0 then
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts)
+    else
+      lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWithCompatibilitySnapshot(lFacts);
+    lProofRoot := GetEnvironmentVariable('DS795_PROOF_ROOT');
+    if lProofRoot <> '' then
+    begin
+      lProofRoot := TPath.Combine(lProofRoot, aShape + '-' + BoolToStr(aOpen, True) + '-' + IntToStr(i));
+      TDirectory.CreateDirectory(lProofRoot);
+      for var lFileName in TDirectory.GetFiles(lRoot) do
+        TFile.Copy(lFileName, TPath.Combine(lProofRoot, ExtractFileName(lFileName)), True);
+      GC(lSerializer, TJsonSerializer.Create, g);
+      TFile.WriteAllText(TPath.Combine(lProofRoot, 'plan.json'),
+        lSerializer.Serialize<TDelphiSemanticRemoveWithPlan>(lPlan), TEncoding.UTF8);
+    end;
+    Assert.AreEqual<Integer>(1, Length(lPlan.FinalStatements), aShape);
+    if aOpen then
+    begin
+      Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status, aShape);
+      if aShape = 'marklist' then
+      begin
+        // A local selector chain requires a fully resolved body first.
+        Assert.AreEqual('property-selector', lPlan.FinalStatements[0].Reason, aShape);
+        Assert.AreEqual('property-selector', lPlan.FinalStatements[0].SafetyReason, aShape);
+      end else
+      begin
+        Assert.AreEqual('record-helper-members-unverified', lPlan.FinalStatements[0].Reason, aShape);
+        Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lPlan.FinalStatements[0].SafetyReason, aShape);
+      end;
+      Assert.AreEqual(lPlan.FinalStatements[0].Reason,
+        lPlan.FinalStatements[0].RewriteRecipe.Reason, aShape);
+      Assert.AreEqual(lPlan.FinalStatements[0].Reason,
+        lPlan.FinalStatements[0].RewriteRecipe.RuleId, aShape);
+      Assert.AreEqual('', lPlan.FinalStatements[0].ReplacementText, aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Edits), aShape);
+      Assert.AreEqual<Integer>(0, Length(lPlan.FinalStatements[0].Temps), aShape);
+    end else
+      Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+        aShape + ': ' + lPlan.FinalStatements[0].Reason);
+  end;
 end;
 
 procedure TWithBinderTests.ConditionalQualificationOnFiveRoutes(const aShape: string;
@@ -6164,7 +6312,7 @@ begin
     lLocal := 'type TLocal = record {$IFDEF LINUX} Count: Integer; {$ENDIF} end;'#13#10 +
       'var LocalRec: TLocal;'#13#10;
     lBody := 'with LocalRec do Count := Count + 1;';
-    lExpectedReason := 'receiver-member-not-found';
+    lExpectedReason := 'owner-inherited-members-unverified';
   end else if aShape = 'lexical-unknown-no-homonym' then
   begin
     lExtra := '{$IFNDEF LINUX} var Count: Integer; {$ENDIF}'#13#10;
@@ -7509,7 +7657,7 @@ begin
   Assert.AreEqual('resolved', lFacts.Bindings[lBindingIndex].Selectors[0].Status);
   lExpectedClass := 'unsupported';
   lExpectedStatus := 'skipped';
-  lExpectedReason := 'receiver-member-not-found';
+  lExpectedReason := 'record-helper-members-unverified';
   lExpectedSafety := 'RECORD_HELPER_MEMBERS_UNVERIFIED';
   lExpectedEdits := 0;
   lName := 'Count';
@@ -7797,7 +7945,7 @@ begin
     Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)));
     Assert.AreEqual('skipped', lPlan.FinalStatements[0].Status,
       'An unindexed helper refusal must not bind the lexical Count in final planning.');
-    Assert.AreEqual('receiver-member-not-found', lPlan.FinalStatements[0].Reason);
+    Assert.AreEqual('record-helper-members-unverified', lPlan.FinalStatements[0].Reason);
     Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Edits)));
   end;
 end;
@@ -12948,7 +13096,7 @@ begin
       begin
         Inc(lAffected);
         Assert.AreEqual('skipped', lStatement.Status);
-        Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+        Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
         Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
         Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
         Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
@@ -19625,7 +19773,7 @@ begin
           Assert.AreEqual('symbol-not-found', lStatement.Reason, aShape);
           Assert.AreEqual('TYPE_VALUE_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
         end else begin
-          Assert.AreEqual('receiver-member-not-found', lStatement.Reason, aShape);
+          Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason, aShape);
           Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason, aShape);
         end;
         Assert.AreEqual('', lStatement.ReplacementText, aShape);
@@ -19681,7 +19829,7 @@ begin
         begin
           if lStatement.Range.StartColumn = 3 then
           begin
-            Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+            Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason);
             Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
           end else begin
             Assert.AreEqual(Pos('with Other', lBody) + 2, lStatement.Range.StartColumn);
@@ -21449,7 +21597,7 @@ begin
         if aShape = 'capture-proof-alias-unrelated' then
           Assert.AreEqual('symbol-not-found', lPlan.FinalStatements[0].Reason, aShape)
         else if aShape = 'capture-proof-nominal-field' then
-          Assert.AreEqual('receiver-member-not-found', lPlan.FinalStatements[0].Reason, aShape);
+          Assert.AreEqual('owner-inherited-members-unverified', lPlan.FinalStatements[0].Reason, aShape);
       end;
       if i = 0 then
         lExpectedText := lPlan.FinalStatements[0].ReplacementText;
