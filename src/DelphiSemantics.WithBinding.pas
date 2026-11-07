@@ -6230,6 +6230,14 @@ begin
       if not SameText(lLexer.Token, lName) then
         Exit;
       lLexer.NextNoJunk;
+      // Siblings in R, S: record share a type body, but retain their own tokens.
+      while lLexer.Token = ',' do
+      begin
+        lLexer.NextNoJunk;
+        if lLexer.TokenID <> ptIdentifier then
+          Exit;
+        lLexer.NextNoJunk;
+      end;
       if lLexer.Token <> ':' then
         Exit;
       lLexer.NextNoJunk;
@@ -7329,7 +7337,10 @@ begin
         Continue;
       lNames.Clear;
       for lMember in lParsed.Members + lParsed.TypeValueMembers do
-        if SameText(lMember.OwnerName, lIdentity.Name) then
+        if SameText(lMember.OwnerName, lIdentity.Name) and
+          ((SameText(lMember.OwnerScopeId, lIdentity.OwnerScopeId) and
+            SameText(lMember.OwnerSymbolId, lIdentity.SemanticSymbolId)) or
+          ((lMember.OwnerSymbolId = '') and SameText(lIdentity.ScopeKind, 'unit'))) then
         begin
           lNames.Add('ds742-anonymous-member:' + lMember.Name);
           aValueNames.Add('ds742-anonymous-member:' + lMember.Name);

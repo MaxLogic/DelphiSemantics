@@ -3570,7 +3570,8 @@ function TryAnonymousRecordVarStart(const aLine: string; out aName: string): Boo
 var
   lMatch: TMatch;
 begin
-  lMatch := TRegEx.Match(aLine, '^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:packed\s+)?record\b',
+  lMatch := TRegEx.Match(aLine,
+    '^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*:\s*(?:packed\s+)?record\b',
     [roIgnoreCase]);
   Result := lMatch.Success;
   if Result then
@@ -3853,22 +3854,24 @@ begin
           end else if TryAnonymousRecordVarStart(lLine, lName) then
           begin
             lSection := SectionForOffset(aText, lOffset + 1);
-            lNameOffset := lLineOffset - lOffset + Pos(LowerCase(lName), LowerCase(lLine));
-            if lNameOffset <= 0 then
-              lNameOffset := 1;
-            if aUnitName <> '' then
-              lSyntheticTypeName := aUnitName + '.' + lName
-            else
-              lSyntheticTypeName := lName;
             lEndLine := FindAnonymousRecordEndLine(lLines, i);
-            AddDeclaration(aDeclarations, lSyntheticTypeName, 'type', 'record', lSection,
-              aText, lOffset + lNameOffset);
-            AddDeclaration(aDeclarations, lName, lBlockKind, lSyntheticTypeName, lSection,
-              aText, lOffset + lNameOffset);
-
-            j := lOffset + Length(lLines[i]) + Length(sLineBreak);
-            AddAnonymousRecordMembers(aText, lLines, lSyntheticTypeName, i + 1, lEndLine - 1, j,
-              aMembers, aReferences);
+            for lNameMatch in TRegEx.Matches(lName, '[A-Za-z_][A-Za-z0-9_]*') do
+            begin
+              lNameOffset := lLineOffset - lOffset + Pos(LowerCase(lNameMatch.Value), LowerCase(lLine));
+              if lNameOffset <= 0 then
+                lNameOffset := 1;
+              if aUnitName <> '' then
+                lSyntheticTypeName := aUnitName + '.' + lNameMatch.Value
+              else
+                lSyntheticTypeName := lNameMatch.Value;
+              AddDeclaration(aDeclarations, lSyntheticTypeName, 'type', 'record', lSection,
+                aText, lOffset + lNameOffset);
+              AddDeclaration(aDeclarations, lNameMatch.Value, lBlockKind, lSyntheticTypeName, lSection,
+                aText, lOffset + lNameOffset);
+              j := lOffset + Length(lLines[i]) + Length(sLineBreak);
+              AddAnonymousRecordMembers(aText, lLines, lSyntheticTypeName, i + 1, lEndLine - 1, j,
+                aMembers, aReferences);
+            end;
             lSkipUntilLine := lEndLine + 1;
           end;
         end;
@@ -5052,7 +5055,9 @@ begin
     // Replace the old anonymous line-scan facts, rather than publish a second
     // member inventory. The same reconciliation used for named records applies.
     for i := aMembers.Count - 1 downto 0 do
-      if SameText(aMembers[i].OwnerName, aOwnerName) then
+      if SameText(aMembers[i].OwnerName, aOwnerName) and
+        (aMembers[i].Offset >= lActivity.Range.StartOffset) and
+        (aMembers[i].Offset < lActivity.Range.EndOffset) then
         aMembers.Delete(i);
     CollectAstTypeMembers(aText, aTypeNode, 'public', lFacts, lSplits, lNested);
     lSplits.Sort;
@@ -6453,6 +6458,8 @@ var
   lReferences: TList<TDelphiSemanticReference>;
   lRoutines: TList<TDelphiSemanticRoutine>;
   lText: string;
+  lInclude: Boolean;
+  lMatch: TMatch;
 begin
   Result := aModel;
   Result.Declarations := nil;
@@ -6485,20 +6492,30 @@ begin
       lMembers, lDeclarations, lRoutines, lLocals, lReferences, lDiagnostics,
       lHelpers, Result, True);
     for lRange in lContext.fTypeMemberActivityRanges do
+    begin
+      lInclude := False;
+      // Share compiler include classification, including INCLUDE+name and I+ tails.
+      for lMatch in TRegEx.Matches(Copy(lText, lRange.Range.StartOffset,
+        lRange.Range.EndOffset - lRange.Range.StartOffset),
+        '\{\$([^}]*)\}|\(\*\$([\s\S]*?)\*\)', [roIgnoreCase]) do
+        if lMatch.Groups[1].Success then
+          lInclude := lInclude or
+            (TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lMatch.Groups[1].Value) <> '')
+        else
+          lInclude := lInclude or
+            (TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lMatch.Groups[2].Value) <> '');
       if (lRange.DeclarationIndex >= 0) and
         (lRange.DeclarationIndex < lDeclarations.Count) and
         TDelphiSemanticSourceConditionals.RangeIsKnownActive(aModel.SourceText,
           aModel.VerifiedActiveSourceText, lRange.Range.StartOffset,
-          lRange.Range.EndOffset) and
-        (not TRegEx.IsMatch(Copy(lText, lRange.Range.StartOffset,
-          lRange.Range.EndOffset - lRange.Range.StartOffset),
-          '(?:\{\$|\(\*\$)\s*(?:I|INCLUDE)\b(?![+-])', [roIgnoreCase])) then
+          lRange.Range.EndOffset) and (not lInclude) then
       begin
         lDeclaration := lDeclarations[lRange.DeclarationIndex];
         lDeclaration.TypeBodyEndLine := lRange.EndLine;
         lDeclaration.TypeBodyEndColumn := lRange.EndColumn;
         lDeclarations[lRange.DeclarationIndex] := lDeclaration;
       end;
+    end;
     Result.Declarations := lDeclarations.ToArray;
     Result.Members := lMembers.ToArray;
     Result.TypeValueMembers := lContext.TypeValueMembers.ToArray;
