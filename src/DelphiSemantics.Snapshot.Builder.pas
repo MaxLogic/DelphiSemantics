@@ -77,7 +77,7 @@ uses
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
   DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity;
+  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -140,10 +140,7 @@ type
 
 function SnapshotDeclarationKind(const aKind: string): string;
 begin
-  if SameText(aKind, cSnapshotDeclarationKindTypeAlias) then
-    Exit(cSnapshotDeclarationKindAlias);
-
-  Result := aKind;
+  Result := SnapshotStoredSymbolKind(aKind);
 end;
 
 function SnapshotEndColumn(const aColumn: Integer; const aName: string): Integer;
@@ -2412,12 +2409,13 @@ begin
   Inc(aMetrics.WithStatementCount);
 end;
 
-procedure AddSnapshotDeclaration(const aStrings: TSemanticStringPool;
+function AddSnapshotDeclaration(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aDeclaration: TDelphiSemanticDeclaration;
-  var aMetrics: TSnapshotUnitBuildResult);
+  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
+  Result := 0;
   if not SnapshotIncludesDeclaration(aDeclaration) then
     Exit;
   if SameText(SnapshotDeclarationKind(aDeclaration.Kind), cSnapshotSymbolKindRoutine) then
@@ -2442,14 +2440,14 @@ begin
   lSymbol.Column := aDeclaration.Column;
   lSymbol.EndLine := aDeclaration.Line;
   lSymbol.EndColumn := SnapshotEndColumn(aDeclaration.Column, aDeclaration.Name);
-  aUnit.AddSymbol(lSymbol);
+  Result := aUnit.AddSymbol(lSymbol);
   Inc(aMetrics.SymbolCount);
 end;
 
-procedure AddSnapshotMember(const aStrings: TSemanticStringPool;
+function AddSnapshotMember(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aUnitName: string;
   const aMember: TDelphiSemanticMember;
-  var aMetrics: TSnapshotUnitBuildResult);
+  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2480,15 +2478,15 @@ begin
     lSymbol.Flags := lSymbol.Flags or cSnapshotSymbolFlagIsDefault;
   if aMember.IsIndexed then
     lSymbol.Flags := lSymbol.Flags or cSnapshotSymbolFlagIsIndexed;
-  aUnit.AddSymbol(lSymbol);
+  Result := aUnit.AddSymbol(lSymbol);
   Inc(aMetrics.SymbolCount);
 end;
 
-procedure AddSnapshotParameter(const aStrings: TSemanticStringPool;
+function AddSnapshotParameter(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aRoutineName, aRoutineSectionKind,
   aRoutineSignature, aRoutineScopeId: string;
   const aParameter: TDelphiSemanticParameter;
-  var aMetrics: TSnapshotUnitBuildResult);
+  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2506,15 +2504,15 @@ begin
   lSymbol.Column := aParameter.Column;
   lSymbol.EndLine := aParameter.Line;
   lSymbol.EndColumn := SnapshotEndColumn(aParameter.Column, aParameter.Name);
-  aUnit.AddSymbol(lSymbol);
+  Result := aUnit.AddSymbol(lSymbol);
   Inc(aMetrics.SymbolCount);
 end;
 
-procedure AddSnapshotRoutine(const aStrings: TSemanticStringPool;
+function AddSnapshotRoutine(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aRoutine: TDelphiSemanticRoutine;
-  var aMetrics: TSnapshotUnitBuildResult);
+  out aParameterIds: TArray<TSemanticSymbolId>; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
-  lParameter: TDelphiSemanticParameter;
+  i: Integer;
   lRoutineName: string;
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2538,17 +2536,18 @@ begin
   lSymbol.EndColumn := aRoutine.EndColumn;
   if lSymbol.EndColumn <= 0 then
     lSymbol.EndColumn := SnapshotEndColumn(aRoutine.Column, aRoutine.Name);
-  aUnit.AddSymbol(lSymbol);
+  Result := aUnit.AddSymbol(lSymbol);
   Inc(aMetrics.SymbolCount);
 
-  for lParameter in aRoutine.Parameters do
-    AddSnapshotParameter(aStrings, aUnit, lRoutineName, aRoutine.SectionKind,
-      aRoutine.Signature, aRoutine.ScopeId, lParameter, aMetrics);
+  SetLength(aParameterIds, Length(aRoutine.Parameters));
+  for i := 0 to High(aRoutine.Parameters) do
+    aParameterIds[i] := AddSnapshotParameter(aStrings, aUnit, lRoutineName, aRoutine.SectionKind,
+      aRoutine.Signature, aRoutine.ScopeId, aRoutine.Parameters[i], aMetrics);
 end;
 
-procedure AddSnapshotLocal(const aStrings: TSemanticStringPool;
+function AddSnapshotLocal(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aLocal: TDelphiSemanticLocal;
-  var aMetrics: TSnapshotUnitBuildResult);
+  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lKind: string;
   lSymbol: TSemanticSymbolFact;
@@ -2568,7 +2567,7 @@ begin
   lSymbol.Column := aLocal.Column;
   lSymbol.EndLine := aLocal.Line;
   lSymbol.EndColumn := SnapshotEndColumn(aLocal.Column, aLocal.Name);
-  aUnit.AddSymbol(lSymbol);
+  Result := aUnit.AddSymbol(lSymbol);
   Inc(aMetrics.SymbolCount);
 end;
 
@@ -2617,14 +2616,12 @@ function CreateSnapshotUnitModel(const aStrings, aExactStrings: TSemanticStringP
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
   var aMetrics: TSnapshotUnitBuildResult): TUnitSnapshot;
 var
-  lDeclaration: TDelphiSemanticDeclaration;
+  i: Integer;
+  lProjection: TSnapshotSymbolProjection;
   lDiagnostic: TDelphiSemanticModelDiagnostic;
   lScopeDiagnostic: string;
-  lLocal: TDelphiSemanticLocal;
-  lMember: TDelphiSemanticMember;
   lReference: TDelphiSemanticReference;
   lSourceGap: TSemanticReferenceFact;
-  lRoutine: TDelphiSemanticRoutine;
   lWith: TDelphiSemanticWithStatement;
 begin
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
@@ -2659,17 +2656,23 @@ begin
       end;
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
-    for lDeclaration in aModel.Declarations do
-      AddSnapshotDeclaration(aStrings, Result, lDeclaration, aMetrics);
-    for lMember in aModel.Members do
-      AddSnapshotMember(aStrings, Result, aModel.UnitName, lMember, aMetrics);
-    for lRoutine in aModel.Routines do
-      AddSnapshotRoutine(aStrings, Result, lRoutine, aMetrics);
-    for lLocal in aModel.Locals do
-      AddSnapshotLocal(aStrings, Result, lLocal, aMetrics);
+    SetLength(lProjection.Declarations, Length(aModel.Declarations));
+    for i := 0 to High(aModel.Declarations) do
+      lProjection.Declarations[i] := AddSnapshotDeclaration(aStrings, Result, aModel.Declarations[i], aMetrics);
+    SetLength(lProjection.Members, Length(aModel.Members));
+    for i := 0 to High(aModel.Members) do
+      lProjection.Members[i] := AddSnapshotMember(aStrings, Result, aModel.UnitName, aModel.Members[i], aMetrics);
+    SetLength(lProjection.Routines, Length(aModel.Routines));
+    SetLength(lProjection.Parameters, Length(aModel.Routines));
+    for i := 0 to High(aModel.Routines) do
+      lProjection.Routines[i] := AddSnapshotRoutine(aStrings, Result, aModel.Routines[i], lProjection.Parameters[i], aMetrics);
+    SetLength(lProjection.Locals, Length(aModel.Locals));
+    for i := 0 to High(aModel.Locals) do
+      lProjection.Locals[i] := AddSnapshotLocal(aStrings, Result, aModel.Locals[i], aMetrics);
     for lReference in aModel.References do
       AddSnapshotReference(aStrings, Result, aModel.UnitName, lReference,
         aReferenceTargetLookup, aMetrics);
+    ProjectPhysicalEvidence(aModel, lProjection, aStrings, aExactStrings, Result);
   except
     Result.Free;
     raise;
@@ -3036,6 +3039,8 @@ begin
     for lReferenceId := 1 to TSemanticReferenceId(aUnit.ReferenceCount) do
       Result.AddReference(RemapReferenceFact(aSourceStrings, aTargetStrings,
         aUnit.ReferenceById(lReferenceId)));
+    RemapPhysicalEvidence(TSnapshotEvidenceStrings.FromPools(aSourceStrings, aSourceExactStrings),
+      aTargetStrings, aTargetExactStrings, aUnit, Result);
   except
     Result.Free;
     raise;
@@ -3074,6 +3079,8 @@ begin
       Result.AddReference(RemapReferenceFactWithResolvedTargets(aSourceStrings,
         aTargetStrings, aUnit.ReferenceById(lReferenceId), aSourceSnapshot,
         aResolver, aOriginalUnitsById));
+    RemapPhysicalEvidence(TSnapshotEvidenceStrings.FromPools(aSourceStrings, aSourceExactStrings),
+      aTargetStrings, aTargetExactStrings, aUnit, Result);
   except
     Result.Free;
     raise;

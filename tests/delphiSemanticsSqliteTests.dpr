@@ -39,6 +39,7 @@ uses
   DelphiSemantics.Snapshot in '..\src\DelphiSemantics.Snapshot.pas',
   DelphiSemantics.Snapshot.Builder in '..\src\DelphiSemantics.Snapshot.Builder.pas',
   DelphiSemantics.Snapshot.Cache.Sqlite in '..\src\DelphiSemantics.Snapshot.Cache.Sqlite.pas',
+  DelphiSemantics.Snapshot.Evidence in '..\src\DelphiSemantics.Snapshot.Evidence.pas',
   DelphiSemantics.Snapshot.OccurrenceCodec in '..\src\DelphiSemantics.Snapshot.OccurrenceCodec.pas',
   DelphiSemantics.Snapshot.PositionResolver in '..\src\DelphiSemantics.Snapshot.PositionResolver.pas',
   DelphiSemantics.Snapshot.QuerySupport in '..\src\DelphiSemantics.Snapshot.QuerySupport.pas',
@@ -56,6 +57,7 @@ uses
   DelphiSemantics.WithBinding.Inventory in '..\src\DelphiSemantics.WithBinding.Inventory.pas',
   DelphiSemantics.WithScan in '..\src\DelphiSemantics.WithScan.pas',
   Test.CacheSqlite in 'src\test.cachesqlite.pas',
+  Test.SnapshotEvidence.Support in 'src\test.snapshotevidence.support.pas',
   Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas',
   Test.Support in 'src\test.support.pas';
 

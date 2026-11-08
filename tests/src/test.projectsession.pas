@@ -300,6 +300,16 @@ type
     [Test]
     [Category('RefactoringLightReuse,Fast')]
     procedure ProjectSessionSnapshotCacheRebuildsIncludedFileChanges;
+    [Test]
+    [TestCase('Root', 'False')]
+    [TestCase('Include', 'True')]
+    procedure StaleExtractionIdentityNeverReplacesCommittedSnapshot(const aInclude: Boolean);
+    [Test]
+    [TestCase('UTF16 unpaired surrogate', 'surrogate')]
+    [TestCase('Unicode include case aliases', 'unicode')]
+    procedure CacheWriteInvariantsDoNotAbortAnalysis(const aShape: string);
+    [Test]
+    procedure PhysicalEvidenceSurvivesActualFullAndPartialSessionHits;
     [Category('Fast')]
     [Test]
     procedure ProjectSessionAssociatesNestedWithReferencesWithInnermostSnapshotFact;
@@ -329,7 +339,7 @@ uses
   DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitNameWitness,
   DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.WithBinding,
-  Test.Support;
+  Test.SnapshotEvidence.Support, Test.Support;
 
 var
   GProjectSessionTempRoot: string;
@@ -6012,6 +6022,335 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+function SnapshotIdentityForFile(const aDatabase, aFile: string; const aExceptKey: string = ''): TDelphiSemanticSnapshotCacheIdentity;
+var
+  lConnection: TFDConnection;
+  lDriver: TFDPhysSQLiteDriverLink;
+  lQuery: TFDQuery;
+begin
+  Result := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lDriver := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := aDatabase;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select cache_key, identity_key, source_file_name, file_hash, context_hash, ' +
+      'include_graph_hash, schema_version from snapshot_units where source_file_name = ? and cache_key <> ?';
+    lQuery.Params[0].AsWideString := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aFile);
+    lQuery.Params[1].AsWideString := aExceptKey;
+    lQuery.Open;
+    Assert.IsFalse(lQuery.Eof, 'Expected a persisted unit: ' + aFile);
+    Result.CacheKey := lQuery.Fields[0].AsWideString;
+    Result.IdentityKey := lQuery.Fields[1].AsWideString;
+    Result.SourceFileName := lQuery.Fields[2].AsWideString;
+    Result.FileHash := lQuery.Fields[3].AsWideString;
+    Result.ContextHash := lQuery.Fields[4].AsWideString;
+    Result.IncludeGraphHash := lQuery.Fields[5].AsWideString;
+    Result.SchemaVersion := lQuery.Fields[6].AsWideString;
+    lQuery.Next;
+    Assert.IsTrue(lQuery.Eof, 'Only one committed generation is expected.');
+  finally
+    lQuery.Free;
+    lConnection.Free;
+    lDriver.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.PhysicalEvidenceSurvivesActualFullAndPartialSessionHits;
+var
+  i: Integer;
+  lRoot, lProject, lUnitB: string;
+  lModelA, lModelB: TDelphiSemanticUnitModel;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lOptions: TDelphiSemanticOptions;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+begin
+  lRoot := ProjectSessionTempPath('physical-session-hits');
+  TDirectory.CreateDirectory(lRoot);
+  lModelA := PhysicalEvidenceModel(lRoot, 'EvidenceA');
+  lModelB := PhysicalEvidenceModel(lRoot, 'EvidenceB');
+  lUnitB := lModelB.FileName;
+  lProject := TPath.Combine(lRoot, 'EvidenceProject.dproj');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'EvidenceProject.dpr'),
+    'program EvidenceProject; uses EvidenceA, EvidenceB; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lProject, '<Project><PropertyGroup><MainSource>EvidenceProject.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="EvidenceA.pas"/>' +
+    '<DCCReference Include="EvidenceB.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.db');
+  for i := 0 to 3 do
+  begin
+    if i = 2 then
+    begin
+      TFile.WriteAllText(lUnitB, TFile.ReadAllText(lUnitB) + #13#10'// new root generation', TEncoding.ASCII);
+      lModelOptions := Default(TDelphiSemanticModelOptions);
+      lModelOptions.SourceFileName := lUnitB;
+      lModelOptions.SearchPaths := [lRoot];
+      lModelOptions.ProjectContextApplied := True;
+      lModelB := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+      Assert.IsTrue(lModelB.Success);
+    end;
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+      try
+        Assert.AreEqual(3, lSnapshot.UnitCount);
+        if i = 0 then
+          Assert.AreEqual(3, lMetrics.SnapshotCacheUnitMisses)
+        else if i = 2 then
+        begin
+          Assert.AreEqual(1, lMetrics.SnapshotCachePartialHitCount);
+          Assert.AreEqual(2, lMetrics.SnapshotCacheUnitHits);
+          Assert.AreEqual(1, lMetrics.SnapshotCacheUnitMisses);
+        end else begin
+          Assert.AreEqual(1, lMetrics.SnapshotCacheFullHitCount);
+          Assert.AreEqual(3, lMetrics.SnapshotCacheUnitHits);
+          Assert.AreEqual(0, lMetrics.SnapshotCacheUnitMisses);
+        end;
+        AssertPhysicalEvidence(lSnapshot, lModelA);
+        AssertPhysicalEvidence(lSnapshot, lModelB);
+      finally
+        lSnapshot.Free;
+      end;
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+end;
+
+procedure TProjectSessionTests.CacheWriteInvariantsDoNotAbortAnalysis(const aShape: string);
+var
+  i, lIncludeRows: Integer;
+  lRoot, lProject, lUnitFile, lIncludeFile, lHealthyFile, lText: string;
+  lBytes: TBytes;
+  lSerializer: TJsonSerializer;
+  lExpectedAnalysisJson: string;
+  lOptions: TDelphiSemanticOptions;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lExpected, lActual: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+  lDiagnosed: Boolean;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+begin
+  lRoot := ProjectSessionTempPath('cache-write-invariant-' + aShape);
+  TDirectory.CreateDirectory(lRoot);
+  lUnitFile := TPath.Combine(lRoot, 'U1.pas');
+  lHealthyFile := TPath.Combine(lRoot, 'HealthyUnit.pas');
+  lProject := TPath.Combine(lRoot, 'Probe.dproj');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Probe.dpr'),
+    'program Probe; uses U1, HealthyUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lProject, '<Project><PropertyGroup><MainSource>Probe.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="U1.pas"/>' +
+    '<DCCReference Include="HealthyUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(lHealthyFile,
+    'unit HealthyUnit; interface var Healthy: Integer; implementation end.', TEncoding.ASCII);
+  if aShape = 'surrogate' then
+  begin
+    // Review p1: preserve the unpaired UTF-16 code unit, without an encoder's replacement.
+    lText := 'unit U1;'#13#10'interface'#13#10'var GCounter: Integer;'#13#10 +
+      'implementation'#13#10'// X' + #$D800 + 'Y lone surrogate in comment'#13#10 +
+      'procedure Touch;'#13#10'begin GCounter := GCounter + 1; end;'#13#10'end.';
+    SetLength(lBytes, 2 + Length(lText) * SizeOf(Char));
+    lBytes[0] := $FF;
+    lBytes[1] := $FE;
+    Move(lText[1], lBytes[2], Length(lText) * SizeOf(Char));
+    TFile.WriteAllBytes(lUnitFile, lBytes);
+  end else begin
+    // Review p3: Windows resolves both spellings to the same physical include.
+    lIncludeFile := #$0179 + 'r' + #$00F3 + 'd' + #$0142 + 'o.inc';
+    TFile.WriteAllText(TPath.Combine(lRoot, lIncludeFile), 'GF := 7;', TEncoding.UTF8);
+    TFile.WriteAllText(lUnitFile,
+      'unit U1;'#13#10'interface'#13#10'var GF: Integer;'#13#10'procedure Run;'#13#10 +
+      'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+      '{$I ' + lIncludeFile + '}'#13#10'{$I ' + #$017A + Copy(lIncludeFile, 2, MaxInt) +
+      '}'#13#10'end;'#13#10'end.', TEncoding.UTF8);
+  end;
+  lSerializer := TJsonSerializer.Create;
+  lExpected := nil;
+  lActual := nil;
+  try
+    lOptions := Default(TDelphiSemanticOptions);
+    lOptions.ProjectPath := lProject;
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lExpected := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+      lExpectedAnalysisJson := lSerializer.Serialize<TDelphiSemanticGlobalAnalysis>(
+        TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lExpected));
+      Assert.IsTrue(ContainsText(lExpectedAnalysisJson, 'Usages'), 'Compare the complete public analysis.');
+    finally
+      lSession.Session.Free;
+    end;
+    lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.db');
+    for i := 0 to 1 do
+    begin
+      lSession := TDelphiSemanticProjectSession.Open(lOptions);
+      try
+        Assert.IsTrue(lSession.Success);
+        lActual := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+        AssertSnapshotFactsEqual(lExpected, lActual);
+        lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lActual);
+        Assert.AreEqual(lExpectedAnalysisJson,
+          lSerializer.Serialize<TDelphiSemanticGlobalAnalysis>(lAnalysis), False,
+          'Optional cache writes must not alter any public analysis field.');
+        Assert.IsTrue(Length(lAnalysis.Usages) > 0, 'Caching must still produce the analysis result.');
+        if aShape = 'surrogate' then
+        begin
+          lDiagnosed := False;
+          for lDiagnostic in lSession.Session.Diagnostics do
+            if (lDiagnostic.Code = 'SNAPSHOT_CACHE_WRITE_SKIPPED') and
+              SameText(lDiagnostic.FileName, lUnitFile) and
+              ContainsText(lDiagnostic.Message, 'SNAPSHOT_SHARED_TEXT_UTF16_INVALID') then
+              lDiagnosed := True;
+          Assert.IsTrue(lDiagnosed, 'A refused optional cache write needs its named cause.');
+          if i = 1 then
+            Assert.AreEqual(2, lMetrics.SnapshotCacheUnitHits, 'Healthy siblings must remain cached.');
+        end else begin
+          lIncludeRows := 0;
+          for var j := 0 to lActual.UnitCount - 1 do
+            if SameText(lActual.TextOf(lActual.UnitByIndex(j).FileNameId), lUnitFile) then
+              lIncludeRows := lActual.UnitByIndex(j).CapturedSourceCount;
+          Assert.AreEqual(2, lIncludeRows, 'One root and one physical include, despite Unicode case aliases.');
+          if i = 1 then
+            Assert.AreEqual(1, lMetrics.SnapshotCacheFullHitCount, 'Valid Unicode aliases must be reusable.');
+        end;
+        lIdentity := SnapshotIdentityForFile(lOptions.SqliteCacheFileName, lHealthyFile);
+        Assert.IsNotEmpty(lIdentity.CacheKey, 'A refused sibling write cannot prevent healthy storage.');
+      finally
+        FreeAndNil(lActual);
+        lSession.Session.Free;
+      end;
+    end;
+  finally
+    lActual.Free;
+    lExpected.Free;
+    lSerializer.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.StaleExtractionIdentityNeverReplacesCommittedSnapshot(const aInclude: Boolean);
+var
+  lRoot, lProject, lUnitFile, lChangedFile, lHealthyFile, lCacheFile: string;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lSnapshot, lPrevious: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+  lBefore, lAfter: TDelphiSemanticSnapshotCacheIdentity;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lDiagnostic: TDelphiSemanticDiagnostic;
+  lDiagnosed: Boolean;
+begin
+  lRoot := ProjectSessionTempPath('stale-snapshot-identity-' + BoolToStr(aInclude, True));
+  TDirectory.CreateDirectory(lRoot);
+  lUnitFile := TPath.Combine(lRoot, 'StaleUnit.pas');
+  lHealthyFile := TPath.Combine(lRoot, 'HealthyUnit.pas');
+  lProject := TPath.Combine(lRoot, 'StaleProject.dproj');
+  lCacheFile := TPath.Combine(lRoot, 'cache.db');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'StaleProject.dpr'),
+    'program StaleProject; uses StaleUnit, HealthyUnit; begin end.', TEncoding.ASCII);
+  TFile.WriteAllText(lProject, '<Project><PropertyGroup><MainSource>StaleProject.dpr</MainSource>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="StaleUnit.pas"/>' +
+    '<DCCReference Include="HealthyUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(lHealthyFile,
+    'unit HealthyUnit; interface var Healthy: Integer; implementation end.', TEncoding.ASCII);
+  if aInclude then
+  begin
+    TFile.WriteAllText(lUnitFile,
+      'unit StaleUnit; interface {$I value.inc} implementation end.', TEncoding.ASCII);
+    lChangedFile := TPath.Combine(lRoot, 'value.inc');
+    TFile.WriteAllText(lChangedFile, 'const Value = 1;', TEncoding.ASCII);
+  end else begin
+    lChangedFile := lUnitFile;
+    TFile.WriteAllText(lChangedFile,
+      'unit StaleUnit; interface const Value = 1; implementation end.', TEncoding.ASCII);
+  end;
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lOptions.SqliteCacheFileName := lCacheFile;
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSession.Success);
+    lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+    lSnapshot.Free;
+  finally
+    lSession.Session.Free;
+  end;
+  lBefore := SnapshotIdentityForFile(lCacheFile, lUnitFile);
+  // Force a real partial miss while retaining the previous StaleUnit entry.
+  ExecProjectSessionCacheSql(lCacheFile,
+    'delete from snapshot_units where source_file_name like ' + QuotedStr('%healthyunit.pas'));
+  TFile.WriteAllText(lChangedFile,
+    StringReplace(TFile.ReadAllText(lChangedFile), 'Value = 1', 'Value = 2', []), TEncoding.ASCII);
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lSession.Success);
+    SnapshotBeforeExtractionForTest :=
+      procedure
+      begin
+        TFile.WriteAllText(lChangedFile,
+          StringReplace(TFile.ReadAllText(lChangedFile), 'Value = 2', 'Value = 3', []), TEncoding.ASCII);
+      end;
+    try
+      lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+      lSnapshot.Free;
+    finally
+      SnapshotBeforeExtractionForTest := nil;
+    end;
+    Assert.AreEqual(1, lMetrics.SnapshotCachePartialHitCount, 'Exercise an actual partial hit.');
+    lAfter := SnapshotIdentityForFile(lCacheFile, lUnitFile);
+    Assert.AreEqual(lBefore.CacheKey, lAfter.CacheKey,
+      'A stale extraction must retain the previous committed generation, not replace either key.');
+    Assert.AreEqual(lBefore.FileHash, lAfter.FileHash);
+    Assert.AreEqual(lBefore.IncludeGraphHash, lAfter.IncludeGraphHash);
+    lDiagnosed := False;
+    for lDiagnostic in lSession.Session.Diagnostics do
+      if (lDiagnostic.Code = 'SNAPSHOT_CAPTURE_IDENTITY_STALE') and
+        SameText(lDiagnostic.FileName, lUnitFile) then
+        lDiagnosed := True;
+    Assert.IsTrue(lDiagnosed, 'The stale unit needs a named diagnostic.');
+    lAfter := SnapshotIdentityForFile(lCacheFile, lHealthyFile);
+    Assert.IsNotEmpty(lAfter.CacheKey, 'The healthy missed sibling must still store.');
+  finally
+    SnapshotBeforeExtractionForTest := nil;
+    lSession.Session.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFile);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lBefore, lPrevious), 'Previous complete entry must remain usable.');
+    lPrevious.Free;
+  finally
+    lCache.Free;
+  end;
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+    lSnapshot.Free;
+    Assert.AreEqual(1, lMetrics.SnapshotCacheUnitMisses, 'Only the stale unit rebuilds on the stable pass.');
+  finally
+    lSession.Session.Free;
+  end;
+  lAfter := SnapshotIdentityForFile(lCacheFile, lUnitFile, lBefore.CacheKey);
+  Assert.AreNotEqual(lBefore.CacheKey, lAfter.CacheKey);
+  lSession := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+    lSnapshot.Free;
+    Assert.AreEqual(1, lMetrics.SnapshotCacheFullHitCount, 'The next unchanged pass must genuinely hit.');
+  finally
+    lSession.Session.Free;
   end;
 end;
 

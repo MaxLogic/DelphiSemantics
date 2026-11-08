@@ -31,6 +31,68 @@ type
     procedure VerifyConcurrencyIdentities(const aCacheFileName: string;
       const aNames: TArray<string>);
   public
+    [Test]
+    procedure PhysicalOccurrencesSurviveSqliteRoundTrip;
+    [Test]
+    [TestCase('Legacy references present', 'False')]
+    [TestCase('Physical occurrences only', 'True')]
+    procedure IncludedPathsKeepOriginalSpelling(const aPhysicalOnly: Boolean);
+    [Test]
+    [TestCase('Standalone load', 'False')]
+    [TestCase('Batch load', 'True')]
+    procedure AvailableSymbolsRejectMalformedProjection(const aBatch: Boolean);
+    [Test]
+    [TestCase('Every truncation', 'truncated')]
+    [TestCase('Trailing bytes', 'trailing')]
+    [TestCase('Unknown format', 'format')]
+    [TestCase('Nonminimal varint', 'overlong')]
+    [TestCase('Overflowing varint', 'overflow')]
+    [TestCase('Continued tenth byte', 'continued')]
+    [TestCase('Invalid semantic ID', 'semantic')]
+    [TestCase('Missing collection', 'missing')]
+    [TestCase('Extra collection', 'extra')]
+    [TestCase('Header count', 'count')]
+    [TestCase('Seeded byte fuzz', 'fuzz')]
+    procedure PhysicalOccurrencePayloadRejectsMalformedData(const aMutation: string);
+    [Test]
+    [TestCase('Unavailable source row', 'source,False')]
+    [TestCase('Available source row', 'source,True')]
+    [TestCase('Unavailable unverified reference', 'reference,False')]
+    [TestCase('Available unverified reference', 'reference,True')]
+    [TestCase('Unavailable unverified symbol', 'symbol,False')]
+    [TestCase('Available unverified symbol', 'symbol,True')]
+    procedure HasIncludesMutationRejectsEveryNonrootCollection(const aCollection: string;
+      const aAvailable: Boolean);
+    [Test]
+    procedure SharedSourceTextReplacementAndGcAreAtomic;
+    [Test]
+    [TestCase('Stored text altered', 'text')]
+    [TestCase('Stored hash malformed', 'hash')]
+    [TestCase('Shared row missing', 'missing')]
+    [TestCase('Two backing modes', 'backing')]
+    procedure SharedSourceTextRejectsCorruptBacking(const aMutation: string);
+    [Test]
+    procedure UnitLoadBatchKeepsOneReadGeneration;
+    [Test]
+    [TestCase('Has includes', 'includes')]
+    [TestCase('Captured count', 'count')]
+    [TestCase('Captured ordinal', 'ordinal')]
+    [TestCase('Captured unit ID', 'unit')]
+    [TestCase('Captured status', 'status')]
+    [TestCase('Import ordinal', 'import')]
+    [TestCase('Occurrence BLOB', 'blob')]
+    [TestCase('Target lineage', 'lineage')]
+    [TestCase('Shared text hash', 'hash')]
+    [TestCase('Reference null', 'null')]
+    [TestCase('Reference negative', 'negative')]
+    [TestCase('Reference overflow', 'overflow')]
+    [TestCase('Symbol overflow', 'symbol')]
+    [TestCase('Header type', 'type')]
+    procedure UnitLoadBatchRejectsOnlyCorruptUnit(const aMutation: string);
+    [Test]
+    [TestCase('Reload physical file', 'file')]
+    [TestCase('Reload captured access', 'access')]
+    procedure IncludedGlobalEvidenceSurvivesReload(const aCheck: string);
     [Category('Fast')]
     [Test]
     procedure CacheKeyReuseWithDifferentIdentityDoesNotLoadStoredUnit;
@@ -189,11 +251,12 @@ uses
   Winapi.Windows,
   FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
   maxLogic.IOUtils,
-  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.GlobalVars,
+  DelphiSemantics.Model,
   DelphiSemantics.Model.Json, DelphiSemantics.RemoveWith.Visibility,
-  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.OccurrenceCodec,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.WithBinding,
-  Test.Support;
+  Test.SnapshotEvidence.Support, Test.Support;
 
 var
   GSnapshotSqliteTempRoot: string;
@@ -267,6 +330,647 @@ begin
   Result.ContextHash := THashSHA2.GetHashString('case-probe');
   Result.IncludeGraphHash := THashSHA2.GetHashString('no-includes');
   Result.SchemaVersion := 'case-probe';
+end;
+
+procedure TSnapshotSqliteTests.UnitLoadBatchKeepsOneReadGeneration;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lWriter: TFDConnection;
+  lIdentityA, lIdentityB: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModelA, lModelB: TDelphiSemanticUnitModel;
+  lRoot, lDatabase: string;
+begin
+  lRoot := TempPath('ds697-batch-read-generation');
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lModelA := PhysicalEvidenceModel(lRoot, 'BatchA');
+  lModelB := PhysicalEvidenceModel(lRoot, 'BatchB');
+  lIdentityA := CasePoolIdentity(lRoot, 'BatchA');
+  lIdentityB := CasePoolIdentity(lRoot, 'BatchB');
+  lSnapshot := nil;
+  lLoaded := nil;
+  lCache := nil;
+  lWriter := nil;
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lSnapshot := BuildProjectUnitSnapshotFromModels([lModelA], 0, 17, lMetrics);
+    lCache.StoreUnitFromSnapshot(lIdentityA, lSnapshot, 0);
+    FreeAndNil(lSnapshot);
+    lSnapshot := BuildProjectUnitSnapshotFromModels([lModelB], 0, 19, lMetrics);
+    lCache.StoreUnitFromSnapshot(lIdentityB, lSnapshot, 0);
+    FreeAndNil(lSnapshot);
+    lWriter := TFDConnection.Create(nil);
+    lWriter.LoginPrompt := False;
+    lWriter.Params.Values['DriverID'] := 'SQLite';
+    lWriter.Params.Values['Database'] := lDatabase;
+    lWriter.Params.Values['JournalMode'] := 'WAL';
+    lWriter.Params.Values['LockingMode'] := 'Normal';
+    lWriter.Params.Values['SharedCache'] := 'False';
+    lWriter.Connected := True;
+    lCache.BeginUnitLoadBatch([lIdentityB, lIdentityA]);
+    try
+      lWriter.ExecSQL('update snapshot_units set has_includes=0 where cache_key=' +
+        QuotedStr(lIdentityB.CacheKey));
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded));
+      AssertPhysicalEvidence(lLoaded, lModelA);
+      FreeAndNil(lLoaded);
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentityB, lLoaded),
+        'A batch must load every unit from its captured read generation.');
+      AssertPhysicalEvidence(lLoaded, lModelB);
+      FreeAndNil(lLoaded);
+    finally
+      lCache.EndUnitLoadBatch;
+    end;
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentityB, lLoaded),
+      'A later load must validate the has_includes mutation, without reusing the prior batch.');
+    Assert.IsNull(lLoaded);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded));
+    AssertPhysicalEvidence(lLoaded, lModelA);
+  finally
+    lWriter.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+    lCache.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.UnitLoadBatchRejectsOnlyCorruptUnit(const aMutation: string);
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentityA, lIdentityB, lMissing: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModelA, lModelB: TDelphiSemanticUnitModel;
+  lRoot, lDatabase, lSql: string;
+begin
+  lRoot := TempPath('ds697-batch-corrupt-' + aMutation);
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lModelA := PhysicalEvidenceModel(lRoot, 'ValidA');
+  lModelB := PhysicalEvidenceModel(lRoot, 'CorruptB');
+  lIdentityA := CasePoolIdentity(lRoot, 'ValidA');
+  lIdentityB := CasePoolIdentity(lRoot, 'CorruptB');
+  lMissing := CasePoolIdentity(lRoot, 'Missing');
+  lSnapshot := nil;
+  lLoaded := nil;
+  lCache := nil;
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lSnapshot := BuildProjectUnitSnapshotFromModels([lModelA], 0, 17, lMetrics);
+    lCache.StoreUnitFromSnapshot(lIdentityA, lSnapshot, 0);
+    FreeAndNil(lSnapshot);
+    lSnapshot := BuildProjectUnitSnapshotFromModels([lModelB], 0, 19, lMetrics);
+    lCache.StoreUnitFromSnapshot(lIdentityB, lSnapshot, 0);
+    FreeAndNil(lSnapshot);
+    FreeAndNil(lCache);
+    if aMutation = 'includes' then
+      lSql := 'update snapshot_units set has_includes=0'
+    else if aMutation = 'count' then
+      lSql := 'update snapshot_units set captured_source_count=captured_source_count+1'
+    else if aMutation = 'ordinal' then
+      lSql := 'update snapshot_captured_sources set source_ordinal=source_ordinal+100'
+    else if aMutation = 'unit' then
+      lSql := 'update snapshot_captured_sources set unit_id=99'
+    else if aMutation = 'status' then
+      lSql := 'update snapshot_captured_sources set status=99'
+    else if aMutation = 'import' then
+      lSql := 'update snapshot_visible_units set import_ordinal=99'
+    else if aMutation = 'blob' then
+      lSql := 'update snapshot_unit_occurrences set payload=x''ff'''
+    else if aMutation = 'lineage' then
+      lSql := 'update snapshot_target_lineage set payload=x''ff'''
+    else if aMutation = 'hash' then
+      lSql := 'update snapshot_exact_strings set source_content_hash=' + QuotedStr(StringOfChar('0', 64))
+    else if aMutation = 'null' then
+      lSql := 'update snapshot_references set line=null'
+    else if aMutation = 'negative' then
+      lSql := 'update snapshot_references set line=-1'
+    else if aMutation = 'overflow' then
+      lSql := 'update snapshot_references set target_unit_id=4294967296'
+    else if aMutation = 'symbol' then
+      lSql := 'update snapshot_symbols set name_id=4294967296'
+    else if aMutation = 'type' then
+      lSql := 'update snapshot_units set unit_id=''invalid'''
+    else
+      raise EInvalidOpException.Create('Unknown batch mutation.');
+    if aMutation = 'null' then
+    begin
+      // Only this damaged-cache fixture omits NOT NULL constraints, so the
+      // reader must reject nulls even when a database was externally rewritten.
+      ExecCacheSql(lDatabase, 'create table nullable_references as select * from snapshot_references');
+      ExecCacheSql(lDatabase, 'drop table snapshot_references');
+      ExecCacheSql(lDatabase, 'alter table nullable_references rename to snapshot_references');
+    end;
+    lSql := lSql + ' where cache_key=' + QuotedStr(lIdentityB.CacheKey);
+    if aMutation = 'hash' then
+      lSql := lSql + ' and source_content_hash is not null';
+    ExecCacheSql(lDatabase, lSql);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lCache.BeginUnitLoadBatch([lIdentityB, lMissing, lIdentityA, lIdentityA]);
+    try
+      Assert.IsFalse(lCache.TryLoadUnit(lIdentityB, lLoaded), aMutation);
+      Assert.IsNull(lLoaded);
+      Assert.IsTrue(lCache.LastInvalidationReason <> '', aMutation);
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded),
+        'An unusable unit must not prevent another unit from being reused.');
+      AssertPhysicalEvidence(lLoaded, lModelA);
+      FreeAndNil(lLoaded);
+      Assert.IsFalse(lCache.TryLoadUnit(lMissing, lLoaded));
+      Assert.IsNull(lLoaded);
+      Assert.IsFalse(lCache.TryLoadUnit(lIdentityB, lLoaded),
+        'An invalidated entry must stay unavailable inside the batch.');
+      Assert.IsNull(lLoaded);
+    finally
+      lCache.EndUnitLoadBatch;
+    end;
+    FreeAndNil(lCache);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded));
+    AssertPhysicalEvidence(lLoaded, lModelA);
+    FreeAndNil(lLoaded);
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentityB, lLoaded));
+    Assert.IsNull(lLoaded);
+  finally
+    lLoaded.Free;
+    lSnapshot.Free;
+    lCache.Free;
+  end;
+end;
+
+function EvidenceBlobSql(const aPayload: TBytes): string;
+var
+  b: Byte;
+begin
+  Result := 'x' + #39;
+  for b in aPayload do
+    Result := Result + IntToHex(b, 2);
+  Result := Result + #39;
+end;
+
+procedure TSnapshotSqliteTests.AvailableSymbolsRejectMalformedProjection(const aBatch: Boolean);
+var
+  lRoot, lDatabase: string;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lValues: TArray<Int64>;
+begin
+  lRoot := TempPath('malformed-available-symbol-' + BoolToStr(aBatch, True));
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lModel := PhysicalEvidenceModel(lRoot, 'MalformedSymbol');
+  lIdentity := CasePoolIdentity(lRoot, 'MalformedSymbol');
+  lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 19, lMetrics);
+  lLoaded := nil;
+  lCache := nil;
+  try
+    Assert.IsTrue(lSnapshot.UnitByIndex(0).PhysicalSymbolOccurrencesAvailable);
+    lValues := DecodeOccurrenceValues(PackPhysicalOccurrences(lSnapshot.UnitByIndex(0), 1),
+      lSnapshot.UnitByIndex(0).PhysicalSymbolOccurrenceCount, cPhysicalSymbolColumnCount);
+    Assert.IsTrue(Length(lValues) >= cPhysicalSymbolColumnCount);
+    lValues[14] := 0;
+    lValues[15] := cPhysicalProjectionMalformed;
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    ExecCacheSql(lDatabase, 'update snapshot_unit_occurrences set payload=' +
+      EvidenceBlobSql(EncodeOccurrenceValues(lValues, cPhysicalSymbolColumnCount)) +
+      ' where collection=1 and cache_key=' + QuotedStr(lIdentity.CacheKey));
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    if aBatch then
+      lCache.BeginUnitLoadBatch([lIdentity]);
+    try
+      Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded),
+        'Malformed symbol evidence cannot coexist with an available header.');
+      Assert.IsNull(lLoaded);
+      Assert.IsTrue(ContainsText(lCache.LastInvalidationReason, 'SNAPSHOT_EVIDENCE_LINK_INVALID'));
+    finally
+      if aBatch then
+        lCache.EndUnitLoadBatch;
+    end;
+  finally
+    lLoaded.Free;
+    lCache.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.IncludedPathsKeepOriginalSpelling(const aPhysicalOnly: Boolean);
+var
+  lRoot, lInclude: string;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  i, lCount: Integer;
+begin
+  lRoot := TempPath('OriginalIncludeSpelling');
+  TDirectory.CreateDirectory(lRoot);
+  lInclude := TPath.Combine(lRoot, 'MixedCaseBody.inc');
+  TFile.WriteAllText(lInclude, 'GF := 7;', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'PathUnit.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit PathUnit;'#13#10'interface'#13#10'var GF: Integer;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'begin'#13#10'{$I MixedCaseBody.inc}'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  if aPhysicalOnly then
+    lModel.References := nil;
+  lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 19, lMetrics);
+  lCache := nil;
+  lLoaded := nil;
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+    lIdentity := CasePoolIdentity(lRoot, 'PathUnit');
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded));
+    for i := 0 to 2 do
+    begin
+      if i = 0 then
+        lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeUnits([lModel])
+      else if i = 1 then
+        lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot)
+      else
+        lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lLoaded);
+      lCount := 0;
+      for var lUsage in lAnalysis.Usages do
+        if lUsage.Name = 'GF' then
+        begin
+          Inc(lCount);
+          Assert.AreEqual(lInclude, lUsage.FileName, False, 'Reports preserve original include-path spelling.');
+        end;
+      Assert.AreEqual(1, lCount);
+    end;
+  finally
+    lLoaded.Free;
+    lCache.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.PhysicalOccurrencePayloadRejectsMalformedData(const aMutation: string);
+var
+  i, j, lCount, lAttempts: Integer;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lRoot, lDatabase, lSql: string;
+  lPayload, lBad: TBytes;
+  lValues: TArray<Int64>;
+  lRandom: Cardinal;
+begin
+  lRoot := TempPath('physical-codec-' + aMutation);
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lModel := PhysicalEvidenceModel(lRoot, 'CodecUnit');
+  lIdentity := CasePoolIdentity(lRoot, 'CodecUnit');
+  lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 19, lMetrics);
+  lCache := nil;
+  lLoaded := nil;
+  try
+    lCount := lSnapshot.UnitByIndex(0).PhysicalReferenceOccurrenceCount;
+    SetLength(lValues, lCount * cPhysicalReferenceColumnCount);
+    // A literal valid unverified record set exercises the codec separately
+    // from the builder's choice of IDs and token coordinates.
+    lPayload := EncodeOccurrenceValues(lValues, cPhysicalReferenceColumnCount);
+    lAttempts := 1;
+    if aMutation = 'truncated' then
+      lAttempts := Length(lPayload);
+    if aMutation = 'fuzz' then
+      lAttempts := 300;
+    lRandom := $697691;
+    for i := 0 to lAttempts - 1 do
+    begin
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+      FreeAndNil(lCache);
+      lBad := Copy(lPayload);
+      if aMutation = 'truncated' then
+        SetLength(lBad, i)
+      else if aMutation = 'trailing' then
+        lBad := lBad + [0]
+      else if aMutation = 'format' then
+        lBad[0] := 2
+      else if aMutation = 'overlong' then
+        lBad := [1, $80, 0] + Copy(lPayload, 2, MaxInt)
+      else if (aMutation = 'overflow') or (aMutation = 'continued') then
+      begin
+        lBad := [1, $80, $80, $80, $80, $80, $80, $80, $80, $80, 2] + Copy(lPayload, 2, MaxInt);
+        if aMutation = 'continued' then
+          lBad[10] := $80;
+      end else if aMutation = 'semantic' then
+      begin
+        lValues[0] := High(Cardinal);
+        lBad := EncodeOccurrenceValues(lValues, cPhysicalReferenceColumnCount);
+      end else if aMutation = 'fuzz' then
+      begin
+        lRandom := lRandom xor (lRandom shl 13);
+        lRandom := lRandom xor (lRandom shr 17);
+        lRandom := lRandom xor (lRandom shl 5);
+        SetLength(lBad, Integer(lRandom mod (Length(lPayload) + 15)));
+        for j := 0 to High(lBad) do
+        begin
+          lRandom := lRandom xor (lRandom shl 13);
+          lRandom := lRandom xor (lRandom shr 17);
+          lRandom := lRandom xor (lRandom shl 5);
+          lBad[j] := Byte(lRandom and $FF);
+        end;
+      end;
+      lSql := 'update snapshot_unit_occurrences set payload=' + EvidenceBlobSql(lBad) +
+        ' where cache_key=' + QuotedStr(lIdentity.CacheKey) + ' and collection=0';
+      if aMutation = 'missing' then
+        lSql := 'delete from snapshot_unit_occurrences where cache_key=' + QuotedStr(lIdentity.CacheKey) +
+          ' and collection=0'
+      else if aMutation = 'extra' then
+        lSql := 'insert into snapshot_unit_occurrences select cache_key,unit_id,2,payload ' +
+          'from snapshot_unit_occurrences where cache_key=' + QuotedStr(lIdentity.CacheKey) + ' and collection=0'
+      else if aMutation = 'count' then
+        lSql := 'update snapshot_units set physical_reference_count=physical_reference_count+1 where cache_key=' +
+          QuotedStr(lIdentity.CacheKey);
+      ExecCacheSql(lDatabase, lSql);
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+      if aMutation = 'fuzz' then
+      begin
+        if lCache.TryLoadUnit(lIdentity, lLoaded) then
+        begin
+          // A randomly valid payload may publish only through the full strict
+          // loader; exercise its owned/frozen result and both collection counts.
+          Assert.AreEqual(lCount, lLoaded.UnitByIndex(0).PhysicalReferenceOccurrenceCount);
+          Assert.AreEqual(lSnapshot.UnitByIndex(0).PhysicalSymbolOccurrenceCount,
+            lLoaded.UnitByIndex(0).PhysicalSymbolOccurrenceCount);
+          FreeAndNil(lLoaded);
+        end else
+          Assert.IsNull(lLoaded);
+      end else begin
+        Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded), aMutation + ':' + IntToStr(i));
+        Assert.IsNull(lLoaded);
+        Assert.IsNotEmpty(lCache.LastInvalidationReason);
+      end;
+      FreeAndNil(lCache);
+    end;
+  finally
+    lLoaded.Free;
+    lCache.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+function MinimalPhysicalSnapshot(const aRoot, aName, aCollection, aText: string;
+  const aAvailable: Boolean): TDelphiProjectSnapshot;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lUnit: TUnitSnapshot;
+  lFileId, lIncludeId, lTextId: TSemanticStringId;
+  lSource: TSemanticCapturedSourceFact;
+  lReference: TSemanticPhysicalReferenceOccurrence;
+  lSymbol: TSemanticPhysicalSymbolOccurrence;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    lFileId := lBuilder.Strings.Intern(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(
+      TPath.Combine(aRoot, aName + '.pas')));
+    lIncludeId := lBuilder.Strings.Intern(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(
+      TPath.Combine(aRoot, 'shared.inc')));
+    lTextId := lBuilder.ExactStrings.Intern(aText);
+    lUnit := TUnitSnapshot.Create(1, lFileId, lBuilder.Strings.Intern(aName), lTextId);
+    lBuilder.AddUnit(lUnit);
+    lUnit.SetHasIncludes(True);
+    if aCollection = 'source' then
+    begin
+      lSource := Default(TSemanticCapturedSourceFact);
+      lSource.FileId := lIncludeId;
+      lSource.TextId := lTextId;
+      if aText = '' then
+        lSource.Status := cCapturedSourceUnavailable
+      else
+        lSource.Status := cCapturedSourceText;
+      lUnit.SetCapturedSources([lSource], aAvailable);
+    end else if aCollection = 'reference' then
+    begin
+      lReference := Default(TSemanticPhysicalReferenceOccurrence);
+      lReference.FileId := lIncludeId;
+      lUnit.SetPhysicalReferenceOccurrences([lReference], aAvailable);
+    end else if aCollection = 'symbol' then
+    begin
+      lSymbol := Default(TSemanticPhysicalSymbolOccurrence);
+      lSymbol.FileId := lIncludeId;
+      lSymbol.FactKindId := lBuilder.Strings.Intern('routine');
+      lSymbol.KindId := lBuilder.Strings.Intern('body');
+      lSymbol.ParentFactIndex := -1;
+      lUnit.SetPhysicalSymbolOccurrences([lSymbol], aAvailable);
+    end;
+    Result := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.HasIncludesMutationRejectsEveryNonrootCollection(
+  const aCollection: string; const aAvailable: Boolean);
+var
+  lRoot, lDatabase: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+begin
+  lRoot := TempPath('has-includes-' + aCollection + BoolToStr(aAvailable, True));
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lIdentity := CasePoolIdentity(lRoot, 'Owner');
+  lSnapshot := MinimalPhysicalSnapshot(lRoot, 'Owner', aCollection, '', aAvailable);
+  lLoaded := nil;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    ExecCacheSql(lDatabase, 'update snapshot_units set has_includes=0');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded));
+    Assert.IsNull(lLoaded);
+    Assert.IsTrue(ContainsText(lCache.LastInvalidationReason, 'HAS_INCLUDES'));
+  finally
+    lCache.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.SharedSourceTextReplacementAndGcAreAtomic;
+var
+  lRoot, lDatabase: string;
+  lIdentityA, lIdentityB: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshotA, lSnapshotB, lReplacementA, lReplacementB, lFailed, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lRejected: Boolean;
+begin
+  lRoot := TempPath('shared-text-atomic');
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lIdentityA := CasePoolIdentity(lRoot, 'OwnerA');
+  lIdentityB := CasePoolIdentity(lRoot, 'OwnerB');
+  lSnapshotA := MinimalPhysicalSnapshot(lRoot, 'OwnerA', 'source', 'one'#13#10#0 + Chr($E9) + '  ', True);
+  lSnapshotB := MinimalPhysicalSnapshot(lRoot, 'OwnerB', 'source', 'one'#13#10#0 + Chr($E9) + '  ', True);
+  lReplacementA := MinimalPhysicalSnapshot(lRoot, 'OwnerA', 'source', 'two'#10' ', True);
+  lReplacementB := MinimalPhysicalSnapshot(lRoot, 'OwnerB', 'source', 'two'#10' ', True);
+  lFailed := MinimalPhysicalSnapshot(lRoot, 'OwnerA', 'source', 'three', True);
+  lLoaded := nil;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentityA, lSnapshotA, 0);
+    lCache.StoreUnitFromSnapshot(lIdentityB, lSnapshotB, 0);
+    FreeAndNil(lCache);
+    Assert.AreEqual(1, TableRowCount(lDatabase, 'snapshot_source_texts'),
+      'Equal root/include source text shares one backing across keys.');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded));
+    Assert.AreEqual('one'#13#10#0 + Chr($E9) + '  ', lLoaded.ExactTextOf(lLoaded.UnitByIndex(0).SourceTextId));
+    FreeAndNil(lLoaded);
+    lCache.StoreUnitFromSnapshot(lIdentityA, lReplacementA, 0);
+    FreeAndNil(lCache);
+    Assert.AreEqual(2, TableRowCount(lDatabase, 'snapshot_source_texts'), 'Other unit retains the first hash.');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lCache.StoreUnitFromSnapshot(lIdentityB, lReplacementB, 0);
+    FreeAndNil(lCache);
+    Assert.AreEqual(1, TableRowCount(lDatabase, 'snapshot_source_texts'), 'Last reference collects the orphan.');
+    // Move B away so replacing A removes the last reference to its old text.
+    FreeAndNil(lReplacementB);
+    lReplacementB := MinimalPhysicalSnapshot(lRoot, 'OwnerB', 'source', 'kept by B', True);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lCache.StoreUnitFromSnapshot(lIdentityB, lReplacementB, 0);
+    FreeAndNil(lCache);
+    Assert.AreEqual(2, TableRowCount(lDatabase, 'snapshot_source_texts'));
+    ExecCacheSql(lDatabase, 'create trigger fail_gc before delete on snapshot_source_texts ' +
+      'begin select raise(ABORT,' + QuotedStr('owned GC failure') + '); end');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    lRejected := False;
+    try
+      lCache.StoreUnitFromSnapshot(lIdentityA, lFailed, 0);
+    except
+      on E: Exception do
+      begin
+        lRejected := ContainsText(E.Message, 'owned GC failure');
+        if not lRejected then
+          raise;
+      end;
+    end;
+    Assert.IsTrue(lRejected, 'The failure must occur inside orphan collection.');
+    FreeAndNil(lCache);
+    Assert.AreEqual(2, TableRowCount(lDatabase, 'snapshot_source_texts'), 'GC and insertion roll back together.');
+    ExecCacheSql(lDatabase, 'drop trigger fail_gc');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentityA, lLoaded));
+    Assert.AreEqual('two'#10' ', lLoaded.ExactTextOf(lLoaded.UnitByIndex(0).SourceTextId));
+    FreeAndNil(lLoaded);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentityB, lLoaded));
+    Assert.AreEqual('kept by B', lLoaded.ExactTextOf(lLoaded.UnitByIndex(0).SourceTextId));
+  finally
+    lLoaded.Free;
+    lCache.Free;
+    lFailed.Free;
+    lReplacementB.Free;
+    lReplacementA.Free;
+    lSnapshotB.Free;
+    lSnapshotA.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.SharedSourceTextRejectsCorruptBacking(const aMutation: string);
+var
+  lRoot, lDatabase, lSql: string;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+begin
+  lRoot := TempPath('shared-text-corrupt-' + aMutation);
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lIdentity := CasePoolIdentity(lRoot, 'Owner');
+  lSnapshot := MinimalPhysicalSnapshot(lRoot, 'Owner', 'source', 'text'#13#10' ', True);
+  lLoaded := nil;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+  try
+    lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    FreeAndNil(lCache);
+    if aMutation = 'text' then
+      lSql := 'update snapshot_source_texts set text=' + QuotedStr('changed')
+    else if aMutation = 'hash' then
+      lSql := 'update snapshot_exact_strings set source_content_hash=' + QuotedStr('INVALID') +
+        ' where source_content_hash is not null'
+    else if aMutation = 'missing' then
+      lSql := 'delete from snapshot_source_texts'
+    else
+      lSql := 'update snapshot_exact_strings set text_value=' + QuotedStr('inline and shared') +
+        ' where source_content_hash is not null';
+    if aMutation = 'backing' then
+    begin
+      // Damage only this fixture's table so loader validation is exercised even
+      // when the database no longer has its normal schema CHECK constraint.
+      ExecCacheSql(lDatabase, 'alter table snapshot_exact_strings rename to damaged_exact_strings');
+      ExecCacheSql(lDatabase, 'create table snapshot_exact_strings as select * from damaged_exact_strings');
+      ExecCacheSql(lDatabase, 'drop table damaged_exact_strings');
+    end;
+    ExecCacheSql(lDatabase, lSql);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lLoaded));
+    Assert.IsNull(lLoaded);
+    Assert.IsNotEmpty(lCache.LastInvalidationReason);
+  finally
+    lCache.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.PhysicalOccurrencesSurviveSqliteRoundTrip;
+var
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lRoot, lDatabase: string;
+begin
+  lRoot := TempPath('ds697-all-evidence');
+  TDirectory.CreateDirectory(lRoot);
+  lDatabase := TPath.Combine(lRoot, 'cache.db');
+  lModel := PhysicalEvidenceModel(lRoot, 'Evidence');
+  lSnapshot := nil;
+  lLoaded := nil;
+  lCache := nil;
+  try
+    lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 17, lMetrics);
+    lIdentity := CasePoolIdentity(lRoot, 'Evidence');
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    except
+      on E: Exception do
+        Assert.Fail('Valid original symbol associations must store: ' + E.Message);
+    end;
+    FreeAndNil(lCache);
+    FreeAndNil(lSnapshot);
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded), 'Complete physical evidence must reload');
+    AssertPhysicalEvidence(lLoaded, lModel);
+  finally
+    lCache.Free;
+    lLoaded.Free;
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TSnapshotSqliteTests.PackedTargetLineageUsesOneBlobPerUnit;
@@ -3050,6 +3754,79 @@ function TSnapshotSqliteTests.TempPath(const aName: string): string;
 begin
   Result := TPath.GetFullPath(CombinePath([SnapshotSqliteTempRoot, aName]));
   TDirectory.CreateDirectory(TPath.GetDirectoryName(Result));
+end;
+
+procedure TSnapshotSqliteTests.IncludedGlobalEvidenceSurvivesReload(const aCheck: string);
+var
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCount: Integer;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot, lInclude, lCacheFile: string;
+  lSnapshot, lLoaded: TDelphiProjectSnapshot;
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  lRoot := CreateTestTempRoot('include-sqlite-probe-temp');
+  lInclude := TPath.Combine(lRoot, 'body.inc');
+  lCacheFile := TPath.Combine(lRoot, 'probe.sqlite3');
+  TFile.WriteAllText(lInclude, 'GF := 7;', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeSqliteProbe.pas'),
+    'unit IncludeSqliteProbe;'#13#10'interface'#13#10'var GF: Integer;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    '{$I body.inc}'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeSqliteProbe.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lIdentity := CreateIdentity('IncludeSqliteProbe', 'captured-unit', 'context',
+    'captured-include', 'include-reconciliation-probe');
+  lIdentity.SourceFileName := lOptions.SourceFileName;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts),
+    Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFile);
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+  lModel := Default(TDelphiSemanticUnitModel);
+  TFile.WriteAllText(lInclude, 'Inc(GF);', TEncoding.ASCII);
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFile);
+  try
+    Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded), 'Stored facts must actually reload.');
+    try
+      Assert.AreEqual(1, lCache.Metrics.CacheHits);
+      lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lLoaded);
+      lCount := 0;
+      for lUsage in lAnalysis.Usages do
+        if lUsage.Name = 'GF' then
+        begin
+          Inc(lCount);
+          if aCheck = 'file' then
+          begin
+            Assert.AreEqual(lInclude, lUsage.FileName);
+            Assert.AreEqual(1, lUsage.Line);
+            Assert.AreEqual(1, lUsage.Column);
+          end else
+            Assert.AreEqual('write', lUsage.Access, 'Reload must retain the captured assignment.');
+        end;
+      Assert.AreEqual(1, lCount);
+    finally
+      lLoaded.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
 end;
 
 initialization

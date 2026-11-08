@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Project snapshots and SQLite caches retain physical include occurrences and captured source text. Snapshot global usages preserve include identity and access across cache hits and reloads; incomplete or conflicting evidence is reported explicitly, and older caches rebuild. Optional cache-write failures report a diagnostic while analysis continues; include paths retain their original spelling (DS-697, DS-691).
+
 - Unit models retain physical declaration, member, routine, parameter and local origins from captured include expansions. Model JSON and unit caches preserve verified spans and enumeration availability (DS-696).
 
 - Unknown include references use indexed physical-position replacement and cached line coordinates, preserving reference contents and order while reducing RTL indexing time (DAK-484).
