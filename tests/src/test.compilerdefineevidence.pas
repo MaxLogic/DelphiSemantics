@@ -22,6 +22,13 @@ type
     [TestCase('Win32 native 32-bit host', 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378')]
     [TestCase('Win32 native 64-bit host', '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765')]
     procedure AdmitsVerifiedWin32CompilerHost(const aCompilerHash: string);
+    [Test]
+    procedure AdmitsVerifiedLinuxCompiler;
+    [TestCase('Linux64 wrong-states', 'Linux64,wrong-states')]
+    [TestCase('Linux64 partial', 'Linux64,partial')]
+    [TestCase('Linux64 missing-false', 'Linux64,missing-false')]
+    [TestCase('Linux64 missing table', 'Linux64,missing-table')]
+    [TestCase('Linux64 bcb', 'Linux64,bcb')]
     [TestCase('Win32 wrong-states', 'Win32,wrong-states')]
     [TestCase('Win32 partial', 'Win32,partial')]
     [TestCase('Win32 missing-false', 'Win32,missing-false')]
@@ -36,6 +43,8 @@ type
     [TestCase('Win64 hash on Win32', 'win64-hash')]
     [TestCase('Win32 hash on Win64', 'win32-hash')]
     [TestCase('Wrong compiler filename', 'filename')]
+    [TestCase('Tampered Linux compiler', 'linux-hash')]
+    [TestCase('Wrong Linux compiler filename', 'linux-filename')]
     [TestCase('Stale Win32 producer', 'stale')]
     procedure RejectsMismatchedCompilerSelection(const aShape: string);
     [Test]
@@ -222,7 +231,23 @@ begin
   Result.CaptureKind := 'native-msbuild-dcc-inputs-v1';
   Result.Invocation.Platform := aPlatform;
   Result.PredefinedIdentity := 'native-probe-table';
-  if aPlatform = 'Win32' then
+  if aPlatform = 'Linux64' then
+  begin
+    Result.CompilerFileName := TPath.GetFullPath('dcclinux64.exe');
+    Result.CompilerHash := '7887660DBBB0C055B2AC6CB933020D6F966DD2A1E5913320C9D4C34980060B02';
+    Result.PredefinedFormat := 'compiler-predefines-23-linux64-v1';
+    Result.PredefinedTrue := ['CONDITIONALEXPRESSIONS', 'CPU64BITS', 'CPUX64', 'DCC', 'ELF',
+      'EXTERNALLINKER', 'LINUX', 'LINUX64', 'LLVM', 'MANAGED_RECORD',
+      'NATIVECODE', 'PIC', 'POSIX', 'POSIX64', 'UNICODE',
+      'VER360', 'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT'];
+    Result.PredefinedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'ASSEMBLER',
+      'AUTOREFCOUNT', 'BCB', 'CPU32BITS', 'CPU386', 'CPUARM',
+      'CPUARM32', 'CPUARM64', 'CPUX86', 'IOS', 'IOS32',
+      'IOS64', 'IOSSIMULATOR', 'LINUX32', 'MACOS', 'MACOS32',
+      'MACOS64', 'MSWINDOWS', 'NEXTGEN', 'OSX', 'OSX32',
+      'OSX64', 'PC_MAPPED_EXCEPTIONS', 'POSIX32', 'UNDERSCOREIMPORTNAME', 'VER120',
+      'VER80', 'VER90', 'WEAKINSTREF', 'WIN32', 'WIN64'];
+  end else if aPlatform = 'Win32' then
   begin
     Result.CompilerFileName := TPath.GetFullPath('dcc32.exe');
     Result.CompilerHash := 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
@@ -278,11 +303,26 @@ begin
     lDescriptor.Sources[0].SourceFileName));
 end;
 
+procedure TCompilerDefineEvidenceTests.AdmitsVerifiedLinuxCompiler;
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lReason: string;
+begin
+  lDescriptor := NativeTableDescriptor('Linux64');
+  lEvidence := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence,
+    lDescriptor.Invocation, lAdmitted, lReason), lReason);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted,
+    lDescriptor.Sources[0].SourceFileName));
+end;
+
 procedure TCompilerDefineEvidenceTests.RejectsMislabeledNativeTable(const aPlatform, aShape: string);
 var
   lDescriptor, lOther: TDelphiSemanticCompilerDefineDescriptor;
   lEvidence, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
-  lReason: string;
+  lReason, lSymbol: string;
+  lFalse: TArray<string>;
 begin
   lDescriptor := NativeTableDescriptor(aPlatform);
   if aPlatform = 'Win32' then
@@ -295,12 +335,22 @@ begin
     lDescriptor.PredefinedFalse := lOther.PredefinedFalse;
   end else if aShape = 'partial' then
     lDescriptor.PredefinedTrue := [UpperCase(aPlatform)]
-  else if aShape = 'missing-false' then
+  else if aShape = 'missing-table' then
+  begin
+    lDescriptor.PredefinedFormat := '';
+    lDescriptor.PredefinedIdentity := '';
+    lDescriptor.PredefinedTrue := nil;
+    lDescriptor.PredefinedFalse := nil;
+  end else if aShape = 'missing-false' then
     lDescriptor.PredefinedFalse := nil
   else
   begin
     lDescriptor.PredefinedTrue := lDescriptor.PredefinedTrue + ['BCB'];
-    lDescriptor.PredefinedFalse := Copy(lDescriptor.PredefinedFalse, 6, MaxInt);
+    lFalse := nil;
+    for lSymbol in lDescriptor.PredefinedFalse do
+      if lSymbol <> 'BCB' then
+        lFalse := lFalse + [lSymbol];
+    lDescriptor.PredefinedFalse := lFalse;
   end;
   lEvidence := TTestDefineEvidence.Create(lDescriptor);
   Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lEvidence,
@@ -337,6 +387,14 @@ begin
     lDescriptor.Invocation.Platform := 'Win64';
   if aShape = 'filename' then
     lDescriptor.CompilerFileName := TPath.GetFullPath('dcc64.exe');
+  if aShape.StartsWith('linux-') then
+  begin
+    lDescriptor := NativeTableDescriptor('Linux64');
+    if aShape = 'linux-hash' then
+      lDescriptor.CompilerHash := StringOfChar('0', 64)
+    else
+      lDescriptor.CompilerFileName := TPath.GetFullPath('dcc64.exe');
+  end;
   if aShape = 'stale' then
     lDescriptor.ProducerInputIdentity := 'stale';
   lEvidence := TTestDefineEvidence.Create(lDescriptor);

@@ -945,8 +945,7 @@ begin
       '\s*=\s*class\b(?:\s+(?:sealed|abstract)\b)*(?:\s*\(\s*([\w.]+))?', [roIgnoreCase]) do
     begin
       Inc(lMatches);
-      if TRegEx.IsMatch(lRaw, '\$\s*(?:M\+|TYPEINFO\s+ON)',
-        [roIgnoreCase]) then
+      if HasPublishedTypeInfoSwitch(lRaw) then
         Exit;
       if lMatch.Groups.Count > 1 then
         lBase := lMatch.Groups[1].Value;
@@ -971,7 +970,7 @@ var
   lImports: TObjectDictionary<string, TList<TDelphiSemanticImportFact>>;
   lSeen, lReported, lRetained: THashSet<string>;
   lResult: TList<TDelphiSemanticUsage>;
-  lLocal, lLocalMemberContext: Boolean;
+  lLocal, lLocalMemberContext, lPackage: Boolean;
   lFact: TDelphiSemanticImportFact;
   lEdges: TList<TDelphiSemanticImportFact>;
   lKey: string;
@@ -1152,11 +1151,12 @@ var
     lRaw, lCode, lConsumerRaw, lConsumerCode, lName, lPattern, lFileName, lKind, lBase, lLiteral: string;
     lConsumer: TSemanticReferenceFact;
     lTypeFact: TSemanticSymbolFact;
-    lRttiUnit: Boolean;
+    lRttiUnit, lCodeOnly: Boolean;
     lOwnerIndex, lTypeOffset, lMemberOffset, lOffset, lStart: Integer;
     lImport: TDelphiSemanticImportFact;
     lMatch: TMatch;
     lNames, lImportParts: TArray<string>;
+    lExpression, lExternalReason: string;
     lMember, lType: Boolean;
     lFact: TSemanticSymbolFact;
     lIndex, lLine, lColumn: Integer;
@@ -1190,7 +1190,8 @@ var
       begin
         lConsumer := aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex));
         if SameText(SnapshotText(aSnapshot, lConsumer.ClassificationId), 'implicit-name-consumer') and
-          SameText(SnapshotText(aSnapshot, lConsumer.NameId), lName) then
+          (SameText(SnapshotText(aSnapshot, lConsumer.NameId), lName) or
+          (lMember and (lConsumer.NameId = 0))) then
           Report(SnapshotFactFileName(aSnapshot, aCurrentUnit, lConsumer.FileId),
             SnapshotText(aSnapshot, lConsumer.ReasonId), lName, lConsumer.Line, lConsumer.Column);
       end;
@@ -1216,10 +1217,34 @@ var
             lMemberOffset := SnapshotOffsetOfPosition(lCode, lFact.Line, lFact.Column);
             if SnapshotMemberHasDefaultVisibility(lCode, lTypeOffset, lMemberOffset) and
               (SnapshotClassMayPublish(aSnapshot, aSymbol.OwnerName, []) or
-              TRegEx.IsMatch(lConsumerRaw, '\$\s*(?:M\+|TYPEINFO\s+ON)', [roIgnoreCase])) then
+              HasPublishedTypeInfoSwitch(lConsumerRaw)) then
               Refuse('published-member');
           end;
       end;
+      if not lMember and SameText(aSymbol.Kind, 'routine') then
+      begin
+        lExternalReason := ImplicitExternalNameReason(lCode, lName);
+        if lExternalReason <> '' then
+          Refuse(lExternalReason);
+      end;
+      // Member facts do not carry a section; package methods still expose
+      // their Pascal spelling through the package's external symbol names.
+      if lPackage and SameText(lFileName, aSymbol.FileName) and
+        (SameText(aSymbol.Kind, 'method') or
+        (SameText(aSymbol.Kind, 'routine') and SameText(aSymbol.SectionKind, 'interface'))) then
+        Refuse('package-exported-name');
+      if lMember and (TRegEx.IsMatch(lCode, '\b(?:Variant|OleVariant)\b', [roIgnoreCase]) or
+        TRegEx.IsMatch(lCode, '\b' + TRegEx.Escape(aSymbol.OwnerName) +
+        '\s*=\s*dispinterface\b', [roIgnoreCase])) then
+        Refuse('late-bound-member-name');
+      // Some legacy dispinterface headings are modeled as ownerless routines.
+      // Their source-level Automation contract still consumes the Pascal name.
+      if TRegEx.IsMatch(lCode, '\bdispinterface\b(?:(?!\bend\b)[\s\S])*?' +
+        '\b(?:procedure|function|property)\s+&?' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('late-bound-member-name');
+      for lExpression in DirectiveNameExpressions(lRaw) do
+        if TextContainsIdentifier(lExpression, lName) then
+          Refuse('directive-name-consumer');
       if lMember and MatchText(lName, ['GetEnumerator', 'MoveNext', 'Current']) then
         Refuse('implicit-for-in-protocol');
       if lMember then
@@ -1282,19 +1307,22 @@ var
         TRegEx.IsMatch(lConsumerRaw, '\(\*\$\s*(?:IF|ELSEIF)\b[\s\S]*?\bDeclared\s*\([^)]*\b' +
         lPattern + '\b[^)]*\)', [roIgnoreCase]) then
         Refuse('declared-name-consumer');
-      // Contain every literal argument position without inventing another
-      // call parser: a consumer call and a matching literal anywhere in its
-      // unit are enough. Unrelated literals may over-refuse until the matrix
-      // owns this consumer closure. Computed names remain outside this rule.
-      if lRttiUnit or TRegEx.IsMatch(lConsumerCode,
-        '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty|GetField|GetFields|FindType|GetType|FieldAddress|' +
-        'GetPropValue|SetPropValue|GetPropInfo|IsPublishedProp|(?:Get|Set)\w*Prop)\s*\(',
-        [roIgnoreCase]) then
+      // A runtime consumer may live in another unit or receive a constant.
+      // Every matching literal therefore refuses; call/import evidence only
+      // selects the more specific diagnostic and never grants edit authority.
+      // Retain raw conservative candidates, then scan code independently so
+      // an unmatched quote in a comment cannot conceal a real literal.
+      for lCodeOnly := False to True do
       begin
         lOffset := 1;
-        while NextRawStringLiteral(lConsumerRaw, lOffset, lLiteral, lStart) do
+        while NextRawStringLiteral(lConsumerRaw, lOffset, lLiteral, lStart, lCodeOnly) do
           if MatchText(lName, lLiteral.Split(['.'])) then
-            Refuse('rtti-string-name-consumer');
+          begin
+            if lRttiUnit or HasRuntimeNameConsumerCode(lConsumerCode) then
+              Refuse('rtti-string-name-consumer')
+            else
+              Refuse('string-name-consumer');
+          end;
       end;
     end;
   end;
@@ -1305,8 +1333,9 @@ var
     lOffset, lScanned, lLine, lLineStart, lEnd, lPrevious, lIndex: Integer;
     lReference: TSemanticReferenceFact;
     lDeclaration: TSemanticSymbolFact;
-    lIsDeclaration: Boolean;
+    lIsDeclaration, lInAsm: Boolean;
   begin
+    lInAsm := False;
     lSource := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
     lEvidence := aSnapshot.ExactTextOf(aCurrentUnit.VerifiedActiveSourceTextId);
     lScan := SanitizeCodeText(lSource);
@@ -1329,8 +1358,13 @@ var
       lName := Copy(lScan, lOffset, lEnd - lOffset);
       if StartsText('&', lName) then
         Delete(lName, 1, 1);
-      if MatchText(lName, aNames) and
-        not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lEvidence, lOffset) then
+      if SameText(lName, 'asm') then
+        lInAsm := True
+      else if SameText(lName, 'end') then
+        lInAsm := False;
+      if (lInAsm and (SameText(lName, aSymbol.Name) or MatchText(lName, aNames))) or
+        (MatchText(lName, aNames) and
+        not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lEvidence, lOffset)) then
       begin
         while lScanned < lOffset do
         begin
@@ -1340,6 +1374,14 @@ var
             lLineStart := lScanned + 1;
           end;
           Inc(lScanned);
+        end;
+        // Assembly tokens have no certified binding/edit facts. Reconcile both
+        // spellings in every raw asm span, including conditional and pure bodies.
+        if lInAsm then
+        begin
+          Report(lFileName, 'unclassified-occurrence', lName, lLine, lOffset - lLineStart + 1);
+          lOffset := lEnd;
+          Continue;
         end;
         lReference := Default(TSemanticReferenceFact);
         for lIndex := 1 to aCurrentUnit.ReferenceCount do
@@ -1411,9 +1453,12 @@ begin
   lResult := TList<TDelphiSemanticUsage>.Create;
   lRetained := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
+    lPackage := False;
     for i := 0 to aSnapshot.UnitCount - 1 do
     begin
       lUnit := aSnapshot.UnitByIndex(i);
+      lPackage := lPackage or TRegEx.IsMatch(SanitizeCodeText(
+        aSnapshot.ExactTextOf(lUnit.SourceTextId)), '^\s*package\b', [roIgnoreCase]);
       if aSnapshot.ExactTextOf(lUnit.SourceTextId) <> '' then
         lRetained.Add(SnapshotText(aSnapshot, lUnit.FileNameId));
     end;

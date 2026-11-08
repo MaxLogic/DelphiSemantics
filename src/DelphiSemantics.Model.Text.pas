@@ -11,7 +11,13 @@ function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; o
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
 procedure SkipPascalStringLiteral(const aText: string; var aIndex: Integer);
 function NextRawStringLiteral(const aText: string; var aOffset: Integer;
-  out aValue: string; out aStart: Integer): Boolean;
+  out aValue: string; out aStart: Integer): Boolean; overload;
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer; const aCodeOnly: Boolean): Boolean; overload;
+function HasPublishedTypeInfoSwitch(const aRaw: string): Boolean;
+function HasRuntimeNameConsumerCode(const aCode: string): Boolean;
+function DirectiveNameExpressions(const aRaw: string): TArray<string>;
+function ImplicitExternalNameReason(const aCode, aName: string): string;
 function SanitizeCodeText(const aText: string): string;
 function FindSectionKeywordOffset(const aText, aKeyword: string): Integer;
 function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
@@ -20,7 +26,7 @@ function TryParsePointerCastName(const aText: string; out aName: string): Boolea
 implementation
 
 uses
-  System.Generics.Collections, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.RegularExpressions, System.StrUtils, System.SysUtils,
   AutoFree, SimpleParser.Lexer, SimpleParser.Lexer.Types;
 
 type
@@ -57,6 +63,134 @@ begin
       if lLexer.TokenID = lKind then
         Exit(lLexer.TokenPos + 1);
       lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+
+// These syntax-only checks grant refusal authority, never a binding or edit.
+function HasPublishedTypeInfoSwitch(const aRaw: string): Boolean;
+var
+  lMatch: TMatch;
+  lSwitch: string;
+begin
+  Result := False;
+  for lMatch in TRegEx.Matches(aRaw, '\{\$([^}]*)\}', [roIgnoreCase]) do
+    for lSwitch in lMatch.Groups[1].Value.Split([',']) do
+      if SameText(lSwitch.Trim, 'M+') or SameText(lSwitch.Trim, 'TYPEINFO ON') then
+        Exit(True);
+  for lMatch in TRegEx.Matches(aRaw, '\(\*\$([\s\S]*?)\*\)', [roIgnoreCase]) do
+    for lSwitch in lMatch.Groups[1].Value.Split([',']) do
+      if SameText(lSwitch.Trim, 'M+') or SameText(lSwitch.Trim, 'TYPEINFO ON') then
+        Exit(True);
+end;
+
+function HasRuntimeNameConsumerCode(const aCode: string): Boolean;
+begin
+  Result := TRegEx.IsMatch(aCode,
+    '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty|GetField|GetFields|FindType|GetType|FieldAddress|' +
+    'GetPropValue|SetPropValue|GetPropInfo|IsPublishedProp|(?:Get|Set)\w*Prop)\s*\(' +
+    '|\b(?:ClassName|ClassNameIs|QualifiedClassName|UnitName|GetTypeName)\b' +
+    '|\b(?:PTypeInfo|TypeInfo)\s*\(', [roIgnoreCase]);
+end;
+
+function DirectiveNameExpressions(const aRaw: string): TArray<string>;
+var
+  lMatch: TMatch;
+begin
+  Result := nil;
+  for lMatch in TRegEx.Matches(aRaw,
+    '\{\$\s*(?:IF|ELSEIF)\b([^}]*)\}', [roIgnoreCase]) do
+    Result := Result + [SanitizeCodeText(lMatch.Groups[1].Value)];
+  for lMatch in TRegEx.Matches(aRaw,
+    '\(\*\$\s*(?:IF|ELSEIF)\b([\s\S]*?)\*\)', [roIgnoreCase]) do
+    Result := Result + [SanitizeCodeText(lMatch.Groups[1].Value)];
+end;
+
+// Follow routine headings and export entries lexically. An explicit import
+// name/index is stable; an export index alone does not freeze its public name.
+function ImplicitExternalNameReason(const aCode, aName: string): string;
+var
+  lLexer: TmwBasePasLex;
+  lRoutineMatches, lEntryMatches, lExplicit: Boolean;
+  lDepth: Integer;
+begin
+  Result := '';
+  // Escaped identifiers keep '&' in lexer tokens; their ABI spelling does not.
+  lRoutineMatches := False;
+  lDepth := 0;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aCode;
+    if lLexer.IsJunk then
+      lLexer.NextNoJunk;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if (lDepth = 0) and (lLexer.TokenID in [ptProcedure, ptFunction]) then
+      begin
+        lLexer.NextNoJunk;
+        lRoutineMatches := SameText(lLexer.Token.Replace('&', ''), aName.Replace('&', ''));
+        while lLexer.TokenID = ptIdentifier do
+        begin
+          lLexer.NextNoJunk;
+          if lLexer.TokenID <> ptPoint then
+            Break;
+          lLexer.NextNoJunk;
+          lRoutineMatches := SameText(lLexer.Token.Replace('&', ''), aName.Replace('&', ''));
+        end;
+        Continue;
+      end;
+      if lLexer.TokenID = ptRoundOpen then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptRoundClose then
+        Dec(lDepth);
+      if lLexer.TokenID in [ptBegin, ptEnd, ptImplementation, ptAsm] then
+        lRoutineMatches := False;
+      if (lLexer.TokenID = ptIdentifier) and (lLexer.ExID = ptExternal) then
+      begin
+        lExplicit := False;
+        lLexer.NextNoJunk;
+        while not (lLexer.TokenID in [ptNull, ptSemiColon]) do
+        begin
+          if (lLexer.TokenID = ptIdentifier) and (lLexer.ExID in [ptName, ptIndex]) then
+            lExplicit := True;
+          lLexer.NextNoJunk;
+        end;
+        if lRoutineMatches and not lExplicit then
+          Exit('external-pascal-name');
+        lRoutineMatches := False;
+        Continue;
+      end;
+      if lLexer.TokenID = ptExports then
+      begin
+        lLexer.NextNoJunk;
+        while not (lLexer.TokenID in [ptNull, ptSemiColon]) do
+        begin
+          lEntryMatches := SameText(lLexer.Token.Replace('&', ''), aName.Replace('&', ''));
+          lExplicit := False;
+          while not (lLexer.TokenID in [ptNull, ptSemiColon, ptComma]) do
+          begin
+            if (lLexer.TokenID = ptIdentifier) and (lLexer.ExID = ptName) then
+              lExplicit := True;
+            if lLexer.TokenID = ptPoint then
+            begin
+              lLexer.NextNoJunk;
+              lEntryMatches := SameText(lLexer.Token.Replace('&', ''), aName.Replace('&', ''));
+              Continue;
+            end;
+            lLexer.NextNoJunk;
+          end;
+          if lEntryMatches and not lExplicit then
+            Exit('export-pascal-name');
+          if lLexer.TokenID = ptComma then
+            lLexer.NextNoJunk;
+        end;
+        Continue;
+      end;
+      lLexer.NextNoJunk;
     end;
   finally
     lLexer.Free;
@@ -317,33 +451,175 @@ begin
   end;
 end;
 
-// Preserve the containment scan's conservative raw-quote behavior, including
-// comments, without PCRE recursion proportional to the quoted text length.
+// Scan raw source conservatively, including comments and inactive arms. Decode
+// Delphi literal sequences iteratively: quoted parts, character codes and the
+// indentation-stripped Delphi 12 multiline form. No computed expression is run.
 function NextRawStringLiteral(const aText: string; var aOffset: Integer;
   out aValue: string; out aStart: Integer): Boolean;
+begin
+  Result := NextRawStringLiteral(aText, aOffset, aValue, aStart, False);
+end;
+
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer; const aCodeOnly: Boolean): Boolean;
+var
+  lBuilder: TStringBuilder;
+  lStart, lEnd, lQuotes, lCount, lCode, lNext, lLineStart, lIndent, lBodyEnd: Integer;
+  lPart, lLine, lDigits: string;
+
+  procedure SkipTrivia(var aIndex: Integer; const aJoinParts: Boolean = False);
+  begin
+    while aIndex <= Length(aText) do
+    begin
+      if CharInSet(aText[aIndex], [#9, #10, #13, #32]) then
+        Inc(aIndex)
+      else if aCodeOnly and (aText[aIndex] = '{') then
+      begin
+        // Conditional directives separate alternative literal sequences.
+        if aJoinParts and (Copy(aText, aIndex, 2) = '{$') then
+          Break;
+        Inc(aIndex);
+        while (aIndex <= Length(aText)) and (aText[aIndex] <> '}') do
+          Inc(aIndex);
+        Inc(aIndex);
+      end else if aCodeOnly and (Copy(aText, aIndex, 2) = '(*') then
+      begin
+        if aJoinParts and (Copy(aText, aIndex, 3) = '(*$') then
+          Break;
+        Inc(aIndex, 2);
+        while (aIndex <= Length(aText)) and (Copy(aText, aIndex, 2) <> '*)') do
+          Inc(aIndex);
+        Inc(aIndex, 2);
+      end else if aCodeOnly and (Copy(aText, aIndex, 2) = '//') then
+      begin
+        Inc(aIndex, 2);
+        while (aIndex <= Length(aText)) and not CharInSet(aText[aIndex], [#10, #13]) do
+          Inc(aIndex);
+      end else
+        Break;
+    end;
+  end;
+
 begin
   Result := False;
   aValue := '';
   aStart := 0;
-  while (aOffset <= Length(aText)) and (aText[aOffset] <> #39) do
+  while aOffset <= Length(aText) do
+  begin
+    SkipTrivia(aOffset);
+    if (aOffset > Length(aText)) or CharInSet(aText[aOffset], [#39, '#']) then
+      Break;
     Inc(aOffset);
+  end;
   if aOffset > Length(aText) then
     Exit;
   aStart := aOffset;
-  Inc(aOffset);
-  while aOffset <= Length(aText) do
-  begin
-    if aText[aOffset] = #39 then
+  lBuilder := TStringBuilder.Create;
+  try
+    while aOffset <= Length(aText) do
     begin
-      if (aOffset = Length(aText)) or (aText[aOffset + 1] <> #39) then
+      if aText[aOffset] = '#' then
       begin
-        aValue := Copy(aText, aStart + 1, aOffset - aStart - 1).Replace(#39#39, #39);
         Inc(aOffset);
-        Exit(True);
-      end;
-      Inc(aOffset);
+        lStart := aOffset;
+        if (aOffset <= Length(aText)) and (aText[aOffset] = '$') then
+        begin
+          Inc(aOffset);
+          while (aOffset <= Length(aText)) and CharInSet(aText[aOffset], ['0'..'9', 'a'..'f', 'A'..'F']) do
+            Inc(aOffset);
+        end else
+          while (aOffset <= Length(aText)) and CharInSet(aText[aOffset], ['0'..'9']) do
+            Inc(aOffset);
+        lDigits := Copy(aText, lStart, aOffset - lStart);
+        if not TryStrToInt(lDigits, lCode) or (lCode < 0) or (lCode > $10FFFF) then
+          Break;
+        if lCode <= $FFFF then
+          lBuilder.Append(Char(lCode))
+        else
+        begin
+          Dec(lCode, $10000);
+          lBuilder.Append(Char($D800 + (lCode shr 10)));
+          lBuilder.Append(Char($DC00 + (lCode and $3FF)));
+        end;
+        Result := True;
+      end else if aText[aOffset] = #39 then
+      begin
+        lStart := aOffset;
+        lNext := aOffset;
+        while (lNext <= Length(aText)) and (aText[lNext] = #39) do
+          Inc(lNext);
+        lQuotes := lNext - aOffset;
+        if (lQuotes >= 3) and Odd(lQuotes) and (lNext <= Length(aText)) and
+          CharInSet(aText[lNext], [#10, #13]) then
+        begin
+          // Opening/closing delimiter lines are not part of the value. The
+          // closing indentation is stripped from each content line.
+          aOffset := lNext;
+          if aText[aOffset] = #13 then
+            Inc(aOffset);
+          if (aOffset <= Length(aText)) and (aText[aOffset] = #10) then
+            Inc(aOffset);
+          lStart := aOffset;
+          lEnd := PosEx(StringOfChar(#39, lQuotes), aText, aOffset);
+          if lEnd = 0 then
+          begin
+            aOffset := Length(aText) + 1;
+            Break;
+          end;
+          lLineStart := lEnd;
+          while (lLineStart > lStart) and not CharInSet(aText[lLineStart - 1], [#10, #13]) do
+            Dec(lLineStart);
+          lIndent := lEnd - lLineStart;
+          lBodyEnd := lLineStart;
+          if (lBodyEnd > lStart) and (aText[lBodyEnd - 1] = #10) then
+            Dec(lBodyEnd);
+          if (lBodyEnd > lStart) and (aText[lBodyEnd - 1] = #13) then
+            Dec(lBodyEnd);
+          lPart := Copy(aText, lStart, lBodyEnd - lStart);
+          lCount := 0;
+          for lLine in lPart.Replace(#13#10, #10).Replace(#13, #10).Split([#10]) do
+          begin
+            if lCount > 0 then
+              lBuilder.Append(#13#10);
+            lNext := 1;
+            while (lNext <= Length(lLine)) and (lNext <= lIndent) and
+              CharInSet(lLine[lNext], [#9, #32]) do
+              Inc(lNext);
+            lBuilder.Append(Copy(lLine, lNext, MaxInt));
+            Inc(lCount);
+          end;
+          aOffset := lEnd + lQuotes;
+          Result := True;
+        end else begin
+          Inc(aOffset);
+          while aOffset <= Length(aText) do
+          begin
+            if aText[aOffset] = #39 then
+            begin
+              Inc(aOffset);
+              if (aOffset > Length(aText)) or (aText[aOffset] <> #39) then
+              begin
+                Result := True;
+                Break;
+              end;
+            end;
+            lBuilder.Append(aText[aOffset]);
+            Inc(aOffset);
+          end;
+        end;
+      end else
+        Break;
+      lNext := aOffset;
+      SkipTrivia(lNext, True);
+      if (lNext > Length(aText)) or not CharInSet(aText[lNext], [#39, '#']) then
+        Break;
+      aOffset := lNext;
     end;
-    Inc(aOffset);
+    aValue := lBuilder.ToString;
+    // Even an invalid raw # fragment must advance without ending the scan.
+    Result := True;
+  finally
+    lBuilder.Free;
   end;
 end;
 

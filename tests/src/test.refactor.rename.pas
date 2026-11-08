@@ -249,6 +249,49 @@ type
     [TestCase('r1-rtti-getfield', 'r1-rtti-getfield,UCertified.pas,6,5,Total,rtti-string-name-consumer,Win32,False')]
     [TestCase('r2-rtti-findtype', 'r2-rtti-findtype,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
     [TestCase('u2-sysinit-newname', 'u2-sysinit-newname,UCertified.pas,3,5,SysInit,unit-or-namespace-name,Win32,False')]
+    [TestCase('r3-external-implicit', 'r3-external-implicit,UCertified.pas,3,10,GetTicks,external-pascal-name,Win32,False')]
+    [TestCase('r3-external-escaped', 'r3-external-escaped,UCertified.pas,3,11,GetTicks,external-pascal-name,Win32,False')]
+    [TestCase('r3-exports-implicit', 'r3-exports-implicit,UCertified.pas,3,10,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-exports-escaped', 'r3-exports-escaped,UCertified.pas,3,11,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-exports-index', 'r3-exports-index,UCertified.pas,3,10,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-package-export', 'r3-package-export,UCertified.pas,3,10,RenamedValue,package-exported-name,Win32,False')]
+    [TestCase('r3-classnameis', 'r3-classnameis,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-classname', 'r3-classname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-qualifiedclassname', 'r3-qualifiedclassname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-unitname', 'r3-unitname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-gettypename', 'r3-gettypename,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-ptypeinfo', 'r3-ptypeinfo,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-typeinfo-name', 'r3-typeinfo-name,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-variant', 'r3-variant,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-olevariant', 'r3-olevariant,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-dispinterface', 'r3-dispinterface,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-asm-guarded-old', 'r3-asm-guarded-old,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-guarded-new', 'r3-asm-guarded-new,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-pure-old', 'r3-asm-pure-old,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-pure-new', 'r3-asm-pure-new,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-if-constant', 'r3-if-constant,UCertified.pas,3,7,ChangedLimit,directive-name-consumer,Win32,False')]
+    [TestCase('r3-elseif-constant', 'r3-elseif-constant,UCertified.pas,3,7,ChangedLimit,directive-name-consumer,Win32,False')]
+    [TestCase('r3-if-sizeof', 'r3-if-sizeof,UCertified.pas,3,6,TD,directive-name-consumer,Win32,False')]
+    [TestCase('r3-include-if-sizeof', 'r3-include-if-sizeof,UCertified.pas,3,6,TD,directive-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-index', 'r3-external-explicit-index,UCertified.pas,3,10,GetTicks,,Win32,True')]
+    [TestCase('k1-rtti-const-other-unit', 'k1-rtti-const-other-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('k2-rtti-wrapper-other-unit', 'k2-rtti-wrapper-other-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('k3-classnameis', 'k3-classnameis,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('k4-getclass', 'k4-getclass,UCertified.pas,5,3,TD,string-name-consumer,Win32,False')]
+    [TestCase('k5-mplus-combined-const', 'k5-mplus-combined-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k5b-mplus-plain-const', 'k5b-mplus-plain-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k6-mplus-include-const', 'k6-mplus-include-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k6b-mplus-include-combined-const', 'k6b-mplus-include-combined-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k10-charcode-literal', 'k10-charcode-literal,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('k11-multiline-literal', 'k11-multiline-literal,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-hex', 'r3-literal-hex,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-in-include', 'r3-literal-in-include,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-name', 'r3-external-explicit-name,UCertified.pas,3,10,GetTicks,string-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-stable-name', 'r3-external-explicit-stable-name,UCertified.pas,3,10,GetTicks,,Win32,True')]
+    [TestCase('r3-literal-after-comment', 'r3-literal-after-comment,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-include-literal-after-comment', 'r3-include-literal-after-comment,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-comment-adjacency', 'r3-literal-comment-adjacency,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-package-method', 'r3-package-method,UCertified.pas,6,20,RenamedValue,package-exported-name,Win32,False')]
     procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
       const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 
@@ -1568,6 +1611,8 @@ begin
     lRequest := Default(TDelphiSemanticCompilerDefineRequest);
     lRequest.ProjectFileName := lOptions.ProjectPath;
     lRequest.MainSourceFileName := TPath.Combine(aRoot, aProjectBase + '.dpr');
+    if TFile.Exists(TPath.Combine(aRoot, aProjectBase + '.dpk')) then
+      lRequest.MainSourceFileName := TPath.Combine(aRoot, aProjectBase + '.dpk');
     lRequest.Configuration := 'Debug';
     lRequest.DelphiVersion := '23.0';
     lRequest.Platform := aPlatform;
@@ -1891,15 +1936,24 @@ begin
   end;
   lDefines := nil;
   if aCase = 'm1d-transitive-cond-nonmember' then
-    lDefines := ['MSWINDOWS'];
+    lDefines := ['MSWINDOWS']
+  else if StartsText('r3-asm-', aCase) then
+    lDefines := ['CPUX86'];
   lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(aCase = 'f1-dfm-shared-dir', 'proj\Certified', 'Certified'), lDefines);
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines);
   lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(aCase = 'f1-dfm-shared-dir', 'proj\Certified', 'Certified'), lDefines);
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines);
   if aSuccess then
   begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-    Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All control occurrences must be retained.');
+    if StartsText('r3-external-explicit-', aCase) then
+    begin
+      Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
+      for lEdit in lPlan.Edits do
+        Assert.AreEqual(IfThen(aCase = 'r3-external-explicit-stable-name', 'GetCounter', 'GetTickCount'), lEdit.ExpectedSourceText,
+          'Only Pascal identifier tokens may change; the external clause stays byte-identical.');
+    end else
+      Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All control occurrences must be retained.');
     if aCase = 'same-line' then
       for lEdit in lPlan.Edits do
         Assert.AreEqual(5, lEdit.StartLine, 'All four edits must share the local declaration line.');

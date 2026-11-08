@@ -2619,12 +2619,12 @@ procedure AddIncludeConsumerFacts(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aModel: TDelphiSemanticUnitModel;
   var aMetrics: TSnapshotUnitBuildResult);
 var
-  lFileName, lName, lConsumerCode, lLiteral: string;
+  lFileName, lName, lConsumerCode, lExpression, lReason, lIncludeCode: string;
   lSource: TDelphiSemanticSourceText;
   lFact: TSemanticReferenceFact;
   lMatch: TMatch;
   lRttiUnit: Boolean;
-  i, lOffset, lStart: Integer;
+  i: Integer;
 
   procedure AddConsumer(const aName, aReason: string; const aOffset: Integer);
   var
@@ -2651,6 +2651,35 @@ var
     Inc(aMetrics.ReferenceCount);
   end;
 
+
+  procedure AddLiteralConsumers(const aReason: string);
+  var
+    lSeen: TDictionary<string, Byte>;
+    lKey, lLiteral, lName: string;
+    lOffset, lStart: Integer;
+    lCodeOnly: Boolean;
+  begin
+    lSeen := TDictionary<string, Byte>.Create;
+    try
+      for lCodeOnly := False to True do
+      begin
+        lOffset := 1;
+        while NextRawStringLiteral(lSource.Text, lOffset, lLiteral, lStart, lCodeOnly) do
+          for lName in lLiteral.Split(['.']) do
+          begin
+            lKey := IntToStr(lStart) + '|' + lName;
+            if not lSeen.ContainsKey(lKey) then
+            begin
+              lSeen.Add(lKey, 0);
+              AddConsumer(lName, aReason, lStart);
+            end;
+          end;
+      end;
+    finally
+      lSeen.Free;
+    end;
+  end;
+
 begin
   if Length(aModel.IncludeFileNames) = 0 then
     Exit;
@@ -2664,9 +2693,7 @@ begin
     if (aModel.SourceObservations <> nil) and
       aModel.SourceObservations.TryFind(lFileName, lSource) then
       lConsumerCode := lConsumerCode + #13#10 + SanitizeCodeText(lSource.Text);
-  lRttiUnit := lRttiUnit or TRegEx.IsMatch(lConsumerCode,
-    '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty|GetField|GetFields|FindType|GetType|FieldAddress|' +
-    'GetPropValue|SetPropValue|GetPropInfo|IsPublishedProp|(?:Get|Set)\w*Prop)\s*\(', [roIgnoreCase]);
+  lRttiUnit := lRttiUnit or HasRuntimeNameConsumerCode(lConsumerCode);
   for lFileName in aModel.IncludeFileNames do
   begin
     if (aModel.SourceObservations = nil) or
@@ -2682,18 +2709,28 @@ begin
       Inc(aMetrics.ReferenceCount);
       Continue;
     end;
+    for lExpression in DirectiveNameExpressions(lSource.Text) do
+      for lMatch in TRegEx.Matches(lExpression, '&?[A-Za-z_][A-Za-z_0-9]*') do
+        AddConsumer(lMatch.Value.TrimLeft(['&']), 'directive-name-consumer', 1);
+    lIncludeCode := SanitizeCodeText(lSource.Text);
+    if TRegEx.IsMatch(lIncludeCode, '\b(?:Variant|OleVariant)\b', [roIgnoreCase]) then
+      AddConsumer('', 'late-bound-member-name', 1);
+    if TRegEx.IsMatch(lIncludeCode, '\b(?:external|exports)\b', [roIgnoreCase]) then
+      for i := 0 to High(aModel.Routines) do
+      begin
+        lReason := ImplicitExternalNameReason(lIncludeCode, aModel.Routines[i].Name);
+        if lReason <> '' then
+          AddConsumer(aModel.Routines[i].Name, lReason, 1);
+      end;
     // Declared may consume a qualified identifier in any directive arm.
     for lMatch in TRegEx.Matches(lSource.Text, '\bDeclared\s*\(\s*([&\w.]+)\s*\)', [roIgnoreCase]) do
       for lName in lMatch.Groups[1].Value.Split(['.']) do
         AddConsumer(lName.TrimLeft(['&']), 'declared-name-consumer', lMatch.Index + 1);
+    lReason := 'string-name-consumer';
     if lRttiUnit then
-    begin
-      lOffset := 1;
-      while NextRawStringLiteral(lSource.Text, lOffset, lLiteral, lStart) do
-        for lName in lLiteral.Split(['.']) do
-          AddConsumer(lName, 'rtti-string-name-consumer', lStart);
-    end;
-    if TRegEx.IsMatch(lSource.Text, '\$\s*(?:M\+|TYPEINFO\s+ON)', [roIgnoreCase]) then
+      lReason := 'rtti-string-name-consumer';
+    AddLiteralConsumers(lReason);
+    if HasPublishedTypeInfoSwitch(lSource.Text) then
     begin
       // Include-driven typeinfo state is not represented in member visibility.
       // A name in any member of this unit remains a possible published consumer.

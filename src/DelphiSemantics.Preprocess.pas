@@ -1352,8 +1352,8 @@ function TDirectiveScanner.ActivityAt(const aFileName: string;
 begin
   // A repeated include must never borrow another expansion's activity.
   for var lSpan in fActivity do
-    if SameText(lSpan.FileName, aFileName) and (lSpan.ExpansionId = fExpansionId) and
-      (aOffset >= lSpan.StartOffset) and (aOffset < lSpan.EndOffset) then
+    if (aOffset >= lSpan.StartOffset) and (aOffset < lSpan.EndOffset) and
+      (lSpan.ExpansionId = fExpansionId) and SameText(lSpan.FileName, aFileName) then
       Exit(lSpan.Activity);
   Result := saUnknown;
 end;

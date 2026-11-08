@@ -2,9 +2,13 @@
 
 ## [Unreleased]
 
+- Refuse rename plans for implicit external/export names, package routines, late-bound members, assembler tokens, directive expressions and matching literal values across retained units/includes; normalize Delphi literal sequences and combined M+ switches (DS-797).
+
 - Refuse certified renames with bare inherited calls after nested routines, Declared consumers in includes, implicit published members, guarded active source gaps, and additional RTTI name consumers (DS-797).
 
 - Rename and find-usages refuse known conditional capture, missing active-source coverage, implicit inherited/interface/attribute/protocol consumers, published members and literal reflection uses. Refusals retain named reasons and no apply authority (DS-797 slice 1).
+
+- Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
 
 - Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
 
