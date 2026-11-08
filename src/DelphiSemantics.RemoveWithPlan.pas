@@ -3371,6 +3371,178 @@ begin
   Result := not SameText(aSelector.Status, 'resolved') or BinderDenialCode(aSelector.ReasonCode);
 end;
 
+function StaticMemberDeclarationTokens(const aSymbol: TDelphiSemanticInventorySymbol;
+  const aLineCache: TDelphiSemanticSourceContextCache): TArray<string>;
+var
+  i: Integer;
+  lEnd: Integer;
+  lError: string;
+  lLexer: TmwBasePasLex;
+  lSource: TDelphiSemanticSourceFile;
+  lStart: Integer;
+begin
+  Result := nil;
+  if (aSymbol.Line <= 0) or
+    (not aLineCache.TryLoad(aSymbol.FileName, lSource, lError)) or
+    (aSymbol.Line > Length(lSource.Lines)) or
+    (not StartsText('class ', Trim(lSource.Lines[aSymbol.Line - 1]))) or
+    aLineCache.LineHasConditionalDirective(aSymbol.FileName, aSymbol.Line) then
+    Exit;
+  // Scan the captured source prefix so comments and strings beginning on an
+  // earlier line cannot masquerade as a declaration. Complex headings retain
+  // their capture; this optimization needs positive, single-line proof.
+  lStart := 1;
+  for i := 1 to aSymbol.Line - 1 do
+    lStart := PosEx(#10, lSource.Text, lStart) + 1;
+  lEnd := PosEx(#10, lSource.Text, lStart);
+  if lEnd = 0 then
+    lEnd := Length(lSource.Text) + 1;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := lSource.Text;
+    while (lLexer.TokenID <> ptNull) and (lLexer.TokenPos + 1 < lEnd) do
+    begin
+      if lLexer.TokenPos + 1 >= lStart then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := lLexer.Token;
+      end;
+      lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+  if (Length(Result) < 4) or (not SameText(Result[0], 'class')) or
+    (not SameText(Result[2], aSymbol.Name)) then
+    Result := nil;
+end;
+
+function MemberIsProvedStaticMethodOrStorage(const aFacts: TRemoveWithPlanFacts;
+  const aOwnerName, aName: string;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  i: Integer;
+  lDepth: Integer;
+  lHeadingEnded: Boolean;
+  lStatic: Boolean;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lTokens: TArray<string>;
+begin
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindMembersByOwnerAndName(aOwnerName, aName) do
+  begin
+    if MatchText(lSymbol.Kind, ['constant', 'const', 'typed-const', 'class-var']) then
+    begin
+      Result := True;
+      Continue;
+    end;
+    if not SameText(lSymbol.Kind, 'method') then
+      Exit(False);
+    lTokens := StaticMemberDeclarationTokens(lSymbol, aLineCache);
+    if (Length(lTokens) < 4) or
+      (not MatchText(lTokens[1], ['function', 'procedure'])) then
+      Exit(False);
+    lDepth := 0;
+    lHeadingEnded := False;
+    lStatic := False;
+    for i := 3 to High(lTokens) do
+    begin
+      if MatchText(lTokens[i], ['(', '[', '<']) then
+        Inc(lDepth)
+      else if MatchText(lTokens[i], [')', ']', '>']) then
+        Dec(lDepth);
+      if (lDepth = 0) and (lTokens[i] = ';') then
+        lHeadingEnded := True;
+      if lHeadingEnded and (lTokens[i] <> ';') then
+      begin
+        // A following declaration or unsupported directive cannot supply the
+        // STATIC token for this method. Only simple directive/semicolon pairs
+        // belong to the single declaration we have proved.
+        if (not MatchText(lTokens[i], ['static', 'overload', 'reintroduce',
+          'inline', 'cdecl', 'stdcall', 'register', 'safecall', 'pascal'])) or
+          (i >= High(lTokens)) or (lTokens[i + 1] <> ';') then
+          Exit(False);
+        if SameText(lTokens[i], 'static') then
+          lStatic := True;
+      end;
+    end;
+    if not lStatic then
+      Exit(False);
+    Result := True;
+  end;
+end;
+
+function MemberIsProvedStatic(const aFacts: TRemoveWithPlanFacts;
+  const aReference: TDelphiSemanticBoundReference;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  i: Integer;
+  lHasAccessor: Boolean;
+  lSymbol: TDelphiSemanticInventorySymbol;
+  lTokens: TArray<string>;
+begin
+  if not SameText(aReference.Kind, 'property') then
+    Exit(MemberIsProvedStaticMethodOrStorage(aFacts, aReference.ReceiverTypeName,
+      aReference.Name, aLineCache));
+  Result := False;
+  for lSymbol in aFacts.LookupIndex.FindMembersByOwnerAndName(
+    aReference.ReceiverTypeName, aReference.Name) do
+  begin
+    lTokens := StaticMemberDeclarationTokens(lSymbol, aLineCache);
+    if (Length(lTokens) < 4) or (not SameText(lTokens[1], 'property')) or
+      (lTokens[High(lTokens)] <> ';') then
+      Exit(False);
+    lHasAccessor := False;
+    for i := 3 to High(lTokens) - 1 do
+      if lTokens[i] = ';' then
+        Exit(False);
+    for i := 3 to High(lTokens) do
+      if MatchText(lTokens[i], ['read', 'write']) then
+      begin
+        if (i >= High(lTokens)) or
+          (not MemberIsProvedStaticMethodOrStorage(aFacts, lSymbol.OwnerName,
+            lTokens[i + 1], aLineCache)) then
+          Exit(False);
+        lHasAccessor := True;
+      end;
+    if not lHasAccessor then
+      Exit(False);
+    Result := True;
+  end;
+end;
+
+function ClassSelectorNeedsNoInstanceCapture(const aFacts: TRemoveWithPlanFacts;
+  const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
+  const aLineCache: TDelphiSemanticSourceContextCache): Boolean;
+var
+  lHasStaticMember: Boolean;
+  lReference: TDelphiSemanticBoundReference;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Result := False;
+  // Only lexical storage can be omitted without suppressing a getter or other
+  // selector evaluation. Keep captures for nested bodies and instance members.
+  if (Length(aBinding.Selectors) <> 1) or
+    (not IsSimpleIdentifier(aSelectorText)) or
+    (not BindingReferencesAreResolved(aBinding)) or
+    BindingBodyContainsNestedWith(aBinding, aLineCache) or
+    (not TryFindRoutineScopedSymbolForBinding(aFacts, aBinding, aSelectorText, lSymbol)) then
+    Exit;
+  lHasStaticMember := False;
+  for lReference in aBinding.References do
+    if SameText(lReference.Classification, 'member') then
+    begin
+      // Inherited members name their declaring type, not the selector type.
+      // Every bound member must be static before we can omit the capture.
+      if (not MatchText(lReference.Kind, ['const', 'typed-const', 'constant', 'class-var'])) and
+        (not MemberIsProvedStatic(aFacts, lReference, aLineCache)) then
+        Exit;
+      lHasStaticMember := True;
+    end;
+  Result := lHasStaticMember;
+end;
+
 function BuildSelectorDecision(const aFacts: TRemoveWithPlanFacts;
   const aBinding: TDelphiSemanticWithBinding; const aSelectorText: string;
   const aSelector: TDelphiSemanticWithSelectorBinding;
@@ -3477,6 +3649,14 @@ begin
     begin
       aReason := 'receiver-type-not-visible';
       Exit;
+    end;
+    if (Length(aPriorDecisions) = 0) and
+      ClassSelectorNeedsNoInstanceCapture(aFacts, aBinding, aSelectorText, aLineCache) then
+    begin
+      aDecision.Strategy := 'direct-qualification';
+      aDecision.QualifierText := aSelectorText;
+      aDecision.Reason := 'class-members-do-not-read-instance';
+      Exit(True);
     end;
     aDecision.Strategy := 'reference-temp';
     aDecision.TempName := ReservedTempName(aFacts, aReservedNames, aBinding.RoutineName, lBaseName);

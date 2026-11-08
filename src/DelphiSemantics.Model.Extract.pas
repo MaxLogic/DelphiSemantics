@@ -3654,7 +3654,11 @@ var
   j: Integer;
   lBlockKind: string;
   lConstantPattern: TRegEx;
+  lCodeLine: string;
+  lDeclarationEnd: Integer;
   lDeclarationKind: string;
+  lDeclarationStart: Integer;
+  lDelimiterDepth: Integer;
   lDeclaredType: string;
   lEndLine: Integer;
   lHasInitializer: Boolean;
@@ -3687,7 +3691,7 @@ begin
     lHeaderPattern := TRegEx.Create(
       '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]);
     lSectionPattern := TRegEx.Create('^(const|resourcestring|var|threadvar|type)\b\s*', [roIgnoreCase]);
-    lConstantPattern := TRegEx.Create('^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=', [roIgnoreCase]);
+    lConstantPattern := TRegEx.Create('^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=', [roIgnoreCase]);
     lLines.Text := aText;
     lHeaderText := SanitizeCodeText(aText);
     lBlockKind := '';
@@ -3761,21 +3765,43 @@ begin
         end;
         if MatchText(lBlockKind, ['const', 'resourcestring']) then
         begin
-          lMatch := lConstantPattern.Match(lLine);
-          if lMatch.Success then
+          // Split only statement delimiters, preserving coordinates and semicolons
+          // inside string literals, comments and structured constant values.
+          lCodeLine := SanitizeCodeText(lLine);
+          lDeclarationStart := 1;
+          while lDeclarationStart <= Length(lCodeLine) do
           begin
-            lSection := SectionForOffset(aText, lOffset + 1);
-            if SameText(lBlockKind, 'resourcestring') then
-              lDeclarationKind := 'resourcestring'
-            else if MatchGroupValue(lMatch, 2).Trim <> '' then
-              lDeclarationKind := 'typed-const'
-            else
-              lDeclarationKind := 'const';
-            AddDeclaration(aDeclarations, lMatch.Groups[1].Value, lDeclarationKind,
-              MatchGroupValue(lMatch, 2).Trim, lSection, aText,
-              lLineOffset + lMatch.Groups[1].Index);
-            AddTypeReferences(aReferences, '', MatchGroupValue(lMatch, 2).Trim, aText,
-              TextOffsetInLine(lLines[i], MatchGroupValue(lMatch, 2).Trim, lOffset));
+            lDeclarationEnd := lDeclarationStart;
+            lDelimiterDepth := 0;
+            while lDeclarationEnd <= Length(lCodeLine) do
+            begin
+              if CharInSet(lCodeLine[lDeclarationEnd], ['(', '[']) then
+                Inc(lDelimiterDepth)
+              else if CharInSet(lCodeLine[lDeclarationEnd], [')', ']']) then
+                Dec(lDelimiterDepth)
+              else if (lCodeLine[lDeclarationEnd] = ';') and (lDelimiterDepth = 0) then
+                Break;
+              Inc(lDeclarationEnd);
+            end;
+            lMatch := lConstantPattern.Match(Copy(lCodeLine, lDeclarationStart,
+              lDeclarationEnd - lDeclarationStart));
+            if lMatch.Success then
+            begin
+              lSection := SectionForOffset(aText, lOffset + 1);
+              if SameText(lBlockKind, 'resourcestring') then
+                lDeclarationKind := 'resourcestring'
+              else if MatchGroupValue(lMatch, 2).Trim <> '' then
+                lDeclarationKind := 'typed-const'
+              else
+                lDeclarationKind := 'const';
+              AddDeclaration(aDeclarations, lMatch.Groups[1].Value, lDeclarationKind,
+                MatchGroupValue(lMatch, 2).Trim, lSection, aText,
+                lLineOffset + lDeclarationStart - 1 + lMatch.Groups[1].Index);
+              if MatchGroupValue(lMatch, 2).Trim <> '' then
+                AddTypeReferences(aReferences, '', MatchGroupValue(lMatch, 2).Trim, aText,
+                  lLineOffset + lDeclarationStart - 1 + lMatch.Groups[2].Index);
+            end;
+            lDeclarationStart := lDeclarationEnd + 1;
           end;
         end else if MatchText(lBlockKind, ['var', 'threadvar']) then
         begin

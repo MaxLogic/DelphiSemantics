@@ -2086,9 +2086,14 @@ begin
           lDeclaration := '';
           lDeclarationLine := 0;
         end;
-      end else if lInConst and InventoryTryConstDeclaration(lLine, lConstName, lTypeName) then
-        AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', '', aUnitName, aFileName,
-          i + 1, aLines[i], 'constant');
+      end else if lInConst then
+      begin
+        for lDeclaration in InventorySplitTopLevelDeclarations(lLine) do
+          if InventoryTryConstDeclaration(lDeclaration, lConstName, lTypeName) then
+            AddDakInventorySymbol(aSymbols, lConstName, lTypeName, '', '', aUnitName, aFileName,
+              i + 1, aLines[i], 'constant');
+        lDeclaration := '';
+      end;
     finally
       Inc(i);
     end;

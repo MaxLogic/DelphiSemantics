@@ -208,7 +208,7 @@ const
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // Integrated DS-791 import provenance uses DS-793 integer ownership and batch transactions.
-  cSnapshotCacheSchemaVersion = '63';
+  cSnapshotCacheSchemaVersion = '66';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

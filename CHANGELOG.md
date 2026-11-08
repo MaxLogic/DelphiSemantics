@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Remove-with reports unverified helper and inherited-member scopes explicitly instead of reporting a missing receiver member. The safety refusals and planned rewrites are unchanged (DS-795).
+- Remove-with avoids unused instance captures for class constants, class variables, explicit static methods and static class properties, and registers every unit constant declared on one line (DS-647).
 
 - WITH planning excludes certified inactive anonymous-record fields, refuses unknown field activity, and preserves separate anonymous-record members and multi-variable declarations through SQLite reloads.
 - Anonymous-record completeness uses the compiler include classifier for `INCLUDE+name` and `INCLUDE-name`.

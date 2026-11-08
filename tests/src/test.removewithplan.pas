@@ -10,6 +10,7 @@ type
   [TestFixture]
   TRemoveWithPlanTests = class
   private
+    function QualityFixture(const aName, aSource: string): string;
     function DakFixturePath(const aRelativePath: string): string;
     function SelectedMaxTdbProjectPath(const aDefaultProjectPath: string): string;
     function MaxTdbRawSemanticId(const aFileName: string;
@@ -45,6 +46,26 @@ type
     procedure AssertProjectFactsEqual(
       const aExpected, aActual: TDelphiSemanticProjectWithBindingFacts);
   public
+    [Test]
+    procedure ClassConstantsDoNotCaptureUnusedReceiver;
+    [TestCase('Static method', 'static-method,0')]
+    [TestCase('Static property', 'static-property,0')]
+    [TestCase('Instance property', 'instance-property,1')]
+    [TestCase('Virtual class method', 'virtual-method,1')]
+    [TestCase('Virtual class property', 'virtual-property,1')]
+    [TestCase('Static comment', 'comment,1')]
+    [TestCase('Static string', 'string,1')]
+    [TestCase('Adjacent static method', 'adjacent,1')]
+    procedure ClassAccessorsCaptureOnlyWhenInstanceIsRead(const aShape: string;
+      const aExpectedTemps: Integer);
+    [TestCase('Own instance field', 'own')]
+    [TestCase('Inherited instance field', 'inherited')]
+    [TestCase('Inherited instance field and static constant', 'mixed')]
+    procedure InstanceMembersKeepReceiverCapture(const aShape: string);
+    [Test]
+    procedure UnitConstantsOnOneLineRemainLexical;
+    [Test]
+    procedure MultilineLiteralKeepsApostropheAndMemberText;
     [Category('Fast')]
     [TestCase('Assignment refusal', 'assignment')]
     [TestCase('Call refusal', 'call')]
@@ -2160,6 +2181,188 @@ end;
 function TRemoveWithPlanTests.BuildPlan: TDelphiSemanticRemoveWithPlan;
 begin
   Result := BuildPlanForProject(FixturePath('ProjectWithBinding\ProjectWithBinding.dproj'));
+end;
+
+function TRemoveWithPlanTests.QualityFixture(const aName, aSource: string): string;
+var
+  lRoot: string;
+begin
+  lRoot := TempPath(aName);
+  TDirectory.CreateDirectory(lRoot);
+  Result := TPath.Combine(lRoot, 'Quality.dproj');
+  TFile.WriteAllText(Result,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup>' +
+    '<MainSource>Quality.dpr</MainSource></PropertyGroup><ItemGroup>' +
+    '<DCCReference Include="QualityUnit.pas"/></ItemGroup></Project>', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Quality.dpr'),
+    'program Quality;'#13#10'uses QualityUnit in ''QualityUnit.pas'';'#13#10 +
+    'begin Run; end.'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'QualityUnit.pas'), aSource, TEncoding.ASCII);
+end;
+
+procedure TRemoveWithPlanTests.ClassConstantsDoNotCaptureUnusedReceiver;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lPlan := BuildPlanForProject(QualityFixture('ds647-class-constants',
+    'unit QualityUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TC = class'#13#10'  public'#13#10'    const KA = 2; KC = 7;'#13#10 +
+    '    class var Total: Integer;'#13#10 +
+    '  end;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  C: TC;'#13#10'begin'#13#10 +
+    '  C := nil;'#13#10'  with C do Total := KA + KC;'#13#10 +
+    '  Writeln(TC.Total);'#13#10'end;'#13#10'end.'#13#10));
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)), lPlan.Diagnostic);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason + ': ' + lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(0, Integer(Length(lPlan.FinalStatements[0].Temps)),
+    'Class constants do not read an instance capture; it causes H2077.');
+  Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, 'C.KA + C.KC'),
+    lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.ClassAccessorsCaptureOnlyWhenInstanceIsRead(
+  const aShape: string; const aExpectedTemps: Integer);
+var
+  lDeclaration: string;
+  lImplementation: string;
+  lMember: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lMember := 'GetValue';
+  lDeclaration := '    class function GetValue: Integer; static;';
+  lImplementation := 'class function TC.GetValue: Integer;';
+  if StartsText('virtual-', aShape) then
+    lDeclaration := '    class function GetValue: Integer; virtual;';
+  if MatchText(aShape, ['instance-property', 'comment', 'string']) then
+  begin
+    lDeclaration := '    function GetValue: Integer;';
+    lImplementation := 'function TC.GetValue: Integer;';
+  end;
+  if aShape = 'adjacent' then
+  begin
+    lDeclaration := '    class function GetValue: Integer; class function Other: Integer; static;';
+    lImplementation := 'class function TC.Other: Integer;'#13#10 +
+      'begin Result := 8; end;'#13#10 + lImplementation;
+  end;
+  if aShape = 'comment' then
+    lDeclaration := lDeclaration + ' { static; }';
+  if aShape = 'string' then
+    lDeclaration := lDeclaration + ' deprecated ''static;'';';
+  if EndsText('property', aShape) then
+  begin
+    lMember := 'Value';
+    lDeclaration := lDeclaration + #13#10;
+    if aShape <> 'instance-property' then
+      lDeclaration := lDeclaration + '    class property Value: Integer read GetValue;'
+    else
+      lDeclaration := lDeclaration + '    property Value: Integer read GetValue;';
+  end;
+  lPlan := BuildRootProvedFixturePlan(QualityFixture('ds647-accessor-' + aShape,
+    'unit QualityUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TC = class'#13#10'  public'#13#10 + lDeclaration + #13#10 +
+    '  end;'#13#10'procedure Run;'#13#10'implementation'#13#10 +
+    lImplementation + #13#10'begin Result := 7; end;'#13#10 +
+    'procedure Run;'#13#10'var C: TC; X: Integer;'#13#10'begin'#13#10 +
+    '  C := nil;'#13#10'  with C do X := ' + lMember + ';'#13#10 +
+    'end;'#13#10'end.'#13#10));
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)), lPlan.Diagnostic);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason + ': ' + lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(aExpectedTemps, Integer(Length(lPlan.FinalStatements[0].Temps)),
+    lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.InstanceMembersKeepReceiverCapture(const aShape: string);
+var
+  lBody: string;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lType: string;
+begin
+  lType := 'TAncestor';
+  if aShape <> 'own' then
+    lType := 'TDescendant';
+  lBody := 'Value := 7';
+  if aShape = 'mixed' then
+    lBody := 'Value := Limit';
+  lPlan := BuildPlanForProject(QualityFixture('ds647-instance-' + aShape,
+    'unit QualityUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TAncestor = class'#13#10'  public'#13#10 +
+    '    Value: Integer;'#13#10'    const Limit = 7;'#13#10'  end;'#13#10 +
+    '  TDescendant = class(TAncestor) end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var'#13#10'  C: ' + lType + ';'#13#10'begin'#13#10 +
+    '  C := nil;'#13#10'  with C do ' + lBody + ';'#13#10'end;'#13#10'end.'#13#10));
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements)), lPlan.Diagnostic);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status,
+    lPlan.FinalStatements[0].Reason + ': ' + lPlan.FinalStatements[0].SafetyReason);
+  Assert.AreEqual(1, Integer(Length(lPlan.FinalStatements[0].Temps)),
+    'An instance field, including an inherited field, still reads the capture.');
+  Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+    'lWith' + Copy(lType, 2, MaxInt) + '.Value'),
+    lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.UnitConstantsOnOneLineRemainLexical;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lName: string;
+  lOptions: TDelphiSemanticApiOptions;
+  lPlan: TDelphiSemanticRemoveWithPlan;
+  lReference: TDelphiSemanticBoundReference;
+  lSeen: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticApiOptions);
+  lOptions.ProjectFileName := QualityFixture('ds647-unit-constants',
+    'unit QualityUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TR = record Value: Integer; end;'#13#10 +
+    'const A = 1; B = 2; Text = ''semi;colon''; C: Integer = 3;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10 +
+    'var'#13#10'  R: TR;'#13#10'begin'#13#10 +
+    '  with R do Value := A + B + C + Length(Text);'#13#10 +
+    '  Writeln(R.Value);'#13#10'end;'#13#10'end.'#13#10);
+  lFacts := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFacts(lOptions);
+  for lName in ['A', 'B', 'Text', 'C'] do
+  begin
+    lSeen := False;
+    for lModel in lFacts.UnitModels do
+      for var lDeclaration in lModel.Declarations do
+        if SameText(lDeclaration.Name, lName) then
+          lSeen := True;
+    Assert.IsTrue(lSeen, 'The model must register constant ' + lName);
+    lSeen := False;
+    for lBinding in lFacts.Bindings do
+      for lReference in lBinding.References do
+        if SameText(lReference.Name, lName) and SameText(lReference.Classification, 'lexical') then
+          lSeen := True;
+    Assert.IsTrue(lSeen, 'The binder must register lexical constant ' + lName);
+  end;
+  lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lFacts);
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+  Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText,
+    'A + B + C + Length(Text)'), lPlan.FinalStatements[0].ReplacementText);
+end;
+
+procedure TRemoveWithPlanTests.MultilineLiteralKeepsApostropheAndMemberText;
+const
+  cLiteral = #39#39#39#13#10'    Value isn''t a member here'#13#10'    '#39#39#39;
+var
+  lPlan: TDelphiSemanticRemoveWithPlan;
+begin
+  lPlan := BuildPlanForProject(QualityFixture('ds647-multiline-literal',
+    'unit QualityUnit;'#13#10'interface'#13#10'type'#13#10 +
+    '  TR = record Value: Integer; end;'#13#10'procedure Run;'#13#10 +
+    'implementation'#13#10'procedure Run;'#13#10'var'#13#10'  R: TR;'#13#10 +
+    'begin'#13#10'  with R do'#13#10'  begin'#13#10 +
+    '    Writeln(' + cLiteral + ');'#13#10'    Value := 4;'#13#10 +
+    '  end;'#13#10'  Writeln(R.Value);'#13#10'end;'#13#10'end.'#13#10));
+  Assert.AreEqual('planned', lPlan.FinalStatements[0].Status);
+  Assert.IsTrue(Pos(cLiteral, lPlan.FinalStatements[0].ReplacementText) > 0,
+    lPlan.FinalStatements[0].ReplacementText);
+  Assert.IsTrue(ContainsText(lPlan.FinalStatements[0].ReplacementText, '.Value := 4;'),
+    lPlan.FinalStatements[0].ReplacementText);
 end;
 
 function TRemoveWithPlanTests.BuildPlanForProject(const aProjectPath: string;
@@ -6818,19 +7021,16 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'RemoveWithTypeMemberUnit.pas', 31, 3, lStatement),
     'Expected shadowing type-member with statement.');
   Assert.AreEqual('planned', lStatement.Status, lStatement.Reason);
-  Assert.AreEqual(1, Integer(Length(lStatement.Temps)), lStatement.ReplacementText);
+  if StartsText('class-', aShape) then
+    Assert.AreEqual(0, Integer(Length(lStatement.Temps)), lStatement.ReplacementText)
+  else
+    Assert.AreEqual(1, Integer(Length(lStatement.Temps)), lStatement.ReplacementText);
   if aShape = 'class-const' then
-    Assert.AreEqual('  lWithC := C;' + #13#10 +
-    '  X := lWithC.KC + lWithC.KA;',
-      lStatement.ReplacementText);
+    Assert.AreEqual('  X := C.KC + C.KA;', lStatement.ReplacementText);
   if aShape = 'class-var' then
-    Assert.AreEqual('  lWithC := C;' + #13#10 +
-    '  lWithC.CV := X;',
-      lStatement.ReplacementText);
+    Assert.AreEqual('  C.CV := X;', lStatement.ReplacementText);
   if aShape = 'class-prop' then
-    Assert.AreEqual('  lWithC := C;' + #13#10 +
-    '  X := lWithC.CP;',
-      lStatement.ReplacementText);
+    Assert.AreEqual('  X := C.CP;', lStatement.ReplacementText);
   if not StartsText('class-', aShape) then
   for lFragment in lExpected do
     Assert.IsTrue(ContainsText(lStatement.ReplacementText,
