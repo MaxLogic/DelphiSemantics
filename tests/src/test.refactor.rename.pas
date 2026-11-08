@@ -307,6 +307,18 @@ type
     [TestCase('r5-constant-include-transitive', 'r5-constant-include-transitive,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
     [TestCase('r5-constant-unknown-dependency', 'r5-constant-unknown-dependency,UCertified.pas,6,5,Amount,string-constant-value-unproved,Win32,False')]
     [TestCase('r5-qualified-unit-inactive-import-control', 'r5-qualified-unit-inactive-import-control,UCertified.pas,3,5,RenamedValue,,Win32,True')]
+    [TestCase('r6-string-shadowing-numeric-type', 'r6-string-shadowing-numeric-type,UCertified.pas,6,5,Amount,string-constant-value-unproved,Win32,False')]
+    [TestCase('r6-t01-code-const-concat', 'r6-t01-code-const-concat,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t02-initialized-var', 'r6-t02-initialized-var,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t03-class-const-expr', 'r6-t03-class-const-expr,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t03b-class-const-code', 'r6-t03b-class-const-code,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t04-namespace-alias-qualified', 'r6-t04-namespace-alias-qualified,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t08-ctl-charset-const', 'r6-t08-ctl-charset-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t09-ctl-string-array-const', 'r6-t09-ctl-string-array-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t10-ctl-ord-const', 'r6-t10-ctl-ord-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-record-literal-fields', 'r6-record-literal-fields,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-numeric-sizeof-expression', 'r6-numeric-sizeof-expression,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t11-ctl-sdk-const', 'r6-t11-ctl-sdk-const,UCertified.pas,6,5,Amount,,Win32,True')]
     procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
       const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 
@@ -2002,6 +2014,8 @@ begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
     if aCase = 'r5-qualified-unit-inactive-import-control' then
       Assert.AreEqual(5, Integer(Length(lPlan.Edits)))
+    else if (StartsText('r6-t', aCase) or MatchText(aCase, ['r6-numeric-sizeof-expression', 'r6-record-literal-fields'])) then
+      Assert.AreEqual(2, Integer(Length(lPlan.Edits)))
     else if StartsText('r3-external-explicit-', aCase) then
     begin
       Assert.AreEqual(2, Integer(Length(lPlan.Edits)));

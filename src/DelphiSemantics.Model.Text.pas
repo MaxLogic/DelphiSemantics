@@ -15,6 +15,7 @@ type
   end;
 
 function StringConstantExpressions(const aText: string): TArray<TDelphiSemanticStringConstant>;
+function StringExpressionWitnesses(const aText: string): TArray<TDelphiSemanticStringConstant>;
 
 function StringLiteralCandidates(const aText: string; const aCodeOnly: Boolean):
   TArray<TDelphiSemanticStringLiteral>;
@@ -738,6 +739,123 @@ begin
   end;
 end;
 
+// Lexical expression witnesses supplement declarations in every source position.
+// Calls remain opaque operands; their arguments are visited independently.
+function ConcatenationExpressions(const aText: string): TArray<TDelphiSemanticStringConstant>;
+type
+  TToken = record
+    Text: string;
+    Offset, Finish: Integer;
+    Kind: TptTokenKind;
+  end;
+var
+  lLexer: TmwBasePasLex;
+  lTokens: TList<TToken>;
+  lItems: TList<TDelphiSemanticStringConstant>;
+  lToken: TToken;
+  lItem: TDelphiSemanticStringConstant;
+  i, j, lPlus: Integer;
+
+  function Expression(var aIndex, aPlus: Integer; const aDepth: Integer): Boolean;
+  var
+    lDepth: Integer;
+
+    function Operand: Boolean;
+    begin
+      Result := False;
+      if (aIndex >= lTokens.Count) or (aDepth >= 64) then
+        Exit;
+      if lTokens[aIndex].Text = '(' then
+      begin
+        Inc(aIndex);
+        if not Expression(aIndex, aPlus, aDepth + 1) then
+          Exit;
+        if (aIndex >= lTokens.Count) or (lTokens[aIndex].Text <> ')') then
+          Exit;
+        Inc(aIndex);
+        Exit(True);
+      end;
+      if not (lTokens[aIndex].Kind in [ptIdentifier, ptStringConst, ptStringDQConst, ptAsciiChar,
+        ptIntegerConst, ptFloat]) then
+        Exit;
+      Inc(aIndex);
+      while (aIndex + 1 < lTokens.Count) and (lTokens[aIndex].Text = '.') and
+        (lTokens[aIndex + 1].Kind = ptIdentifier) do
+        Inc(aIndex, 2);
+      // Adjacent quoted and character-code parts are one Delphi literal.
+      while (aIndex < lTokens.Count) and
+        (lTokens[aIndex].Kind in [ptStringConst, ptStringDQConst, ptAsciiChar]) do
+        Inc(aIndex);
+      // An unsupported call's result stays unknown. Do not fold its arguments
+      // into its result; each inner expression has a separate witness below.
+      if (aIndex < lTokens.Count) and (lTokens[aIndex].Text = '(') then
+      begin
+        lDepth := 0;
+        repeat
+          if lTokens[aIndex].Text = '(' then
+            Inc(lDepth)
+          else if lTokens[aIndex].Text = ')' then
+            Dec(lDepth);
+          Inc(aIndex);
+        until (aIndex >= lTokens.Count) or (lDepth = 0);
+      end;
+      Result := True;
+    end;
+
+  begin
+    Result := Operand;
+    if not Result then
+      Exit;
+    while (aIndex < lTokens.Count) and (lTokens[aIndex].Text = '+') do
+    begin
+      Inc(aPlus);
+      Inc(aIndex);
+      if not Operand then
+        Exit(False);
+    end;
+  end;
+
+begin
+  lTokens := TList<TToken>.Create;
+  lItems := TList<TDelphiSemanticStringConstant>.Create;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if not lLexer.IsCompilerDirective then
+      begin
+        lToken.Text := lLexer.Token;
+        lToken.Offset := lLexer.TokenPos + 1;
+        lToken.Finish := lToken.Offset + Length(lToken.Text);
+        lToken.Kind := lLexer.TokenID;
+        lTokens.Add(lToken);
+      end;
+      lLexer.NextNoJunk;
+    end;
+    for i := 0 to lTokens.Count - 1 do
+    begin
+      if (i > 0) and MatchText(lTokens[i - 1].Text, ['.', '+']) then
+        Continue;
+      j := i;
+      lPlus := 0;
+      if Expression(j, lPlus, 0) and (lPlus > 0) then
+      begin
+        lItem := Default(TDelphiSemanticStringConstant);
+        lItem.Offset := lTokens[i].Offset;
+        lItem.Expression := Copy(aText, lItem.Offset, lTokens[j - 1].Finish - lItem.Offset);
+        lItems.Add(lItem);
+      end;
+    end;
+    Result := lItems.ToArray;
+  finally
+    lLexer.Free;
+    lItems.Free;
+    lTokens.Free;
+  end;
+end;
+
 // Capture constant expressions by lexical declaration boundaries, including
 // peers on the same line. Evaluation never executes source or library calls.
 function StringConstantExpressions(const aText: string): TArray<TDelphiSemanticStringConstant>;
@@ -746,6 +864,7 @@ var
   lItems: TList<TDelphiSemanticStringConstant>;
   lItem: TDelphiSemanticStringConstant;
   lInConstants: Boolean;
+  lOwner, lPrevious, lPreviousName: string;
   lStart, lDepth, lNesting: Integer;
 begin
   lItems := TList<TDelphiSemanticStringConstant>.Create;
@@ -755,6 +874,9 @@ begin
     lLexer.Origin := aText;
     lInConstants := False;
     lNesting := 0;
+    lOwner := '';
+    lPrevious := '';
+    lPreviousName := '';
     while lLexer.TokenID <> ptNull do
     begin
       if lLexer.IsCompilerDirective then
@@ -762,18 +884,24 @@ begin
         lLexer.NextNoJunk;
         Continue;
       end;
+      if MatchText(lLexer.Token, ['class', 'record', 'object']) and (lPrevious = '=') then
+        lOwner := lPreviousName
+      else if SameText(lLexer.Token, 'end') then
+        lOwner := '';
       // CONST inside a routine parameter list is a modifier, including when
       // the parameter has a default value. It never opens a constant section.
       if MatchText(lLexer.Token, ['(', '[']) then
         Inc(lNesting)
       else if MatchText(lLexer.Token, [')', ']']) then
         Dec(lNesting);
-      if (lNesting = 0) and MatchText(lLexer.Token, ['const', 'resourcestring']) then
+      if (lNesting = 0) and MatchText(lLexer.Token, ['const', 'resourcestring', 'var', 'threadvar']) then
         lInConstants := True
       else if lInConstants and (lLexer.TokenID = ptIdentifier) then
       begin
         lItem := Default(TDelphiSemanticStringConstant);
         lItem.Name := lLexer.Token.TrimLeft(['&']);
+        if lOwner <> '' then
+          lItem.Name := lOwner + '.' + lItem.Name;
         lItem.Offset := lLexer.TokenPos + 1;
         lLexer.NextNoJunk;
         if lLexer.Token = ':' then
@@ -800,6 +928,7 @@ begin
               Dec(lDepth);
             lLexer.NextNoJunk;
           end;
+          lItem.Offset := lStart;
           lItem.Expression := Copy(aText, lStart, lLexer.TokenPos + 1 - lStart);
           lItems.Add(lItem);
         end else
@@ -807,6 +936,9 @@ begin
         Continue;
       end else if lLexer.Token <> ';' then
         lInConstants := False;
+      if lLexer.TokenID = ptIdentifier then
+        lPreviousName := lLexer.Token.TrimLeft(['&']);
+      lPrevious := lLexer.Token;
       lLexer.NextNoJunk;
     end;
     Result := lItems.ToArray;
@@ -814,6 +946,11 @@ begin
     lLexer.Free;
     lItems.Free;
   end;
+end;
+
+function StringExpressionWitnesses(const aText: string): TArray<TDelphiSemanticStringConstant>;
+begin
+  Result := StringConstantExpressions(aText) + ConcatenationExpressions(aText);
 end;
 
 // The folded value supplements every individual literal operand. Retaining

@@ -24,6 +24,9 @@ type
       const aFileName: string; out aObservation: TDelphiSemanticProjectContextObservation): Boolean;
     procedure WriteUtf8Bytes(const aFileName, aText: string);
   public
+    [TestCase('Resource paths', 'r6-r17-res-path-per-config,resdbg,resrel')]
+    [TestCase('Unit search paths', 'r6-r18-res-searchpath-per-config,libdbg,librel')]
+    procedure ResourceDirectoriesCoverDeclaredSelections(const aCase, aDebug, aRelease: string);
     [Test]
     [Category('Fast')]
     [TProfileDirectoryMatrix]
@@ -643,6 +646,25 @@ begin
       end;
     end;
   Assert.IsTrue(lCauseFound, 'Expected public cause: ' + cCauseCodes[aScenario.FailureMode]);
+end;
+
+procedure TProjectContextTests.ResourceDirectoriesCoverDeclaredSelections(
+  const aCase, aDebug, aRelease: string);
+var
+  lOptions: TDelphiSemanticOptions;
+  lResult: TDelphiSemanticContextResult;
+  lRoot: string;
+begin
+  lRoot := FixturePath(TPath.Combine('rename-containment', aCase));
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win32';
+  lOptions.DelphiVersion := '23.0';
+  lResult := TDelphiSemanticProject.Load(TPath.Combine(lRoot, 'proj\Certified.dproj'), lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  Assert.IsTrue(ContainsPath(lResult.Project.PossibleResourceDirectories, TPath.Combine(lRoot, aDebug)));
+  Assert.IsTrue(ContainsPath(lResult.Project.PossibleResourceDirectories, TPath.Combine(lRoot, aRelease)),
+    'A Debug rename must scan the resource candidates used by Release as well.');
 end;
 
 procedure TProjectContextTests.FinalProfileInputsMatchGeneratedOracle(const aCaseId: Integer);

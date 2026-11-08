@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename checks retained string constants, variable initializers and concatenations in code, including class constants and namespace-qualified imports. It refuses relevant unknown string operands while excluding proved numeric values and independently scanned structured values. Declaration sections follow token positions (DS-797).
+
 - Rename checks each literal operand as well as folded literal expressions, evaluates transitive retained string constants (including qualified and include-defined constants), and refuses unknown string-constant dependencies. Parsed declarations at any position on a line participate in collision checks; newly discovered declarations are containment evidence only and do not enable previously refused plans (DS-797).
 
 - Rename retains imports after compiler directives, detects declarations after same-line section keywords, and refuses matching literal string expressions (DS-797). Names serialised via RTTI by library code are outside static proof.

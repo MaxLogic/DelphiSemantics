@@ -113,6 +113,8 @@ type
     ReferenceDirectories: TArray<string>;
     PossibleUnitSearchPaths: TArray<string>;
     PossibleUnitScopeNames: TArray<string>;
+    // Refusal-only union over declared selections; never binding/certification evidence.
+    PossibleResourceDirectories: TArray<string>;
     Properties: TArray<TDelphiSemanticProperty>;
     CompilerProfileName: string;
     ContextFingerprint: string;
@@ -1530,6 +1532,7 @@ begin
   Result := SameText(aName, 'MainSource') or SameText(aName, 'Config') or
     SameText(aName, 'Platform') or SameText(aName, 'DCC_Define') or
     SameText(aName, 'DCC_IncludePath') or SameText(aName, 'DCC_UnitSearchPath') or
+    SameText(aName, 'DCC_ResourcePath') or
     SameText(aName, 'DCC_UnitScopeNames') or SameText(aName, 'DCC_Namespace') or
     SameText(aName, 'DCC_UnitAlias') or SameText(aName, 'DCC_UnitAliases') or
     SameText(aName, 'CfgDependentOn') or MatchText(aName, cDelphiSemanticCompilerLinkPropertyNames);
@@ -2532,6 +2535,7 @@ begin
     lBuilder.AppendLine('schema=semantic-project-configuration-v2');
     AppendFingerprintItems(lBuilder, 'possibleUnitSearchPaths', aProject.PossibleUnitSearchPaths, True);
     AppendFingerprintItems(lBuilder, 'possibleUnitScopeNames', aProject.PossibleUnitScopeNames, True);
+    AppendFingerprintItems(lBuilder, 'possibleResourceDirectories', aProject.PossibleResourceDirectories, True);
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
     AppendFingerprintItem(lBuilder, 'defineEvidenceComplete', BoolToStr(aProject.DefineEvidenceComplete, True));
@@ -3109,20 +3113,39 @@ function PossibleProjectSearchPaths(const aProjectFileName: string;
   const aDocument: IXMLDocument; const aOptions: TDelphiSemanticOptions;
   const aSelected: TDelphiSemanticProjectInfo; const aSelectedProperties: TPropertyMap;
   const aObservations: IProjectContextObservationsBuilder;
-  out aScopeNames: TArray<string>): TArray<string>;
+  out aScopeNames, aResourceDirectories: TArray<string>): TArray<string>;
 var
-  lConfigurations, lPlatforms, lPaths, lScopes: TList<string>;
+  lConfigurations, lPlatforms, lPaths, lScopes, lResources: TList<string>;
   lDiagnostics: TList<TDelphiSemanticDiagnostic>;
   lOptions: TDelphiSemanticOptions;
   lProperties: TPropertyMap;
   lConfiguration, lPlatform, lPath: string;
+
+  procedure AddResourcePaths(const aProperties: TPropertyMap);
+  var
+    lProperty, lEntry, lResolved, lError: string;
+  begin
+    for lProperty in ['DCC_ResourcePath', 'DCC_UnitSearchPath', 'DSCompilerLibraryPaths'] do
+      for lEntry in GetPropertyValue(aProperties, lProperty).Split([';']) do
+      begin
+        if lEntry.Trim = '' then
+          Continue;
+        if TryResolveCompilerSearchPathEntry(aSelected.ProjectDirectory, lEntry, lResolved, lError) then
+          AddUniquePath(lResources, aSelected.ProjectDirectory, lResolved)
+        else
+          AddUniqueText(lResources, '<resource-path-unverified>');
+      end;
+  end;
+
 begin
   lConfigurations := TList<string>.Create;
   lPlatforms := TList<string>.Create;
   lPaths := TList<string>.Create;
   lScopes := TList<string>.Create;
+  lResources := TList<string>.Create;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
   try
+    AddResourcePaths(aSelectedProperties);
     AddUniqueText(lConfigurations, aSelected.Configuration);
     AddUniqueText(lPlatforms, aSelected.Platform);
     CollectProjectSelections(aDocument.DocumentElement, lConfigurations, lPlatforms);
@@ -3145,6 +3168,7 @@ begin
           // paths/scopes are still checked for every declared selection below.
           if SameText(lPlatform, 'Win32') or SameText(lPlatform, 'Win64') then
             PopulateWitnessProfileProperties(lProperties, lOptions, aObservations, lDiagnostics);
+          AddResourcePaths(lProperties);
           if not SameText(GetPropertyValue(lProperties, 'DCC_UnitScopeNames'),
             GetPropertyValue(aSelectedProperties, 'DCC_UnitScopeNames')) or
             not SameText(GetPropertyValue(lProperties, 'DCC_Namespace'),
@@ -3185,8 +3209,10 @@ begin
       end;
     Result := lPaths.ToArray;
     aScopeNames := lScopes.ToArray;
+    aResourceDirectories := lResources.ToArray;
   finally
     lDiagnostics.Free;
+    lResources.Free;
     lScopes.Free;
     lPaths.Free;
     lPlatforms.Free;
@@ -3218,7 +3244,7 @@ begin
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
     Result.PossibleUnitSearchPaths := PossibleProjectSearchPaths(aProjectFileName,
-      lDocument, aOptions, Result, lProperties, lObservations, Result.PossibleUnitScopeNames);
+      lDocument, aOptions, Result, lProperties, lObservations, Result.PossibleUnitScopeNames, Result.PossibleResourceDirectories);
     AddAdditionalSourceFiles(Result, aOptions);
     AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);

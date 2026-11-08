@@ -2976,9 +2976,9 @@ begin
     for i := 0 to Pred(aDeclarations.Count) do
     begin
       lDeclaration := aDeclarations[i];
-      // Existing declaration metadata remains binding authority from the predecessor.
-      if lDeclaration.DeclarationRole = 'containment-only' then
-        lDeclaration.SectionKind := SectionForOffset(aText, lDeclaration.Offset);
+      // Section identity belongs to the declaration token, never its physical line.
+      // Supplemental declarations retain their containment-only role.
+      lDeclaration.SectionKind := SectionForOffset(aText, lDeclaration.Offset);
       if FindDeclarationFact(lDeclaration, lFact, lMatchedFactIndex) then
       begin
         if lDeclaration.DeclarationRole <> 'containment-only' then

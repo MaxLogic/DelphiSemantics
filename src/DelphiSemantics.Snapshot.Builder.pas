@@ -2715,7 +2715,7 @@ begin
         AddConsumer(lMatch.Value.TrimLeft(['&']), 'directive-name-consumer', 1);
     // Persist expression witnesses so warm SQLite queries evaluate the same
     // transitive constants without reopening an include from disk.
-    for lConstant in StringConstantExpressions('const ' + lSource.Text) do
+    for lConstant in StringExpressionWitnesses('const ' + lSource.Text) do
     begin
       lFact := Default(TSemanticReferenceFact);
       lFact.ReasonId := aStrings.Intern(lConstant.Name);

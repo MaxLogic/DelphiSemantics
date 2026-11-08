@@ -71,6 +71,8 @@ type
     procedure DirectiveBeforeUsesKeepsImport;
     [Test]
     procedure ConstantInventoryExcludesDefaultParameters;
+    [Test]
+    procedure ExpressionInventoryCoversInitializersAndCode;
     [Category('DS703Slice')]
     [TestCase('Nested record owner', 'nested')]
     [TestCase('Nested array record owner', 'array')]
@@ -7315,8 +7317,8 @@ begin
   else if aShape = 'type' then
     Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'type-alias', lSection), aShape)
   else if MatchText(aShape, ['interface', 'implementation']) then
-    Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'var', 'interface'),
-      'Preserve the predecessor binding inventory and its section metadata.')
+    Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'var', lSection),
+      'Report the declaration section at its actual token offset.')
   else
   begin
     Assert.IsFalse(HasDeclaration(lModel, 'RenamedValue', 'var', lSection),
@@ -7350,6 +7352,31 @@ begin
   for var lImport in lModel.ImportFacts do
     lFound := lFound or SameText(lImport.Name, 'ImportTarget');
   Assert.IsTrue(lFound, 'APPTYPE is trivia before USES.');
+end;
+
+procedure TUnitModelTests.ExpressionInventoryCoversInitializersAndCode;
+var
+  lItems: TArray<TDelphiSemanticStringConstant>;
+  lItem: TDelphiSemanticStringConstant;
+  lInitializer, lCode, lClass: Boolean;
+begin
+  lItems := StringExpressionWitnesses(
+    'unit Expressions; interface type TNames = class const Pre = ''Co''; end; ' +
+    'var Initial: string = TNames.Pre + ''unt''; implementation ' +
+    'procedure Visit; begin GetField((TNames.Pre) + (''unt'')); end; end.');
+  lInitializer := False;
+  lCode := False;
+  lClass := False;
+  for lItem in lItems do
+  begin
+    lInitializer := lInitializer or SameText(lItem.Name, 'Initial');
+    lClass := lClass or SameText(lItem.Name, 'TNames.Pre');
+    lCode := lCode or ((lItem.Name = '') and
+      (lItem.Expression = '(TNames.Pre) + (''unt'')'));
+  end;
+  Assert.IsTrue(lInitializer, 'Initialized variables retain their complete value expression.');
+  Assert.IsTrue(lClass, 'Class constants retain their owner qualifier.');
+  Assert.IsTrue(lCode, 'Parenthesized code expressions are retained independently of declarations.');
 end;
 
 procedure TUnitModelTests.ConstantInventoryExcludesDefaultParameters;
