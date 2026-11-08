@@ -8,6 +8,8 @@ uses
 type
   TDelphiSemanticUnitModelExtractorImpl = record
   public
+    class function ScopeConstructionMilliseconds: Int64; static;
+    class procedure ResetScopeConstructionMetrics; static;
     class function TypeBlockAnalysisBuildCount: Integer; static;
     class procedure ResetTypeBlockAnalysisBuildCount; static;
     class function CaptureScopeProof(const aModel: TDelphiSemanticUnitModel;
@@ -20,7 +22,7 @@ type
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
+  System.Classes, System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.PossibleSources, DelphiSemantics.Model.Text,
@@ -188,6 +190,7 @@ var
   GTypeBlockAnalysisBuildCount: Integer = 0;
 
 threadvar
+  GScopeConstructionMilliseconds: Int64;
   GExtractionContext: TDelphiSemanticExtractionContext;
 
 function DeclarationCandidateKey(const aPosition: Integer; const aName: string): string;
@@ -2306,7 +2309,7 @@ begin
   end;
 end;
 
-procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
+procedure EnrichLexicalScopeFactsCore(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
   const aOptions: TDelphiSemanticModelOptions;
   const aMembers: TList<TDelphiSemanticMember>;
@@ -3124,6 +3127,32 @@ begin
   lDeclaration.EndOffset := aOffset + Length(aName);
   aDeclarations.Add(lDeclaration);
 end;
+
+procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
+  const aWritableSwitches: TArray<TWritableConstantSwitch>;
+  const aOptions: TDelphiSemanticModelOptions;
+  const aMembers: TList<TDelphiSemanticMember>;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aRoutines: TList<TDelphiSemanticRoutine>;
+  const aLocals: TList<TDelphiSemanticLocal>;
+  const aReferences: TList<TDelphiSemanticReference>;
+  const aDiagnostics: TList<TDelphiSemanticModelDiagnostic>;
+  const aUnindexedHelpers: TList<TPendingUnindexedHelper>;
+  var aModel: TDelphiSemanticUnitModel;
+  const aAnonymousAbsenceOnly: Boolean = False);
+var
+  lStopwatch: TStopwatch;
+begin
+  lStopwatch := TStopwatch.StartNew;
+  try
+    EnrichLexicalScopeFactsCore(aText, aUnitName, aWritableSwitches, aOptions,
+      aMembers, aDeclarations, aRoutines, aLocals, aReferences, aDiagnostics,
+      aUnindexedHelpers, aModel, aAnonymousAbsenceOnly);
+  finally
+    Inc(GScopeConstructionMilliseconds, lStopwatch.ElapsedMilliseconds);
+  end;
+end;
+
 
 function NormalizeMemberTypeName(const aTypeName: string): string;
 begin
@@ -6825,6 +6854,16 @@ begin
     lInterfaceUses.Free;
     lDiagnostics.Free;
   end;
+end;
+
+class function TDelphiSemanticUnitModelExtractorImpl.ScopeConstructionMilliseconds: Int64;
+begin
+  Result := GScopeConstructionMilliseconds;
+end;
+
+class procedure TDelphiSemanticUnitModelExtractorImpl.ResetScopeConstructionMetrics;
+begin
+  GScopeConstructionMilliseconds := 0;
 end;
 
 class function TDelphiSemanticUnitModelExtractorImpl.TypeBlockAnalysisBuildCount: Integer;

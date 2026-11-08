@@ -254,18 +254,27 @@ function AggregateActivity(const aSource, aFileName: string;
   const aPreprocess: TDelphiSemanticPreprocessResult): string;
 var
   i: Integer;
-  lStates: string;
+  lStates, lValidatedSource: string;
   lSpan: TDelphiSemanticActivitySpan;
   lState: Char;
 begin
   if not aPreprocess.ActivityEvidenceAvailable then
     Exit(TDelphiSemanticSourceConditionals.UnavailableActivity);
   lStates := StringOfChar('-', Length(aSource));
+  lValidatedSource := aSource;
   for lSpan in aPreprocess.ActivitySpans do
     if SameText(lSpan.FileName, aFileName) then
     begin
-      if (lSpan.SourceText <> aSource) or (lSpan.StartOffset < 1) or
-        (lSpan.EndOffset > Length(aSource) + 1) then
+      // Activity spans from one expansion retain the same immutable string.
+      // Keep the last equal value alive and compare its bytes only on a new
+      // allocation. Every distinct value must still match our exact source.
+      if Pointer(lSpan.SourceText) <> Pointer(lValidatedSource) then
+      begin
+        if lSpan.SourceText <> aSource then
+          Exit(TDelphiSemanticSourceConditionals.UnavailableActivity);
+        lValidatedSource := lSpan.SourceText;
+      end;
+      if (lSpan.StartOffset < 1) or (lSpan.EndOffset > Length(aSource) + 1) then
         Exit(TDelphiSemanticSourceConditionals.UnavailableActivity);
       case lSpan.Activity of
         saActive: lState := 'A';

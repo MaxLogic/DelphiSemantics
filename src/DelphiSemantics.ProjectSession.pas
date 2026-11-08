@@ -55,6 +55,8 @@ type
     ReferenceCount: Integer;
     WithStatementCount: Integer;
     BuildMilliseconds: Int64;
+    SnapshotIdentityMilliseconds: Int64;
+    ModelExtractionMilliseconds: Int64;
     SnapshotCacheProbes: Integer;
     SnapshotCacheHits: Integer;
     SnapshotCacheMisses: Integer;
@@ -170,6 +172,10 @@ type
     function BuildSnapshot(const aScopedSourceFileNames: TArray<string>):
       TDelphiProjectSnapshot; overload;
     function BuildSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult; overload;
+    // Caller owns aOwnedEvidence. Cached snapshots remain immutable; matrix S
+    // reloads full per-pair models to recover their source/context witnesses.
+    function BuildMatrixSourceSnapshotResult(out aOwnedEvidence: TObject):
+      TDelphiSemanticProjectSnapshotBuildResult;
     function BuildSnapshotResult(const aScopedSourceFileNames: TArray<string>):
       TDelphiSemanticProjectSnapshotBuildResult; overload;
     function BuildWithBindingFacts: TDelphiSemanticProjectWithBindingFacts; overload;
@@ -2022,6 +2028,36 @@ begin
   lResult.Snapshot := nil;
 end;
 
+function TDelphiSemanticProjectSession.BuildMatrixSourceSnapshotResult(
+  out aOwnedEvidence: TObject): TDelphiSemanticProjectSnapshotBuildResult;
+var
+  lExtension: TObject;
+  lExtraction: TProjectModelExtractionResult;
+  lSourceFileNames: TArray<string>;
+  lPersistenceAvailable: Boolean;
+begin
+  aOwnedEvidence := nil;
+  Result := BuildSnapshotResult;
+  try
+    if (Result.Snapshot = nil) or
+      Result.Snapshot.TryGetExtension(cDelphiSemanticContextEvidenceExtensionName, lExtension) then
+      Exit;
+    lSourceFileNames := ProjectModelFileNames(fProject);
+    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames, [], False,
+      lPersistenceAvailable, True);
+    Result.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
+    aOwnedEvidence := TryCreateContextEvidenceExtension(fProject, fDiagnostics,
+      lSourceFileNames, fProject.ContextObservations, lExtraction.Models, [],
+      fStatus = TDelphiSemanticProjectSessionStatus.psOpen);
+    TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(fOptions.CompilerDefineEvidence);
+  except
+    Result.Snapshot.Free;
+    aOwnedEvidence.Free;
+    aOwnedEvidence := nil;
+    raise;
+  end;
+end;
+
 function TDelphiSemanticProjectSession.BuildSnapshotResult:
   TDelphiSemanticProjectSnapshotBuildResult;
 begin
@@ -2054,6 +2090,8 @@ var
   lSourceFileNames: TArray<string>;
   lStoreCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lStoreUnitFlags: TArray<Boolean>;
+  lIdentityMs: Int64;
+  lIdentityStopwatch: TStopwatch;
   lUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lUnitSnapshots: TArray<TDelphiProjectSnapshot>;
 begin
@@ -2064,13 +2102,16 @@ begin
   SetLength(lStoreUnitFlags, 0);
   lCacheHadPartialHit := False;
   lContextEvidence := nil;
+  lIdentityMs := 0;
   lCacheSnapshotMetrics := Default(TDelphiSemanticProjectSnapshotBuildMetrics);
   SetLength(lUnitSnapshots, 0);
   if (ModelObservationOwner(fOptions) = nil) and
       (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
+    lIdentityStopwatch := TStopwatch.StartNew;
     lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
       lSourceFileNames, aScopedSourceFileNames);
+    lIdentityMs := lIdentityStopwatch.ElapsedMilliseconds;
     SetLength(lUnitSnapshots, Length(lSourceFileNames));
     lLoadedAllUnits := True;
     lLoadedAnyUnit := False;
@@ -2101,6 +2142,7 @@ begin
         try
           ApplySnapshotBuilderMetrics(Result.Metrics, lBuilderMetrics);
           AddSnapshotCacheMetricTotals(Result.Metrics, lCacheSnapshotMetrics);
+          Result.Metrics.SnapshotIdentityMilliseconds := lIdentityMs;
           Result.Metrics.SnapshotCacheFullHitCount := 1;
           Result.Metrics.SnapshotCacheUnitMergeMilliseconds :=
             lBuilderMetrics.MergeMilliseconds;
@@ -2181,6 +2223,8 @@ begin
       (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
       Result.Metrics.SnapshotCacheUnitMergeMilliseconds :=
         Result.Metrics.SnapshotBuilderMergeMilliseconds;
+    Result.Metrics.SnapshotIdentityMilliseconds := lIdentityMs;
+    Result.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
     Result.Metrics.SnapshotParseAvoidedEstimateMilliseconds :=
       lParseAvoidedEstimateMilliseconds;
     if (ModelObservationOwner(fOptions) = nil) and
