@@ -3816,7 +3816,7 @@ begin
     begin
       Inc(lPlannedCount);
       Assert.AreEqual('skipped', lStatement.Status);
-      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason);
       Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
       Assert.AreEqual('', lStatement.ReplacementText);
       Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
@@ -3876,7 +3876,7 @@ begin
     begin
       Inc(lPlannedCount);
       Assert.AreEqual('skipped', lStatement.Status);
-      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason);
       Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
       Assert.AreEqual('', lStatement.ReplacementText);
       Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
@@ -4041,7 +4041,7 @@ begin
     begin
       Inc(lStatementCount);
       Assert.AreEqual('skipped', lStatement.Status);
-      Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+      Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason);
       Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
       Assert.AreEqual('', lStatement.ReplacementText);
       Assert.AreEqual(0, Integer(Length(lStatement.Edits)));

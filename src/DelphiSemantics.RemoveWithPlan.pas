@@ -6442,6 +6442,18 @@ var
   lStatement: TDelphiSemanticRemoveWithFinalStatement;
 begin
   lStatement := aStatement;
+  // An open member scope does not prove that a record field is missing.
+  // Keep the refusal and its evidence, but expose the actual proof boundary.
+  if SameText(lStatement.Status, 'skipped') and
+    SameText(lStatement.Reason, 'receiver-member-not-found') and
+    MatchText(lStatement.SafetyReason, ['RECORD_HELPER_MEMBERS_UNVERIFIED',
+      'OWNER_INHERITED_MEMBERS_UNVERIFIED']) then
+  begin
+    lStatement.Reason := LowerCase(StringReplace(lStatement.SafetyReason,
+      '_', '-', [rfReplaceAll]));
+    lStatement.RewriteRecipe.Reason := lStatement.Reason;
+    lStatement.RewriteRecipe.RuleId := lStatement.Reason;
+  end;
   EnsureFinalStatementRewriteRecipe(lStatement);
   lIndex := Length(aPlan.FinalStatements);
   SetLength(aPlan.FinalStatements, lIndex + 1);

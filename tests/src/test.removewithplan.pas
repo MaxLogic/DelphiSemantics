@@ -8066,21 +8066,21 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 115, 3, lStatement),
     'Expected maxTdb TestBit with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
 end;
 
@@ -9053,17 +9053,17 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 79, 3, lStatement),
     'Expected maxTdb SetBit with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbTruncBitArrayDirectQualification;
@@ -9078,7 +9078,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 202, 5, lStatement),
     'Expected maxTdb TruncBitArray with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
@@ -9086,12 +9086,12 @@ begin
     'Expected current DAK parity for TruncBitArray BA selector to use direct qualification.');
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
 end;
 
 procedure TRemoveWithPlanTests.FinalDtoMatchesMaxTdbIndexedPointerSelectorCapture;
@@ -9104,11 +9104,11 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'bitarray.pas', 225, 5, lStatement));
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual('BitArraySum', lStatement.RoutineName);
   Assert.AreEqual('225:5-238:7', SourceRangeText(lStatement.Range));
@@ -9133,10 +9133,10 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9151,7 +9151,7 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('bitarray.pas', 225, 5), lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9892,11 +9892,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2106, 3, lStatement),
     'Expected maxTdb loeschmark DF[d]^.MarkListe with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual('loeschmark', lStatement.RoutineName);
   Assert.AreEqual('2106:3-2128:6', SourceRangeText(lStatement.Range));
@@ -9930,10 +9930,10 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9948,7 +9948,7 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('deklarat.pas', 2106, 3), lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -9972,11 +9972,11 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 2197, 5, lStatement),
     'Expected maxTdb lastmark DF[d]^.MarkListe with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual('lastmark', lStatement.RoutineName);
   Assert.AreEqual('2197:5-2209:9', SourceRangeText(lStatement.Range));
@@ -10000,10 +10000,10 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -10018,7 +10018,7 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('deklarat.pas', 2197, 5), lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -15826,11 +15826,11 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 255, 3, lStatement));
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'owner-inherited-members-unverified') and
     (lStatement.SafetyReason = 'OWNER_INHERITED_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('owner-inherited-members-unverified', lStatement.Reason);
   Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual('IV_okay', lStatement.RoutineName);
   Assert.AreEqual('255:3-277:5', SourceRangeText(lStatement.Range));
@@ -15864,10 +15864,10 @@ begin
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('owner-inherited-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('OWNER_INHERITED_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('owner-inherited-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
@@ -15875,7 +15875,7 @@ begin
   // DS-719 A-375: strict identity pin; fingerprint-only change reproduced.
   Assert.AreEqual(MaxTdbRawSemanticId('TDB00.indexUtils.pas', 255, 3), lStatement.SemanticId);
   Assert.AreEqual('', lStatement.UnsupportedIdentifierRole);
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'OWNER_INHERITED_MEMBERS_UNVERIFIED', '255:3-277:5');
+  AssertA4StrictRefusal(lStatement, 'owner-inherited-members-unverified', 'OWNER_INHERITED_MEMBERS_UNVERIFIED', '255:3-277:5');
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB00.indexUtils.pas', 260, 7, lCoveredFinal));
@@ -20403,7 +20403,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2430, 3, lStatement),
     'Expected maxTdb TDB02 ToDBF DF[c]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:2430:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2430:3-2433:6');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2430:3-2433:6');
 
   Assert.AreEqual('ToDBF', lStatement.RoutineName);
   Assert.AreEqual('2430:3-2433:6', SourceRangeText(lStatement.Range));
@@ -20591,7 +20591,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 2839, 3, lStatement),
     'Expected maxTdb TDB02 ReverseMarks DF[d]^.MarkListe with statement.');
   // DS-719 A4 class a: TDB02.pas:2839:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2839:3-2860:6');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2839:3-2860:6');
 
   Assert.AreEqual('ReverseMarks', lStatement.RoutineName);
   Assert.AreEqual('2839:3-2860:6', SourceRangeText(lStatement.Range));
@@ -21138,7 +21138,7 @@ lDeclarationCount := 0;
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'TDB02.pas', 3521, 3, lStatement),
     'Expected maxTdb TDB02 setmarks DF[d]^ with statement.');
   // DS-719 A4 class a: TDB02.pas:3521:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '3521:3-3526:5');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '3521:3-3526:5');
 
   Assert.AreEqual('setmarks', lStatement.RoutineName);
   Assert.AreEqual('3521:3-3526:5', SourceRangeText(lStatement.Range));
@@ -23953,7 +23953,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 252, 3, lStatement),
     'Expected maxTdb tdbutils reopendb DF[DB]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:252:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '252:3-257:6');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '252:3-257:6');
 
   Assert.AreEqual('reopendb', lStatement.RoutineName);
   Assert.AreEqual('252:3-257:6', SourceRangeText(lStatement.Range));
@@ -24653,7 +24653,7 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2272, 3, lStatement),
     'Expected maxTdb tdbutils TakeOver DF[nach]^ with statement.');
   // DS-719 A4 class a: tdbutils.pas:2272:3; measured delta table.
-  AssertA4StrictRefusal(lStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2272:3-2274:82');
+  AssertA4StrictRefusal(lStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2272:3-2274:82');
 
   Assert.AreEqual('TransferTDBFile', lStatement.RoutineName);
   Assert.AreEqual('2272:3-2274:82', SourceRangeText(lStatement.Range));
@@ -24671,7 +24671,7 @@ begin
 
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'tdbutils.pas', 2264, 3, lOwnerStatement));
   // DS-719 A4 class a: tdbutils.pas:2264:3; measured delta table.
-  AssertA4StrictRefusal(lOwnerStatement, 'receiver-member-not-found', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2264:3-2269:6');
+  AssertA4StrictRefusal(lOwnerStatement, 'record-helper-members-unverified', 'RECORD_HELPER_MEMBERS_UNVERIFIED', '2264:3-2269:6');
 
   Assert.AreEqual('TransferTDBFile', lOwnerStatement.RoutineName);
   Assert.AreEqual('2264:3-2269:6', SourceRangeText(lOwnerStatement.Range));
@@ -24968,25 +24968,25 @@ begin
   Assert.IsTrue(FindFinalStatementAt(lPlan, 'deklarat.pas', 805, 3, lStatement),
     'Expected maxTdb L_Nr DF[d]^ with statement.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the listed refusal must publish no rewrite');
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.RewriteRecipe.SafetyReason);
   Assert.AreEqual('skip-final-statement', lStatement.RewriteRecipe.RenderInstruction);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TempDeclarations)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.TextEdits)));
   Assert.AreEqual(0, Integer(Length(lStatement.RewriteRecipe.SelectorDecisions)));
   Assert.AreEqual('', lStatement.ReplacementText);
-  Assert.AreEqual('receiver-member-not-found', lStatement.RewriteRecipe.RuleId);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.RewriteRecipe.RuleId);
   Assert.AreEqual(lStatement.ReplacementText, lStatement.RewriteRecipe.ReplacementText);
 end;
 
@@ -25034,13 +25034,13 @@ begin
     lPlan.Status + ' ' + lPlan.Diagnostic);
   Assert.AreEqual(1, lMatchCount, 'Expected only one final DTO for the with-47 range.');
   Assert.IsTrue((lStatement.Status = 'skipped') and
-    (lStatement.Reason = 'receiver-member-not-found') and
+    (lStatement.Reason = 'record-helper-members-unverified') and
     (lStatement.SafetyReason = 'RECORD_HELPER_MEMBERS_UNVERIFIED') and
     (Length(lStatement.Temps) = 0) and (Length(lStatement.Edits) = 0),
     'A-367: the cloned Win32 refusal must publish no rewrite');
   Assert.AreEqual(0, Integer(Length(lStatement.Temps)));
   Assert.AreEqual(0, Integer(Length(lStatement.Edits)));
-  Assert.AreEqual('receiver-member-not-found', lStatement.Reason);
+  Assert.AreEqual('record-helper-members-unverified', lStatement.Reason);
   Assert.AreEqual('RECORD_HELPER_MEMBERS_UNVERIFIED', lStatement.SafetyReason);
   Assert.AreEqual('', lStatement.ReplacementText);
   Assert.AreEqual('skipped', lStatement.RewriteRecipe.Status);
@@ -27398,17 +27398,17 @@ var
   i: Integer;
 begin
   lBody := 'Count := 1;';
-  // DS-719: restore the dde6340 reason contract (A-266).
-  lReason := 'receiver-member-not-found';
+  // DS-795: expose the retained helper-scope proof boundary.
+  lReason := 'record-helper-members-unverified';
   if aMode = 'call' then
   begin
     lBody := 'Count();';
     // DS-719: restore the dde6340 reason contract (A-267).
     lReason := 'symbol-not-found';
   end;
-  // DS-719 A-331: the guard-only lexical denial uses the planner miss label.
+  // A lexical classification cannot erase the retained helper denial.
   if aMode = 'lexical' then
-    lReason := 'receiver-member-not-found';
+    lReason := 'record-helper-members-unverified';
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.ProjectContextApplied := True;
   lOptions.SourceFileName := TempPath('helper-planner-' + aMode + '.pas');
