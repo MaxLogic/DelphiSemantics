@@ -189,7 +189,7 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  cSnapshotCacheSchemaVersion = '50';
+  cSnapshotCacheSchemaVersion = '60';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

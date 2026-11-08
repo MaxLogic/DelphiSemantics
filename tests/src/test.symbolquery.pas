@@ -20,6 +20,41 @@ type
   private
     function LoadContext: TDelphiSemanticSymbolQueryContext;
   public
+    [Test]
+    [TestCase('Direct', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure SharedIncludePositionDoesNotChooseAnArbitraryUnit(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Direct', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure UnverifiedRootWitnessDoesNotPublishLegacyCoordinates(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Direct', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure NestedMixedLineQueriesUseCapturedOrigins(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Direct', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure MissingCapturedIncludeCannotUseCurrentDisk(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Direct', 'False')]
+    [TestCase('Snapshot', 'True')]
+    procedure UnknownReferencePositionHasNoEndpoint(const aSnapshot: Boolean);
+    [Test]
+    [TestCase('Unknown position direct', 'False,unknown,0,0')]
+    [TestCase('Unknown position snapshot', 'True,unknown,0,0')]
+    [TestCase('Local direct', 'False,lValue,7,3')]
+    [TestCase('Local snapshot', 'True,lValue,7,3')]
+    [TestCase('Declaration direct', 'False,TIncluded,2,3')]
+    [TestCase('Member direct', 'False,Value,3,5')]
+    [TestCase('Routine direct', 'False,IncludedRun,5,11')]
+    [TestCase('Reference direct', 'False,reference,9,3')]
+    [TestCase('Declaration snapshot', 'True,TIncluded,2,3')]
+    [TestCase('Member snapshot', 'True,Value,3,5')]
+    [TestCase('Routine snapshot', 'True,IncludedRun,5,11')]
+    [TestCase('Reference snapshot', 'True,reference,9,3')]
+    procedure IncludeResultsKeepPhysicalOrigins(const aSnapshot: Boolean;
+      const aName: string; const aLine, aColumn: Integer);
     [Category('Fast')]
     [Test]
     procedure FindsProjectDefinitionByPositionAndName;
@@ -94,6 +129,7 @@ uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   Winapi.Windows,
   maxLogic.IOUtils,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.WithBinding,
   Test.Support;
 
 var
@@ -1168,6 +1204,365 @@ begin
     'The legacy model adapter should not own snapshot projection.');
   Assert.IsFalse(ContainsText(lAdapterSource, 'SnapshotIndexedSymbol'),
     'The legacy model adapter should not call snapshot projection helpers.');
+end;
+
+procedure TSymbolQueryTests.IncludeResultsKeepPhysicalOrigins(const aSnapshot: Boolean;
+  const aName: string; const aLine, aColumn: Integer);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lOptions: TDelphiSemanticModelOptions;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+  lRoot, lInclude: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+begin
+  lRoot := CreateTestTempRoot('include-query-probe-temp');
+  lInclude := TPath.Combine(lRoot, 'facts.inc');
+  TFile.WriteAllText(lInclude,
+    'type'#13#10'  TIncluded = record'#13#10'    Value: Integer;'#13#10'  end;'#13#10 +
+    'procedure IncludedRun(aValue: Integer);'#13#10'var'#13#10'  lValue: Integer;'#13#10 +
+    'begin'#13#10'  lValue := aValue;'#13#10'end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'IncludeFactProbe.pas'),
+    'unit IncludeFactProbe;'#13#10'interface'#13#10'implementation'#13#10 +
+    '{$I facts.inc}'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'IncludeFactProbe.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+  if aName = 'unknown' then
+  begin
+    Assert.IsTrue(Length(lContext.UnitModel.Declarations) > 0);
+    lContext.UnitModel.Declarations[0].Line := 0;
+    lContext.UnitModel.Declarations[0].Column := 0;
+  end;
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+        Default(TDelphiSemanticProjectWithBindingFacts),
+        Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+    end;
+    TFile.WriteAllText(lInclude, 'unrelated disk text', TEncoding.ASCII);
+    if aName = 'reference' then
+    begin
+      lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext, 'lValue', 100);
+      Assert.IsTrue(Length(lReferences) > 0);
+      for var i := 0 to High(lReferences) do
+      begin
+        Assert.AreEqual(lInclude, lReferences[i].FileName);
+        Assert.AreEqual(aLine, lReferences[i].Line);
+        Assert.AreEqual(aColumn, lReferences[i].Column);
+      end;
+    end else begin
+      if aName = 'unknown' then
+        lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'TIncluded')
+      else if aName = 'lValue' then
+        lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext, lInclude, 7, 3)
+      else
+        lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, aName);
+      Assert.IsTrue(lResult.Found, aName);
+      if aName = 'unknown' then
+      begin
+        Assert.AreEqual(0, lResult.Line);
+        Assert.AreEqual(0, lResult.Column);
+        Assert.AreEqual(0, lResult.EndColumn, 'Unknown positions cannot acquire a made-up endpoint.');
+        Exit;
+      end;
+      Assert.AreEqual(lInclude, lResult.FileName);
+      Assert.AreEqual(aLine, lResult.Line);
+      Assert.AreEqual(aColumn, lResult.Column);
+    end;
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSymbolQueryTests.UnknownReferencePositionHasNoEndpoint(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+begin
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel.Success := True;
+  lContext.UnitModel.UnitName := 'QUnknown';
+  lContext.UnitModel.FileName := TPath.Combine(CreateTestTempRoot('query-unknown-reference-temp'), 'QUnknown.pas');
+  SetLength(lContext.UnitModel.References, 1);
+  lContext.UnitModel.References[0].Name := 'UnknownRef';
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+    end;
+    lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext, 'UnknownRef', 10);
+    Assert.AreEqual(1, Integer(Length(lReferences)));
+    Assert.AreEqual(0, lReferences[0].Line);
+    Assert.AreEqual(0, lReferences[0].Column);
+    Assert.AreEqual(0, lReferences[0].EndLine);
+    Assert.AreEqual(0, lReferences[0].EndColumn);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSymbolQueryTests.NestedMixedLineQueriesUseCapturedOrigins(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lOptions: TDelphiSemanticModelOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lReferences: TArray<TDelphiSemanticSymbolReferenceResult>;
+  lRoot, lUnit, lInclude, lNested: string;
+  lIncludedCount, lNestedCount, lRootCount: Integer;
+begin
+  lRoot := CreateTestTempRoot('query-physical-nested-temp');
+  lUnit := TPath.Combine(lRoot, 'QOrigin.pas');
+  lInclude := TPath.Combine(lRoot, 'middle.inc');
+  lNested := TPath.Combine(lRoot, 'nested.inc');
+  TFile.WriteAllText(lUnit,
+    'unit QOrigin;'#13#10'interface'#13#10'implementation'#13#10 +
+    'procedure RootRun; var lValue: Integer; begin lValue := 0; end;'#13#10 +
+    '{$IFDEF NEVER}{$I inactive.inc}{$ENDIF}'#13#10 +
+    '{$I middle.inc} procedure TailRun; begin end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(lInclude,
+    'procedure IncludedRun;'#13#10'var lValue: Integer;'#13#10 +
+    'begin lValue := 1; {$I nested.inc} end;'#13#10, TEncoding.ASCII);
+  TFile.WriteAllText(lNested, 'lValue := 2;', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'inactive.inc'),
+    'procedure Ghost; begin end;', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lUnit;
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+      lContext.UnitModel := Default(TDelphiSemanticUnitModel);
+    end;
+    TFile.WriteAllText(lInclude, 'unrelated disk contents', TEncoding.ASCII);
+    TFile.WriteAllText(lNested, 'RootRun;', TEncoding.ASCII);
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext, lInclude, 2, 5);
+    Assert.IsTrue(lResult.Found, 'Included local declaration must resolve.');
+    Assert.AreEqual(lInclude, lResult.FileName);
+    Assert.AreEqual(2, lResult.Line);
+    Assert.AreEqual(5, lResult.Column);
+    Assert.AreEqual(10, lResult.EndColumn);
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext, lNested, 1, 1);
+    Assert.IsTrue(lResult.Found, 'Nested reference must resolve to its captured routine local.');
+    Assert.AreEqual(lInclude, lResult.FileName);
+    Assert.AreEqual(2, lResult.Line);
+    Assert.AreEqual(5, lResult.Column);
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'IncludedRun');
+    Assert.AreEqual(lInclude, lResult.FileName);
+    Assert.AreEqual(1, lResult.Line);
+    Assert.AreEqual(11, lResult.Column);
+    Assert.IsFalse(TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'Ghost').Found);
+    lIncludedCount := 0;
+    lNestedCount := 0;
+    lRootCount := 0;
+    lReferences := TDelphiSemanticSymbolQuery.FindTokenReferences(lContext, 'lValue', 100);
+    for var lReference in lReferences do
+      if SameText(lReference.FileName, lInclude) then
+      begin
+        Inc(lIncludedCount);
+        Assert.AreEqual(3, lReference.Line);
+        Assert.AreEqual(7, lReference.Column);
+      end else if SameText(lReference.FileName, lNested) then
+      begin
+        Inc(lNestedCount);
+        Assert.AreEqual(1, lReference.Line);
+        Assert.AreEqual(1, lReference.Column);
+      end else if SameText(lReference.FileName, lUnit) then
+        Inc(lRootCount);
+    Assert.AreEqual(1, lIncludedCount);
+    Assert.AreEqual(1, lNestedCount);
+    Assert.AreEqual(1, lRootCount);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSymbolQueryTests.MissingCapturedIncludeCannotUseCurrentDisk(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lOptions: TDelphiSemanticModelOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lRoot, lInclude: string;
+begin
+  lRoot := CreateTestTempRoot('query-no-disk-refill-temp');
+  lInclude := TPath.Combine(lRoot, 'captured.inc');
+  TFile.WriteAllText(lInclude, 'var IncludedValue: Integer;', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'QMissing.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit QMissing; interface {$I captured.inc} implementation end.', TEncoding.ASCII);
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+  lContext.UnitModel.SourceObservations := nil;
+  lContext.UnitModel.PhysicalSymbolOccurrencesAvailable := False;
+  lContext.UnitModel.PhysicalReferenceOccurrencesAvailable := False;
+  lContext.UnitModel.PhysicalSymbolOccurrences := nil;
+  lContext.UnitModel.PhysicalReferenceOccurrences := nil;
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+      lContext.UnitModel := Default(TDelphiSemanticUnitModel);
+    end;
+    Assert.IsFalse(TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(
+      lContext, lInclude, 1, 5).Found, 'Missing capture cannot be refilled from disk.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSymbolQueryTests.UnverifiedRootWitnessDoesNotPublishLegacyCoordinates(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lOptions: TDelphiSemanticModelOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lResult: TDelphiSemanticSymbolQueryResult;
+  lRoot: string;
+  lChanged: Boolean;
+begin
+  lRoot := CreateTestTempRoot('query-unverified-root-temp');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'facts.inc'), 'var IncludedValue: Integer;', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'QWitness.pas');
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit QWitness;'#13#10'interface'#13#10'var RootValue: Integer;'#13#10 +
+    '{$I facts.inc}'#13#10'implementation end.', TEncoding.ASCII);
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  lContext.UnitModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lContext.UnitModel.Success);
+  lChanged := False;
+  for var i := 0 to High(lContext.UnitModel.PhysicalSymbolOccurrences) do
+    if lContext.UnitModel.PhysicalSymbolOccurrences[i].Name = 'RootValue' then
+    begin
+      lContext.UnitModel.PhysicalSymbolOccurrences[i].Verified := False;
+      lChanged := True;
+    end;
+  Assert.IsTrue(lChanged);
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels([lContext.UnitModel],
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+      lContext.UnitModel := Default(TDelphiSemanticUnitModel);
+    end;
+    lResult := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'RootValue');
+    Assert.IsTrue(lResult.Found);
+    Assert.AreEqual(lOptions.SourceFileName, lResult.FileName);
+    Assert.AreEqual(0, lResult.Line);
+    Assert.AreEqual(0, lResult.Column);
+    Assert.AreEqual(0, lResult.EndLine);
+    Assert.AreEqual(0, lResult.EndColumn);
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSymbolQueryTests.SharedIncludePositionDoesNotChooseAnArbitraryUnit(const aSnapshot: Boolean);
+var
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lOptions: TDelphiSemanticModelOptions;
+  lSnapshot: TDelphiProjectSnapshot;
+  lScopedContext: TScopedSnapshotQueryContext;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lRoot, lInclude, lName: string;
+begin
+  lRoot := CreateTestTempRoot('query-shared-include-temp');
+  lInclude := TPath.Combine(lRoot, 'shared.inc');
+  TFile.WriteAllText(lInclude,
+    'procedure Run;'#13#10'var lValue: Integer;'#13#10'begin lValue := 1; end;', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SearchPaths := [lRoot];
+  lOptions.ProjectContextApplied := True;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  SetLength(lContext.IndexedUnitModels, 2);
+  for var i := 0 to 1 do
+  begin
+    lName := 'QShared' + IntToStr(i);
+    lOptions.SourceFileName := TPath.Combine(lRoot, lName + '.pas');
+    TFile.WriteAllText(lOptions.SourceFileName,
+      'unit ' + lName + ';'#13#10'interface'#13#10'implementation'#13#10 +
+      '{$I shared.inc}'#13#10'end.', TEncoding.ASCII);
+    lContext.IndexedUnitModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lContext.IndexedUnitModels[i].Success);
+  end;
+  lSnapshot := nil;
+  lScopedContext := nil;
+  try
+    if aSnapshot then
+    begin
+      lSnapshot := BuildProjectSnapshotFromModels(lContext.IndexedUnitModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lScopedContext := TScopedSnapshotQueryContext.Create(lSnapshot);
+      lContext.ProjectSnapshot := lScopedContext.Context.ProjectSnapshot;
+      lContext.IndexedUnitModels := nil;
+    end;
+    Assert.IsFalse(TDelphiSemanticSymbolQuery.FindDefinitionAtPosition(lContext,
+      lInclude, 2, 5).Found, 'One physical position belongs to two distinct unit scopes.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lScopedContext.Free;
+    lSnapshot.Free;
+  end;
 end;
 
 initialization

@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // DS-696 adds physical symbol occurrences before legacy coordinate attribution.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.91';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.120';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

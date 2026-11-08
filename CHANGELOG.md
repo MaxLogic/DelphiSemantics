@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Query symbol and token-reference results preserve captured include filenames and physical ranges through direct models and snapshots. Include position lookup retains unit/routine identity, missing evidence stays unknown, and current disk text never replaces captured source (DS-692).
+
 - Snapshot caching preserves all units when shared Unicode include paths have different case spellings (DS-697).
 
 - Project snapshots and SQLite caches retain physical include occurrences and captured source text. Snapshot global usages preserve include identity and access across cache hits and reloads; incomplete or conflicting evidence is reported explicitly, and older caches rebuild. Optional cache-write failures report a diagnostic while analysis continues; include paths retain their original spelling (DS-697, DS-691).

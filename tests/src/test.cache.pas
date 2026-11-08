@@ -489,7 +489,7 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.91', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.120', lIdentity.ParserVersion,
       'Physical symbol occurrences require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
