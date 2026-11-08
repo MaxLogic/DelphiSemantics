@@ -3,7 +3,10 @@ unit DelphiSemantics.Model.PossibleSources;
 interface
 
 uses
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Preprocess, DelphiSemantics.Source;
+  System.Generics.Collections,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.ImportFacts, DelphiSemantics.Model,
+  DelphiSemantics.Preprocess, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitResolver,
+  DelphiSemantics.Source, DelphiSemantics.Source.IdentityInputs;
 
 type
   TDelphiSemanticPossibleSources = record
@@ -19,12 +22,38 @@ type
       TDelphiSemanticPossibleSources; static;
   end;
 
+  // Fixed model context, fresh inputs and derived lookup state for one batch.
+  // No instance or captured result survives its identity computation.
+  TDelphiSemanticPossibleSourceBatch = class
+  private
+    fOptions: TDelphiSemanticModelOptions;
+    fInputs: TDelphiSemanticIdentityInputs;
+    fSdkDiscovery: TDelphiSemanticRtlSourceDiscovery;
+    fSdkSources: TDictionary<string, TArray<string>>;
+    fSdkDirectories: TArray<string>;
+    fSdkDirectoriesLoaded: Boolean;
+    fResolutions: TDictionary<string, TDelphiSemanticUnitResolutionResult>;
+    fNeutral: TDictionary<string, TDelphiSemanticPreprocessResult>;
+    function FindSdkSources(const aName: string): TArray<string>;
+    function SdkDirectories: TArray<string>;
+    function Resolve(const aProject: TDelphiSemanticProjectInfo; const aName: string):
+      TDelphiSemanticUnitResolutionResult;
+    function PreprocessNeutral(const aFileName: string): TDelphiSemanticPreprocessResult;
+  public
+    constructor Create(const aOptions: TDelphiSemanticModelOptions; const aShared: Boolean);
+    destructor Destroy; override;
+    procedure RequireCurrentDiscovery;
+    function Capture(const aOptions: TDelphiSemanticModelOptions;
+      const aNormal: TDelphiSemanticPreprocessResult; const aCollectReferences: Boolean):
+      TDelphiSemanticPossibleSources;
+    property Inputs: TDelphiSemanticIdentityInputs read fInputs;
+  end;
+
 implementation
 
 uses
-  System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Generics.Defaults, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitResolver,
   DelphiSemantics.SourceConditionals, MaxLogic.IoUtils, MaxLogic.StrUtils;
 
 type
@@ -48,7 +77,7 @@ type
     fCandidateSources: TList<TDelphiSemanticSourceText>;
     fObservedCandidates: THashSet<string>;
     fDirectoryFiles: TDictionary<string, TArray<string>>;
-    fSdkDiscovery: TDelphiSemanticRtlSourceDiscovery;
+    fBatch: TDelphiSemanticPossibleSourceBatch;
     fSdkBinaries: TDictionary<string, string>;
     fSdkDirectories: TArray<string>;
     function TrySdkAlias(const aName: string; out aTarget: string): Boolean;
@@ -77,7 +106,7 @@ type
       const aRootFileName, aCause: string; const aDepth: Integer);
   public
     constructor Create(const aOptions: TDelphiSemanticModelOptions;
-      const aCollectReferences: Boolean);
+      const aCollectReferences: Boolean; const aBatch: TDelphiSemanticPossibleSourceBatch);
     destructor Destroy; override;
     function Execute(const aNormal: TDelphiSemanticPreprocessResult): TDelphiSemanticPossibleSources;
   end;
@@ -93,6 +122,132 @@ begin
   Result.SkippedIncludeSearchPaths := aOptions.SearchPaths;
   if not aOptions.ProjectContextApplied then
     Result.SearchPaths := Result.SearchPaths + aOptions.SearchPaths;
+end;
+
+constructor TDelphiSemanticPossibleSourceBatch.Create(const aOptions: TDelphiSemanticModelOptions;
+  const aShared: Boolean);
+begin
+  inherited Create;
+  fOptions := aOptions;
+  fInputs := TDelphiSemanticIdentityInputs.Create(aShared);
+  // Exact request spelling is part of returned diagnostics and origins. These
+  // derived keys deliberately retain case, even on our Windows host.
+  fSdkSources := TDictionary<string, TArray<string>>.Create(TStringComparer.Ordinal);
+  fResolutions := TDictionary<string, TDelphiSemanticUnitResolutionResult>.Create(TStringComparer.Ordinal);
+  fNeutral := TDictionary<string, TDelphiSemanticPreprocessResult>.Create(TStringComparer.Ordinal);
+end;
+
+destructor TDelphiSemanticPossibleSourceBatch.Destroy;
+begin
+  fNeutral.Free;
+  fResolutions.Free;
+  fSdkSources.Free;
+  fSdkDiscovery.Free;
+  fInputs.Free;
+  inherited;
+end;
+
+function TDelphiSemanticPossibleSourceBatch.FindSdkSources(const aName: string): TArray<string>;
+begin
+  if not fInputs.Shared or not fSdkSources.TryGetValue(aName, Result) then
+  begin
+    if fSdkDiscovery = nil then
+      fSdkDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(TPath.Combine(fOptions.InstalledSdkRoot, 'source'));
+    Result := fSdkDiscovery.DiscoverSourceFiles([aName]);
+    if fInputs.Shared then
+      fSdkSources.Add(aName, Result);
+  end;
+  Result := Copy(Result);
+end;
+
+function TDelphiSemanticPossibleSourceBatch.SdkDirectories: TArray<string>;
+var
+  lRoot: string;
+begin
+  if not fSdkDirectoriesLoaded then
+  begin
+    lRoot := TPath.Combine(fOptions.InstalledSdkRoot, 'lib');
+    if TDirectory.Exists(lRoot) then
+    begin
+      fSdkDirectories := [lRoot] + TDirectory.GetDirectories(lRoot, '*', TSearchOption.soAllDirectories);
+      TArray.Sort<string>(fSdkDirectories);
+    end;
+    fSdkDirectoriesLoaded := True;
+  end;
+  Result := Copy(fSdkDirectories);
+end;
+
+procedure TDelphiSemanticPossibleSourceBatch.RequireCurrentDiscovery;
+var
+  lDiscovery: TDelphiSemanticRtlSourceDiscovery;
+  lLookup: TPair<string, TArray<string>>;
+  lActual: TArray<string>;
+  lRoot: string;
+begin
+  // A newly installed source or library directory can change SDK fallback.
+  // Recheck with a fresh discovery object, never with the captured inventory.
+  if fSdkSources.Count > 0 then
+  begin
+    lDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(TPath.Combine(fOptions.InstalledSdkRoot, 'source'));
+    try
+      for lLookup in fSdkSources do
+      begin
+        lActual := lDiscovery.DiscoverSourceFiles([lLookup.Key]);
+        if string.Join(#0, lActual) <> string.Join(#0, lLookup.Value) then
+          raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: SDK source discovery drift: ' + lLookup.Key);
+      end;
+    finally
+      lDiscovery.Free;
+    end;
+  end;
+  if fSdkDirectoriesLoaded then
+  begin
+    lRoot := TPath.Combine(fOptions.InstalledSdkRoot, 'lib');
+    lActual := nil;
+    if TDirectory.Exists(lRoot) then
+    begin
+      lActual := [lRoot] + TDirectory.GetDirectories(lRoot, '*', TSearchOption.soAllDirectories);
+      TArray.Sort<string>(lActual);
+    end;
+    if string.Join(#0, lActual) <> string.Join(#0, fSdkDirectories) then
+      raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: SDK library discovery drift');
+  end;
+end;
+
+function TDelphiSemanticPossibleSourceBatch.Resolve(const aProject: TDelphiSemanticProjectInfo;
+  const aName: string): TDelphiSemanticUnitResolutionResult;
+var
+  lKey: string;
+begin
+  // All options are fixed by this batch. Only the root's lookup directory and
+  // requested import vary. Keep their order and spelling; no name-only reuse.
+  lKey := aProject.ProjectDirectory + #0 + aName;
+  if not fInputs.Shared or not fResolutions.TryGetValue(lKey, Result) then
+  begin
+    Result := TDelphiSemanticUnitResolver.Resolve(aProject, aName);
+    if fInputs.Shared then
+      fResolutions.Add(lKey, Result);
+  end;
+  Result.Candidates := Copy(Result.Candidates);
+end;
+
+function TDelphiSemanticPossibleSourceBatch.PreprocessNeutral(const aFileName: string):
+  TDelphiSemanticPreprocessResult;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+begin
+  if not fInputs.Shared or not fNeutral.TryGetValue(aFileName, Result) then
+  begin
+    lOptions := NeutralOptions(fOptions, aFileName);
+    if fInputs.Shared then
+    begin
+      lOptions.SourceLoader := fInputs.LoadFile;
+      lOptions.SourceExists := fInputs.FileExists;
+    end;
+    Result := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+    if fInputs.Shared then
+      fNeutral.Add(aFileName, Result);
+  end;
 end;
 
 function AggregateActivity(const aSource, aFileName: string;
@@ -131,10 +286,11 @@ begin
 end;
 
 constructor TPossibleSourceCapture.Create(const aOptions: TDelphiSemanticModelOptions;
-  const aCollectReferences: Boolean);
+  const aCollectReferences: Boolean; const aBatch: TDelphiSemanticPossibleSourceBatch);
 begin
   inherited Create;
   fOptions := aOptions;
+  fBatch := aBatch;
   fCollectReferences := aCollectReferences;
   fCandidateSources := TList<TDelphiSemanticSourceText>.Create;
   fObservedCandidates := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -157,7 +313,6 @@ begin
   fObservedCandidates.Free;
   fCandidateSources.Free;
   fSdkBinaries.Free;
-  fSdkDiscovery.Free;
   fVisited.Free;
   fDiagnostics.Free;
   fReferences.Free;
@@ -206,20 +361,17 @@ begin
   fObservedCandidates.Add(aFileName);
   if (fResult.Sources <> nil) and fResult.Sources.TryFind(aFileName, lSource) then
     Exit;
-  if TFile.Exists(aFileName) then
+  if fBatch.Inputs.FileExists(aFileName) then
   begin
     if SameText(TPath.GetExtension(aFileName), '.pas') then
     begin
-      lLoaded := TDelphiSemanticSourceLoader.LoadFile(aFileName);
+      lLoaded := fBatch.Inputs.LoadFile(aFileName);
       if not lLoaded.Success then
         Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aFileName, 0);
       MergeSources(lLoaded.SourceObservations);
       Exit;
     end;
-    lSource := Default(TDelphiSemanticSourceText);
-    lSource.FileName := TPath.GetFullPath(aFileName);
-    lSource.ContentHash := THashSHA2.GetHashStringFromFile(aFileName);
-    lSource.Role := 'possible-source-binary';
+    lSource := fBatch.Inputs.BinaryObservation(aFileName);
   end else begin
     lSource := Default(TDelphiSemanticSourceText);
     lSource.FileName := TPath.GetFullPath(aFileName);
@@ -244,17 +396,14 @@ function TPossibleSourceCapture.TryFindSdkUnit(const aName: string; out aFileNam
 var
   lName: TUnitCandidateName;
   lFiles: TArray<string>;
-  lDirectory, lLibraryRoot, lCandidate: string;
+  lDirectory, lCandidate: string;
 begin
   aFileName := '';
   if fOptions.InstalledSdkRoot = '' then
     Exit(False);
-  if fSdkDiscovery = nil then
-    fSdkDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(
-      TPath.Combine(fOptions.InstalledSdkRoot, 'source'));
   for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aName) do
   begin
-    lFiles := fSdkDiscovery.DiscoverSourceFiles([lName.TargetName]);
+    lFiles := fBatch.FindSdkSources(lName.TargetName);
     if Length(lFiles) > 0 then
     begin
       aFileName := lFiles[0];
@@ -264,14 +413,9 @@ begin
   if fSdkBinaries = nil then
   begin
     fSdkBinaries := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    lLibraryRoot := TPath.Combine(fOptions.InstalledSdkRoot, 'lib');
-    if TDirectory.Exists(lLibraryRoot) then
-    begin
-      // Query candidate names across every platform without enumerating all DCUs.
-      // This inventory lasts only for this capture; selected files are still witnessed.
-      fSdkDirectories := [lLibraryRoot] + TDirectory.GetDirectories(lLibraryRoot, '*', TSearchOption.soAllDirectories);
-      TArray.Sort<string>(fSdkDirectories);
-    end;
+    // This inventory lasts only for this identity computation. Every
+    // selected file is still witnessed by this capture.
+    fSdkDirectories := fBatch.SdkDirectories;
   end;
   for lName in TDelphiSemanticUnitResolver.CandidateNames(fProject, aName) do
   begin
@@ -281,7 +425,7 @@ begin
       for lDirectory in fSdkDirectories do
       begin
         lCandidate := TPath.Combine(lDirectory, lName.TargetName + '.dcu');
-        if TFile.Exists(lCandidate) then
+        if fBatch.Inputs.FileExists(lCandidate) then
         begin
           aFileName := lCandidate;
           Break;
@@ -336,9 +480,9 @@ begin
   begin
     lConfig := TPath.Combine(fOptions.InstalledSdkRoot, lRelative);
     ObserveCandidate(lConfig);
-    if not TFile.Exists(lConfig) then
+    if not fBatch.Inputs.FileExists(lConfig) then
       Exit(False);
-    lLines := TFile.ReadAllLines(lConfig);
+    lLines := fBatch.Inputs.ReadAllLines(lConfig);
     lPlatform := 'win32';
     if EndsText('dcc64.cfg', lRelative) then
       lPlatform := 'win64';
@@ -364,7 +508,7 @@ begin
   for lCandidate in fProject.SourceFileNames do
     if SameText(TPath.GetFileNameWithoutExtension(lCandidate), aName) then
       ObserveCandidate(lCandidate);
-  Result := TDelphiSemanticUnitResolver.Resolve(fProject, aName);
+  Result := fBatch.Resolve(fProject, aName);
   fResult.Identity := fResult.Identity + #10 + aName + '|' + Result.Status +
     '|' + LowerCase(Result.FileName);
 end;
@@ -407,7 +551,7 @@ begin
     if not fDirectoryFiles.TryGetValue(lPath, lFileNames) then
     begin
       try
-        lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(lPath, lFileNames);
+        lDirectory := fBatch.Inputs.DirectoryObservation(lPath, lFileNames);
       except
         on E: Exception do
         begin
@@ -431,7 +575,7 @@ begin
         if SameText(TPath.GetFullPath(lCandidate), aSelected) then
           Continue;
         ObserveCandidate(lCandidate);
-        if TFile.Exists(lCandidate) then
+        if fBatch.Inputs.FileExists(lCandidate) then
         begin
           Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', aOwner, 0,
             'Import: ' + aName + '; alternate configuration/platform project source: ' + lCandidate);
@@ -460,7 +604,7 @@ begin
   begin
     lCandidate := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aFileName), aExplicit));
     ObserveCandidate(lCandidate);
-    if IsSdkFile(lCandidate) and TFile.Exists(lCandidate) then
+    if IsSdkFile(lCandidate) and fBatch.Inputs.FileExists(lCandidate) then
       SdkBoundary(aName, lCandidate, aFileName)
     else
       ScanUnit(lCandidate, aCause, aDepth + 1);
@@ -603,7 +747,7 @@ begin
         end;
         lCause := ImportCause(aPossible, aCurrent, lOffset, aRootFileName, aInheritedCause, lActivities, lFileName);
         lDiagnosticStart := fDiagnostics.Count;
-        lResolution := TDelphiSemanticUnitResolver.Resolve(fProject, lName);
+        lResolution := fBatch.Resolve(fProject, lName);
         lFact := Default(TDelphiSemanticImportFact);
         lFact.OwnerFileName := aRootFileName;
         lFact.Name := lName;
@@ -779,12 +923,12 @@ begin
     Exit;
   end;
   fVisited.Add(lFileName);
-  if not TFile.Exists(lFileName) then
+  if not fBatch.Inputs.FileExists(lFileName) then
   begin
     Gap('POSSIBLE_UNIT_SOURCE_UNAVAILABLE', lFileName, 0);
     Exit;
   end;
-  lPossible := TDelphiSemanticPreprocessor.PreprocessFile(NeutralOptions(fOptions, lFileName));
+  lPossible := fBatch.PreprocessNeutral(lFileName);
   ScanPreprocessed(lPossible, Default(TDelphiSemanticPreprocessResult), lFileName, aCause, aDepth);
 end;
 
@@ -796,7 +940,7 @@ var
 begin
   fResult.Sources := aNormal.SourceObservations;
   fVisited.Add(TPath.GetFullPath(fOptions.SourceFileName));
-  lPossible := TDelphiSemanticPreprocessor.PreprocessFile(NeutralOptions(fOptions, fOptions.SourceFileName));
+  lPossible := fBatch.PreprocessNeutral(fOptions.SourceFileName);
   ScanPreprocessed(lPossible, aNormal, TPath.GetFullPath(fOptions.SourceFileName), '', 0);
   if (lPossible.SourceObservations <> nil) and
     lPossible.SourceObservations.TryFind(fOptions.SourceFileName, lRoot) then
@@ -811,7 +955,7 @@ begin
   Result := fResult;
 end;
 
-class function TDelphiSemanticPossibleSources.Capture(const aOptions: TDelphiSemanticModelOptions;
+function TDelphiSemanticPossibleSourceBatch.Capture(const aOptions: TDelphiSemanticModelOptions;
   const aNormal: TDelphiSemanticPreprocessResult; const aCollectReferences: Boolean):
   TDelphiSemanticPossibleSources;
 var
@@ -825,11 +969,25 @@ begin
     not aOptions.ProjectContextApplied or
     (aOptions.SkipReferenceExtraction and (Length(aOptions.ProjectSourceFileNames) = 0)) then
     Exit;
-  lCapture := TPossibleSourceCapture.Create(aOptions, aCollectReferences);
+  lCapture := TPossibleSourceCapture.Create(aOptions, aCollectReferences, Self);
   try
     Result := lCapture.Execute(aNormal);
   finally
     lCapture.Free;
+  end;
+end;
+
+class function TDelphiSemanticPossibleSources.Capture(const aOptions: TDelphiSemanticModelOptions;
+  const aNormal: TDelphiSemanticPreprocessResult; const aCollectReferences: Boolean):
+  TDelphiSemanticPossibleSources;
+var
+  lBatch: TDelphiSemanticPossibleSourceBatch;
+begin
+  lBatch := TDelphiSemanticPossibleSourceBatch.Create(aOptions, False);
+  try
+    Result := lBatch.Capture(aOptions, aNormal, aCollectReferences);
+  finally
+    lBatch.Free;
   end;
 end;
 

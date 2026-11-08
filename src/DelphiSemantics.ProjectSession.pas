@@ -756,6 +756,7 @@ var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
   lOptions: TDelphiSemanticModelOptions;
+  lSkipBodyAnalysis: TArray<Boolean>;
 begin
   lBodyAnalysisSourceFiles := nil;
   lCache := nil;
@@ -764,15 +765,13 @@ begin
     lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(aOptions));
     lOptions := MainModelOptions(aProject);
     lOptions.SelectedConfigurationOnly := aSelectedConfigurationOnly;
-    SetLength(Result, Length(aSourceFileNames));
+    SetLength(lSkipBodyAnalysis, Length(aSourceFileNames));
     for i := 0 to High(aSourceFileNames) do
     begin
-      lOptions.SourceFileName := aSourceFileNames[i];
-      lOptions.SkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
+      lSkipBodyAnalysis[i] := Assigned(lBodyAnalysisSourceFiles) and
         (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
-      lOptions.SkipReferenceExtraction := lOptions.SkipBodyAnalysis;
-      Result[i] := lCache.BuildIdentity(lOptions);
     end;
+    Result := lCache.BuildIdentities(lOptions, aSourceFileNames, lSkipBodyAnalysis);
   finally
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;

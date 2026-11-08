@@ -46,6 +46,7 @@ uses
   DelphiSemantics.Snapshot.RemoveWith in '..\src\DelphiSemantics.Snapshot.RemoveWith.pas',
   DelphiSemantics.Snapshot.Workers in '..\src\DelphiSemantics.Snapshot.Workers.pas',
   DelphiSemantics.Source in '..\src\DelphiSemantics.Source.pas',
+  DelphiSemantics.Source.IdentityInputs in '..\src\DelphiSemantics.Source.IdentityInputs.pas',
   DelphiSemantics.SourceConditionals in '..\src\DelphiSemantics.SourceConditionals.pas',
   DelphiSemantics.SourceContext in '..\src\DelphiSemantics.SourceContext.pas',
   DelphiSemantics.SourceContext.Candidates in '..\src\DelphiSemantics.SourceContext.Candidates.pas',
