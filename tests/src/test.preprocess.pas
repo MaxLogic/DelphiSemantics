@@ -16,6 +16,25 @@ type
       const aActive: Boolean): Boolean;
   public
     [Category('Fast')]
+    [TestCase('Short switch', 'short')]
+    [TestCase('Long switch', 'long')]
+    [TestCase('Include switch', 'include')]
+    [TestCase('Inactive switch', 'inactive')]
+    [TestCase('Possible switch then known restore', 'restore')]
+    [TestCase('Grouped ordered switches', 'group')]
+    procedure IfOptTracksSourceSwitchState(const aShape: string);
+    [Category('Fast')]
+    [TestCase('No initial evidence', 'initial')]
+    [TestCase('Possible assignment', 'possible')]
+    [TestCase('Unresolved possible include', 'include')]
+    [TestCase('Unmodeled possible directive', 'unmodeled')]
+    procedure IfOptUnknownStateNeverSelectsEitherArm(const aShape: string);
+    [Category('Fast')]
+    [Test]
+    procedure InactiveFatalDoesNotInvalidateKnownPlatform;
+
+
+    [Category('Fast')]
     [TestCase('IFDEF', 'ifdef')]
     [TestCase('IFNDEF', 'ifndef')]
     [TestCase('Defined expression', 'defined')]
@@ -221,6 +240,86 @@ begin
   TDirectory.CreateDirectory(Result);
 end;
 
+
+procedure TPreprocessTests.IfOptUnknownStateNeverSelectsEitherArm(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lPrefix: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('ifopt-unknown-' + aShape), 'Unit1.pas');
+  lPrefix := '';
+  if aShape = 'possible' then
+    lPrefix := '{$R+}{$IFDEF UNKNOWN_BRANCH}{$R-}{$ENDIF}'
+  else if aShape = 'include' then
+    lPrefix := '{$R+}{$IFDEF UNKNOWN_BRANCH}{$I MissingSwitches.inc}{$ENDIF}'
+  else if aShape = 'unmodeled' then
+    lPrefix := '{$R+}{$IFDEF UNKNOWN_BRANCH}{$ASMMODE ATT}{$ENDIF}';
+  lOptions.SourceText := 'unit Unit1; interface ' + lPrefix +
+    '{$IFOPT R+}type TTrueArm = class end;{$ELSE}type TFalseArm = class end;{$ENDIF}' +
+    'implementation end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsFalse(lResult.Success, 'Unknown option state must retain a refusal.');
+  Assert.IsTrue(lResult.HasUnknownActivity);
+  Assert.IsFalse(ContainsText(lResult.OutputText, 'TTrueArm'));
+  Assert.IsFalse(ContainsText(lResult.OutputText, 'TFalseArm'));
+end;
+
+procedure TPreprocessTests.InactiveFatalDoesNotInvalidateKnownPlatform;
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('inactive-fatal'), 'Unit1.pas');
+  lOptions.SourceText := 'unit Unit1; interface {$DEFINE MSWINDOWS}' +
+    '{$IFNDEF MSWINDOWS}{$FATAL Only Windows}{$ENDIF} implementation end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'An inactive FATAL cannot fail a supported target.');
+  Assert.IsFalse(lResult.HasUnknownActivity);
+  Assert.IsFalse(HasDiagnostic(lResult, 'UNSUPPORTED_PREPROCESS_DIRECTIVE'));
+end;
+
+procedure TPreprocessTests.IfOptTracksSourceSwitchState(const aShape: string);
+var
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lResult: TDelphiSemanticPreprocessResult;
+  lPrefix: string;
+begin
+  lOptions := Default(TDelphiSemanticPreprocessOptions);
+  lOptions.SourceFileName := TPath.Combine(PreprocessTempRoot('ifopt-' + aShape), 'Unit1.pas');
+  lPrefix := '{$R+}{$Q-}{$O+}{$I-}{$H+}';
+  if aShape = 'long' then
+    lPrefix := '{$RANGECHECKS ON}{$OVERFLOWCHECKS OFF}{$OPTIMIZATION ON}{$IOCHECKS OFF}{$LONGSTRINGS ON}'
+  else if aShape = 'include' then
+  begin
+    TFile.WriteAllText(TPath.ChangeExtension(lOptions.SourceFileName, '.inc'), lPrefix, TEncoding.ASCII);
+    lPrefix := '{$I Unit1.inc}';
+  end else if aShape = 'inactive' then
+    lPrefix := lPrefix + '{$IF False}{$R-}{$Q+}{$O-}{$I+}{$H-}{$ENDIF}'
+  else if aShape = 'restore' then
+    lPrefix := '{$IFDEF UNKNOWN_BRANCH}{$R-}{$Q+}{$O-}{$I+}{$H-}{$ENDIF}' + lPrefix
+  else if aShape = 'group' then
+    lPrefix := '{$R-,Q+,O-,I+,H-,R+,Q-,O+,I-,H+}';
+  lOptions.SourceText := 'unit Unit1; interface ' + lPrefix +
+    '{$IFOPT R+}type TRange = class end;{$ELSE}type TWrongRange = class end;{$ENDIF}' +
+    '{$IFOPT Q-}type TOverflow = class end;{$ELSE}type TWrongOverflow = class end;{$ENDIF}' +
+    '{$IFOPT O+}type TOptimize = class end;{$ELSE}type TWrongOptimize = class end;{$ENDIF}' +
+    '{$IFOPT I-}type TIo = class end;{$ELSE}type TWrongIo = class end;{$ENDIF}' +
+    '{$IFOPT H+}type TStrings = class end;{$ELSE}type TWrongStrings = class end;{$ENDIF}' +
+    'implementation end.';
+  lResult := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+  Assert.IsTrue(lResult.Success, 'Known source switch assignments must decide IFOPT: ' + aShape);
+  Assert.Contains(lResult.OutputText, 'TRange');
+  Assert.Contains(lResult.OutputText, 'TOverflow');
+  Assert.Contains(lResult.OutputText, 'TOptimize');
+  Assert.Contains(lResult.OutputText, 'TIo');
+  Assert.Contains(lResult.OutputText, 'TStrings');
+  Assert.IsFalse(ContainsText(lResult.OutputText, 'TWrong'));
+  if aShape <> 'restore' then
+    Assert.IsFalse(lResult.HasUnknownActivity, 'Known branches carry activity proof.');
+end;
 
 procedure TPreprocessTests.KnownActiveWriteRestoresScannerCertainty;
 var
