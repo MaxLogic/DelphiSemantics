@@ -33,6 +33,10 @@ type
     ProducerInputIdentity: string;
     SourceApplicabilityIdentity: string;
     Sources: TArray<TDelphiSemanticCompilerSourceWitness>;
+    // Optional initial option state, captured from verified native task inputs.
+    CompilerSwitchFormat: string;
+    CompilerSwitchIdentity: string;
+    CompilerSwitches: TArray<string>;
     PredefinedFormat: string;
     PredefinedIdentity: string;
     PredefinedSourceLookupIdentity: string;
@@ -137,6 +141,7 @@ begin
   Result := aDescriptor;
   Result.Defines := Copy(aDescriptor.Defines);
   Result.OrderedArguments := Copy(aDescriptor.OrderedArguments);
+  Result.CompilerSwitches := Copy(aDescriptor.CompilerSwitches);
   Result.Sources := Copy(aDescriptor.Sources);
   Result.PredefinedSources := Copy(aDescriptor.PredefinedSources);
   Result.PredefinedTrue := Copy(aDescriptor.PredefinedTrue);
@@ -225,10 +230,12 @@ begin
       aDescriptor.WorkingDirectory, aDescriptor.CompilerFileName, aDescriptor.CompilerHash,
       aDescriptor.CompilerVersion, aDescriptor.BuildTarget, aDescriptor.RebuildMode,
       aDescriptor.ProducerInputIdentity, aDescriptor.SourceApplicabilityIdentity,
+      aDescriptor.CompilerSwitchFormat, aDescriptor.CompilerSwitchIdentity,
       aDescriptor.PredefinedFormat, aDescriptor.PredefinedIdentity,
       aDescriptor.PredefinedSourceLookupIdentity]);
     AppendValues(lBuilder, aDescriptor.Defines);
     AppendValues(lBuilder, aDescriptor.OrderedArguments);
+    AppendValues(lBuilder, aDescriptor.CompilerSwitches);
     AppendValues(lBuilder, aDescriptor.PredefinedTrue);
     AppendValues(lBuilder, aDescriptor.PredefinedFalse);
     lBuilder.Append(Length(aDescriptor.PredefinedSources)).Append(':');
@@ -389,6 +396,24 @@ begin
   if not NormalizeSymbols(aDescriptor.Defines, lNormalized) then
     Exit(False);
   aDescriptor.Defines := lNormalized;
+  aReason := 'compiler switch witness invalid';
+  if (aDescriptor.CompilerSwitchFormat <> '') or (aDescriptor.CompilerSwitchIdentity <> '') or
+    (Length(aDescriptor.CompilerSwitches) <> 0) then
+  begin
+    if (aDescriptor.CompilerSwitchFormat <> 'compiler-switches-23-windows-v1') or
+      (aDescriptor.CompilerSwitchIdentity = '') then
+      Exit(False);
+    for i := 0 to High(aDescriptor.CompilerSwitches) do
+    begin
+      lSymbol := aDescriptor.CompilerSwitches[i];
+      if (Length(lSymbol) <> 2) or not CharInSet(lSymbol[1], ['R', 'Q', 'O', 'I', 'H']) or
+        not CharInSet(lSymbol[2], ['+', '-']) then
+        Exit(False);
+      for j := 0 to i - 1 do
+        if aDescriptor.CompilerSwitches[j][1] = lSymbol[1] then
+          Exit(False);
+    end;
+  end;
   aReason := 'compiler predefined witness invalid';
   if lLinux64 and (aDescriptor.PredefinedFormat = '') then
     Exit(False);

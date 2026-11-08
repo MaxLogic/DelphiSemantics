@@ -1219,6 +1219,14 @@ begin
     end;
     for lUsage in aUsageResult.Usages do
     begin
+      if SameText(lUsage.SourceKind, 'analysis-source') then
+      begin
+        lListed := lUsage;
+        lListed.Role := 'unresolved';
+        lListed.Reason := 'analysis-input-outside-edit-scope';
+        lUnresolved.Add(lListed);
+        Continue;
+      end;
       if not IsProjectUsage(lUsage) then
         Exit(MakeBlockedPlan('Rename contains non-project usage in "' + lUsage.FileName + '".'));
       if (aUsageResult.Symbol.OwnerName = '') and IsShadowedByLocal(aContext, lUsage) then

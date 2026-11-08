@@ -4,14 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api,
-  DelphiSemantics.Cache,
-  DelphiSemantics.CompilerProfile,
-  DelphiSemantics.Index,
-  DelphiSemantics.Model,
-  DelphiSemantics.Query,
-  DelphiSemantics.Refactor,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Api, DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Index,
+  DelphiSemantics.Model, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -195,14 +189,14 @@ type
     procedure AlternateImportCapturesRefuseRename(const aCase: string);
     [TestCase('n1-type-inactive-member', 'n1-type-inactive-member,UCertified.pas,23,3,RenamedValue,containment-local-capture,Win32,False')]
     [TestCase('n2-same-unit-record-helper', 'n2-same-unit-record-helper,UCertified.pas,22,3,RenamedValue,containment-local-capture,Win32,False')]
-    [TestCase('n3-active-import-inactive-helper', 'n3-active-import-inactive-helper,UCertified.pas,14,3,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper', 'n3-active-import-inactive-helper,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
     [TestCase('n6-method-self-impl-global', 'n6-method-self-impl-global,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
-    [TestCase('m1-nonmember-inactive-oldname', 'm1-nonmember-inactive-oldname,UCertified.pas,3,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('m1-nonmember-inactive-oldname', 'm1-nonmember-inactive-oldname,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('m1-member-inactive-oldname', 'm1-member-inactive-oldname,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('n3-active-import-inactive-helper-g-dpr', 'n3-active-import-inactive-helper-g-dpr,UCertified.pas,12,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('n3-active-import-inactive-helper-dpr', 'n3-active-import-inactive-helper-dpr,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
     [TestCase('n1-type-inactive-member-g', 'n1-type-inactive-member-g,UCertified.pas,21,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
-    [TestCase('n3-active-import-inactive-helper-g', 'n3-active-import-inactive-helper-g,UCertified.pas,12,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-g', 'n3-active-import-inactive-helper-g,UCertified.pas,12,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('n2-same-unit-record-helper-g', 'n2-same-unit-record-helper-g,UCertified.pas,20,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('n6d-method-self-objhelper-rel', 'n6d-method-self-objhelper-rel,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
     [TestCase('x1-bare-inherited', 'x1-bare-inherited,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
@@ -245,7 +239,7 @@ type
     [TestCase('p6-sealed-persistent', 'p6-sealed-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
     [TestCase('p6-abstract-persistent', 'p6-abstract-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
     [TestCase('f1-dfm-shared-dir', 'f1-dfm-shared-dir,proj\UCertified.pas,6,15,DMCreated,published-member,Win32,False')]
-    [TestCase('m1d-transitive-cond-nonmember', 'm1d-transitive-cond-nonmember,UCertified.pas,3,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('m1d-transitive-cond-nonmember', 'm1d-transitive-cond-nonmember,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
     [TestCase('r1-rtti-getfield', 'r1-rtti-getfield,UCertified.pas,6,5,Total,rtti-string-name-consumer,Win32,False')]
     [TestCase('r2-rtti-findtype', 'r2-rtti-findtype,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
     [TestCase('u2-sysinit-newname', 'u2-sysinit-newname,UCertified.pas,3,5,SysInit,unit-or-namespace-name,Win32,False')]
@@ -292,6 +286,12 @@ type
     [TestCase('r3-include-literal-after-comment', 'r3-include-literal-after-comment,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
     [TestCase('r3-literal-comment-adjacency', 'r3-literal-comment-adjacency,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
     [TestCase('r3-package-method', 'r3-package-method,UCertified.pas,6,20,RenamedValue,package-exported-name,Win32,False')]
+    [TestCase('closure-clean', 'closure-clean,UCertified.pas,3,5,Renamed,,Win32,True')]
+    [TestCase('closure-unsupported-condition', 'closure-unsupported-condition,UCertified.pas,3,5,Renamed,analysis-input-unsupported-preprocess-directive,Win32,False')]
+    [TestCase('closure-inactive-name', 'closure-inactive-name,UCertified.pas,3,5,Renamed,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('closure-readonly-reference', 'closure-readonly-reference,UCertified.pas,3,5,Renamed,analysis-input-outside-edit-scope,Win32,False')]
+    [TestCase('closure-release-helper', 'closure-release-helper,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('closure-selected-ifdef', 'closure-selected-ifdef,UCertified.pas,3,5,Renamed,occurrence-in-inactive-configuration,Win32,False')]
     procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
       const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 
@@ -1588,7 +1588,8 @@ function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aCo
   const aNewName: string; const aCacheFileName: string = '';
   const aExpectCacheHit: Boolean = False; const aPlatform: string = '';
   const aCertified: Boolean = False; const aIdentifier: string = '';
-  const aProjectBase: string = 'P'; const aDefines: TArray<string> = nil): TDelphiSemanticRenamePlan;
+  const aProjectBase: string = 'P'; const aDefines: TArray<string> = nil;
+  const aAnalysisSourceDirectory: string = ''): TDelphiSemanticRenamePlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lRequest: TDelphiSemanticCompilerDefineRequest;
@@ -1597,6 +1598,10 @@ var
   lOptions: TDelphiSemanticOptions;
   lSessionResult: TDelphiSemanticProjectSessionResult;
   lScopeMetrics: TDelphiSemanticIdentifierScopeMetrics;
+  lProofSources: TArray<string>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  i, j, lAnalysisSymbols: Integer;
 begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(aRoot, aProjectBase + '.dproj');
@@ -1616,9 +1621,11 @@ begin
     lRequest.Configuration := 'Debug';
     lRequest.DelphiVersion := '23.0';
     lRequest.Platform := aPlatform;
-    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest,
-      TDirectory.GetFiles(aRoot, '*.pas') + TDirectory.GetFiles(aRoot, '*.inc') +
-      [lRequest.MainSourceFileName], aDefines);
+    lProofSources := TDirectory.GetFiles(aRoot, '*.pas') +
+      TDirectory.GetFiles(aRoot, '*.inc') + [lRequest.MainSourceFileName];
+    if aAnalysisSourceDirectory <> '' then
+      lProofSources := lProofSources + TDirectory.GetFiles(aAnalysisSourceDirectory, '*.pas');
+    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, lProofSources, aDefines);
   end;
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -1633,6 +1640,31 @@ begin
       Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm control must actually reuse cached units.');
     try
       Assert.IsNotNull(lContext.ProjectSnapshot, 'Rename must run on the project snapshot.');
+      if aAnalysisSourceDirectory <> '' then
+      begin
+        lSnapshot := lContext.ProjectSnapshot.Snapshot;
+        Assert.AreEqual(4, lSnapshot.UnitCount, 'Root, explicit unit and both transitive library units are retained.');
+        if aExpectCacheHit then
+          Assert.AreEqual(4, lCacheMetrics.CacheHits, 'Warm reuse includes every library unit.');
+        lAnalysisSymbols := 0;
+        for i := 0 to lSnapshot.UnitCount - 1 do
+        begin
+          lUnit := lSnapshot.UnitByIndex(i);
+          Assert.IsFalse(ContainsText(lSnapshot.TextOf(lUnit.FileNameId), '\wrong\'),
+            'The earlier native search path must win.');
+          Assert.AreEqual(TFile.ReadAllText(lSnapshot.TextOf(lUnit.FileNameId)),
+            lSnapshot.ExactTextOf(lUnit.SourceTextId), 'Retain the current source bytes as decoded text.');
+          if StartsText(IncludeTrailingPathDelimiter(aAnalysisSourceDirectory),
+            lSnapshot.TextOf(lUnit.FileNameId)) then
+            for j := 1 to lUnit.SymbolCount do
+            begin
+              Assert.AreEqual('analysis-source',
+                lSnapshot.TextOf(lUnit.SymbolById(TSemanticSymbolId(j)).SourceKindId), 'Library declarations are read-only analysis inputs.');
+              Inc(lAnalysisSymbols);
+            end;
+        end;
+        Assert.IsTrue(lAnalysisSymbols > 0, 'The transitive library declaration must be indexed.');
+      end;
       Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
         TPath.Combine(aRoot, aFileName), aLine, aColumn, aNewName);
       RetainCompletenessRenameProof(aRoot, aNewName, Result);
@@ -1914,7 +1946,7 @@ procedure TRenameCompletenessTests.KnownUnsoundShapesRefuseRename(
   const aCase, aFile: string; const aLine, aColumn: Integer;
   const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 var
-  lRoot, lFixture, lFileName, lRelative: string;
+  lRoot, lFixture, lFileName, lRelative, lAnalysisSourceDirectory: string;
   lFiles, lOriginals, lDefines: TArray<string>;
   lEdit: TDelphiSemanticTextEdit;
   lPlan, lWarm: TDelphiSemanticRenamePlan;
@@ -1939,10 +1971,17 @@ begin
     lDefines := ['MSWINDOWS']
   else if StartsText('r3-asm-', aCase) then
     lDefines := ['CPUX86'];
+  lAnalysisSourceDirectory := '';
+  if StartsText('closure-', aCase) then
+    lAnalysisSourceDirectory := TPath.Combine(lRoot, 'lib');
   lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines);
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
   lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines);
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
+  if StartsText('closure-', aCase) or (aCase = 'm1d-transitive-cond-nonmember') then
+    for lUsage in lPlan.UnresolvedReferences do
+      Assert.AreNotEqual('active-import-source-not-retained', lUsage.Reason,
+        'An available analysis input must be scanned, including cold and warm libraries.');
   if aSuccess then
   begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
@@ -1967,7 +2006,8 @@ begin
         if aCase = 'operator-method' then
           Assert.AreEqual(aColumn, lUsage.Column, 'Operator refusal must report the exact token column.');
       end;
-    Assert.IsTrue(lFound, aCase + ': missing named refusal ' + aReason);
+    Assert.IsTrue(lFound, aCase + ': missing named refusal ' + aReason + #13#10 +
+      SortedKeysText(PlanUnresolvedKeys(lPlan)));
     Assert.AreEqual('', lPlan.ContextFingerprint, 'A refusal must have no apply authority.');
   end;
   Assert.AreEqual(lPlan.Status, lWarm.Status);

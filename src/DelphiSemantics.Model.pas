@@ -288,6 +288,8 @@ type
   end;
   TDelphiSemanticUnitModel = record
     Success: Boolean;
+    // Project-session view only: imported sources are analysis inputs outside edit scope.
+    AnalysisOnly: Boolean;
     FileName: string;
     UnitName: string;
     SourceText: string;

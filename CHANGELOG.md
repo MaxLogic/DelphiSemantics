@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 - Refuse rename plans for implicit external/export names, package routines, late-bound members, assembler tokens, directive expressions and matching literal values across retained units/includes; normalize Delphi literal sequences and combined M+ switches (DS-797).
+- Evaluate IFOPT for certified native R/Q/O/I/H states and ordered source/include switch changes. Unknown option states still refuse; proven inactive compiler diagnostics do not fail preprocessing (DS-799).
+
+- Project sessions retain and index non-SDK search/library-path import sources, including transitive and selected-active conditional imports. Newly discovered sources stay outside edit scope; native selection uncertainty and SDK pairing rules still apply (DS-798).
 
 - Refuse certified renames with bare inherited calls after nested routines, Declared consumers in includes, implicit published members, guarded active source gaps, and additional RTTI name consumers (DS-797).
 
