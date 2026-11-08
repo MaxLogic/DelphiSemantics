@@ -11,6 +11,51 @@ type
   public
     [Category('Fast')]
     [Test]
+    [TestCase('Equal usable captures', 'equal')]
+    [TestCase('Case-only text conflicts', 'case')]
+    [TestCase('Unusable contributor is local', 'unusable')]
+    [TestCase('Two usable conflicts and unusable', 'mixed')]
+    [TestCase('Observation-only capture', 'observation')]
+    [TestCase('Skipped-only text excluded', 'skipped')]
+    procedure CapturedSourcesShareOneConsistencyView(const aScenario: string);
+    [Category('Fast')]
+    [Test]
+    [TestCase('Sequential evidence', 'cold')]
+    [TestCase('Parallel evidence', 'parallel')]
+    [TestCase('Single-unit evidence', 'single')]
+    [TestCase('Explicit single-unit IDs', 'single-ids')]
+    [TestCase('Reassembled evidence', 'merge')]
+    procedure PhysicalOccurrencesSurviveCloneAndRemap(const aRoute: string);
+    [Category('Fast')]
+    [Test]
+    procedure PhysicalEvidenceArraysAreOwnedAndFrozen;
+    [Category('Fast')]
+    [Test]
+    [TestCase('Missing original slot', 'missing')]
+    [TestCase('Duplicate original slot', 'duplicate')]
+    [TestCase('Wrong original slot', 'slot')]
+    [TestCase('Mismatched metadata', 'metadata')]
+    [TestCase('Missing parameter parent', 'parent')]
+    procedure MalformedModelSymbolCoverageStaysUnavailable(const aMutation: string);
+    [Category('Fast')]
+    [Test]
+    [TestCase('Captured empty', 'empty,2')]
+    [TestCase('Missing observation', 'missing,0')]
+    [TestCase('Malformed UTF16', 'malformed,3')]
+    [TestCase('Equal duplicates', 'duplicate,4')]
+    [TestCase('Different duplicate text', 'conflict,5')]
+    [TestCase('Different duplicate hashes', 'hash,5')]
+    [TestCase('Relative observation identity', 'relative,0')]
+    procedure CapturedSourceStatusesNeverChooseCompetingText(const aScenario: string;
+      const aExpectedStatus: Integer);
+    [Category('Fast')]
+    [Test]
+    [TestCase('Bad file after repeated valid IDs', '0')]
+    [TestCase('Includes flag changed after validation', '1')]
+    [TestCase('Same IDs from another string pool', '2')]
+    procedure RepeatedPhysicalFileIdsKeepValidationStrict(const aCase: Integer);
+    [Category('Fast')]
+    [Test]
     procedure MemberKeyPacksOwnerAndNameIds;
     [Category('Fast')]
     [Test]
@@ -137,9 +182,10 @@ uses
   System.Classes, System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Model, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
-  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
   DelphiSemantics.Symbols, DelphiSemantics.WithBinding,
-  Test.Support;
+  DelphiSemantics.Source,
+  Test.SnapshotEvidence.Support, Test.Support;
 
 const
   cSnapshotWorkerJoinTimeoutEnv =
@@ -1968,6 +2014,354 @@ begin
   Assert.IsFalse(ContainsText(lSourceText, 'TSemanticSymbolFact = class'));
   Assert.IsFalse(ContainsText(lSourceText, 'TSemanticWithStatementFact = class'));
   Assert.IsFalse(ContainsText(lSourceText, 'TSemanticReferenceFact = class'));
+end;
+
+procedure TSnapshotTests.CapturedSourcesShareOneConsistencyView(const aScenario: string);
+var
+  i, j: Integer;
+  lFileId: TSemanticStringId;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lRoot, lInclude, lReason: string;
+  lRows: TArray<TDelphiSemanticSourceText>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSource: TSemanticCapturedSourceFact;
+begin
+  lRoot := CreateTestTempRoot('ds697-consistency-' + aScenario + '-temp');
+  lInclude := TPath.Combine(lRoot, 'shared.inc');
+  SetLength(lModels, 3);
+  for i := 0 to High(lModels) do
+  begin
+    lModels[i].FileName := TPath.Combine(lRoot, 'Unit' + IntToStr(i) + '.pas');
+    lModels[i].UnitName := 'Unit' + IntToStr(i);
+    lModels[i].Success := True;
+    lModels[i].SourceText := 'unit ' + lModels[i].UnitName + '; interface implementation end.';
+    lModels[i].PhysicalReferenceOccurrencesAvailable := True;
+    lModels[i].PhysicalSymbolOccurrencesAvailable := True;
+    SetLength(lRows, 2);
+    lRows[0] := Default(TDelphiSemanticSourceText);
+    lRows[0].FileName := lModels[i].FileName;
+    lRows[0].Text := lModels[i].SourceText;
+    lRows[1] := Default(TDelphiSemanticSourceText);
+    lRows[1].FileName := lInclude;
+    lRows[1].Text := 'VALUE := 1;';
+    if (i = 1) and ((aScenario = 'case') or (aScenario = 'mixed')) then
+      lRows[1].Text := 'value := 1;';
+    lModels[i].IncludeFileNames := [lInclude];
+    if aScenario = 'observation' then
+      lModels[i].IncludeFileNames := nil;
+    if aScenario = 'skipped' then
+    begin
+      lModels[i].IncludeFileNames := nil;
+      lModels[i].SkippedIncludeFileNames := [lInclude];
+    end;
+    lModels[i].SourceObservations := TDelphiSemanticSourceEvidence.FromItems(lRows);
+    if ((aScenario = 'unusable') and (i = 1)) or
+      ((aScenario = 'mixed') and (i = 2)) then
+      lModels[i].SourceObservations := nil;
+  end;
+  lSnapshot := BuildProjectSnapshotFromModels(lModels, Default(TDelphiSemanticProjectWithBindingFacts),
+    Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    Assert.IsTrue(lSnapshot.TryFindStringId(lInclude, lFileId));
+    if (aScenario = 'case') or (aScenario = 'mixed') then
+    begin
+      Assert.IsTrue(lSnapshot.TryCapturedSourceConflict(lFileId, lReason), 'Different exact texts must conflict');
+      Assert.IsTrue(ContainsText(lReason, lInclude));
+      Assert.IsTrue(ContainsText(lReason, lModels[0].FileName));
+      Assert.IsTrue(ContainsText(lReason, lModels[1].FileName));
+      if aScenario = 'mixed' then
+        Assert.IsFalse(ContainsText(lReason, lModels[2].FileName), 'Unusable unit cannot contribute a conflict');
+    end else
+      Assert.IsFalse(lSnapshot.TryCapturedSourceConflict(lFileId, lReason));
+    Assert.IsTrue(lSnapshot.UnitByIndex(0).TryFindCapturedSource(lFileId, lSource));
+    if aScenario = 'skipped' then
+    begin
+      Assert.AreEqual(cCapturedSourceUnavailable, lSource.Status);
+      Assert.AreEqual(0, Integer(lSource.TextId));
+      for j := 1 to Integer(lSnapshot.ExactStringCount) do
+        Assert.AreNotEqual('VALUE := 1;', lSnapshot.ExactTextOf(j));
+    end else begin
+      Assert.AreEqual(cCapturedSourceText, lSource.Status, 'Usable observation must retain its text');
+      Assert.AreEqual('VALUE := 1;', lSnapshot.ExactTextOf(lSource.TextId));
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.PhysicalOccurrencesSurviveCloneAndRemap(const aRoute: string);
+var
+  lFirst, lSecond, lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('physical-snapshot-' + aRoute + '-temp');
+  TDirectory.CreateDirectory(lRoot);
+  lModels := [PhysicalEvidenceModel(lRoot, 'EvidenceMain'), PhysicalEvidenceModel(lRoot, 'EvidenceOther')];
+  lOptions := Default(TDelphiSnapshotBuildOptions);
+  lFirst := nil;
+  lSecond := nil;
+  lSnapshot := nil;
+  try
+    if aRoute = 'parallel' then
+      lOptions.WorkerCount := 2;
+    if aRoute = 'single' then
+      lSnapshot := BuildProjectUnitSnapshotFromModels(lModels, 0, 17, lMetrics)
+    else if aRoute = 'single-ids' then
+      lSnapshot := BuildProjectUnitSnapshotFromModels(lModels, [17, 3], 0, [], lMetrics)
+    else if aRoute = 'merge' then
+    begin
+      lFirst := BuildProjectUnitSnapshotFromModels(lModels, [17, 3], 0, [], lMetrics);
+      lSecond := BuildProjectUnitSnapshotFromModels(lModels, [17, 3], 1, [], lMetrics);
+      lSnapshot := BuildProjectSnapshotFromUnitSnapshots([lSecond, lFirst], lMetrics);
+      FreeAndNil(lFirst);
+      FreeAndNil(lSecond);
+    end else
+      lSnapshot := BuildProjectSnapshotFromModels(lModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+    AssertPhysicalEvidence(lSnapshot, lModels[0]);
+    if (aRoute = 'cold') or (aRoute = 'parallel') or (aRoute = 'merge') then
+      AssertPhysicalEvidence(lSnapshot, lModels[1]);
+  finally
+    lSnapshot.Free;
+    lSecond.Free;
+    lFirst.Free;
+  end;
+end;
+
+procedure TSnapshotTests.PhysicalEvidenceArraysAreOwnedAndFrozen;
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lImports: TArray<TSemanticStringId>;
+  lReferences: TArray<TSemanticPhysicalReferenceOccurrence>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lSources: TArray<TSemanticCapturedSourceFact>;
+  lSymbols: TArray<TSemanticPhysicalSymbolOccurrence>;
+  lUnit: TUnitSnapshot;
+begin
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lSnapshot := nil;
+  try
+    lUnit := TUnitSnapshot.Create(1);
+    lBuilder.AddUnit(lUnit);
+    SetLength(lReferences, 1);
+    SetLength(lSymbols, 1);
+    SetLength(lSources, 1);
+    SetLength(lImports, 1);
+    lReferences[0].NameId := 31;
+    lSymbols[0].FactIndex := 7;
+    lSources[0].Status := cCapturedSourceUnavailable;
+    lImports[0] := 41;
+    lUnit.SetPhysicalReferenceOccurrences(lReferences, False);
+    lUnit.SetPhysicalSymbolOccurrences(lSymbols, False);
+    lUnit.SetCapturedSources(lSources, False);
+    lUnit.SetVisibleUnitNameIds(lImports, False);
+    lReferences[0].NameId := 99;
+    lSymbols[0].FactIndex := 99;
+    lSources[0].Status := cCapturedSourceConflict;
+    lImports[0] := 99;
+    Assert.AreEqual(31, Integer(lUnit.PhysicalReferenceOccurrenceByIndex(0).NameId));
+    Assert.AreEqual(7, lUnit.PhysicalSymbolOccurrenceByIndex(0).FactIndex);
+    Assert.AreEqual(cCapturedSourceUnavailable, lUnit.CapturedSourceByIndex(0).Status);
+    Assert.AreEqual(41, Integer(lUnit.VisibleUnitNameByIndex(0)));
+    lSnapshot := lBuilder.Build;
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.SetPhysicalReferenceOccurrences(lReferences, False);
+      end, Exception);
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.SetPhysicalSymbolOccurrences(lSymbols, False);
+      end, Exception);
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.SetCapturedSources(lSources, False);
+      end, Exception);
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.SetVisibleUnitNameIds(lImports, False);
+      end, Exception);
+    Assert.WillRaise(
+      procedure
+      begin
+        lUnit.SetHasIncludes(True);
+      end, Exception);
+  finally
+    lSnapshot.Free;
+    lBuilder.Free;
+  end;
+end;
+
+procedure TSnapshotTests.RepeatedPhysicalFileIdsKeepValidationStrict(const aCase: Integer);
+var
+  i: Integer;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lOtherBuilder: TDelphiProjectSnapshotBuilder;
+  lUnit: TUnitSnapshot;
+  lOtherUnit: TUnitSnapshot;
+  lRoot, lFailure, lExpected: string;
+  lMainId, lIncludeId, lBadId: TSemanticStringId;
+  lReferences: TArray<TSemanticPhysicalReferenceOccurrence>;
+begin
+  lRoot := CreateTestTempRoot('repeated-physical-file-ids-temp');
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  lOtherBuilder := nil;
+  lOtherUnit := nil;
+  try
+    lMainId := lBuilder.Strings.Intern(TPath.Combine(lRoot, 'Main.pas'));
+    lIncludeId := lBuilder.Strings.Intern(TPath.Combine(lRoot, 'Shared.inc'));
+    lUnit := TUnitSnapshot.Create(1, lMainId, 0);
+    lBuilder.AddUnit(lUnit);
+    lUnit.SetHasIncludes(True);
+    SetLength(lReferences, 32);
+    for i := 0 to High(lReferences) do
+      lReferences[i].FileId := lIncludeId;
+    lUnit.SetPhysicalReferenceOccurrences(lReferences, True);
+    ValidatePhysicalEvidence(lBuilder.Strings, lBuilder.ExactStrings, lUnit);
+    lExpected := 'SNAPSHOT_EVIDENCE_FILE_INVALID';
+    if aCase = 0 then
+    begin
+      lBadId := lBuilder.Strings.Intern(TPath.Combine(lRoot, 'child\..\Bad.inc'));
+      lReferences[High(lReferences)].FileId := lBadId;
+      lUnit.SetPhysicalReferenceOccurrences(lReferences, True);
+    end else if aCase = 1 then
+    begin
+      lUnit.SetHasIncludes(False);
+      lExpected := 'SNAPSHOT_EVIDENCE_HAS_INCLUDES_INVALID';
+    end else begin
+      lOtherBuilder := TDelphiProjectSnapshotBuilder.Create;
+      Assert.AreEqual(lMainId, lOtherBuilder.Strings.Intern(TPath.Combine(lRoot, 'Other.pas')));
+      Assert.AreEqual(lIncludeId, lOtherBuilder.Strings.Intern(TPath.Combine(lRoot, 'child\..\Bad.inc')));
+      lOtherUnit := TUnitSnapshot.Create(2, lMainId, 0);
+      lOtherBuilder.AddUnit(lOtherUnit);
+      lOtherUnit.SetHasIncludes(True);
+      lOtherUnit.SetPhysicalReferenceOccurrences(lReferences, True);
+    end;
+    lFailure := '';
+    try
+      if aCase = 2 then
+        ValidatePhysicalEvidence(lOtherBuilder.Strings, lOtherBuilder.ExactStrings, lOtherUnit)
+      else
+        ValidatePhysicalEvidence(lBuilder.Strings, lBuilder.ExactStrings, lUnit);
+    except
+      on E: EInvalidOpException do
+        lFailure := E.Message;
+    end;
+    Assert.AreEqual(lExpected, lFailure, 'Repeated IDs must not bypass file validation.');
+  finally
+    lOtherBuilder.Free;
+    lBuilder.Free;
+  end;
+end;
+
+
+procedure TSnapshotTests.MalformedModelSymbolCoverageStaysUnavailable(const aMutation: string);
+var
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('malformed-symbol-coverage-' + aMutation + '-temp');
+  lModel := PhysicalEvidenceModel(lRoot, 'Coverage');
+  Assert.IsTrue(Length(lModel.PhysicalSymbolOccurrences) > 2);
+  lModel.PhysicalSymbolOccurrences := Copy(lModel.PhysicalSymbolOccurrences);
+  if aMutation = 'missing' then
+    SetLength(lModel.PhysicalSymbolOccurrences, Length(lModel.PhysicalSymbolOccurrences) - 1)
+  else if aMutation = 'duplicate' then
+  begin
+    SetLength(lModel.PhysicalSymbolOccurrences, Length(lModel.PhysicalSymbolOccurrences) + 1);
+    lModel.PhysicalSymbolOccurrences[High(lModel.PhysicalSymbolOccurrences)] := lModel.PhysicalSymbolOccurrences[0];
+  end else if aMutation = 'slot' then
+    lModel.PhysicalSymbolOccurrences[0].FactIndex := MaxInt
+  else if aMutation = 'metadata' then
+    lModel.PhysicalSymbolOccurrences[0].Name := 'UnrelatedName'
+  else begin
+    i := 0;
+    while (i < Length(lModel.PhysicalSymbolOccurrences)) and
+      (lModel.PhysicalSymbolOccurrences[i].FactKind <> 'parameter') do
+      Inc(i);
+    Assert.IsTrue(i < Length(lModel.PhysicalSymbolOccurrences));
+    lModel.PhysicalSymbolOccurrences[i].ParentFactIndex := MaxInt;
+  end;
+  Assert.IsTrue(lModel.PhysicalSymbolOccurrencesAvailable, 'The producer flag alone is not proof.');
+  lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 1, lMetrics);
+  try
+    Assert.IsFalse(lSnapshot.UnitByIndex(0).PhysicalSymbolOccurrencesAvailable);
+    Assert.AreEqual<Int64>(Length(lModel.PhysicalSymbolOccurrences), lSnapshot.UnitByIndex(0).PhysicalSymbolOccurrenceCount,
+      'Malformed and unprojected evidence must not disappear.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotTests.CapturedSourceStatusesNeverChooseCompetingText(const aScenario: string;
+  const aExpectedStatus: Integer);
+var
+  i: Integer;
+  lRoot, lInclude: string;
+  lModel: TDelphiSemanticUnitModel;
+  lRows: TArray<TDelphiSemanticSourceText>;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lFileId: TSemanticStringId;
+  lSource: TSemanticCapturedSourceFact;
+begin
+  lRoot := CreateTestTempRoot('source-status-' + aScenario + '-temp');
+  lInclude := TPath.Combine(lRoot, 'capture.inc');
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.FileName := TPath.Combine(lRoot, 'Owner.pas');
+  lModel.UnitName := 'Owner';
+  lModel.Success := True;
+  lModel.SourceText := 'unit Owner; interface implementation end.';
+  lModel.IncludeFileNames := [lInclude];
+  lModel.PhysicalReferenceOccurrencesAvailable := True;
+  lModel.PhysicalSymbolOccurrencesAvailable := True;
+  SetLength(lRows, 2);
+  lRows[0].FileName := lModel.FileName;
+  lRows[0].Text := lModel.SourceText;
+  lRows[1].FileName := lInclude;
+  lRows[1].Text := 'unique competing capture';
+  if aScenario = 'empty' then
+    lRows[1].Text := ''
+  else if aScenario = 'missing' then
+    SetLength(lRows, 1)
+  else if aScenario = 'malformed' then
+    lRows[1].Text := Char($D800)
+  else if aScenario = 'relative' then
+    lRows[1].FileName := 'capture.inc'
+  else begin
+    SetLength(lRows, 3);
+    lRows[2] := lRows[1];
+    if aScenario = 'conflict' then
+      lRows[2].Text := 'different competing capture'
+    else if aScenario = 'hash' then
+      lRows[2].ContentHash := 'different supplied hash';
+  end;
+  lModel.SourceObservations := TDelphiSemanticSourceEvidence.FromItems(lRows);
+  lSnapshot := BuildProjectUnitSnapshotFromModels([lModel], 0, 1, lMetrics);
+  try
+    Assert.IsTrue(lSnapshot.TryFindStringId(lInclude, lFileId));
+    Assert.IsTrue(lSnapshot.UnitByIndex(0).TryFindCapturedSource(lFileId, lSource));
+    Assert.AreEqual(aExpectedStatus, lSource.Status);
+    Assert.AreEqual(0, Integer(lSource.TextId), 'No competing or unavailable text can be published.');
+    Assert.AreEqual(aScenario <> 'relative', lSnapshot.UnitByIndex(0).CapturedSourcesAvailable);
+    for i := 1 to Integer(lSnapshot.ExactStringCount) do
+    begin
+      Assert.AreNotEqual('unique competing capture', lSnapshot.ExactTextOf(i));
+      Assert.AreNotEqual('different competing capture', lSnapshot.ExactTextOf(i));
+    end;
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 initialization

@@ -14,7 +14,7 @@ implementation
 
 uses
   System.Generics.Collections, System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Coordinates, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -762,77 +762,6 @@ begin
   Result := TJSONArray.Create;
   for lOccurrence in aOccurrences do
     Result.AddElement(PhysicalSymbolToJson(lOccurrence));
-end;
-
-// An array index associates the witness with its fact; names only validate that association.
-function PhysicalSymbolFactMatches(const aOccurrence: TDelphiSemanticPhysicalSymbolOccurrence;
-  const aModel: TDelphiSemanticUnitModel): Boolean;
-var
-  i: Integer;
-  j: Integer;
-begin
-  Result := False;
-  i := aOccurrence.FactIndex;
-  j := aOccurrence.ParentFactIndex;
-  if i < 0 then Exit;
-  if aOccurrence.FactKind = 'parameter' then
-  begin
-    if (j < 0) or (j >= Length(aModel.Routines)) then Exit;
-    if i >= Length(aModel.Routines[j].Parameters) then Exit;
-    Exit((aOccurrence.Name = aModel.Routines[j].Parameters[i].Name) and
-      (aOccurrence.RoutineScopeId = aModel.Routines[j].ScopeId) and
-      (aOccurrence.OwnerScopeId = aModel.Routines[j].ScopeId) and
-      (aOccurrence.OwnerName = aModel.Routines[j].Name) and
-      (aOccurrence.RoutineName = aModel.Routines[j].Name) and
-      (aOccurrence.SectionKind = aModel.Routines[j].SectionKind) and
-      (aOccurrence.Kind = 'parameter'));
-  end;
-  if j <> -1 then Exit;
-  if aOccurrence.FactKind = 'declaration' then
-  begin
-    if i >= Length(aModel.Declarations) then Exit;
-    Result := (aOccurrence.Name = aModel.Declarations[i].Name) and
-      (aOccurrence.OwnerScopeId = aModel.Declarations[i].OwnerScopeId) and
-      (aOccurrence.SymbolId = aModel.Declarations[i].SymbolId) and
-      (aOccurrence.OwnerName = aModel.Declarations[i].OwnerName) and
-      (aOccurrence.SectionKind = aModel.Declarations[i].SectionKind) and
-      (aOccurrence.Kind = aModel.Declarations[i].Kind);
-  end else if aOccurrence.FactKind = 'member' then
-  begin
-    if i >= Length(aModel.Members) then Exit;
-    Result := (aOccurrence.Name = aModel.Members[i].Name) and
-      (aOccurrence.OwnerScopeId = aModel.Members[i].OwnerScopeId) and
-      (aOccurrence.OwnerName = aModel.Members[i].OwnerName) and
-      (aOccurrence.OwnerSymbolId = aModel.Members[i].OwnerSymbolId) and
-      (aOccurrence.Kind = aModel.Members[i].Kind);
-  end else if aOccurrence.FactKind = 'type-value-member' then
-  begin
-    if i >= Length(aModel.TypeValueMembers) then Exit;
-    Result := (aOccurrence.Name = aModel.TypeValueMembers[i].Name) and
-      (aOccurrence.OwnerScopeId = aModel.TypeValueMembers[i].OwnerScopeId) and
-      (aOccurrence.OwnerName = aModel.TypeValueMembers[i].OwnerName) and
-      (aOccurrence.OwnerSymbolId = aModel.TypeValueMembers[i].OwnerSymbolId) and
-      (aOccurrence.Kind = aModel.TypeValueMembers[i].Kind);
-  end else if aOccurrence.FactKind = 'routine' then
-  begin
-    if i >= Length(aModel.Routines) then Exit;
-    Result := (aOccurrence.Name = aModel.Routines[i].Name) and
-      (aOccurrence.RoutineScopeId = aModel.Routines[i].ScopeId) and
-      (aOccurrence.RoutineName = aModel.Routines[i].Name) and
-      (aOccurrence.OwnerScopeId = aModel.Routines[i].ParentScopeId) and
-      (aOccurrence.OwnerName = aModel.Routines[i].OwnerName) and
-      (aOccurrence.SectionKind = aModel.Routines[i].SectionKind) and
-      (aOccurrence.Kind = aModel.Routines[i].AstScopeKind);
-  end else if aOccurrence.FactKind = 'local' then
-  begin
-    if i >= Length(aModel.Locals) then Exit;
-    Result := (aOccurrence.Name = aModel.Locals[i].Name) and
-      (aOccurrence.RoutineScopeId = aModel.Locals[i].RoutineScopeId) and
-      (aOccurrence.RoutineName = aModel.Locals[i].RoutineName) and
-      (aOccurrence.OwnerScopeId = aModel.Locals[i].RoutineScopeId) and
-      (aOccurrence.OwnerName = aModel.Locals[i].RoutineName) and
-      (aOccurrence.Kind = aModel.Locals[i].Kind);
-  end;
 end;
 
 function JsonToPhysicalSymbols(const aArray: TJSONArray; const aModel: TDelphiSemanticUnitModel;

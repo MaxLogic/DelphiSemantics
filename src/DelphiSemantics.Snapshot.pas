@@ -3,7 +3,7 @@ unit DelphiSemantics.Snapshot;
 interface
 
 uses
-  System.Generics.Collections,
+  System.Generics.Collections, System.SysUtils,
   DelphiSemantics.ImportFacts,
   MaxLogic.FastList;
 
@@ -12,12 +12,78 @@ const
   // A source gap can contain references to any symbol; it has no invented name or target.
   cSnapshotReferenceClassificationUnseenSource = 'unseen-source';
 
+
+  cPhysicalProjectionNotProjected = 0;
+  cPhysicalProjectionLinked = 1;
+  cPhysicalProjectionMalformed = 2;
+  cCapturedSourceUnavailable = 0;
+  cCapturedSourceText = 1;
+  cCapturedSourceEmpty = 2;
+  cCapturedSourceMalformed = 3;
+  cCapturedSourceDuplicate = 4;
+  cCapturedSourceConflict = 5;
+
 type
   TSemanticStringId = Cardinal;
   TSemanticUnitId = Cardinal;
   TSemanticSymbolId = Cardinal;
   TSemanticWithId = Cardinal;
   TSemanticReferenceId = Cardinal;
+
+  // Immutable lineage metadata; returned by value, with no shared mutable bytes.
+  TSemanticTargetKey = packed record
+    Available: Boolean;
+    Digest: array[0..31] of Byte;
+  end;
+
+
+  TSemanticPhysicalReferenceOccurrence = record
+    NameId: TSemanticStringId;
+    RoleId: TSemanticStringId;
+    RoutineNameId: TSemanticStringId;
+    RoutineScopeId: TSemanticStringId;
+    FileId: TSemanticStringId;
+    ExpansionId: TSemanticStringId;
+    OutputStartOffset: Integer;
+    OutputEndOffset: Integer;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    Verified: Boolean;
+  end;
+
+  TSemanticPhysicalSymbolOccurrence = record
+    FactKindId: TSemanticStringId;
+    NameId: TSemanticStringId;
+    KindId: TSemanticStringId;
+    OwnerNameId: TSemanticStringId;
+    OwnerScopeId: TSemanticStringId;
+    SemanticSymbolId: TSemanticStringId;
+    OwnerSymbolId: TSemanticStringId;
+    RoutineNameId: TSemanticStringId;
+    RoutineScopeId: TSemanticStringId;
+    SectionKindId: TSemanticStringId;
+    FileId: TSemanticStringId;
+    ExpansionId: TSemanticStringId;
+    FactIndex: Integer;
+    ParentFactIndex: Integer;
+    SnapshotSymbolId: TSemanticSymbolId;
+    ProjectionStatus: Integer;
+    OutputStartOffset: Integer;
+    OutputEndOffset: Integer;
+    Line: Integer;
+    Column: Integer;
+    EndLine: Integer;
+    EndColumn: Integer;
+    Verified: Boolean;
+  end;
+
+  TSemanticCapturedSourceFact = record
+    FileId: TSemanticStringId;
+    TextId: TSemanticStringId;
+    Status: Integer;
+  end;
 
   TSemanticSymbolRef = record
     UnitId: TSemanticUnitId;
@@ -126,6 +192,20 @@ type
     fSourceTextId: TSemanticStringId;
     fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
+    fHasIncludes: Boolean;
+    fPhysicalReferenceOccurrences: TArray<TSemanticPhysicalReferenceOccurrence>;
+    fPhysicalReferenceOccurrencesAvailable: Boolean;
+    fPhysicalSymbolOccurrences: TArray<TSemanticPhysicalSymbolOccurrence>;
+    fPhysicalSymbolOccurrencesAvailable: Boolean;
+    fCapturedSources: TArray<TSemanticCapturedSourceFact>;
+    fCapturedSourcesAvailable: Boolean;
+    fVisibleUnitNameIds: TArray<TSemanticStringId>;
+    fVisibleUnitNamesAvailable: Boolean;
+    fOrderedTargetFingerprint: string;
+    fTargetMetadataDeferred: Boolean;
+    fTargetStrings: TSemanticStringPool;
+    fTargetSymbolKeyReady: TBytes;
+    fTargetSymbolKeys: TArray<TSemanticTargetKey>;
     fUnitId: TSemanticUnitId;
     fUnitNameId: TSemanticStringId;
     fWithBySourceLine: TSortedList<Integer, TSemanticWithId>;
@@ -133,9 +213,15 @@ type
     function GetImportFacts: TArray<TDelphiSemanticImportFact>;
     function GetReferenceCount: Integer;
     function GetPossibleUnitImportCount: Integer;
+    function GetPhysicalReferenceOccurrenceCount: Integer;
+    function GetPhysicalSymbolOccurrenceCount: Integer;
+    function GetCapturedSourceCount: Integer;
+    function GetVisibleUnitNameCount: Integer;
     function GetSymbolCount: Integer;
     function GetWithStatementCount: Integer;
     procedure CheckMutable;
+    procedure BuildTargetMetadata(const aStrings: TSemanticStringPool; const aDefer: Boolean);
+    function GetOrderedTargetFingerprint: string;
     procedure Freeze;
   public
     constructor Create(const aUnitId: TSemanticUnitId); overload;
@@ -154,6 +240,18 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    procedure SetHasIncludes(const aValue: Boolean);
+    function PhysicalReferenceOccurrenceByIndex(const aIndex: Integer): TSemanticPhysicalReferenceOccurrence;
+    procedure SetPhysicalReferenceOccurrences(const aItems: TArray<TSemanticPhysicalReferenceOccurrence>; const aAvailable: Boolean);
+    function PhysicalSymbolOccurrenceByIndex(const aIndex: Integer): TSemanticPhysicalSymbolOccurrence;
+    procedure SetPhysicalSymbolOccurrences(const aItems: TArray<TSemanticPhysicalSymbolOccurrence>; const aAvailable: Boolean);
+    function CapturedSourceByIndex(const aIndex: Integer): TSemanticCapturedSourceFact;
+    procedure SetCapturedSources(const aItems: TArray<TSemanticCapturedSourceFact>; const aAvailable: Boolean);
+    function VisibleUnitNameByIndex(const aIndex: Integer): TSemanticStringId;
+    procedure SetVisibleUnitNameIds(const aItems: TArray<TSemanticStringId>; const aAvailable: Boolean);
+    function TryFindCapturedSource(const aFileId: TSemanticStringId;
+      out aSource: TSemanticCapturedSourceFact): Boolean;
+    function TargetSymbolKeyById(const id: TSemanticSymbolId): TSemanticTargetKey;
     procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
@@ -167,6 +265,16 @@ type
     function WithStatementById(const aId: TSemanticWithId): TSemanticWithStatementFact;
     property FileNameId: TSemanticStringId read fFileNameId;
     property PossibleUnitImportCount: Integer read GetPossibleUnitImportCount;
+    property HasIncludes: Boolean read fHasIncludes;
+    property PhysicalReferenceOccurrenceCount: Integer read GetPhysicalReferenceOccurrenceCount;
+    property PhysicalReferenceOccurrencesAvailable: Boolean read fPhysicalReferenceOccurrencesAvailable;
+    property PhysicalSymbolOccurrenceCount: Integer read GetPhysicalSymbolOccurrenceCount;
+    property PhysicalSymbolOccurrencesAvailable: Boolean read fPhysicalSymbolOccurrencesAvailable;
+    property CapturedSourceCount: Integer read GetCapturedSourceCount;
+    property CapturedSourcesAvailable: Boolean read fCapturedSourcesAvailable;
+    property VisibleUnitNameCount: Integer read GetVisibleUnitNameCount;
+    property VisibleUnitNamesAvailable: Boolean read fVisibleUnitNamesAvailable;
+    property OrderedTargetFingerprint: string read GetOrderedTargetFingerprint;
     property ReferenceCount: Integer read GetReferenceCount;
     property RejectedDeclarationCount: Integer read fRejectedDeclarationCount;
     property ScopeDiagnosticId: TSemanticStringId read fScopeDiagnosticId;
@@ -189,6 +297,7 @@ type
 
   TDelphiProjectSnapshotBuilder = class
   private
+    fDeferTargetMetadata: Boolean;
     fExactStrings: TSemanticStringPool;
     fExtensions: TObjectDictionary<string, TObject>;
     fStrings: TSemanticStringPool;
@@ -200,6 +309,8 @@ type
     procedure AddUnit(const aUnit: TUnitSnapshot);
     function Build: TDelphiProjectSnapshot;
     procedure SetExtensionOwned(const aName: string; const aExtension: TObject);
+    // Defers derived identity metadata only; storage evidence is validated before publication.
+    property DeferTargetMetadata: Boolean read fDeferTargetMetadata write fDeferTargetMetadata;
     property ExactStrings: TSemanticStringPool read fExactStrings;
     property Strings: TSemanticStringPool read fStrings;
     property UnitCount: Integer read GetUnitCount;
@@ -208,6 +319,7 @@ type
   TDelphiProjectSnapshot = class
   private
     fExactStrings: TSemanticStringPool;
+    fCapturedSourceView: TObject;
     fExtensions: TObjectDictionary<string, TObject>;
     fMemberCandidatesByOwnerAndName: TSortedList<UInt64, TSemanticSymbolRef>;
     fMembersByOwnerAndName: TDictionary<UInt64, TSemanticSymbolRef>;
@@ -229,13 +341,15 @@ type
       out aUnitId: TSemanticUnitId): Boolean;
     constructor Create(const aStrings, aExactStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>;
-      var aExtensions: TObjectDictionary<string, TObject>);
-    procedure FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
+      var aExtensions: TObjectDictionary<string, TObject>; const aDeferTargetMetadata: Boolean);
+    procedure FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>;
+      const aStrings: TSemanticStringPool; const aDeferTargetMetadata: Boolean);
     function GetUnitCount: Integer;
     procedure BuildIndexes(const aStrings: TSemanticStringPool;
       const aUnits: TObjectList<TUnitSnapshot>);
   public
     destructor Destroy; override;
+    function TryCapturedSourceConflict(const aFileId: TSemanticStringId; out aReason: string): Boolean;
     function ExactTextOf(const aId: TSemanticStringId): string;
     function MemberRefByOwnerAndNameIndex(const aIndex: Integer): TSemanticSymbolRef;
     function ReferenceRefByNameIndex(const aIndex: Integer): TSemanticReferenceRef;
@@ -278,12 +392,132 @@ function MemberKey(const aOwnerTypeId, aNameId: Cardinal): UInt64; inline;
 function BorrowProjectSnapshot(const aSnapshot: TDelphiProjectSnapshot):
   IDelphiProjectSnapshotRef;
 function SnapshotPublicSymbolKind(const aKind: string): string;
+function SnapshotStoredSymbolKind(const aKind: string): string;
 
 implementation
 
 uses
-  System.Generics.Defaults, System.SysUtils,
-  MaxLogic.StrUtils;
+  System.Generics.Defaults,
+  MaxLogic.StrUtils,
+  DelphiSemantics.Snapshot.TargetIdentity;
+
+type
+  TCapturedSourceRowRef = record
+    UnitSnapshot: TUnitSnapshot;
+    SourceIndex: Integer;
+  end;
+
+  TCapturedSourceGroup = class
+    Rows: TList<TCapturedSourceRowRef>;
+    ConflictReason: string;
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  TCapturedSourceConsistencyView = class
+    Groups: TObjectDictionary<TSemanticStringId, TCapturedSourceGroup>;
+    constructor Create(const aStrings: TSemanticStringPool; const aUnits: TObjectList<TUnitSnapshot>);
+    destructor Destroy; override;
+  end;
+
+constructor TCapturedSourceGroup.Create;
+begin
+  inherited Create;
+  Rows := TList<TCapturedSourceRowRef>.Create;
+end;
+
+destructor TCapturedSourceGroup.Destroy;
+begin
+  Rows.Free;
+  inherited;
+end;
+
+function CapturedConflictReason(const aStrings: TSemanticStringPool;
+  const aFileId: TSemanticStringId; const aGroup: TCapturedSourceGroup): string;
+var
+  lByText: TObjectDictionary<Cardinal, TList<string>>;
+  lNames: TList<string>;
+  lGroups: TList<string>;
+  lRow: TCapturedSourceRowRef;
+  lTextId: Cardinal;
+begin
+  Result := '';
+  lByText := TObjectDictionary<Cardinal, TList<string>>.Create([doOwnsValues]);
+  lGroups := TList<string>.Create;
+  try
+    for lRow in aGroup.Rows do
+    begin
+      lTextId := lRow.UnitSnapshot.CapturedSourceByIndex(lRow.SourceIndex).TextId;
+      if not lByText.TryGetValue(lTextId, lNames) then
+      begin
+        lNames := TList<string>.Create;
+        lByText.Add(lTextId, lNames);
+      end;
+      lNames.Add(LowerCase(aStrings.TextOf(lRow.UnitSnapshot.FileNameId)));
+    end;
+    if lByText.Count < 2 then
+      Exit;
+    for lNames in lByText.Values do
+    begin
+      lNames.Sort(TStringComparer.Ordinal);
+      lGroups.Add('{' + string.Join(', ', lNames.ToArray) + '}');
+    end;
+    lGroups.Sort(TStringComparer.Ordinal);
+    Result := 'GLOBAL_SOURCE_CAPTURE_CONFLICT: ' + LowerCase(aStrings.TextOf(aFileId)) +
+      ' ' + string.Join(' versus ', lGroups.ToArray);
+  finally
+    lGroups.Free;
+    lByText.Free;
+  end;
+end;
+
+constructor TCapturedSourceConsistencyView.Create(const aStrings: TSemanticStringPool;
+  const aUnits: TObjectList<TUnitSnapshot>);
+var
+  i: Integer;
+  lUnit: TUnitSnapshot;
+  lSource: TSemanticCapturedSourceFact;
+  lRow: TCapturedSourceRowRef;
+  lGroup: TCapturedSourceGroup;
+  lPair: TPair<TSemanticStringId, TCapturedSourceGroup>;
+  lFirstText: TSemanticStringId;
+begin
+  inherited Create;
+  Groups := TObjectDictionary<TSemanticStringId, TCapturedSourceGroup>.Create([doOwnsValues]);
+  for lUnit in aUnits do
+    if lUnit.CapturedSourcesAvailable then
+      for i := 0 to lUnit.CapturedSourceCount - 1 do
+      begin
+        lSource := lUnit.CapturedSourceByIndex(i);
+        if (lSource.Status <> cCapturedSourceText) and (lSource.Status <> cCapturedSourceEmpty) then
+          Continue;
+        if not Groups.TryGetValue(lSource.FileId, lGroup) then
+        begin
+          lGroup := TCapturedSourceGroup.Create;
+          Groups.Add(lSource.FileId, lGroup);
+        end;
+        lRow.UnitSnapshot := lUnit;
+        lRow.SourceIndex := i;
+        lGroup.Rows.Add(lRow);
+      end;
+  for lPair in Groups do
+  begin
+    lGroup := lPair.Value;
+    lFirstText := lGroup.Rows[0].UnitSnapshot.CapturedSourceByIndex(lGroup.Rows[0].SourceIndex).TextId;
+    for lRow in lGroup.Rows do
+      if lRow.UnitSnapshot.CapturedSourceByIndex(lRow.SourceIndex).TextId <> lFirstText then
+      begin
+        lGroup.ConflictReason := CapturedConflictReason(aStrings, lPair.Key, lGroup);
+        Break;
+      end;
+  end;
+end;
+
+destructor TCapturedSourceConsistencyView.Destroy;
+begin
+  Groups.Free;
+  inherited;
+end;
 
 const
   cSemanticSymbolKindAlias = 'alias';
@@ -320,6 +554,13 @@ end;
 function MemberKey(const aOwnerTypeId, aNameId: Cardinal): UInt64;
 begin
   Result := (UInt64(aOwnerTypeId) shl 32) or UInt64(aNameId);
+end;
+
+function SnapshotStoredSymbolKind(const aKind: string): string;
+begin
+  if SameText(aKind, 'type-alias') then
+    Exit(cSemanticSymbolKindAlias);
+  Result := aKind;
 end;
 
 function SnapshotPublicSymbolKind(const aKind: string): string;
@@ -659,6 +900,152 @@ begin
   Result := fReferences.Count;
 end;
 
+procedure TUnitSnapshot.SetHasIncludes(const aValue: Boolean);
+begin
+  CheckMutable;
+  fHasIncludes := aValue;
+end;
+
+function TUnitSnapshot.GetPhysicalReferenceOccurrenceCount: Integer;
+begin
+  Result := Length(fPhysicalReferenceOccurrences);
+end;
+
+function TUnitSnapshot.PhysicalReferenceOccurrenceByIndex(const aIndex: Integer): TSemanticPhysicalReferenceOccurrence;
+begin
+  Result := fPhysicalReferenceOccurrences[aIndex];
+end;
+
+procedure TUnitSnapshot.SetPhysicalReferenceOccurrences(const aItems: TArray<TSemanticPhysicalReferenceOccurrence>; const aAvailable: Boolean);
+begin
+  CheckMutable;
+  fPhysicalReferenceOccurrences := Copy(aItems);
+  fPhysicalReferenceOccurrencesAvailable := aAvailable;
+end;
+
+function TUnitSnapshot.GetPhysicalSymbolOccurrenceCount: Integer;
+begin
+  Result := Length(fPhysicalSymbolOccurrences);
+end;
+
+function TUnitSnapshot.PhysicalSymbolOccurrenceByIndex(const aIndex: Integer): TSemanticPhysicalSymbolOccurrence;
+begin
+  Result := fPhysicalSymbolOccurrences[aIndex];
+end;
+
+procedure TUnitSnapshot.SetPhysicalSymbolOccurrences(const aItems: TArray<TSemanticPhysicalSymbolOccurrence>; const aAvailable: Boolean);
+begin
+  CheckMutable;
+  fPhysicalSymbolOccurrences := Copy(aItems);
+  fPhysicalSymbolOccurrencesAvailable := aAvailable;
+end;
+
+function TUnitSnapshot.GetCapturedSourceCount: Integer;
+begin
+  Result := Length(fCapturedSources);
+end;
+
+function TUnitSnapshot.CapturedSourceByIndex(const aIndex: Integer): TSemanticCapturedSourceFact;
+begin
+  Result := fCapturedSources[aIndex];
+end;
+
+procedure TUnitSnapshot.SetCapturedSources(const aItems: TArray<TSemanticCapturedSourceFact>; const aAvailable: Boolean);
+begin
+  CheckMutable;
+  fCapturedSources := Copy(aItems);
+  fCapturedSourcesAvailable := aAvailable;
+end;
+
+function TUnitSnapshot.GetVisibleUnitNameCount: Integer;
+begin
+  Result := Length(fVisibleUnitNameIds);
+end;
+
+function TUnitSnapshot.VisibleUnitNameByIndex(const aIndex: Integer): TSemanticStringId;
+begin
+  Result := fVisibleUnitNameIds[aIndex];
+end;
+
+procedure TUnitSnapshot.SetVisibleUnitNameIds(const aItems: TArray<TSemanticStringId>; const aAvailable: Boolean);
+begin
+  CheckMutable;
+  fVisibleUnitNameIds := Copy(aItems);
+  fVisibleUnitNamesAvailable := aAvailable;
+end;
+
+function TUnitSnapshot.TryFindCapturedSource(const aFileId: TSemanticStringId;
+  out aSource: TSemanticCapturedSourceFact): Boolean;
+var
+  lSource: TSemanticCapturedSourceFact;
+begin
+  aSource := Default(TSemanticCapturedSourceFact);
+  for lSource in fCapturedSources do
+    if lSource.FileId = aFileId then
+    begin
+      aSource := lSource;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TUnitSnapshot.BuildTargetMetadata(const aStrings: TSemanticStringPool;
+  const aDefer: Boolean);
+var
+  i: Integer;
+begin
+  CheckMutable;
+  // The owning project keeps this frozen pool alive until after its units die.
+  fTargetStrings := aStrings;
+  fTargetMetadataDeferred := aDefer;
+  if aDefer then
+    Exit;
+  fOrderedTargetFingerprint := CalculateOrderedTargetFingerprint(aStrings, Self);
+  SetLength(fTargetSymbolKeys, SymbolCount);
+  for i := 0 to SymbolCount - 1 do
+    fTargetSymbolKeys[i] := CalculateStableTargetSymbolKey(aStrings, SymbolById(i + 1));
+end;
+
+function TUnitSnapshot.GetOrderedTargetFingerprint: string;
+begin
+  if not fTargetMetadataDeferred then
+    Exit(fOrderedTargetFingerprint);
+  TMonitor.Enter(Self);
+  try
+    if fOrderedTargetFingerprint = '' then
+      fOrderedTargetFingerprint := CalculateOrderedTargetFingerprint(fTargetStrings, Self);
+    Result := fOrderedTargetFingerprint;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
+function TUnitSnapshot.TargetSymbolKeyById(const id: TSemanticSymbolId): TSemanticTargetKey;
+begin
+  if (id = 0) or (id > Cardinal(SymbolCount)) or (fTargetStrings = nil) then
+    raise EArgumentOutOfRangeException.Create('Snapshot target symbol ID is outside frozen metadata.');
+  if not fTargetMetadataDeferred then
+    Exit(fTargetSymbolKeys[id - 1]);
+  // This memo only derives values from immutable, already validated facts. It
+  // never validates a cache lazily or publishes an unchecked target association.
+  TMonitor.Enter(Self);
+  try
+    if Length(fTargetSymbolKeyReady) = 0 then
+    begin
+      SetLength(fTargetSymbolKeys, SymbolCount);
+      SetLength(fTargetSymbolKeyReady, SymbolCount);
+    end;
+    if fTargetSymbolKeyReady[id - 1] = 0 then
+    begin
+      fTargetSymbolKeys[id - 1] := CalculateStableTargetSymbolKey(fTargetStrings, SymbolById(id));
+      fTargetSymbolKeyReady[id - 1] := 1;
+    end;
+    Result := fTargetSymbolKeys[id - 1];
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
 procedure TUnitSnapshot.Freeze;
 begin
   fFrozen := True;
@@ -810,7 +1197,12 @@ begin
 end;
 
 procedure TDelphiProjectSnapshotBuilder.AddUnit(const aUnit: TUnitSnapshot);
+var
+  lUnit: TUnitSnapshot;
 begin
+  for lUnit in fUnits do
+    if lUnit.UnitId = aUnit.UnitId then
+      raise EInvalidOpException.Create('Duplicate snapshot unit ID.');
   fUnits.Add(aUnit);
 end;
 
@@ -831,7 +1223,7 @@ begin
         lNewUnits := TObjectList<TUnitSnapshot>.Create(True);
         try
           Result := TDelphiProjectSnapshot.Create(fStrings, fExactStrings, fUnits,
-            fExtensions);
+            fExtensions, fDeferTargetMetadata);
           fStrings := lNewStrings;
           fExactStrings := lNewExactStrings;
           fUnits := lNewUnits;
@@ -878,55 +1270,41 @@ end;
 constructor TDelphiProjectSnapshot.Create(const aStrings,
   aExactStrings: TSemanticStringPool;
   const aUnits: TObjectList<TUnitSnapshot>;
-  var aExtensions: TObjectDictionary<string, TObject>);
+  var aExtensions: TObjectDictionary<string, TObject>; const aDeferTargetMetadata: Boolean);
 begin
   inherited Create;
-  try
-    if aExtensions <> nil then
-    begin
-      fExtensions := aExtensions;
-      aExtensions := nil;
-    end else begin
-      fExtensions := TObjectDictionary<string, TObject>.Create([doOwnsValues],
-        TFastCaseAwareComparer.Ordinal);
-    end;
-    fUnitsById := TDictionary<TSemanticUnitId, TUnitSnapshot>.Create;
-    fUnitByFileName := TDictionary<string, TSemanticUnitId>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fMembersByOwnerAndName := TDictionary<UInt64, TSemanticSymbolRef>.Create;
-    fMemberCandidatesByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
-    fReferencesByFileAndLine := TSortedList<UInt64, TSemanticReferenceRef>.Create;
-    fReferencesByName := TSortedList<TSemanticStringId, TSemanticReferenceRef>.Create;
-    fReferencesBySymbol := TSortedList<UInt64, TSemanticReferenceRef>.Create;
-    fRoutineMethodEquivalentsByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
-    fSymbolsByFileAndLine := TSortedList<UInt64, TSemanticSymbolRef>.Create;
-    fSymbolsByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
-    fTypesByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
-    BuildIndexes(aStrings, aUnits);
-    aStrings.Freeze;
-    aExactStrings.Freeze;
-    FreezeUnits(aUnits);
-    fStrings := aStrings;
-    fExactStrings := aExactStrings;
-    fUnits := aUnits;
-  except
-    fTypesByName.Free;
-    fSymbolsByName.Free;
-    fSymbolsByFileAndLine.Free;
-    fReferencesBySymbol.Free;
-    fReferencesByName.Free;
-    fReferencesByFileAndLine.Free;
-    fRoutineMethodEquivalentsByOwnerAndName.Free;
-    fMemberCandidatesByOwnerAndName.Free;
-    fMembersByOwnerAndName.Free;
-    fUnitByFileName.Free;
-    fUnitsById.Free;
-    fExtensions.Free;
-    raise;
+  fUnitsById := TDictionary<TSemanticUnitId, TUnitSnapshot>.Create;
+  fUnitByFileName := TDictionary<string, TSemanticUnitId>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fMembersByOwnerAndName := TDictionary<UInt64, TSemanticSymbolRef>.Create;
+  fMemberCandidatesByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
+  fReferencesByFileAndLine := TSortedList<UInt64, TSemanticReferenceRef>.Create;
+  fReferencesByName := TSortedList<TSemanticStringId, TSemanticReferenceRef>.Create;
+  fReferencesBySymbol := TSortedList<UInt64, TSemanticReferenceRef>.Create;
+  fRoutineMethodEquivalentsByOwnerAndName := TSortedList<UInt64, TSemanticSymbolRef>.Create;
+  fSymbolsByFileAndLine := TSortedList<UInt64, TSemanticSymbolRef>.Create;
+  fSymbolsByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
+  fTypesByName := TSortedList<TSemanticStringId, TSemanticSymbolRef>.Create;
+  BuildIndexes(aStrings, aUnits);
+  fCapturedSourceView := TCapturedSourceConsistencyView.Create(aStrings, aUnits);
+  aStrings.Freeze;
+  aExactStrings.Freeze;
+  FreezeUnits(aUnits, aStrings, aDeferTargetMetadata);
+  if aExtensions <> nil then
+  begin
+    fExtensions := aExtensions;
+    aExtensions := nil;
+  end else begin
+    fExtensions := TObjectDictionary<string, TObject>.Create([doOwnsValues],
+      TFastCaseAwareComparer.Ordinal);
   end;
+  fStrings := aStrings;
+  fExactStrings := aExactStrings;
+  fUnits := aUnits;
 end;
 
 destructor TDelphiProjectSnapshot.Destroy;
 begin
+  fCapturedSourceView.Free;
   fTypesByName.Free;
   fSymbolsByName.Free;
   fSymbolsByFileAndLine.Free;
@@ -943,6 +1321,20 @@ begin
   fExactStrings.Free;
   fStrings.Free;
   inherited;
+end;
+
+function TDelphiProjectSnapshot.TryCapturedSourceConflict(const aFileId: TSemanticStringId;
+  out aReason: string): Boolean;
+var
+  lGroup: TCapturedSourceGroup;
+begin
+  aReason := '';
+  Result := TCapturedSourceConsistencyView(fCapturedSourceView).Groups.TryGetValue(aFileId, lGroup);
+  if Result then
+  begin
+    aReason := lGroup.ConflictReason;
+    Result := aReason <> '';
+  end;
 end;
 
 function TDelphiProjectSnapshot.ExactTextOf(const aId: TSemanticStringId): string;
@@ -1056,12 +1448,14 @@ begin
   fTypesByName.sort;
 end;
 
-procedure TDelphiProjectSnapshot.FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>);
+procedure TDelphiProjectSnapshot.FreezeUnits(const aUnits: TObjectList<TUnitSnapshot>;
+  const aStrings: TSemanticStringPool; const aDeferTargetMetadata: Boolean);
 var
   i: Integer;
 begin
   for i := 0 to aUnits.Count - 1 do
   begin
+    aUnits[i].BuildTargetMetadata(aStrings, aDeferTargetMetadata);
     aUnits[i].Freeze;
   end;
 end;

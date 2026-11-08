@@ -96,7 +96,8 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.Model.Text, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
+  DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Text,
+  DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.Snapshot.QuerySupport,
   DelphiSemantics.Source;
 
 function MakeNotFound(const aName: string): TDelphiSemanticSymbolQueryResult;
@@ -116,98 +117,159 @@ begin
     Result := aName;
 end;
 
-function DeclarationResult(const aModel: TDelphiSemanticUnitModel;
-  const aDeclaration: TDelphiSemanticDeclaration; const aSourceKind: string):
-  TDelphiSemanticSymbolQueryResult;
+procedure ClearUnknownPosition(var aResult: TDelphiSemanticSymbolQueryResult);
 begin
+  aResult.Line := 0;
+  aResult.Column := 0;
+  aResult.EndLine := 0;
+  aResult.EndColumn := 0;
+end;
+
+procedure ApplyModelSymbolOrigin(const aModel: TDelphiSemanticUnitModel;
+  const aFactKind: string; const aFactIndex: Integer;
+  var aResult: TDelphiSemanticSymbolQueryResult);
+var
+  lOccurrence, lFound: TDelphiSemanticPhysicalSymbolOccurrence;
+  lCount: Integer;
+begin
+  // A fact explicitly marked unknown must not acquire coordinates from another generation.
+  if not SourcePositionKnown(aResult.Line, aResult.Column) then
+  begin
+    ClearUnknownPosition(aResult);
+    Exit;
+  end;
+  if Length(aModel.IncludeFileNames) = 0 then
+    Exit;
+  lCount := 0;
+  lFound := Default(TDelphiSemanticPhysicalSymbolOccurrence);
+  if aModel.PhysicalSymbolOccurrencesAvailable then
+    for lOccurrence in aModel.PhysicalSymbolOccurrences do
+      if (lOccurrence.FactKind = aFactKind) and (lOccurrence.FactIndex = aFactIndex) and
+        (lOccurrence.ParentFactIndex = -1) then
+      begin
+        Inc(lCount);
+        lFound := lOccurrence;
+      end;
+  if (lCount = 1) and lFound.Verified and PhysicalSymbolFactMatches(lFound, aModel) and
+    SourcePositionKnown(lFound.Line, lFound.Column) then
+  begin
+    aResult.FileName := FactSourceFileName(aModel.FileName, lFound.FileName);
+    aResult.Line := lFound.Line;
+    aResult.Column := lFound.Column;
+    aResult.EndLine := lFound.EndLine;
+    aResult.EndColumn := lFound.EndColumn;
+  end else
+    ClearUnknownPosition(aResult);
+end;
+
+function DeclarationResult(const aModel: TDelphiSemanticUnitModel;
+  const aFactIndex: Integer; const aSourceKind: string):
+  TDelphiSemanticSymbolQueryResult;
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  lDeclaration := aModel.Declarations[aFactIndex];
   Result := Default(TDelphiSemanticSymbolQueryResult);
   Result.Found := True;
   Result.Status := 'resolved';
-  Result.Name := aDeclaration.Name;
-  Result.Kind := aDeclaration.Kind;
-  Result.TypeName := aDeclaration.TypeName;
+  Result.Name := lDeclaration.Name;
+  Result.Kind := lDeclaration.Kind;
+  Result.TypeName := lDeclaration.TypeName;
   Result.OwnerName := aModel.UnitName;
   Result.UnitName := aModel.UnitName;
-  Result.SectionKind := aDeclaration.SectionKind;
-  Result.Description := MakeDescription(aDeclaration.Name, aDeclaration.TypeName);
+  Result.SectionKind := lDeclaration.SectionKind;
+  Result.Description := MakeDescription(lDeclaration.Name, lDeclaration.TypeName);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'declaration-name-match';
   Result.Provenance := 'semantic-model';
-  Result.FileName := aModel.FileName;
-  Result.Line := aDeclaration.Line;
-  Result.Column := aDeclaration.Column;
-  Result.EndLine := aDeclaration.Line;
-  Result.EndColumn := aDeclaration.Column + Length(aDeclaration.Name) - 1;
+  Result.FileName := FactSourceFileName(aModel.FileName, lDeclaration.FileName);
+  Result.Line := lDeclaration.Line;
+  Result.Column := lDeclaration.Column;
+  Result.EndLine := lDeclaration.Line;
+  Result.EndColumn := lDeclaration.Column + Length(lDeclaration.Name) - 1;
+  ApplyModelSymbolOrigin(aModel, 'declaration', aFactIndex, Result);
 end;
 
-function MemberResult(const aModel: TDelphiSemanticUnitModel; const aMember: TDelphiSemanticMember;
+function MemberResult(const aModel: TDelphiSemanticUnitModel; const aFactIndex: Integer;
   const aSourceKind: string): TDelphiSemanticSymbolQueryResult;
+var
+  lMember: TDelphiSemanticMember;
 begin
+  lMember := aModel.Members[aFactIndex];
   Result := Default(TDelphiSemanticSymbolQueryResult);
   Result.Found := True;
   Result.Status := 'resolved';
-  Result.Name := aMember.Name;
-  Result.Kind := aMember.Kind;
-  Result.TypeName := aMember.TypeName;
-  Result.OwnerName := aMember.OwnerName;
+  Result.Name := lMember.Name;
+  Result.Kind := lMember.Kind;
+  Result.TypeName := lMember.TypeName;
+  Result.OwnerName := lMember.OwnerName;
   Result.UnitName := aModel.UnitName;
-  Result.Description := MakeDescription(aMember.Name, aMember.TypeName);
+  Result.Description := MakeDescription(lMember.Name, lMember.TypeName);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'member-name-match';
   Result.Provenance := 'semantic-model';
-  Result.Signature := aMember.Signature;
-  Result.FileName := aModel.FileName;
-  Result.Line := aMember.Line;
-  Result.Column := aMember.Column;
-  Result.EndLine := aMember.Line;
-  Result.EndColumn := aMember.Column + Length(aMember.Name) - 1;
+  Result.Signature := lMember.Signature;
+  Result.FileName := FactSourceFileName(aModel.FileName, lMember.FileName);
+  Result.Line := lMember.Line;
+  Result.Column := lMember.Column;
+  Result.EndLine := lMember.Line;
+  Result.EndColumn := lMember.Column + Length(lMember.Name) - 1;
+  ApplyModelSymbolOrigin(aModel, 'member', aFactIndex, Result);
 end;
 
 function RoutineResult(const aModel: TDelphiSemanticUnitModel;
-  const aRoutine: TDelphiSemanticRoutine; const aSourceKind: string):
+  const aFactIndex: Integer; const aSourceKind: string):
   TDelphiSemanticSymbolQueryResult;
+var
+  lRoutine: TDelphiSemanticRoutine;
 begin
+  lRoutine := aModel.Routines[aFactIndex];
   Result := Default(TDelphiSemanticSymbolQueryResult);
   Result.Found := True;
   Result.Status := 'resolved';
-  Result.Name := aRoutine.Name;
+  Result.Name := lRoutine.Name;
   Result.Kind := 'routine';
-  Result.TypeName := aRoutine.ReturnType;
-  Result.OwnerName := aRoutine.OwnerName;
+  Result.TypeName := lRoutine.ReturnType;
+  Result.OwnerName := lRoutine.OwnerName;
   Result.UnitName := aModel.UnitName;
-  Result.SectionKind := aRoutine.SectionKind;
-  Result.Description := MakeDescription(aRoutine.Name, aRoutine.ReturnType);
+  Result.SectionKind := lRoutine.SectionKind;
+  Result.Description := MakeDescription(lRoutine.Name, lRoutine.ReturnType);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'routine-name-match';
   Result.Provenance := 'semantic-model';
-  Result.Signature := aRoutine.Signature;
-  Result.FileName := aModel.FileName;
-  Result.Line := aRoutine.Line;
-  Result.Column := aRoutine.Column;
-  Result.EndLine := aRoutine.Line;
-  Result.EndColumn := aRoutine.Column + Length(aRoutine.Name) - 1;
+  Result.Signature := lRoutine.Signature;
+  Result.FileName := FactSourceFileName(aModel.FileName, lRoutine.FileName);
+  Result.Line := lRoutine.Line;
+  Result.Column := lRoutine.Column;
+  Result.EndLine := lRoutine.Line;
+  Result.EndColumn := lRoutine.Column + Length(lRoutine.Name) - 1;
+  ApplyModelSymbolOrigin(aModel, 'routine', aFactIndex, Result);
 end;
 
-function LocalResult(const aModel: TDelphiSemanticUnitModel; const aLocal: TDelphiSemanticLocal;
+function LocalResult(const aModel: TDelphiSemanticUnitModel; const aFactIndex: Integer;
   const aSourceKind: string): TDelphiSemanticSymbolQueryResult;
+var
+  lLocal: TDelphiSemanticLocal;
 begin
+  lLocal := aModel.Locals[aFactIndex];
   Result := Default(TDelphiSemanticSymbolQueryResult);
   Result.Found := True;
   Result.Status := 'resolved';
-  Result.Name := aLocal.Name;
-  Result.Kind := aLocal.Kind;
-  Result.TypeName := aLocal.TypeName;
-  Result.OwnerName := aLocal.RoutineName;
+  Result.Name := lLocal.Name;
+  Result.Kind := lLocal.Kind;
+  Result.TypeName := lLocal.TypeName;
+  Result.OwnerName := lLocal.RoutineName;
   Result.UnitName := aModel.UnitName;
-  Result.Description := MakeDescription(aLocal.Name, aLocal.TypeName);
+  Result.Description := MakeDescription(lLocal.Name, lLocal.TypeName);
   Result.SourceKind := aSourceKind;
   Result.Confidence := 'local-name-match';
   Result.Provenance := 'semantic-model';
-  Result.FileName := aModel.FileName;
-  Result.Line := aLocal.Line;
-  Result.Column := aLocal.Column;
-  Result.EndLine := aLocal.Line;
-  Result.EndColumn := aLocal.Column + Length(aLocal.Name) - 1;
+  Result.FileName := FactSourceFileName(aModel.FileName, lLocal.FileName);
+  Result.Line := lLocal.Line;
+  Result.Column := lLocal.Column;
+  Result.EndLine := lLocal.Line;
+  Result.EndColumn := lLocal.Column + Length(lLocal.Name) - 1;
+  ApplyModelSymbolOrigin(aModel, 'local', aFactIndex, Result);
 end;
 
 function IntrinsicResult(const aSymbol: TDelphiSemanticIntrinsicSymbol):
@@ -271,11 +333,13 @@ begin
   Result.Confidence := aConfidence;
   Result.Provenance := 'project-snapshot';
   Result.Signature := SnapshotText(aSnapshot, aSymbol.SignatureId);
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.FileName := SnapshotFactFileName(aSnapshot, aUnit, aSymbol.FileId);
   Result.Line := aSymbol.Line;
   Result.Column := aSymbol.Column;
   Result.EndLine := SnapshotEndLine(aSymbol.Line, aSymbol.EndLine);
   Result.EndColumn := SnapshotEndColumn(aSymbol.Column, Result.Name, aSymbol.EndColumn);
+  ApplySnapshotSymbolOrigin(aSnapshot, aUnit, aSymbol, Result.FileName, Result.Line,
+    Result.Column, Result.EndLine, Result.EndColumn);
 end;
 
 function SnapshotReferenceResult(const aSnapshot: TDelphiProjectSnapshot;
@@ -295,11 +359,18 @@ begin
   Result.SectionKind := SnapshotText(aSnapshot, aReference.SectionKindId);
   if Result.SectionKind = '' then
     Result.SectionKind := 'implementation';
-  Result.FileName := SnapshotText(aSnapshot, aUnit.FileNameId);
+  Result.FileName := SnapshotFactFileName(aSnapshot, aUnit, aReference.FileId);
   Result.Line := aReference.Line;
   Result.Column := aReference.Column;
   Result.EndLine := SnapshotEndLine(aReference.Line, aReference.EndLine);
   Result.EndColumn := SnapshotEndColumn(aReference.Column, Result.Name, aReference.EndColumn);
+  if not SourcePositionKnown(aReference.Line, aReference.Column) then
+  begin
+    Result.Line := 0;
+    Result.Column := 0;
+    Result.EndLine := 0;
+    Result.EndColumn := 0;
+  end;
 end;
 
 function TryExtractIdentifierAtColumn(const aLineText: string; const aColumn: Integer;
@@ -336,32 +407,6 @@ begin
   Result := aToken <> '';
 end;
 
-function TryReadLine(const aFileName: string; const aLine: Integer; out aLineText: string):
-  Boolean;
-var
-  lLines: TStringList;
-  lSourceResult: TDelphiSemanticSourceLoadResult;
-begin
-  aLineText := '';
-  if (aLine <= 0) or not TFile.Exists(aFileName) then
-    Exit(False);
-
-  lSourceResult := TDelphiSemanticSourceLoader.LoadFile(aFileName);
-  if not lSourceResult.Success then
-    Exit(False);
-
-  lLines := TStringList.Create;
-  try
-    lLines.Text := lSourceResult.Source.Text;
-    if aLine > lLines.Count then
-      Exit(False);
-    aLineText := lLines[aLine - 1];
-    Result := True;
-  finally
-    lLines.Free;
-  end;
-end;
-
 function TryReadLineFromSourceText(const aSourceText: string; const aLine: Integer;
   out aLineText: string): Boolean;
 var
@@ -385,13 +430,11 @@ end;
 
 function TryFindTypeForLocal(const aModel: TDelphiSemanticUnitModel; const aName: string;
   out aTypeName: string): Boolean;
-var
-  lLocal: TDelphiSemanticLocal;
 begin
-  for lLocal in aModel.Locals do
-    if SameText(lLocal.Name, aName) then
+  for var lLocalIndex := 0 to High(aModel.Locals) do
+    if SameText(aModel.Locals[lLocalIndex].Name, aName) then
     begin
-      aTypeName := lLocal.TypeName;
+      aTypeName := aModel.Locals[lLocalIndex].TypeName;
       Exit(True);
     end;
 
@@ -402,14 +445,14 @@ end;
 function TryFindLocalAtPosition(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
   aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
   Boolean;
-var
-  lLocal: TDelphiSemanticLocal;
 begin
-  for lLocal in aModel.Locals do
-    if SameText(lLocal.Name, aName) and (lLocal.Line = aLine) and (aColumn >= lLocal.Column) and
-      (aColumn <= lLocal.Column + Length(lLocal.Name)) then
+  for var lLocalIndex := 0 to High(aModel.Locals) do
+    if SameText(aModel.Locals[lLocalIndex].Name, aName) and
+      (aModel.Locals[lLocalIndex].Line = aLine) and
+      (aColumn >= aModel.Locals[lLocalIndex].Column) and
+      (aColumn <= aModel.Locals[lLocalIndex].Column + Length(aModel.Locals[lLocalIndex].Name)) then
     begin
-      aResult := LocalResult(aModel, lLocal, aSourceKind);
+      aResult := LocalResult(aModel, lLocalIndex, aSourceKind);
       Exit(True);
     end;
 
@@ -421,18 +464,17 @@ function TryFindLocalReferenceAtPosition(const aModel: TDelphiSemanticUnitModel;
   aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
   Boolean;
 var
-  lLocal: TDelphiSemanticLocal;
   lReference: TDelphiSemanticReference;
 begin
   for lReference in aModel.References do
     if SameText(lReference.Name, aName) and (lReference.RoutineName <> '') and
       (lReference.Line = aLine) and (aColumn >= lReference.Column) and
       (aColumn <= lReference.EndColumn + 1) then
-      for lLocal in aModel.Locals do
-        if SameText(lLocal.RoutineName, lReference.RoutineName) and
-          SameText(lLocal.Name, aName) then
+      for var lLocalIndex := 0 to High(aModel.Locals) do
+        if SameText(aModel.Locals[lLocalIndex].RoutineName, lReference.RoutineName) and
+          SameText(aModel.Locals[lLocalIndex].Name, aName) then
         begin
-          aResult := LocalResult(aModel, lLocal, aSourceKind);
+          aResult := LocalResult(aModel, lLocalIndex, aSourceKind);
           Exit(True);
         end;
 
@@ -443,14 +485,14 @@ end;
 function TryFindMemberAtPosition(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
   aName: string; const aLine, aColumn: Integer; out aResult: TDelphiSemanticSymbolQueryResult):
   Boolean;
-var
-  lMember: TDelphiSemanticMember;
 begin
-  for lMember in aModel.Members do
-    if SameText(lMember.Name, aName) and (lMember.Line = aLine) and
-      (aColumn >= lMember.Column) and (aColumn <= lMember.Column + Length(lMember.Name)) then
+  for var lMemberIndex := 0 to High(aModel.Members) do
+    if SameText(aModel.Members[lMemberIndex].Name, aName) and (aModel.Members[lMemberIndex].Line = aLine) and
+      (aColumn >= aModel.Members[lMemberIndex].Column) and
+      (aColumn <= aModel.Members[lMemberIndex].Column +
+        Length(aModel.Members[lMemberIndex].Name)) then
     begin
-      aResult := MemberResult(aModel, lMember, aSourceKind);
+      aResult := MemberResult(aModel, lMemberIndex, aSourceKind);
       Exit(True);
     end;
 
@@ -462,16 +504,15 @@ function TryFindMemberReferenceAtPosition(const aModel: TDelphiSemanticUnitModel
   const aSourceKind, aName: string; const aLine, aColumn: Integer;
   out aResult: TDelphiSemanticSymbolQueryResult): Boolean;
 var
-  lMember: TDelphiSemanticMember;
   lReference: TDelphiSemanticReference;
 begin
   for lReference in aModel.References do
     if SameText(lReference.Name, aName) and (lReference.Line = aLine) and
       (aColumn >= lReference.Column - 1) and (aColumn <= lReference.EndColumn + 1) then
-      for lMember in aModel.Members do
-        if SameText(lMember.Name, aName) then
+      for var lMemberIndex := 0 to High(aModel.Members) do
+        if SameText(aModel.Members[lMemberIndex].Name, aName) then
         begin
-          aResult := MemberResult(aModel, lMember, aSourceKind);
+          aResult := MemberResult(aModel, lMemberIndex, aSourceKind);
           Exit(True);
         end;
 
@@ -495,6 +536,78 @@ begin
   Result := SameText(aName, aQuery) or (aAllowSubstring and ContainsText(aName, aQuery));
 end;
 
+function PhysicalPositionMatches(const aFile, aQueryFile: string;
+  const aLine, aColumn, aEndLine, aEndColumn, aQueryLine, aQueryColumn: Integer): Boolean;
+begin
+  Result := SameFileName(aFile, aQueryFile) and SourcePositionKnown(aLine, aColumn) and
+    (aQueryLine >= aLine) and (aQueryLine <= aEndLine) and
+    ((aQueryLine > aLine) or (aQueryColumn >= aColumn)) and
+    ((aQueryLine < aEndLine) or (aQueryColumn <= aEndColumn));
+end;
+
+function ModelOccurrenceResult(const aModel: TDelphiSemanticUnitModel;
+  const aOccurrence: TDelphiSemanticPhysicalSymbolOccurrence; const aSourceKind: string):
+  TDelphiSemanticSymbolQueryResult;
+begin
+  Result := MakeNotFound(aOccurrence.Name);
+  if not aOccurrence.Verified or not PhysicalSymbolFactMatches(aOccurrence, aModel) then
+    Exit;
+  if aOccurrence.FactKind = 'declaration' then
+    Result := DeclarationResult(aModel, aOccurrence.FactIndex, aSourceKind)
+  else if aOccurrence.FactKind = 'member' then
+    Result := MemberResult(aModel, aOccurrence.FactIndex, aSourceKind)
+  else if aOccurrence.FactKind = 'routine' then
+    Result := RoutineResult(aModel, aOccurrence.FactIndex, aSourceKind)
+  else if aOccurrence.FactKind = 'local' then
+    Result := LocalResult(aModel, aOccurrence.FactIndex, aSourceKind);
+end;
+
+function TryPhysicalModelPosition(const aModel: TDelphiSemanticUnitModel;
+  const aSourceKind, aFileName: string; const aLine, aColumn: Integer;
+  out aResult: TDelphiSemanticSymbolQueryResult): Boolean;
+var
+  lOccurrence: TDelphiSemanticPhysicalSymbolOccurrence;
+  lReference: TDelphiSemanticPhysicalReferenceOccurrence;
+  lCandidate: TDelphiSemanticSymbolQueryResult;
+  lCount: Integer;
+begin
+  aResult := MakeNotFound('');
+  lCount := 0;
+  if not aModel.PhysicalSymbolOccurrencesAvailable then
+    Exit(False);
+  for lOccurrence in aModel.PhysicalSymbolOccurrences do
+    if PhysicalPositionMatches(lOccurrence.FileName, aFileName, lOccurrence.Line,
+      lOccurrence.Column, lOccurrence.EndLine, lOccurrence.EndColumn, aLine, aColumn) then
+    begin
+      lCandidate := ModelOccurrenceResult(aModel, lOccurrence, aSourceKind);
+      if lCandidate.Found then
+      begin
+        Inc(lCount);
+        aResult := lCandidate;
+      end;
+    end;
+  if lCount <> 0 then
+    Exit(lCount = 1);
+  if aModel.PhysicalReferenceOccurrencesAvailable then
+    for lReference in aModel.PhysicalReferenceOccurrences do
+      if lReference.Verified and (lReference.RoutineScopeId <> '') and
+        PhysicalPositionMatches(lReference.FileName, aFileName, lReference.Line,
+          lReference.Column, lReference.EndLine, lReference.EndColumn, aLine, aColumn) then
+        for lOccurrence in aModel.PhysicalSymbolOccurrences do
+          if (lOccurrence.FactKind = 'local') and
+            (lOccurrence.RoutineScopeId = lReference.RoutineScopeId) and
+            SameText(lOccurrence.Name, lReference.Name) then
+          begin
+            lCandidate := ModelOccurrenceResult(aModel, lOccurrence, aSourceKind);
+            if lCandidate.Found then
+            begin
+              Inc(lCount);
+              aResult := lCandidate;
+            end;
+          end;
+  Result := lCount = 1;
+end;
+
 function IndexedSourceKind(const aContext: TDelphiSemanticSymbolQueryContext;
   const aIndex: Integer): string;
 begin
@@ -505,67 +618,129 @@ begin
   Result := 'rtl-source';
 end;
 
+function ModelContainsFile(const aModel: TDelphiSemanticUnitModel;
+  const aFileName: string): Boolean;
+var
+  lSource: TDelphiSemanticSourceText;
+  lOccurrence: TDelphiSemanticPhysicalSymbolOccurrence;
+begin
+  if SameFileName(aModel.FileName, aFileName) then
+    Exit(True);
+  if (aModel.SourceObservations <> nil) and aModel.SourceObservations.TryFind(aFileName, lSource) then
+    Exit(True);
+  for lOccurrence in aModel.PhysicalSymbolOccurrences do
+    if SameFileName(lOccurrence.FileName, aFileName) then
+      Exit(True);
+  Result := False;
+end;
+
 function TryFindModelForFile(const aContext: TDelphiSemanticSymbolQueryContext;
   const aFileName: string; out aModel: TDelphiSemanticUnitModel; out aSourceKind: string):
   Boolean;
 var
   i: Integer;
   lModel: TDelphiSemanticUnitModel;
+  lFound: Boolean;
 begin
+  aModel := Default(TDelphiSemanticUnitModel);
+  aSourceKind := '';
   if SameFileName(aContext.UnitModel.FileName, aFileName) then
   begin
     aModel := aContext.UnitModel;
     aSourceKind := 'project-source';
     Exit(True);
   end;
-
   for i := 0 to High(aContext.IndexedUnitModels) do
-  begin
-    lModel := aContext.IndexedUnitModels[i];
-    if SameFileName(lModel.FileName, aFileName) then
+    if SameFileName(aContext.IndexedUnitModels[i].FileName, aFileName) then
     begin
-      aModel := lModel;
+      aModel := aContext.IndexedUnitModels[i];
       aSourceKind := IndexedSourceKind(aContext, i);
       Exit(True);
     end;
-  end;
 
-  aModel := Default(TDelphiSemanticUnitModel);
-  aSourceKind := '';
-  Result := False;
+  // An include position has no unique unit scope when several units own it.
+  lFound := ModelContainsFile(aContext.UnitModel, aFileName);
+  if lFound then
+  begin
+    aModel := aContext.UnitModel;
+    aSourceKind := 'project-source';
+  end;
+  for i := 0 to High(aContext.IndexedUnitModels) do
+  begin
+    lModel := aContext.IndexedUnitModels[i];
+    if not ModelContainsFile(lModel, aFileName) then
+      Continue;
+    if lFound and not SameFileName(aModel.FileName, lModel.FileName) then
+    begin
+      aModel := Default(TDelphiSemanticUnitModel);
+      aSourceKind := '';
+      Exit(False);
+    end;
+    if not lFound then
+    begin
+      aModel := lModel;
+      aSourceKind := IndexedSourceKind(aContext, i);
+      lFound := True;
+    end;
+  end;
+  Result := lFound;
 end;
 
 function TryReadContextLine(const aContext: TDelphiSemanticSymbolQueryContext;
   const aFileName: string; const aLine: Integer; out aLineText: string): Boolean;
 var
+  i: Integer;
   lModel: TDelphiSemanticUnitModel;
+  lSource: TDelphiSemanticSourceText;
   lSourceKind: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lCaptured: TSemanticCapturedSourceFact;
+  lFileId: TSemanticStringId;
+  lReason: string;
 begin
-  if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
-    TryReadLineFromSourceText(lModel.SourceText, aLine, aLineText) then
-    Exit(True);
-
-  Result := TryReadLine(aFileName, aLine, aLineText);
+  aLineText := '';
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+  begin
+    if not lSnapshot.TryFindStringId(aFileName, lFileId) or
+      lSnapshot.TryCapturedSourceConflict(lFileId, lReason) then
+      Exit(False);
+    for i := 0 to lSnapshot.UnitCount - 1 do
+    begin
+      lUnit := lSnapshot.UnitByIndex(i);
+      if lUnit.CapturedSourcesAvailable and lUnit.TryFindCapturedSource(lFileId, lCaptured) and
+        (lCaptured.Status in [cCapturedSourceText, cCapturedSourceEmpty]) then
+        Exit(TryReadLineFromSourceText(lSnapshot.ExactTextOf(lCaptured.TextId), aLine, aLineText));
+    end;
+    Exit(False);
+  end;
+  if TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) then
+  begin
+    if SameFileName(lModel.FileName, aFileName) then
+      Exit(TryReadLineFromSourceText(lModel.SourceText, aLine, aLineText));
+    if (lModel.SourceObservations <> nil) and lModel.SourceObservations.TryFind(aFileName, lSource) then
+      Exit(TryReadLineFromSourceText(lSource.Text, aLine, aLineText));
+    Exit(False);
+  end;
+  // Missing captured evidence cannot be replaced by the current filesystem.
+  Result := False;
 end;
 
 function FindDefinitionInModel(const aModel: TDelphiSemanticUnitModel; const aSourceKind,
   aName: string): TDelphiSemanticSymbolQueryResult;
-var
-  lDeclaration: TDelphiSemanticDeclaration;
-  lMember: TDelphiSemanticMember;
-  lRoutine: TDelphiSemanticRoutine;
 begin
-  for lDeclaration in aModel.Declarations do
-    if SameText(lDeclaration.Name, aName) then
-      Exit(DeclarationResult(aModel, lDeclaration, aSourceKind));
+  for var lDeclarationIndex := 0 to High(aModel.Declarations) do
+    if SameText(aModel.Declarations[lDeclarationIndex].Name, aName) then
+      Exit(DeclarationResult(aModel, lDeclarationIndex, aSourceKind));
 
-  for lRoutine in aModel.Routines do
-    if SameText(lRoutine.Name, aName) then
-      Exit(RoutineResult(aModel, lRoutine, aSourceKind));
+  for var lRoutineIndex := 0 to High(aModel.Routines) do
+    if SameText(aModel.Routines[lRoutineIndex].Name, aName) then
+      Exit(RoutineResult(aModel, lRoutineIndex, aSourceKind));
 
-  for lMember in aModel.Members do
-    if SameText(lMember.Name, aName) then
-      Exit(MemberResult(aModel, lMember, aSourceKind));
+  for var lMemberIndex := 0 to High(aModel.Members) do
+    if SameText(aModel.Members[lMemberIndex].Name, aName) then
+      Exit(MemberResult(aModel, lMemberIndex, aSourceKind));
 
   Result := MakeNotFound(aName);
 end;
@@ -742,32 +917,66 @@ end;
 function SnapshotTokenReferences(const aSnapshot: TDelphiProjectSnapshot; const aName: string;
   const aLimit: Integer): TArray<TDelphiSemanticSymbolReferenceResult>;
 var
-  i: Integer;
-  lHighIndex: Integer;
-  lLowIndex: Integer;
+  i, j, lLowIndex, lHighIndex: Integer;
   lNameId: TSemanticStringId;
-  lReference: TSemanticReferenceFact;
   lReferenceRef: TSemanticReferenceRef;
+  lHaveLegacy: Boolean;
+  lReference: TSemanticReferenceFact;
+  lOccurrence: TSemanticPhysicalReferenceOccurrence;
   lResult: TDelphiSemanticSymbolReferenceResult;
   lResults: TList<TDelphiSemanticSymbolReferenceResult>;
   lUnit: TUnitSnapshot;
 begin
   lResults := TList<TDelphiSemanticSymbolReferenceResult>.Create;
   try
-    if (aSnapshot <> nil) and aSnapshot.TryFindStringId(aName, lNameId) and
-      aSnapshot.TryReferencesByName(lNameId, lLowIndex, lHighIndex) then
-      for i := lLowIndex to lHighIndex do
+    if not aSnapshot.TryFindStringId(aName, lNameId) then
+      Exit(nil);
+    lHaveLegacy := aSnapshot.TryReferencesByName(lNameId, lLowIndex, lHighIndex);
+    for i := 0 to aSnapshot.UnitCount - 1 do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      if lUnit.PhysicalReferenceOccurrencesAvailable and lUnit.HasIncludes then
       begin
-        if (aLimit > 0) and (lResults.Count >= aLimit) then
-          Break;
-        lReferenceRef := aSnapshot.ReferenceRefByNameIndex(i);
-        if not aSnapshot.TryFindUnitById(lReferenceRef.UnitId, lUnit) then
-          Continue;
-        lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
-        lResult := SnapshotReferenceResult(aSnapshot, lUnit, lReference);
-        lResults.Add(lResult);
-      end;
-
+        for j := 0 to lUnit.PhysicalReferenceOccurrenceCount - 1 do
+        begin
+          lOccurrence := lUnit.PhysicalReferenceOccurrenceByIndex(j);
+          if (lOccurrence.NameId <> lNameId) or
+            ((aLimit > 0) and (lResults.Count >= aLimit)) then
+            Continue;
+          lReference := Default(TSemanticReferenceFact);
+          lReference.NameId := lOccurrence.NameId;
+          lReference.FileId := lOccurrence.FileId;
+          lReference.RoutineId := lOccurrence.RoutineNameId;
+          lReference.RoutineScopeId := lOccurrence.RoutineScopeId;
+          lReference.ClassificationId := lOccurrence.RoleId;
+          if lOccurrence.Verified then
+          begin
+            lReference.Line := lOccurrence.Line;
+            lReference.Column := lOccurrence.Column;
+            lReference.EndLine := lOccurrence.EndLine;
+            lReference.EndColumn := lOccurrence.EndColumn;
+          end;
+          lResult := SnapshotReferenceResult(aSnapshot, lUnit, lReference);
+          lResults.Add(lResult);
+        end;
+      end else if lHaveLegacy then
+        for j := lLowIndex to lHighIndex do
+        begin
+          lReferenceRef := aSnapshot.ReferenceRefByNameIndex(j);
+          if (lReferenceRef.UnitId <> lUnit.UnitId) or
+            ((aLimit > 0) and (lResults.Count >= aLimit)) then
+            Continue;
+          lReference := lUnit.ReferenceById(lReferenceRef.ReferenceId);
+          if lReference.FileId <> 0 then
+          begin
+            lReference.Line := 0;
+            lReference.Column := 0;
+            lReference.EndLine := 0;
+            lReference.EndColumn := 0;
+          end;
+          lResults.Add(SnapshotReferenceResult(aSnapshot, lUnit, lReference));
+        end;
+    end;
     Result := lResults.ToArray;
   finally
     lResults.Free;
@@ -781,7 +990,6 @@ var
   i: Integer;
   lHighIndex: Integer;
   lLowIndex: Integer;
-  lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
   lNameId: TSemanticStringId;
   lOwnerNameId: TSemanticStringId;
@@ -809,16 +1017,17 @@ begin
     Exit(MakeNotFound(aName));
   end;
 
-  for lMember in aContext.UnitModel.Members do
-    if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
-      Exit(MemberResult(aContext.UnitModel, lMember, 'project-source'));
+  for var lMemberIndex := 0 to High(aContext.UnitModel.Members) do
+    if SameText(aContext.UnitModel.Members[lMemberIndex].OwnerName, aOwnerName) and
+      SameText(aContext.UnitModel.Members[lMemberIndex].Name, aName) then
+      Exit(MemberResult(aContext.UnitModel, lMemberIndex, 'project-source'));
 
   for i := 0 to High(aContext.IndexedUnitModels) do
   begin
     lModel := aContext.IndexedUnitModels[i];
-    for lMember in lModel.Members do
-      if SameText(lMember.OwnerName, aOwnerName) and SameText(lMember.Name, aName) then
-        Exit(MemberResult(lModel, lMember, IndexedSourceKind(aContext, i)));
+    for var lMemberIndex := 0 to High(lModel.Members) do
+      if SameText(lModel.Members[lMemberIndex].OwnerName, aOwnerName) and SameText(lModel.Members[lMemberIndex].Name, aName) then
+        Exit(MemberResult(lModel, lMemberIndex, IndexedSourceKind(aContext, i)));
   end;
 
   Result := MakeNotFound(aName);
@@ -836,12 +1045,24 @@ var
   lSourceKind: string;
   lToken: string;
   lTypeName: string;
+  lUnitId: TSemanticUnitId;
 begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if (lSnapshot <> nil) and TryResolveSnapshotPosition(lSnapshot, aFileName, aLine, aColumn,
     '', lPositionResolution) then
     Exit(SnapshotSymbolResult(lSnapshot, lPositionResolution.SymbolUnit,
       lPositionResolution.Symbol, lPositionResolution.Status));
+
+  if (lSnapshot = nil) and TryFindModelForFile(aContext, aFileName, lModel, lSourceKind) and
+    (Length(lModel.IncludeFileNames) > 0) then
+  begin
+    if TryPhysicalModelPosition(lModel, lSourceKind, aFileName, aLine, aColumn, lResult) then
+      Exit(lResult);
+    if not SameFileName(lModel.FileName, aFileName) then
+      Exit(MakeNotFound(''));
+  end;
+  if (lSnapshot <> nil) and not lSnapshot.TryFindUnitByFileName(aFileName, lUnitId) then
+    Exit(MakeNotFound(''));
 
   if TryReadContextLine(aContext, aFileName, aLine, lLineText) and TryExtractIdentifierAtColumn(lLineText,
     aColumn, lToken) then
@@ -948,8 +1169,24 @@ var
   procedure AddModelReferences(const aModel: TDelphiSemanticUnitModel; const aSourceKind: string);
   var
     lReference: TDelphiSemanticReference;
+    lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
+    lReferences: TArray<TDelphiSemanticReference>;
   begin
-    for lReference in aModel.References do
+    if aModel.PhysicalReferenceOccurrencesAvailable and (Length(aModel.IncludeFileNames) > 0) then
+    begin
+      SetLength(lReferences, Length(aModel.PhysicalReferenceOccurrences));
+      for var j := 0 to High(lReferences) do
+      begin
+        lOccurrence := aModel.PhysicalReferenceOccurrences[j];
+        if not TryPhysicalReference(lOccurrence, lReferences[j]) then
+        begin
+          lReferences[j].Name := lOccurrence.Name;
+          lReferences[j].FileName := lOccurrence.FileName;
+        end;
+      end;
+    end else
+      lReferences := aModel.References;
+    for lReference in lReferences do
       if SameText(lReference.Name, aName) and ((aLimit <= 0) or (lResults.Count < aLimit)) then
       begin
         lResult := Default(TDelphiSemanticSymbolReferenceResult);
@@ -963,15 +1200,15 @@ var
         lResult.SectionKind := lReference.SectionKind;
         if lResult.SectionKind = '' then
           lResult.SectionKind := 'implementation';
-        lResult.FileName := aModel.FileName;
-        lResult.Line := lReference.Line;
-        lResult.Column := lReference.Column;
-        lResult.EndLine := lReference.EndLine;
-        if lResult.EndLine = 0 then
-          lResult.EndLine := lReference.Line;
-        lResult.EndColumn := lReference.EndColumn;
-        if lResult.EndColumn = 0 then
-          lResult.EndColumn := lReference.Column + Length(lReference.Name) - 1;
+        lResult.FileName := FactSourceFileName(aModel.FileName, lReference.FileName);
+        if SourcePositionKnown(lReference.Line, lReference.Column) and
+          (aModel.PhysicalReferenceOccurrencesAvailable or (lReference.FileName = '')) then
+        begin
+          lResult.Line := lReference.Line;
+          lResult.Column := lReference.Column;
+          lResult.EndLine := SnapshotEndLine(lReference.Line, lReference.EndLine);
+          lResult.EndColumn := SnapshotEndColumn(lReference.Column, lReference.Name, lReference.EndColumn);
+        end;
         lResults.Add(lResult);
       end;
   end;
@@ -1059,11 +1296,8 @@ class function TDelphiSemanticSymbolQuery.Search(
   TArray<TDelphiSemanticSymbolQueryResult>;
 var
   i: Integer;
-  lDeclaration: TDelphiSemanticDeclaration;
   lIntrinsic: TDelphiSemanticIntrinsicSymbol;
-  lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
-  lRoutine: TDelphiSemanticRoutine;
   lUseSubstring: Boolean;
   lResults: TList<TDelphiSemanticSymbolQueryResult>;
 
@@ -1109,37 +1343,37 @@ begin
   lUseSubstring := not HasExactVisibleMatch;
   lResults := TList<TDelphiSemanticSymbolQueryResult>.Create;
   try
-    for lDeclaration in aContext.UnitModel.Declarations do
-      if NameMatchesQuery(lDeclaration.Name, aName, lUseSubstring) then
-        AddResult(lResults, DeclarationResult(aContext.UnitModel, lDeclaration, 'project-source'),
+    for var lDeclarationIndex := 0 to High(aContext.UnitModel.Declarations) do
+      if NameMatchesQuery(aContext.UnitModel.Declarations[lDeclarationIndex].Name, aName, lUseSubstring) then
+        AddResult(lResults, DeclarationResult(aContext.UnitModel, lDeclarationIndex, 'project-source'),
           aLimit);
 
-    for lMember in aContext.UnitModel.Members do
-      if NameMatchesQuery(lMember.Name, aName, lUseSubstring) then
-        AddResult(lResults, MemberResult(aContext.UnitModel, lMember, 'project-source'),
+    for var lMemberIndex := 0 to High(aContext.UnitModel.Members) do
+      if NameMatchesQuery(aContext.UnitModel.Members[lMemberIndex].Name, aName, lUseSubstring) then
+        AddResult(lResults, MemberResult(aContext.UnitModel, lMemberIndex, 'project-source'),
           aLimit);
 
-    for lRoutine in aContext.UnitModel.Routines do
-      if NameMatchesQuery(lRoutine.Name, aName, lUseSubstring) then
-        AddResult(lResults, RoutineResult(aContext.UnitModel, lRoutine, 'project-source'),
+    for var lRoutineIndex := 0 to High(aContext.UnitModel.Routines) do
+      if NameMatchesQuery(aContext.UnitModel.Routines[lRoutineIndex].Name, aName, lUseSubstring) then
+        AddResult(lResults, RoutineResult(aContext.UnitModel, lRoutineIndex, 'project-source'),
           aLimit);
 
     for i := 0 to High(aContext.IndexedUnitModels) do
     begin
       lModel := aContext.IndexedUnitModels[i];
-      for lMember in lModel.Members do
-        if NameMatchesQuery(lMember.Name, aName, lUseSubstring) then
-          AddResult(lResults, MemberResult(lModel, lMember, IndexedSourceKind(aContext, i)),
+      for var lMemberIndex := 0 to High(lModel.Members) do
+        if NameMatchesQuery(lModel.Members[lMemberIndex].Name, aName, lUseSubstring) then
+          AddResult(lResults, MemberResult(lModel, lMemberIndex, IndexedSourceKind(aContext, i)),
             aLimit);
 
-      for lRoutine in lModel.Routines do
-        if NameMatchesQuery(lRoutine.Name, aName, lUseSubstring) then
-          AddResult(lResults, RoutineResult(lModel, lRoutine, IndexedSourceKind(aContext, i)),
+      for var lRoutineIndex := 0 to High(lModel.Routines) do
+        if NameMatchesQuery(lModel.Routines[lRoutineIndex].Name, aName, lUseSubstring) then
+          AddResult(lResults, RoutineResult(lModel, lRoutineIndex, IndexedSourceKind(aContext, i)),
             aLimit);
 
-      for lDeclaration in lModel.Declarations do
-        if NameMatchesQuery(lDeclaration.Name, aName, lUseSubstring) then
-          AddResult(lResults, DeclarationResult(lModel, lDeclaration, IndexedSourceKind(aContext,
+      for var lDeclarationIndex := 0 to High(lModel.Declarations) do
+        if NameMatchesQuery(lModel.Declarations[lDeclarationIndex].Name, aName, lUseSubstring) then
+          AddResult(lResults, DeclarationResult(lModel, lDeclarationIndex, IndexedSourceKind(aContext,
             i)), aLimit);
     end;
 
@@ -1158,11 +1392,8 @@ class function TDelphiSemanticSymbolQuery.SearchAllMatches(
   TArray<TDelphiSemanticSymbolQueryResult>;
 var
   i: Integer;
-  lDeclaration: TDelphiSemanticDeclaration;
   lIntrinsic: TDelphiSemanticIntrinsicSymbol;
-  lMember: TDelphiSemanticMember;
   lModel: TDelphiSemanticUnitModel;
-  lRoutine: TDelphiSemanticRoutine;
   lResults: TList<TDelphiSemanticSymbolQueryResult>;
 begin
   if ContextProjectSnapshot(aContext) <> nil then
@@ -1170,37 +1401,37 @@ begin
 
   lResults := TList<TDelphiSemanticSymbolQueryResult>.Create;
   try
-    for lDeclaration in aContext.UnitModel.Declarations do
-      if NameMatchesQuery(lDeclaration.Name, aName, True) then
-        AddResult(lResults, DeclarationResult(aContext.UnitModel, lDeclaration, 'project-source'),
+    for var lDeclarationIndex := 0 to High(aContext.UnitModel.Declarations) do
+      if NameMatchesQuery(aContext.UnitModel.Declarations[lDeclarationIndex].Name, aName, True) then
+        AddResult(lResults, DeclarationResult(aContext.UnitModel, lDeclarationIndex, 'project-source'),
           aLimit);
 
-    for lMember in aContext.UnitModel.Members do
-      if NameMatchesQuery(lMember.Name, aName, True) then
-        AddResult(lResults, MemberResult(aContext.UnitModel, lMember, 'project-source'),
+    for var lMemberIndex := 0 to High(aContext.UnitModel.Members) do
+      if NameMatchesQuery(aContext.UnitModel.Members[lMemberIndex].Name, aName, True) then
+        AddResult(lResults, MemberResult(aContext.UnitModel, lMemberIndex, 'project-source'),
           aLimit);
 
-    for lRoutine in aContext.UnitModel.Routines do
-      if NameMatchesQuery(lRoutine.Name, aName, True) then
-        AddResult(lResults, RoutineResult(aContext.UnitModel, lRoutine, 'project-source'),
+    for var lRoutineIndex := 0 to High(aContext.UnitModel.Routines) do
+      if NameMatchesQuery(aContext.UnitModel.Routines[lRoutineIndex].Name, aName, True) then
+        AddResult(lResults, RoutineResult(aContext.UnitModel, lRoutineIndex, 'project-source'),
           aLimit);
 
     for i := 0 to High(aContext.IndexedUnitModels) do
     begin
       lModel := aContext.IndexedUnitModels[i];
-      for lMember in lModel.Members do
-        if NameMatchesQuery(lMember.Name, aName, True) then
-          AddResult(lResults, MemberResult(lModel, lMember, IndexedSourceKind(aContext, i)),
+      for var lMemberIndex := 0 to High(lModel.Members) do
+        if NameMatchesQuery(lModel.Members[lMemberIndex].Name, aName, True) then
+          AddResult(lResults, MemberResult(lModel, lMemberIndex, IndexedSourceKind(aContext, i)),
             aLimit);
 
-      for lRoutine in lModel.Routines do
-        if NameMatchesQuery(lRoutine.Name, aName, True) then
-          AddResult(lResults, RoutineResult(lModel, lRoutine, IndexedSourceKind(aContext, i)),
+      for var lRoutineIndex := 0 to High(lModel.Routines) do
+        if NameMatchesQuery(lModel.Routines[lRoutineIndex].Name, aName, True) then
+          AddResult(lResults, RoutineResult(lModel, lRoutineIndex, IndexedSourceKind(aContext, i)),
             aLimit);
 
-      for lDeclaration in lModel.Declarations do
-        if NameMatchesQuery(lDeclaration.Name, aName, True) then
-          AddResult(lResults, DeclarationResult(lModel, lDeclaration, IndexedSourceKind(aContext,
+      for var lDeclarationIndex := 0 to High(lModel.Declarations) do
+        if NameMatchesQuery(lModel.Declarations[lDeclarationIndex].Name, aName, True) then
+          AddResult(lResults, DeclarationResult(lModel, lDeclarationIndex, IndexedSourceKind(aContext,
             i)), aLimit);
     end;
 

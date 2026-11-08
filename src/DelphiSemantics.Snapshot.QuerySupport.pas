@@ -5,6 +5,10 @@ interface
 uses
   DelphiSemantics.Query, DelphiSemantics.Snapshot, DelphiSemantics.Symbols;
 
+procedure ApplySnapshotSymbolOrigin(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aSymbol: TSemanticSymbolFact;
+  var aFileName: string; var aLine, aColumn, aEndLine, aEndColumn: Integer);
+
 function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
   TDelphiProjectSnapshot;
 function SnapshotText(const aSnapshot: TDelphiProjectSnapshot;
@@ -36,6 +40,45 @@ implementation
 
 uses
   System.StrUtils, System.SysUtils;
+
+procedure ApplySnapshotSymbolOrigin(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aSymbol: TSemanticSymbolFact;
+  var aFileName: string; var aLine, aColumn, aEndLine, aEndColumn: Integer);
+var
+  i, lCount: Integer;
+  lOccurrence, lFound: TSemanticPhysicalSymbolOccurrence;
+begin
+  lCount := 0;
+  lFound := Default(TSemanticPhysicalSymbolOccurrence);
+  if (aSymbol.Line > 0) and (aSymbol.Column > 0) and aUnit.HasIncludes and
+    aUnit.PhysicalSymbolOccurrencesAvailable then
+    for i := 0 to aUnit.PhysicalSymbolOccurrenceCount - 1 do
+    begin
+      lOccurrence := aUnit.PhysicalSymbolOccurrenceByIndex(i);
+      if (lOccurrence.SnapshotSymbolId = aSymbol.Id) and
+        (lOccurrence.ProjectionStatus = cPhysicalProjectionLinked) then
+      begin
+        Inc(lCount);
+        lFound := lOccurrence;
+      end;
+    end;
+  if (lCount = 1) and lFound.Verified and (lFound.Line > 0) and (lFound.Column > 0) then
+  begin
+    aFileName := SnapshotFactFileName(aSnapshot, aUnit, lFound.FileId);
+    aLine := lFound.Line;
+    aColumn := lFound.Column;
+    aEndLine := lFound.EndLine;
+    aEndColumn := lFound.EndColumn;
+  end else if (aSymbol.Line <= 0) or (aSymbol.Column <= 0) or aUnit.HasIncludes or
+    (aSymbol.FileId <> 0) then
+  begin
+    aLine := 0;
+    aColumn := 0;
+    aEndLine := 0;
+    aEndColumn := 0;
+  end;
+end;
+
 
 function ContextProjectSnapshot(const aContext: TDelphiSemanticSymbolQueryContext):
   TDelphiProjectSnapshot;
@@ -76,6 +119,8 @@ end;
 function SnapshotEndColumn(const aColumn: Integer; const aName: string;
   const aEndColumn: Integer): Integer;
 begin
+  if aColumn <= 0 then
+    Exit(0);
   Result := aEndColumn;
   if Result <= 0 then
     Result := aColumn + Length(aName) - 1;

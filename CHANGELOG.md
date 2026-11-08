@@ -4,6 +4,14 @@
 
 - WITH planning excludes certified inactive anonymous-record fields, refuses unknown field activity, and preserves separate anonymous-record members and multi-variable declarations through SQLite reloads.
 - Anonymous-record completeness uses the compiler include classifier for `INCLUDE+name` and `INCLUDE-name`.
+- SQLite snapshot child rows use integer ownership keys to reduce cache size and repeated-key work; older storage generations rebuild (DS-793).
+
+- Query symbol and token-reference results preserve captured include filenames and physical ranges through direct models and snapshots. Include position lookup retains unit/routine identity, missing evidence stays unknown, and current disk text never replaces captured source (DS-692).
+
+- Snapshot caching preserves all units when shared Unicode include paths have different case spellings (DS-697).
+
+- Project snapshots and SQLite caches retain physical include occurrences and captured source text. Snapshot global usages preserve include identity and access across cache hits and reloads; incomplete or conflicting evidence is reported explicitly, and older caches rebuild. Optional cache-write failures report a diagnostic while analysis continues; include paths retain their original spelling (DS-697, DS-691).
+
 - Unit models retain physical declaration, member, routine, parameter and local origins from captured include expansions. Model JSON and unit caches preserve verified spans and enumeration availability (DS-696).
 
 - Unknown include references use indexed physical-position replacement and cached line coordinates, preserving reference contents and order while reducing RTL indexing time (DAK-484).
@@ -26,6 +34,7 @@
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed
+- Snapshot cache reuse preserves unit identity after project insertions and reordering, detects colliding cached IDs, and remaps targets using captured file and declaration identity (DS-794).
 - Global usage analysis retains captured include positions and access, reports missing evidence, and preserves distinct expansions. Semantic graph and WITH inventory facts retain include origins; older WITH facts caches rebuild (DS-690, DS-693).
 - Certified Delphi 12 Win64 profiles evaluate bounded `CompilerVersion` and `RTLVersion` comparisons when the source scope proves the constants are unshadowed. ASM byte strings no longer hide following conditional directives (DS-756, DS-776).
 - Invalid Exists condition paths report INVALID_MSBUILD_CONDITION and withhold define evidence instead of crashing (DS-790).
