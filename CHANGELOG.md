@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Project sessions retain and index non-SDK search/library-path import sources, including transitive and selected-active conditional imports. Newly discovered sources stay outside edit scope; native selection uncertainty and SDK pairing rules still apply (DS-798).
+
 - Refuse certified renames with bare inherited calls after nested routines, Declared consumers in includes, implicit published members, guarded active source gaps, and additional RTTI name consumers (DS-797).
 
 - Rename and find-usages refuse known conditional capture, missing active-source coverage, implicit inherited/interface/attribute/protocol consumers, published members and literal reflection uses. Refusals retain named reasons and no apply authority (DS-797 slice 1).

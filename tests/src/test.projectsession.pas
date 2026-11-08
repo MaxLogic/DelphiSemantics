@@ -4,9 +4,7 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Graph,
-  DelphiSemantics.RemoveWithPlan,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Graph, DelphiSemantics.RemoveWithPlan, DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -38,6 +36,11 @@ type
     function ParityStatementsFromPlan(const aPlan: TDelphiSemanticRemoveWithPlan):
       TArray<TDelphiSemanticRemoveWithPlanParityStatement>;
   public
+    [Category('Fast')]
+    [Test]
+    [TestCase('Selected facts', 'facts')]
+    [TestCase('Combined planning', 'combined')]
+    procedure SearchPathClosureKeepsLibraryBodiesOutsideEditScope(const aRoute: string);
     [Category('Fast')]
     [Test]
     [TestCase('Referenced refusal', 'reject')]
@@ -469,6 +472,94 @@ begin
   TDirectory.CreateDirectory(ExtractFileDir(aFileName));
   TFile.WriteAllText(aFileName, aText, TEncoding.UTF8);
 end;
+
+procedure TProjectSessionTests.SearchPathClosureKeepsLibraryBodiesOutsideEditScope(const aRoute: string);
+var
+  lRoot, lLibrary: string;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lFound: Boolean;
+  lSnapshotBuild: TDelphiSemanticProjectSnapshotBuildResult;
+  lSnapshotUnit: TUnitSnapshot;
+  i, j: Integer;
+begin
+  lRoot := ProjectSessionTempPath('ds798-selected-' + aRoute);
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'lib'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'shadow'));
+  WriteTextFile(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource>' +
+    '<DCC_UnitSearchPath>lib;shadow</DCC_UnitSearchPath>' +
+    '<DCC_UnitAlias>UHelp=Ns.Lib;</DCC_UnitAlias><DCC_Namespace>Ns;System</DCC_Namespace>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="U.pas"/></ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRoot, 'P.dpr'), 'program P; uses U in ''U.pas''; begin end.');
+  WriteTextFile(TPath.Combine(lRoot, 'U.pas'),
+    'unit U;' + sLineBreak + 'interface' + sLineBreak + 'uses UHelp;' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'var lData: TLibRecord;' + sLineBreak +
+    'begin' + sLineBreak + '  with lData do Value := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.');
+  lLibrary := 'unit Ns.Lib;' + sLineBreak + 'interface' + sLineBreak + 'uses Leaf;' + sLineBreak +
+    'type' + sLineBreak + '  TLibRecord = record' + sLineBreak + '    Value: Integer;' + sLineBreak +
+    '  end;' + sLineBreak + 'procedure Run;' + sLineBreak +
+    '{ contains a comma, `<` becomes `&lt;` }' + sLineBreak + 'implementation' + sLineBreak +
+    'procedure Run;' + sLineBreak + 'var lData: TLibRecord;' + sLineBreak +
+    'begin' + sLineBreak + '  with lData do Value := 1;' + sLineBreak + 'end;' + sLineBreak + 'end.';
+  WriteTextFile(TPath.Combine(lRoot, 'lib\Ns.Lib.pas'), lLibrary);
+  WriteTextFile(TPath.Combine(lRoot, 'lib\Ns.Leaf.pas'),
+    'unit Ns.Leaf; interface const Stable = 1; implementation end.');
+  WriteTextFile(TPath.Combine(lRoot, 'shadow\Ns.Lib.pas'),
+    'unit Ns.Lib; interface implementation end.');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'proof.sqlite3');
+  for i := 0 to 2 do
+  begin
+    if i = 2 then
+      WriteTextFile(TPath.Combine(lRoot, 'lib\Ns.Lib.pas'), lLibrary.Replace('Integer', 'Int64'));
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    Assert.IsTrue(lOpened.Success);
+    try
+      lSnapshotBuild := lOpened.Session.BuildSnapshotResult;
+      try
+        Assert.AreEqual(4, lSnapshotBuild.Snapshot.UnitCount, 'The analysis index retains the complete library closure.');
+        if i = 1 then
+          Assert.AreEqual(Int64(4), lSnapshotBuild.Metrics.SnapshotCacheUnitHits, 'Stable library snapshots are reusable.');
+        lFound := False;
+        for j := 0 to lSnapshotBuild.Snapshot.UnitCount - 1 do
+        begin
+          lSnapshotUnit := lSnapshotBuild.Snapshot.UnitByIndex(j);
+          if SameText(lSnapshotBuild.Snapshot.TextOf(lSnapshotUnit.UnitNameId), 'Ns.Lib') then
+          begin
+            lFound := True;
+            Assert.IsTrue(lSnapshotUnit.SymbolCount > 0, 'Library declarations remain indexed analysis inputs.');
+            Assert.Contains(lSnapshotBuild.Snapshot.ExactTextOf(lSnapshotUnit.SourceTextId), 'with lData',
+              'Retention includes the original library body.');
+            if i = 2 then
+              Assert.Contains(lSnapshotBuild.Snapshot.ExactTextOf(lSnapshotUnit.SourceTextId), 'Int64',
+                'A library-only change invalidates retained text.');
+          end;
+        end;
+        Assert.IsTrue(lFound, 'The alias resolves to the earlier search-path source.');
+      finally
+        lSnapshotBuild.Snapshot.Free;
+      end;
+      if aRoute = 'facts' then
+        lFacts := lOpened.Session.BuildWithBindingFacts
+      else
+        lFacts := lOpened.Session.BuildRemoveWithFactsAndPlanResult.Facts;
+      Assert.AreEqual(2, Integer(Length(lFacts.UnitModels)), 'Retention grants no extra selected-WITH proof authority.');
+      Assert.AreEqual(1, Integer(Length(lFacts.Bindings)), 'Only the edit-scope WITH body contributes a rewrite site.');
+      if i = 1 then
+        Assert.AreEqual(Int64(2), lFacts.Metrics.SemanticCacheHits, 'The selected proof models remain reusable.');
+      for lModel in lFacts.UnitModels do
+        Assert.IsFalse(lModel.AnalysisOnly, 'Read-only analysis units cannot enlarge the WITH proof universe.');
+    finally
+      lOpened.Session.Free;
+    end;
+  end;
+end;
+
 
 procedure ExecProjectSessionCacheSql(const aCacheFileName, aSql: string);
 var
