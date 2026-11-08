@@ -286,6 +286,16 @@ begin
       lRows[i].TextId := aExactStrings.Intern(lGroup.First.Text);
     end;
   end;
+  // The semantic pool may retain an earlier unit's Unicode case spelling.
+  // Order the rows by the exact canonical value the validator will read.
+  TArray.Sort<TSemanticCapturedSourceFact>(lRows,
+    TComparer<TSemanticCapturedSourceFact>.Construct(
+      function(const aLeft, aRight: TSemanticCapturedSourceFact): Integer
+      begin
+        Result := CompareStr(
+          TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aStrings.TextOf(aLeft.FileId)),
+          TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aStrings.TextOf(aRight.FileId)));
+      end));
   aUnit.SetCapturedSources(lRows, lAvailable);
   aUnit.SetHasIncludes(lHasIncludes);
 end;

@@ -308,6 +308,7 @@ type
     [TestCase('UTF16 unpaired surrogate', 'surrogate')]
     [TestCase('Unicode include case aliases', 'unicode')]
     procedure CacheWriteInvariantsDoNotAbortAnalysis(const aShape: string);
+    [Test] procedure CapturedSourceOrderUsesInternedPathSpelling;
     [Test]
     procedure PhysicalEvidenceSurvivesActualFullAndPartialSessionHits;
     [Category('Fast')]
@@ -6120,6 +6121,47 @@ begin
         end;
         AssertPhysicalEvidence(lSnapshot, lModelA);
         AssertPhysicalEvidence(lSnapshot, lModelB);
+      finally
+        lSnapshot.Free;
+      end;
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+end;
+
+procedure TProjectSessionTests.CapturedSourceOrderUsesInternedPathSpelling;
+var
+  i: Integer;
+  lRoot, lFile: string;
+  lOptions: TDelphiSemanticOptions;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
+begin
+  // Review p4: U1 interns the uppercase spelling before U2 observes its alias.
+  lRoot := ProjectSessionTempPath('captured-source-interned-order');
+  TDirectory.CreateDirectory(lRoot);
+  for lFile in TDirectory.GetFiles(TPath.Combine(RepoRoot, 'tests\data\ds697-p4')) do
+    TFile.Copy(lFile, TPath.Combine(lRoot, TPath.GetFileName(lFile)));
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'Probe.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.db');
+  for i := 0 to 1 do
+  begin
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lSnapshot := BuildSnapshotWithMetrics(lSession.Session, lMetrics);
+      try
+        for lFile in lSession.Session.Project.SourceFileNames do
+          Assert.IsNotEmpty(SnapshotIdentityForFile(lOptions.SqliteCacheFileName, lFile).CacheKey,
+            'Every p4 unit must be stored: ' + lFile);
+        if i = 1 then
+        begin
+          Assert.AreEqual(lSnapshot.UnitCount, lMetrics.SnapshotCacheUnitHits);
+          Assert.AreEqual(1, lMetrics.SnapshotCacheFullHitCount);
+        end;
       finally
         lSnapshot.Free;
       end;
