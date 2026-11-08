@@ -2624,6 +2624,7 @@ var
   lFact: TSemanticReferenceFact;
   lMatch: TMatch;
   lRttiUnit: Boolean;
+  lConstant: TDelphiSemanticStringConstant;
   i: Integer;
 
   procedure AddConsumer(const aName, aReason: string; const aOffset: Integer);
@@ -2655,23 +2656,22 @@ var
   procedure AddLiteralConsumers(const aReason: string);
   var
     lSeen: TDictionary<string, Byte>;
-    lKey, lLiteral, lName: string;
-    lOffset, lStart: Integer;
+    lKey, lName: string;
+    lCandidate: TDelphiSemanticStringLiteral;
     lCodeOnly: Boolean;
   begin
     lSeen := TDictionary<string, Byte>.Create;
     try
       for lCodeOnly := False to True do
       begin
-        lOffset := 1;
-        while NextRawStringLiteral(lSource.Text, lOffset, lLiteral, lStart, lCodeOnly) do
-          for lName in lLiteral.Split(['.']) do
+        for lCandidate in StringLiteralCandidates(lSource.Text, lCodeOnly) do
+          for lName in lCandidate.Value.Split(['.']) do
           begin
-            lKey := IntToStr(lStart) + '|' + lName;
+            lKey := IntToStr(lCandidate.Offset) + '|' + lName;
             if not lSeen.ContainsKey(lKey) then
             begin
               lSeen.Add(lKey, 0);
-              AddConsumer(lName, aReason, lStart);
+              AddConsumer(lName, aReason, lCandidate.Offset);
             end;
           end;
       end;
@@ -2713,6 +2713,20 @@ begin
     for lExpression in DirectiveNameExpressions(lSource.Text) do
       for lMatch in TRegEx.Matches(lExpression, '&?[A-Za-z_][A-Za-z_0-9]*') do
         AddConsumer(lMatch.Value.TrimLeft(['&']), 'directive-name-consumer', 1);
+    // Persist expression witnesses so warm SQLite queries evaluate the same
+    // transitive constants without reopening an include from disk.
+    for lConstant in StringConstantExpressions('const ' + lSource.Text) do
+    begin
+      lFact := Default(TSemanticReferenceFact);
+      lFact.ReasonId := aStrings.Intern(lConstant.Name);
+      lFact.TypeId := aStrings.Intern(lConstant.TypeName);
+      lFact.LookupSourceId := aStrings.Intern(lConstant.Expression);
+      lFact.FileId := aStrings.Intern(lFileName);
+      lFact.SourceKindId := aSourceKindId;
+      lFact.ClassificationId := aStrings.Intern('string-constant-expression');
+      aUnit.AddReference(lFact);
+      Inc(aMetrics.ReferenceCount);
+    end;
     lIncludeCode := SanitizeCodeText(lSource.Text);
     if TRegEx.IsMatch(lIncludeCode, '\b(?:Variant|OleVariant)\b', [roIgnoreCase]) then
       AddConsumer('', 'late-bound-member-name', 1);
@@ -2834,6 +2848,20 @@ begin
       Result.AddPossibleUnitImport(aStrings.Intern(lImport));
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
+    // Metadata only: do not let a supplemental declaration enter symbol lookup.
+    for lDeclaration in aModel.ContainmentDeclarations do
+    begin
+      lSourceGap := Default(TSemanticReferenceFact);
+      lSourceGap.ClassificationId := aStrings.Intern('containment-declaration');
+      lSourceGap.ReasonId := aStrings.Intern(lDeclaration.Name);
+      lSourceGap.TypeId := aStrings.Intern(lDeclaration.Kind);
+      lSourceGap.SourceKindId := lSourceKindId;
+      lSourceGap.FileId := SnapshotFactFileId(aStrings, lDeclaration.FileName);
+      lSourceGap.Line := lDeclaration.Line;
+      lSourceGap.Column := lDeclaration.Column;
+      Result.AddReference(lSourceGap);
+      Inc(aMetrics.ReferenceCount);
+    end;
     for lDeclaration in aModel.Declarations do
       AddSnapshotDeclaration(aStrings, Result, lDeclaration, lSourceKindId, aMetrics);
     for lMember in aModel.Members do

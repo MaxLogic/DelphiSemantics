@@ -292,6 +292,21 @@ type
     [TestCase('closure-readonly-reference', 'closure-readonly-reference,UCertified.pas,3,5,Renamed,analysis-input-outside-edit-scope,Win32,False')]
     [TestCase('closure-release-helper', 'closure-release-helper,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
     [TestCase('closure-selected-ifdef', 'closure-selected-ifdef,UCertified.pas,3,5,Renamed,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('r5-o06-two-vars-one-line', 'r5-o06-two-vars-one-line,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-o10-comment-before-var', 'r5-o10-comment-before-var,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-o11-var-then-name-next-decl', 'r5-o11-var-then-name-next-decl,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-p03-const-of-const-cross-unit', 'r5-p03-const-of-const-cross-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-p04-const-of-const-same-unit', 'r5-p04-const-of-const-same-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-p05-name-plus-suffix-trim', 'r5-p05-name-plus-suffix-trim,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r5-p10-prefix-plus-name', 'r5-p10-prefix-plus-name,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r4-o01-sameline-interface-newname-collision', 'r4-o01-sameline-interface-newname-collision,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r4-o02-sameline-impl-var-newname-collision', 'r4-o02-sameline-impl-var-newname-collision,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r4-l02-const-plus-concat', 'r4-l02-const-plus-concat,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r4-plus-parenthesized-expression', 'r4-plus-parenthesized-expression,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-qualified-transitive', 'r5-constant-qualified-transitive,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-include-transitive', 'r5-constant-include-transitive,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-unknown-dependency', 'r5-constant-unknown-dependency,UCertified.pas,6,5,Amount,string-constant-value-unproved,Win32,False')]
+    [TestCase('r5-qualified-unit-inactive-import-control', 'r5-qualified-unit-inactive-import-control,UCertified.pas,3,5,RenamedValue,,Win32,True')]
     procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
       const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 
@@ -1985,7 +2000,9 @@ begin
   if aSuccess then
   begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-    if StartsText('r3-external-explicit-', aCase) then
+    if aCase = 'r5-qualified-unit-inactive-import-control' then
+      Assert.AreEqual(5, Integer(Length(lPlan.Edits)))
+    else if StartsText('r3-external-explicit-', aCase) then
     begin
       Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
       for lEdit in lPlan.Edits do
@@ -1997,8 +2014,13 @@ begin
       for lEdit in lPlan.Edits do
         Assert.AreEqual(5, lEdit.StartLine, 'All four edits must share the local declaration line.');
   end else begin
-    Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
-    lFound := False;
+    if aReason = 'Rename collision' then
+    begin
+      Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+      Assert.AreEqual('Rename collision: a visible symbol already uses "RenamedValue".', lPlan.Diagnostic);
+    end else
+      Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    lFound := (aReason = 'Rename collision') and (lPlan.Status = 'blocked');
     for lUsage in lPlan.UnresolvedReferences do
       if lUsage.Reason = aReason then
       begin

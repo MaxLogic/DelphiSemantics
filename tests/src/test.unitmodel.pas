@@ -56,6 +56,21 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [TestCase('interface', 'interface')]
+    [TestCase('implementation', 'implementation')]
+    [TestCase('after peer', 'peer')]
+    [TestCase('comment', 'comment')]
+    [TestCase('block peer', 'block')]
+    [TestCase('constant', 'constant')]
+    [TestCase('type', 'type')]
+    [TestCase('routine', 'routine')]
+    [TestCase('field', 'field')]
+    [TestCase('property', 'property')]
+    procedure DeclarationPositionsIgnorePhysicalLines(const aShape: string);
+    [Test]
+    procedure DirectiveBeforeUsesKeepsImport;
+    [Test]
+    procedure ConstantInventoryExcludesDefaultParameters;
     [Category('DS703Slice')]
     [TestCase('Nested record owner', 'nested')]
     [TestCase('Nested array record owner', 'array')]
@@ -600,7 +615,7 @@ uses
   Winapi.Windows,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json,
-  DelphiSemantics.WithBinding.Inventory,
+  DelphiSemantics.Model.Text, DelphiSemantics.WithBinding.Inventory,
   Test.CompilerDefineEvidence, Test.Support;
 
 var
@@ -7247,6 +7262,108 @@ begin
       Inc(lCount);
     end;
   Assert.IsTrue(lCount > 0, 'The binding inventory must preserve heading facts');
+end;
+
+
+procedure TUnitModelTests.DeclarationPositionsIgnorePhysicalLines(const aShape: string);
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSource, lSection: string;
+  lFound: Boolean;
+begin
+  lSection := 'interface';
+  if aShape = 'interface' then
+    lSource := 'interface var RenamedValue: Integer;'
+  else if aShape = 'implementation' then
+  begin
+    lSource := 'interface implementation var RenamedValue: Integer;';
+    lSection := 'implementation';
+  end else if aShape = 'peer' then
+    lSource := 'interface var Dummy: Integer; RenamedValue: Integer;'
+  else if aShape = 'block' then
+    lSource := 'interface'#13#10'var'#13#10'  Dummy: Integer; RenamedValue: Integer;'
+  else if aShape = 'constant' then
+    lSource := 'interface const Dummy = 0; RenamedValue = 1;'
+  else if aShape = 'type' then
+    lSource := 'interface type TDummy = Integer; RenamedValue = string;'
+  else if aShape = 'routine' then
+    lSource := 'interface procedure RenamedValue;'
+  else if aShape = 'field' then
+    lSource := 'interface type TSandbox = class Dummy: Integer; RenamedValue: Integer; end;'
+  else if aShape = 'property' then
+    lSource := 'interface type TSandbox = class FValue: Integer; property RenamedValue: Integer read FValue; end;'
+  else
+    lSource := 'interface'#13#10'{ shadow } var RenamedValue: Integer;';
+  if lSection = 'interface' then
+    lSource := lSource + #13#10'implementation';
+  if aShape = 'routine' then
+    lSource := lSource + #13#10'procedure RenamedValue; begin end;';
+  lSource := 'unit DeclarationPositions;'#13#10 + lSource + #13#10'end.';
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('DeclarationPositions.pas');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(lOptions.SourceFileName, lSource, TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  if MatchText(aShape, ['field', 'property']) then
+    Assert.IsTrue(HasMemberOfOwner(lModel, 'TSandbox', 'RenamedValue'), aShape)
+  else if aShape = 'routine' then
+    Assert.IsTrue(HasRoutine(lModel, 'RenamedValue', 'implementation'), aShape)
+  else if aShape = 'constant' then
+    Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'const', lSection), aShape)
+  else if aShape = 'type' then
+    Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'type-alias', lSection), aShape)
+  else if MatchText(aShape, ['interface', 'implementation']) then
+    Assert.IsTrue(HasDeclaration(lModel, 'RenamedValue', 'var', 'interface'),
+      'Preserve the predecessor binding inventory and its section metadata.')
+  else
+  begin
+    Assert.IsFalse(HasDeclaration(lModel, 'RenamedValue', 'var', lSection),
+      'New inventory is containment evidence, not binding authority.');
+    lModel := JsonToModel(ModelToJson(lModel));
+    lFound := False;
+    for var lDeclaration in lModel.ContainmentDeclarations do
+      lFound := lFound or (SameText(lDeclaration.Name, 'RenamedValue') and
+        (lDeclaration.Kind = 'var') and (lDeclaration.SectionKind = lSection));
+    Assert.IsTrue(lFound, aShape);
+  end;
+end;
+
+procedure TUnitModelTests.DirectiveBeforeUsesKeepsImport;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lFound: Boolean;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := UnitModelTempPath('DirectiveImport.dpr');
+  lOptions.ProjectContextApplied := True;
+  TFile.WriteAllText(UnitModelTempPath('ImportTarget.pas'),
+    'unit ImportTarget; interface implementation end.', TEncoding.ASCII);
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'program DirectiveImport;'#13#10'{$APPTYPE CONSOLE}'#13#10 +
+    'uses ImportTarget in ''ImportTarget.pas'';'#13#10'begin end.', TEncoding.ASCII);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFound := False;
+  for var lImport in lModel.ImportFacts do
+    lFound := lFound or SameText(lImport.Name, 'ImportTarget');
+  Assert.IsTrue(lFound, 'APPTYPE is trivia before USES.');
+end;
+
+procedure TUnitModelTests.ConstantInventoryExcludesDefaultParameters;
+var
+  lConstants: TArray<TDelphiSemanticStringConstant>;
+begin
+  lConstants := StringConstantExpressions(
+    'unit DefaultParameterConstants; interface const cPre = ''Co'';'#13#10 +
+    'procedure Visit(const aDefault: string = ''''; aCount: Integer = 1);'#13#10 +
+    'implementation const cName = cPre + ''unt''; end.');
+  Assert.AreEqual(2, Integer(Length(lConstants)));
+  Assert.AreEqual('cPre', lConstants[0].Name);
+  Assert.AreEqual('cName', lConstants[1].Name);
+  Assert.AreEqual('cPre + ''unt''', lConstants[1].Expression.Trim);
 end;
 
 initialization

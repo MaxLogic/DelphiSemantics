@@ -1068,6 +1068,99 @@ var
     end;
   end;
 
+  function ProvenUnitQualifiedReference(const aCurrentUnit: TUnitSnapshot;
+    const aReference: TSemanticReferenceFact; const aLine, aColumn: Integer): Boolean;
+  var
+    lTargetUnit, lUnit: TUnitSnapshot;
+    lImport: TDelphiSemanticImportFact;
+    lLexer: TmwBasePasLex;
+    lUnitName, lRaw: string;
+    lOffset, lCurrentLine, i: Integer;
+    lImportProved, lInHeader, lInUses: Boolean;
+  begin
+    Result := False;
+    if (aReference.TargetSymbolId = 0) or
+      ((aReference.FileId <> 0) and (aReference.FileId <> aCurrentUnit.FileNameId)) or
+      not aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) then
+      Exit;
+    lUnitName := SnapshotText(aSnapshot, lTargetUnit.UnitNameId);
+    if (lUnitName = '') or ContainsText(lUnitName, '.') then
+      Exit;
+    lImportProved := False;
+    for lImport in aCurrentUnit.ImportFacts do
+      if SameText(lImport.Name, lUnitName) and lImport.Unconditional and
+        not lImport.ResolutionVaries and (lImport.Cause = '') and
+        (lImport.GapReason = '') and SameText(lImport.TargetFileName,
+        SnapshotText(aSnapshot, lTargetUnit.FileNameId)) then
+        lImportProved := True;
+    if not lImportProved then
+      Exit;
+    lRaw := SanitizeCodeText(aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId));
+    lOffset := 1;
+    lCurrentLine := 1;
+    while (lOffset <= Length(lRaw)) and (lCurrentLine < aLine) do
+    begin
+      if lRaw[lOffset] = #10 then
+        Inc(lCurrentLine);
+      Inc(lOffset);
+    end;
+    Inc(lOffset, aColumn - 1);
+    if not TRegEx.IsMatch(Copy(lRaw, 1, lOffset - 1),
+      '\b' + TRegEx.Escape(lUnitName) + '\s*\.\s*$', [roIgnoreCase]) then
+      Exit;
+    // Rule out a configuration-dependent value/type/routine with the unit's
+    // qualifier spelling. Unknown sources/includes/import selections withhold
+    // this narrow proof; parsed selected bindings alone are insufficient.
+    lLexer := nil;
+    try
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        for lImport in lUnit.ImportFacts do
+          if (lImport.GapReason <> '') or lImport.ResolutionVaries or
+            ((not lImport.Unconditional) and lImport.SdkBoundary) then
+            Exit;
+        lRaw := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+        if (lRaw = '') or TRegEx.IsMatch(lRaw,
+          '(?:\{\$|\(\*\$)\s*(?:I|INCLUDE)\s', [roIgnoreCase]) then
+          Exit;
+        // This lexer's Origin setter allocates a new buffer without releasing
+        // its previous one. Each physical source needs its own lexer lifetime.
+        FreeAndNil(lLexer);
+        lLexer := TmwBasePasLex.Create;
+        lLexer.UseDefines := False;
+        lLexer.Origin := lRaw;
+        while lLexer.IsJunk do
+          lLexer.Next;
+        lInHeader := False;
+        lInUses := False;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if lLexer.TokenID in [ptUnit, ptProgram, ptLibrary, ptPackage] then
+            lInHeader := True
+          else if lLexer.TokenID in [ptUses, ptContains] then
+            lInUses := True
+          else if lLexer.TokenID = ptSemiColon then
+          begin
+            lInHeader := False;
+            lInUses := False;
+          end else if SameText(lLexer.Token.TrimLeft(['&']), lUnitName) and
+            not lInHeader and not lInUses then
+          begin
+            lLexer.NextNoJunk;
+            if lLexer.Token <> '.' then
+              Exit;
+            Continue;
+          end;
+          lLexer.NextNoJunk;
+        end;
+      end;
+      Result := True;
+    finally
+      lLexer.Free;
+    end;
+  end;
+
   procedure CheckOccurrence(const aCurrentUnit: TUnitSnapshot; const aFileName,
     aName: string; const aLine, aColumn: Integer; const aInactive, aMember: Boolean;
     const aReference: TSemanticReferenceFact);
@@ -1139,6 +1232,9 @@ var
       end;
       lProvider := SnapshotText(aSnapshot, lTargetUnit.FileNameId);
     end;
+    if aMember and not lInWith and
+      ProvenUnitQualifiedReference(aCurrentUnit, aReference, aLine, aColumn) then
+      Exit;
     lSection := SnapshotText(aSnapshot, aReference.SectionKindId);
     CheckImports(lOwner, lSection, lProvider, aName, lInWith or aMember, lNewLocal,
       aLine, aColumn);
@@ -1148,11 +1244,12 @@ var
   // substitute for the per-configuration binding matrix (DS-797 slice 4).
   procedure CheckImplicitConsumers(const aCurrentUnit: TUnitSnapshot);
   var
-    lRaw, lCode, lConsumerRaw, lConsumerCode, lName, lPattern, lFileName, lKind, lBase, lLiteral: string;
+    lRaw, lCode, lConsumerRaw, lConsumerCode, lName, lPattern, lFileName, lKind, lBase: string;
     lConsumer: TSemanticReferenceFact;
     lTypeFact: TSemanticSymbolFact;
     lRttiUnit, lCodeOnly: Boolean;
-    lOwnerIndex, lTypeOffset, lMemberOffset, lOffset, lStart: Integer;
+    lCandidate: TDelphiSemanticStringLiteral;
+    lOwnerIndex, lTypeOffset, lMemberOffset: Integer;
     lImport: TDelphiSemanticImportFact;
     lMatch: TMatch;
     lNames, lImportParts: TArray<string>;
@@ -1314,9 +1411,8 @@ var
       // an unmatched quote in a comment cannot conceal a real literal.
       for lCodeOnly := False to True do
       begin
-        lOffset := 1;
-        while NextRawStringLiteral(lConsumerRaw, lOffset, lLiteral, lStart, lCodeOnly) do
-          if MatchText(lName, lLiteral.Split(['.'])) then
+        for lCandidate in StringLiteralCandidates(lConsumerRaw, lCodeOnly) do
+          if MatchText(lName, lCandidate.Value.Split(['.'])) then
           begin
             if lRttiUnit or HasRuntimeNameConsumerCode(lConsumerCode) then
               Refuse('rtti-string-name-consumer')
@@ -1324,6 +1420,230 @@ var
               Refuse('string-name-consumer');
           end;
       end;
+    end;
+  end;
+
+  // Resolve only literal/identifier/+ constant expressions. Ambiguous names,
+  // cycles, unsupported operations and depth limits never become guessed values.
+  procedure CheckStringConstants;
+  type
+    TConstant = record
+      Item: TDelphiSemanticStringConstant;
+      Owner, FileName: string;
+    end;
+  var
+    lConstants: TArray<TConstant>;
+    lValues: TArray<string>;
+    lStates: TArray<Integer>;
+    lVisiting: TArray<Boolean>;
+    lByName: TDictionary<string, Integer>;
+    lConstant: TConstant;
+    lUnit: TUnitSnapshot;
+    lFact: TSemanticReferenceFact;
+    lName: string;
+    i, j: Integer;
+
+    procedure IndexName(const aName: string; const aIndex: Integer);
+    begin
+      if lByName.ContainsKey(aName) then
+        lByName[aName] := -1
+      else
+        lByName.Add(aName, aIndex);
+    end;
+
+    function FindConstant(const aName: string): Integer;
+    begin
+      if not lByName.TryGetValue(aName, Result) then
+        Result := -1;
+    end;
+
+    function Evaluate(const aIndex, aDepth: Integer): Boolean;
+    var
+      lText: string;
+      lOffset: Integer;
+
+      procedure SkipTrivia;
+      begin
+        while lOffset <= Length(lText) do
+        begin
+          if CharInSet(lText[lOffset], [#9, #10, #13, #32]) then
+            Inc(lOffset)
+          else if (lText[lOffset] = '{') and (Copy(lText, lOffset, 2) <> '{$') then
+          begin
+            while (lOffset <= Length(lText)) and (lText[lOffset] <> '}') do
+              Inc(lOffset);
+            Inc(lOffset);
+          end else if (Copy(lText, lOffset, 2) = '(*') and
+            (Copy(lText, lOffset, 3) <> '(*$') then
+          begin
+            Inc(lOffset, 2);
+            while (lOffset <= Length(lText)) and (Copy(lText, lOffset, 2) <> '*)') do
+              Inc(lOffset);
+            Inc(lOffset, 2);
+          end else if Copy(lText, lOffset, 2) = '//' then
+          begin
+            while (lOffset <= Length(lText)) and not CharInSet(lText[lOffset], [#10, #13]) do
+              Inc(lOffset);
+          end else
+            Break;
+        end;
+      end;
+
+      function Expression(out aValue: string; const aLevel: Integer): Boolean;
+      var
+        lPart: string;
+
+        function Operand(out aPart: string): Boolean;
+        var
+          lStart, lLiteralStart, lDependency: Integer;
+          lIdentifier: string;
+        begin
+          Result := False;
+          aPart := '';
+          SkipTrivia;
+          if (lOffset > Length(lText)) or (aLevel >= 64) then
+            Exit;
+          if lText[lOffset] = '(' then
+          begin
+            Inc(lOffset);
+            if not Expression(aPart, aLevel + 1) then
+              Exit;
+            SkipTrivia;
+            if (lOffset > Length(lText)) or (lText[lOffset] <> ')') then
+              Exit;
+            Inc(lOffset);
+            Exit(True);
+          end;
+          if CharInSet(lText[lOffset], [#39, '#']) then
+          begin
+            lStart := lOffset;
+            Exit(NextRawStringLiteral(lText, lOffset, aPart, lLiteralStart, True) and
+              (lLiteralStart = lStart));
+          end;
+          if not IsIdentifierStart(lText[lOffset]) then
+            Exit;
+          lStart := lOffset;
+          while (lOffset <= Length(lText)) and
+            (IsIdentifierChar(lText[lOffset]) or (lText[lOffset] = '.')) do
+            Inc(lOffset);
+          lIdentifier := Copy(lText, lStart, lOffset - lStart);
+          lDependency := FindConstant(lIdentifier);
+          if (lDependency < 0) or not Evaluate(lDependency, aDepth + 1) then
+            Exit;
+          aPart := lValues[lDependency];
+          Result := True;
+        end;
+
+      begin
+        Result := Operand(aValue);
+        if not Result then
+          Exit;
+        while True do
+        begin
+          SkipTrivia;
+          if (lOffset > Length(lText)) or (lText[lOffset] <> '+') then
+            Break;
+          Inc(lOffset);
+          if not Operand(lPart) then
+            Exit(False);
+          aValue := aValue + lPart;
+        end;
+      end;
+
+    begin
+      if lStates[aIndex] = 2 then
+        Exit(True);
+      if (lStates[aIndex] <> 0) or (aDepth >= 64) then
+        Exit(False);
+      lStates[aIndex] := 1;
+      lText := lConstants[aIndex].Item.Expression;
+      lOffset := 1;
+      Result := Expression(lValues[aIndex], 0);
+      SkipTrivia;
+      Result := Result and (lOffset > Length(lText));
+      if Result then
+        lStates[aIndex] := 2
+      else
+        lStates[aIndex] := 3;
+    end;
+
+    function DependsOnString(const aIndex, aDepth: Integer): Boolean;
+    var
+      lMatch: TMatch;
+      lDependency: Integer;
+    begin
+      if (Length(StringLiteralCandidates(lConstants[aIndex].Item.Expression, True)) > 0) or
+        ContainsText(lConstants[aIndex].Item.TypeName, 'string') then
+        Exit(True);
+      if aDepth >= 64 then
+        Exit(True);
+      if lVisiting[aIndex] then
+        Exit(False);
+      lVisiting[aIndex] := True;
+      try
+        for lMatch in TRegEx.Matches(SanitizeCodeText(lConstants[aIndex].Item.Expression),
+          '[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*') do
+        begin
+          lDependency := FindConstant(lMatch.Value);
+          if (lDependency < 0) and lByName.ContainsKey(lMatch.Value) then
+            Exit(True); // An ambiguous constant dependency has no proved value.
+          if (lDependency >= 0) and DependsOnString(lDependency, aDepth + 1) then
+            Exit(True);
+        end;
+        Result := False;
+      finally
+        lVisiting[aIndex] := False;
+      end;
+    end;
+
+  begin
+    lByName := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        lConstant := Default(TConstant);
+        lConstant.Owner := SnapshotText(aSnapshot, lUnit.UnitNameId);
+        lConstant.FileName := SnapshotText(aSnapshot, lUnit.FileNameId);
+        for var lItem in StringConstantExpressions(aSnapshot.ExactTextOf(lUnit.SourceTextId)) do
+        begin
+          lConstant.Item := lItem;
+          lConstants := lConstants + [lConstant];
+        end;
+        for j := 1 to lUnit.ReferenceCount do
+        begin
+          lFact := lUnit.ReferenceById(TSemanticReferenceId(j));
+          if not SameText(SnapshotText(aSnapshot, lFact.ClassificationId), 'string-constant-expression') then
+            Continue;
+          lConstant.Item := Default(TDelphiSemanticStringConstant);
+          lConstant.Item.Name := SnapshotText(aSnapshot, lFact.ReasonId);
+          lConstant.Item.TypeName := SnapshotText(aSnapshot, lFact.TypeId);
+          lConstant.Item.Expression := SnapshotText(aSnapshot, lFact.LookupSourceId);
+          lConstant.FileName := SnapshotText(aSnapshot, lFact.FileId);
+          lConstants := lConstants + [lConstant];
+        end;
+      end;
+      SetLength(lValues, Length(lConstants));
+      SetLength(lStates, Length(lConstants));
+      SetLength(lVisiting, Length(lConstants));
+      for i := 0 to High(lConstants) do
+      begin
+        IndexName(lConstants[i].Item.Name, i);
+        IndexName(lConstants[i].Owner + '.' + lConstants[i].Item.Name, i);
+      end;
+      for i := 0 to High(lConstants) do
+      begin
+        if Evaluate(i, 0) then
+        begin
+          for lName in aNames do
+            if MatchText(lName, lValues[i].Split(['.'])) then
+              Report(lConstants[i].FileName, 'string-name-consumer', lName, 0, 0);
+        end else if DependsOnString(i, 0) then
+          Report(lConstants[i].FileName, 'string-constant-value-unproved',
+            lConstants[i].Item.Name, 0, 0);
+      end;
+    finally
+      lByName.Free;
     end;
   end;
 
@@ -1404,6 +1724,10 @@ var
             Break;
           end;
         end;
+        if not lIsDeclaration and (lReference.NameId = 0) and
+          not SameText(lName, aSymbol.Name) then
+          Report(lFileName, 'unclassified-new-name-occurrence', lName,
+            lLine, lOffset - lLineStart + 1);
         lPrevious := lOffset - 1;
         while (lPrevious > 0) and CharInSet(lScan[lPrevious], [#9, #10, #13, ' ']) do
           Dec(lPrevious);
@@ -1513,6 +1837,7 @@ begin
           SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
       end;
     end;
+    CheckStringConstants;
     Result := SortedUsages(lResult);
   finally
     lRetained.Free;

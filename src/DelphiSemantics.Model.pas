@@ -311,6 +311,8 @@ type
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;
     Declarations: TArray<TDelphiSemanticDeclaration>;
+    // DS-797: supplemental declarations may block rename, never establish a binding.
+    ContainmentDeclarations: TArray<TDelphiSemanticDeclaration>;
     Members: TArray<TDelphiSemanticMember>;
     Routines: TArray<TDelphiSemanticRoutine>;
     Locals: TArray<TDelphiSemanticLocal>;

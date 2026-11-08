@@ -2,6 +2,23 @@ unit DelphiSemantics.Model.Text;
 
 interface
 
+type
+  TDelphiSemanticStringLiteral = record
+    Value: string;
+    Offset: Integer;
+  end;
+
+type
+  TDelphiSemanticStringConstant = record
+    Name, Expression, TypeName: string;
+    Offset: Integer;
+  end;
+
+function StringConstantExpressions(const aText: string): TArray<TDelphiSemanticStringConstant>;
+
+function StringLiteralCandidates(const aText: string; const aCodeOnly: Boolean):
+  TArray<TDelphiSemanticStringLiteral>;
+
 function NormalizeRoutineSignature(const aSignature: string): string;
 function IsIdentifierStart(const aChar: Char): Boolean;
 function IsIdentifierChar(const aChar: Char): Boolean;
@@ -718,6 +735,107 @@ begin
       Exit(True);
     end;
     Inc(aOffset);
+  end;
+end;
+
+// Capture constant expressions by lexical declaration boundaries, including
+// peers on the same line. Evaluation never executes source or library calls.
+function StringConstantExpressions(const aText: string): TArray<TDelphiSemanticStringConstant>;
+var
+  lLexer: TmwBasePasLex;
+  lItems: TList<TDelphiSemanticStringConstant>;
+  lItem: TDelphiSemanticStringConstant;
+  lInConstants: Boolean;
+  lStart, lDepth, lNesting: Integer;
+begin
+  lItems := TList<TDelphiSemanticStringConstant>.Create;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    lInConstants := False;
+    lNesting := 0;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.IsCompilerDirective then
+      begin
+        lLexer.NextNoJunk;
+        Continue;
+      end;
+      // CONST inside a routine parameter list is a modifier, including when
+      // the parameter has a default value. It never opens a constant section.
+      if MatchText(lLexer.Token, ['(', '[']) then
+        Inc(lNesting)
+      else if MatchText(lLexer.Token, [')', ']']) then
+        Dec(lNesting);
+      if (lNesting = 0) and MatchText(lLexer.Token, ['const', 'resourcestring']) then
+        lInConstants := True
+      else if lInConstants and (lLexer.TokenID = ptIdentifier) then
+      begin
+        lItem := Default(TDelphiSemanticStringConstant);
+        lItem.Name := lLexer.Token.TrimLeft(['&']);
+        lItem.Offset := lLexer.TokenPos + 1;
+        lLexer.NextNoJunk;
+        if lLexer.Token = ':' then
+        begin
+          lLexer.NextNoJunk;
+          lStart := lLexer.TokenPos + 1;
+          while (lLexer.TokenID <> ptNull) and
+            not MatchText(lLexer.Token, ['=', ';', ')']) do
+            lLexer.NextNoJunk;
+          lItem.TypeName := Copy(aText, lStart, lLexer.TokenPos + 1 - lStart);
+        end;
+        if lLexer.Token = '=' then
+        begin
+          lLexer.NextNoJunk;
+          lStart := lLexer.TokenPos + 1;
+          lDepth := 0;
+          while lLexer.TokenID <> ptNull do
+          begin
+            if (lLexer.Token = ';') and (lDepth = 0) then
+              Break;
+            if MatchText(lLexer.Token, ['(', '[']) then
+              Inc(lDepth)
+            else if MatchText(lLexer.Token, [')', ']']) then
+              Dec(lDepth);
+            lLexer.NextNoJunk;
+          end;
+          lItem.Expression := Copy(aText, lStart, lLexer.TokenPos + 1 - lStart);
+          lItems.Add(lItem);
+        end else
+          lInConstants := False;
+        Continue;
+      end else if lLexer.Token <> ';' then
+        lInConstants := False;
+      lLexer.NextNoJunk;
+    end;
+    Result := lItems.ToArray;
+  finally
+    lLexer.Free;
+    lItems.Free;
+  end;
+end;
+
+// The folded value supplements every individual literal operand. Retaining
+// operands is essential for runtime trimming/slicing of a concatenated value.
+function StringLiteralCandidates(const aText: string; const aCodeOnly: Boolean):
+  TArray<TDelphiSemanticStringLiteral>;
+var
+  lValues: TList<TDelphiSemanticStringLiteral>;
+  lItem: TDelphiSemanticStringLiteral;
+  lOffset: Integer;
+begin
+  lValues := TList<TDelphiSemanticStringLiteral>.Create;
+  try
+    lOffset := 1;
+    while NextRawStringLiteral(aText, lOffset, lItem.Value, lItem.Offset, aCodeOnly) do
+      lValues.Add(lItem);
+    lOffset := 1;
+    while ReadRawStringParts(aText, lOffset, lItem.Value, lItem.Offset, aCodeOnly) do
+      lValues.Add(lItem);
+    Result := lValues.ToArray;
+  finally
+    lValues.Free;
   end;
 end;
 

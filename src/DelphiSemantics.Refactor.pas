@@ -128,6 +128,50 @@ begin
   Result := False;
 end;
 
+function HasContainmentNameCollision(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aOriginalName, aNewName: string): Boolean;
+var
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  lReference: TSemanticReferenceFact;
+  lModel: TDelphiSemanticUnitModel;
+  i, j: Integer;
+  function ModelContains(const aModel: TDelphiSemanticUnitModel): Boolean;
+  var
+    lDeclaration: TDelphiSemanticDeclaration;
+  begin
+    for lDeclaration in aModel.ContainmentDeclarations do
+      if SameText(lDeclaration.Name, aNewName) then
+        Exit(True);
+    Result := False;
+  end;
+begin
+  if SameText(aOriginalName, aNewName) then
+    Exit(False);
+  lSnapshot := ContextProjectSnapshot(aContext);
+  if lSnapshot <> nil then
+  begin
+    for i := 0 to lSnapshot.UnitCount - 1 do
+    begin
+      lUnit := lSnapshot.UnitByIndex(i);
+      for j := 1 to lUnit.ReferenceCount do
+      begin
+        lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
+        if SameText(SnapshotText(lSnapshot, lReference.ClassificationId), 'containment-declaration') and
+          SameText(SnapshotText(lSnapshot, lReference.ReasonId), aNewName) then
+          Exit(True);
+      end;
+    end;
+    Exit(False);
+  end;
+  if ModelContains(aContext.UnitModel) then
+    Exit(True);
+  for lModel in aContext.IndexedUnitModels do
+    if ModelContains(lModel) then
+      Exit(True);
+  Result := False;
+end;
+
 function HasSnapshotNameCollision(const aContext: TDelphiSemanticSymbolQueryContext;
   const aOriginalName, aNewName: string): Boolean;
 var
@@ -1288,6 +1332,9 @@ begin
   if not IsIdentifierText(aNewName) then
     Exit(MakeBlockedPlan('New name is not a valid Delphi identifier.'));
 
+  if HasContainmentNameCollision(aContext, aName, aNewName) then
+    Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
+
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot <> nil then
   begin
@@ -1377,6 +1424,8 @@ begin
     if lUsageResult.Status <> 'resolved' then
       Exit(BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName));
 
+    if HasContainmentNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
+      Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
     Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
     if (Result.Status = 'planned') and
       HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
@@ -1398,7 +1447,8 @@ begin
     Exit;
   end;
 
-  if HasNameCollision(lIndex, lUsageResult.Symbol.Name, aNewName) then
+  if HasNameCollision(lIndex, lUsageResult.Symbol.Name, aNewName) or
+    HasContainmentNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
   begin
     Result := MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".');
     Result.IndexMetrics := lIndex.Metrics;
