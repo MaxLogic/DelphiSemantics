@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename retains imports after compiler directives, detects declarations after same-line section keywords, and refuses matching constant string concatenations (DS-797). Names serialised via RTTI by library code are outside static proof.
+
 - Refuse rename plans for implicit external/export names, package routines, late-bound members, assembler tokens, directive expressions and matching literal values across retained units/includes; normalize Delphi literal sequences and combined M+ switches (DS-797).
 - Evaluate IFOPT for certified native R/Q/O/I/H states and ordered source/include switch changes. Unknown option states still refuse; proven inactive compiler diagnostics do not fail preprocessing (DS-799).
 

@@ -3443,6 +3443,42 @@ begin
     AddDeclaration(aDeclarations, aName, 'type-alias', aTypeName, lSection, aText, lNameOffset);
 end;
 
+// Mask only lexical headers, preserving every source offset. Section keywords
+// and USES clauses may share a physical line with the following declaration.
+function DeclarationScanText(const aText: string): string;
+var
+  lLexer: TmwBasePasLex;
+  lSections: TDelphiSemanticSourceSections;
+  lStart, lFinish, i: Integer;
+begin
+  Result := aText;
+  lSections := BuildSourceSections(aText);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      lStart := lLexer.TokenPos + 1;
+      lFinish := lStart - 1;
+      if lLexer.TokenID in [ptUnit, ptProgram, ptLibrary, ptPackage, ptUses] then
+      begin
+        while not (lLexer.TokenID in [ptSemiColon, ptNull]) do
+          lLexer.Next;
+        lFinish := lLexer.TokenPos + Length(lLexer.Token);
+      end else if ((lLexer.TokenID = ptInterface) and (lStart = lSections.InterfaceOffset)) or
+        ((lLexer.TokenID = ptImplementation) and (lStart = lSections.ImplementationOffset)) then
+        lFinish := lLexer.TokenPos + Length(lLexer.Token);
+      for i := lStart to lFinish do
+        if not CharInSet(Result[i], [#10, #13]) then
+          Result[i] := ' ';
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 procedure ExtractTypeDeclarations(const aText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aReferences: TList<TDelphiSemanticReference>);
@@ -3468,7 +3504,7 @@ var
 begin
   lLines := TStringList.Create;
   try
-    lLines.Text := aText;
+    lLines.Text := DeclarationScanText(aText);
     lBlockKind := '';
     lInImplementation := False;
     lInRoutine := False;
@@ -3481,6 +3517,13 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      if lInImplementation <> SameText(SectionForOffset(aText,
+        lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft) + 1), 'implementation') then
+      begin
+        lBlockKind := '';
+        lInRoutine := False;
+        lInImplementation := not lInImplementation;
+      end;
       lScopeLine := StripTrailingDeclarationComment(lLine);
       if lTypeDepth > 0 then
         Inc(lTypeDepth, AnonymousRecordDepthDelta(lScopeLine));
@@ -3687,7 +3730,7 @@ begin
       '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]);
     lSectionPattern := TRegEx.Create('^(const|resourcestring|var|threadvar|type)\b\s*', [roIgnoreCase]);
     lConstantPattern := TRegEx.Create('^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=', [roIgnoreCase]);
-    lLines.Text := aText;
+    lLines.Text := DeclarationScanText(aText);
     lHeaderText := SanitizeCodeText(aText);
     lBlockKind := '';
     lInImplementation := False;
@@ -3697,6 +3740,13 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      if lInImplementation <> SameText(SectionForOffset(aText,
+        lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft) + 1), 'implementation') then
+      begin
+        lBlockKind := '';
+        lInRoutine := False;
+        lInImplementation := not lInImplementation;
+      end;
       lLineOffset := lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft);
       // DS-730: a physical comment line cannot declare a symbol in an open section.
       if Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim = '' then

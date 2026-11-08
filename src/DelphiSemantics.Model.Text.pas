@@ -454,13 +454,7 @@ end;
 // Scan raw source conservatively, including comments and inactive arms. Decode
 // Delphi literal sequences iteratively: quoted parts, character codes and the
 // indentation-stripped Delphi 12 multiline form. No computed expression is run.
-function NextRawStringLiteral(const aText: string; var aOffset: Integer;
-  out aValue: string; out aStart: Integer): Boolean;
-begin
-  Result := NextRawStringLiteral(aText, aOffset, aValue, aStart, False);
-end;
-
-function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+function ReadRawStringParts(const aText: string; var aOffset: Integer;
   out aValue: string; out aStart: Integer; const aCodeOnly: Boolean): Boolean;
 var
   lBuilder: TStringBuilder;
@@ -620,6 +614,110 @@ begin
     Result := True;
   finally
     lBuilder.Free;
+  end;
+end;
+
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer): Boolean;
+begin
+  Result := NextRawStringLiteral(aText, aOffset, aValue, aStart, False);
+end;
+
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer; const aCodeOnly: Boolean): Boolean;
+var
+  lNext: Integer;
+
+  procedure SkipTrivia(var aIndex: Integer);
+  begin
+    while aIndex <= Length(aText) do
+    begin
+      if CharInSet(aText[aIndex], [#9, #10, #13, #32]) then
+        Inc(aIndex)
+      else if aCodeOnly and (aText[aIndex] = '{') and
+        (Copy(aText, aIndex, 2) <> '{$') then
+      begin
+        while (aIndex <= Length(aText)) and (aText[aIndex] <> '}') do
+          Inc(aIndex);
+        Inc(aIndex);
+      end else if aCodeOnly and (Copy(aText, aIndex, 2) = '(*') and
+        (Copy(aText, aIndex, 3) <> '(*$') then
+      begin
+        Inc(aIndex, 2);
+        while (aIndex <= Length(aText)) and (Copy(aText, aIndex, 2) <> '*)') do
+          Inc(aIndex);
+        Inc(aIndex, 2);
+      end else if aCodeOnly and (Copy(aText, aIndex, 2) = '//') then
+      begin
+        while (aIndex <= Length(aText)) and not CharInSet(aText[aIndex], [#10, #13]) do
+          Inc(aIndex);
+      end else
+        Break;
+    end;
+  end;
+
+  function ReadExpression(var aIndex: Integer; out aResult: string;
+    const aDepth: Integer): Boolean;
+  var
+    lCursor, lPartStart: Integer;
+    lPart: string;
+
+    function ReadOperand(var aCursor: Integer; out aOperand: string): Boolean;
+    var
+      lEnd: Integer;
+    begin
+      Result := False;
+      SkipTrivia(aCursor);
+      if (aCursor > Length(aText)) or (aDepth >= 64) then
+        Exit;
+      if aText[aCursor] = '(' then
+      begin
+        lEnd := aCursor + 1;
+        if not ReadExpression(lEnd, aOperand, aDepth + 1) then
+          Exit;
+        SkipTrivia(lEnd);
+        if (lEnd > Length(aText)) or (aText[lEnd] <> ')') then
+          Exit;
+        aCursor := lEnd + 1;
+        Exit(True);
+      end;
+      if CharInSet(aText[aCursor], [#39, '#']) then
+        Result := ReadRawStringParts(aText, aCursor, aOperand, lPartStart, aCodeOnly);
+    end;
+
+  begin
+    Result := ReadOperand(aIndex, aResult);
+    if not Result then
+      Exit;
+    while True do
+    begin
+      lCursor := aIndex;
+      SkipTrivia(lCursor);
+      if (lCursor > Length(aText)) or (aText[lCursor] <> '+') then
+        Break;
+      Inc(lCursor);
+      if not ReadOperand(lCursor, lPart) then
+        Break;
+      aResult := aResult + lPart;
+      aIndex := lCursor;
+    end;
+  end;
+
+begin
+  Result := False;
+  aValue := '';
+  aStart := 0;
+  while aOffset <= Length(aText) do
+  begin
+    SkipTrivia(aOffset);
+    lNext := aOffset;
+    if ReadExpression(lNext, aValue, 0) then
+    begin
+      aStart := aOffset;
+      aOffset := lNext;
+      Exit(True);
+    end;
+    Inc(aOffset);
   end;
 end;
 
