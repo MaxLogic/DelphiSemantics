@@ -11,6 +11,7 @@ uses
   Dak.CompilerDefineSettings in '..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas',
   Dak.Build.Types in '..\..\DelphiAiKit\src\Dak.Build.Types.pas',
   Dak.ExternalToolProcess in '..\..\DelphiAiKit\src\Dak.ExternalToolProcess.pas',
+  Dak.Hash.Sha256 in '..\..\DelphiAiKit\src\Dak.Hash.Sha256.pas',
   Dak.NativeInputLocks in '..\..\DelphiAiKit\src\Dak.NativeInputLocks.pas',
   Dak.Types in '..\..\DelphiAiKit\src\Dak.Types.pas',
   DelphiSemantics.Api in '..\src\DelphiSemantics.Api.pas',
