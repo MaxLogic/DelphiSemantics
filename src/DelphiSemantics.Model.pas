@@ -384,6 +384,9 @@ begin
     // Project -D values cannot describe an imported prebuilt DCU's history.
     Result.Defines := nil;
     Result.CompilerDefineEvidenceReason := 'certified invocation does not select and rebuild this source';
+    if lAdmitted.Descriptor.SourceSelectionReason <> '' then
+      Result.CompilerDefineEvidenceReason := Result.CompilerDefineEvidenceReason + ': ' +
+        lAdmitted.Descriptor.SourceSelectionReason;
   end;
 end;
 

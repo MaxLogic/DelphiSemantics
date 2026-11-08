@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Native compiler dependency certificates identify selected library sources per configuration/platform. Certified sources can supply preprocessing and containment evidence; DCU-only and uncertified inputs keep refusing (DS-800).
+
 - Evaluate IFOPT for certified native R/Q/O/I/H states and ordered source/include switch changes. Unknown option states still refuse; proven inactive compiler diagnostics do not fail preprocessing (DS-799).
 
 - Project sessions retain and index non-SDK search/library-path import sources, including transitive and selected-active conditional imports. Newly discovered sources stay outside edit scope; native selection uncertainty and SDK pairing rules still apply (DS-798).

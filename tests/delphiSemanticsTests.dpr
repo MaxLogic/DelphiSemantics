@@ -8,6 +8,7 @@ uses
   DUnitX.Extensibility, DUnitX.FilterBuilder, DUnitX.Filters, DUnitX.Loggers.Console, DUnitX.Loggers.XML.NUnit, DUnitX.TestFramework,
   Dak.Build.NativeContext in '..\..\DelphiAiKit\src\Dak.Build.NativeContext.pas',
   Dak.CompilerDefineSettings in '..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas',
+  Dak.CompilerDependencies in '..\..\DelphiAiKit\src\Dak.CompilerDependencies.pas',
   Dak.Build.Types in '..\..\DelphiAiKit\src\Dak.Build.Types.pas',
   Dak.ExternalToolProcess in '..\..\DelphiAiKit\src\Dak.ExternalToolProcess.pas',
   Dak.NativeInputLocks in '..\..\DelphiAiKit\src\Dak.NativeInputLocks.pas',
