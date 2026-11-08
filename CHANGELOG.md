@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Refuse certified renames with bare inherited calls after nested routines, Declared consumers in includes, implicit published members, guarded active source gaps, and additional RTTI name consumers (DS-797).
+
 - Rename and find-usages refuse known conditional capture, missing active-source coverage, implicit inherited/interface/attribute/protocol consumers, published members and literal reflection uses. Refusals retain named reasons and no apply authority (DS-797 slice 1).
 
 - Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).

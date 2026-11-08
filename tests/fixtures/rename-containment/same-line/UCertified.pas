@@ -1,6 +1,6 @@
 unit UCertified;
 interface
-var Counter: Integer;
+procedure Touch;
 implementation
-procedure Touch; begin Counter := Counter + Counter; end;
+procedure Touch; var Counter: Integer; begin Counter := Counter + Counter; end;
 end.

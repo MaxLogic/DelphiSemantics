@@ -65,6 +65,7 @@ implementation
 
 uses
   System.Generics.Collections, System.Generics.Defaults, System.Math, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals, MaxLogic.StrUtils;
@@ -256,6 +257,9 @@ begin
     Exit;
 
   Result := CompareStringValues(aLeft.SourceKind, aRight.SourceKind);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.Reason, aRight.Reason);
 end;
 
 function SameUsageRange(const aLeft, aRight: TDelphiSemanticUsage): Boolean;
@@ -266,7 +270,7 @@ begin
     SameText(aLeft.SectionKind, aRight.SectionKind) and
     SameText(aLeft.SourceKind, aRight.SourceKind) and (aLeft.Line = aRight.Line) and
     (aLeft.Column = aRight.Column) and (aLeft.EndLine = aRight.EndLine) and
-    (aLeft.EndColumn = aRight.EndColumn);
+    (aLeft.EndColumn = aRight.EndColumn) and SameText(aLeft.Reason, aRight.Reason);
 end;
 
 function SortedUsages(const aUsages: TList<TDelphiSemanticUsage>): TArray<TDelphiSemanticUsage>;
@@ -840,6 +844,123 @@ begin
   Result := not lHasSpan;
 end;
 
+// The lexical successor distinguishes a bare call from inherited MethodName,
+// including a final inherited before END and a body following nested routines.
+function SnapshotRoutineHasBareInherited(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFact: TSemanticSymbolFact): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lSource: string;
+  lStart, lFinish: Integer;
+begin
+  Result := False;
+  lSource := aSnapshot.ExactTextOf(aUnit.SourceTextId);
+  if (aFact.FileId <> 0) and (aFact.FileId <> aUnit.FileNameId) then
+    Exit(True); // No unit-relative span can prove an include body's absence.
+  lStart := SnapshotOffsetOfPosition(lSource, aFact.Line, aFact.Column);
+  lFinish := SnapshotOffsetOfPosition(lSource, aFact.EndLine, aFact.EndColumn);
+  if (lStart = 0) or (lFinish < lStart) then
+    Exit(True);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := SanitizeCodeText(Copy(lSource, lStart, lFinish - lStart + 1));
+    if lLexer.IsJunk then
+      lLexer.NextNoJunk;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptInherited then
+      begin
+        lLexer.NextNoJunk;
+        if lLexer.TokenID <> ptIdentifier then
+          Exit(True);
+      end else
+        lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+// Only a direct visibility section can prove a member explicit. Nested types'
+// visibility does not change the enclosing class's default section.
+function SnapshotMemberHasDefaultVisibility(const aCode: string;
+  const aTypeOffset, aMemberOffset: Integer): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lDepth: Integer;
+begin
+  Result := True;
+  if (aTypeOffset <= 0) or (aMemberOffset <= aTypeOffset) then
+    Exit;
+  lDepth := 0;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Copy(aCode, aTypeOffset, aMemberOffset - aTypeOffset);
+    if lLexer.IsJunk then
+      lLexer.NextNoJunk;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID in [ptClass, ptRecord, ptObject, ptInterface] then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+        Dec(lDepth);
+      // Visibility words are contextual identifiers in SimpleParser.
+      if (lDepth = 1) and (lLexer.TokenID = ptIdentifier) and (lLexer.ExID in
+        [ptPrivate, ptProtected, ptPublic, ptPublished, ptAutomated]) then
+        Result := False;
+      lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+// A known plain TObject root is non-published only when no retained M+ switch
+// can affect it. Unknown, ambiguous or cyclic source ancestry stays refused.
+function SnapshotClassMayPublish(const aSnapshot: TDelphiProjectSnapshot;
+  const aOwner: string; const aSeen: TArray<string>): Boolean;
+var
+  lUnit: TUnitSnapshot;
+  lName, lRaw, lCode, lBase: string;
+  lMatch: TMatch;
+  lMatches: Integer;
+  i: Integer;
+begin
+  Result := True;
+  if MatchText(aOwner, aSeen) then
+    Exit;
+  lName := Copy(aOwner, LastDelimiter('.', aOwner) + 1, MaxInt);
+  if MatchText(lName, ['TPersistent', 'TComponent', 'TDataModule', 'TForm', 'TFrame']) then
+    Exit;
+  lMatches := 0;
+  lBase := '';
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    lRaw := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+    lCode := SanitizeCodeText(lRaw);
+    for lMatch in TRegEx.Matches(lCode, '\b' + TRegEx.Escape(lName) +
+      '\s*=\s*class\b(?:\s+(?:sealed|abstract)\b)*(?:\s*\(\s*([\w.]+))?', [roIgnoreCase]) do
+    begin
+      Inc(lMatches);
+      if TRegEx.IsMatch(lRaw, '\$\s*(?:M\+|TYPEINFO\s+ON)',
+        [roIgnoreCase]) then
+        Exit;
+      if lMatch.Groups.Count > 1 then
+        lBase := lMatch.Groups[1].Value;
+    end;
+  end;
+  if (lMatches = 0) and MatchText(aOwner, ['TObject', 'System.TObject']) then
+    Exit(False);
+  if lMatches <> 1 then
+    Exit;
+  if lBase = '' then
+    Exit(False);
+  Result := SnapshotClassMayPublish(aSnapshot, lBase, aSeen + [aOwner]);
+end;
+
 function ScopedSnapshotSourceGaps(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
 var
@@ -1028,10 +1149,14 @@ var
   // substitute for the per-configuration binding matrix (DS-797 slice 4).
   procedure CheckImplicitConsumers(const aCurrentUnit: TUnitSnapshot);
   var
-    lRaw, lCode, lName, lPattern, lFileName, lKind, lBase: string;
+    lRaw, lCode, lConsumerRaw, lConsumerCode, lName, lPattern, lFileName, lKind, lBase, lLiteral: string;
+    lConsumer: TSemanticReferenceFact;
+    lTypeFact: TSemanticSymbolFact;
+    lRttiUnit: Boolean;
+    lOwnerIndex, lTypeOffset, lMemberOffset, lOffset, lStart: Integer;
     lImport: TDelphiSemanticImportFact;
     lMatch: TMatch;
-    lNames: TArray<string>;
+    lNames, lImportParts: TArray<string>;
     lMember, lType: Boolean;
     lFact: TSemanticSymbolFact;
     lIndex, lLine, lColumn: Integer;
@@ -1045,6 +1170,12 @@ var
     lRaw := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
     lCode := SanitizeCodeText(lRaw);
     lFileName := SnapshotText(aSnapshot, aCurrentUnit.FileNameId);
+    lConsumerRaw := lRaw;
+    lConsumerCode := SanitizeCodeText(lConsumerRaw);
+    lRttiUnit := False;
+    for lImport in aCurrentUnit.ImportFacts do
+      lRttiUnit := lRttiUnit or MatchText(lImport.Name,
+        ['System.Rtti', 'System.TypInfo', 'Rtti', 'TypInfo']);
     lNames := [aSymbol.Name] + aNames;
     lMember := aSymbol.OwnerName <> '';
     lType := MatchText(aSymbol.Kind, ['class', 'type', 'alias']);
@@ -1055,6 +1186,14 @@ var
       // the target's coordinates to a different source unit.
       lLine := 0;
       lColumn := 0;
+      for lIndex := 1 to aCurrentUnit.ReferenceCount do
+      begin
+        lConsumer := aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex));
+        if SameText(SnapshotText(aSnapshot, lConsumer.ClassificationId), 'implicit-name-consumer') and
+          SameText(SnapshotText(aSnapshot, lConsumer.NameId), lName) then
+          Report(SnapshotFactFileName(aSnapshot, aCurrentUnit, lConsumer.FileId),
+            SnapshotText(aSnapshot, lConsumer.ReasonId), lName, lConsumer.Line, lConsumer.Column);
+      end;
       if SameText(lFileName, aSymbol.FileName) and SameText(aSymbol.Visibility, 'published') then
         Refuse('published-member');
       for lIndex := 1 to aCurrentUnit.SymbolCount do
@@ -1064,14 +1203,35 @@ var
           SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aSymbol.OwnerName) and
           SameText(SnapshotText(aSnapshot, lFact.VisibilityId), 'published') then
           Refuse('published-member');
+        if lMember and SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) and
+          SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aSymbol.OwnerName) and
+          MatchText(SnapshotText(aSnapshot, lFact.KindId), ['method', 'field', 'property']) then
+          for lOwnerIndex := 1 to aCurrentUnit.SymbolCount do
+          begin
+            lTypeFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lOwnerIndex));
+            if not SameText(SnapshotText(aSnapshot, lTypeFact.NameId), aSymbol.OwnerName) or
+              not SameText(SnapshotText(aSnapshot, lTypeFact.TypeId), 'class') then
+              Continue;
+            lTypeOffset := SnapshotOffsetOfPosition(lCode, lTypeFact.Line, lTypeFact.Column);
+            lMemberOffset := SnapshotOffsetOfPosition(lCode, lFact.Line, lFact.Column);
+            if SnapshotMemberHasDefaultVisibility(lCode, lTypeOffset, lMemberOffset) and
+              (SnapshotClassMayPublish(aSnapshot, aSymbol.OwnerName, []) or
+              TRegEx.IsMatch(lConsumerRaw, '\$\s*(?:M\+|TYPEINFO\s+ON)', [roIgnoreCase])) then
+              Refuse('published-member');
+          end;
       end;
       if lMember and MatchText(lName, ['GetEnumerator', 'MoveNext', 'Current']) then
         Refuse('implicit-for-in-protocol');
-      if lMember and TRegEx.IsMatch(lCode,
-        '\b(?:procedure|function|constructor|destructor)\s+(?:[&\w]+\.)+&?' + lPattern +
-        '\b(?:(?!\b(?:procedure|function|constructor|destructor)\b)[\s\S])*?\binherited\s*(?:;|\()',
-        [roIgnoreCase]) then
-        Refuse('implicit-bare-inherited');
+      if lMember then
+        for lIndex := 1 to aCurrentUnit.SymbolCount do
+        begin
+          lFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lIndex));
+          if (lFact.OwnerTypeId <> 0) and
+            SameText(SnapshotText(aSnapshot, lFact.KindId), 'routine') and
+            SameText(SnapshotText(aSnapshot, lFact.NameId), lName) and
+            SnapshotRoutineHasBareInherited(aSnapshot, aCurrentUnit, lFact) then
+            Refuse('implicit-bare-inherited');
+        end;
       // By-name implementation can be inherited or introduced by the new name.
       // Until the matrix owns interface obligations, any matching method in
       // a project containing an interface is a possible implementation.
@@ -1106,29 +1266,36 @@ var
       if not SameText(lName, aSymbol.Name) then
       begin
         lKind := SnapshotText(aSnapshot, aCurrentUnit.UnitNameId);
-        if SameText(lName, 'System') or MatchText(lName, lKind.Split(['.'])) or
+        if MatchText(lName, ['System', 'SysInit']) or MatchText(lName, lKind.Split(['.'])) or
           StartsText(lName + '.', lKind) then
           Refuse('unit-or-namespace-name');
         for lImport in aCurrentUnit.ImportFacts do
-          if MatchText(lName, lImport.Name.Split(['.'])) or StartsText(lName + '.', lImport.Name) then
+        begin
+          lImportParts := lImport.Name.Split(['.']);
+          if MatchText(lName, lImportParts) or StartsText(lName + '.', lImport.Name) then
             Refuse('unit-or-namespace-name');
+        end;
       end;
       // Declared is a name consumer even when its condition is currently false.
-      if TRegEx.IsMatch(lRaw, '\{\$\s*(?:IF|ELSEIF)\b[^}]*\bDeclared\s*\([^)]*\b' +
+      if TRegEx.IsMatch(lConsumerRaw, '\{\$\s*(?:IF|ELSEIF)\b[^}]*\bDeclared\s*\([^)]*\b' +
         lPattern + '\b[^)]*\)', [roIgnoreCase]) or
-        TRegEx.IsMatch(lRaw, '\(\*\$\s*(?:IF|ELSEIF)\b[\s\S]*?\bDeclared\s*\([^)]*\b' +
+        TRegEx.IsMatch(lConsumerRaw, '\(\*\$\s*(?:IF|ELSEIF)\b[\s\S]*?\bDeclared\s*\([^)]*\b' +
         lPattern + '\b[^)]*\)', [roIgnoreCase]) then
         Refuse('declared-name-consumer');
       // Contain every literal argument position without inventing another
       // call parser: a consumer call and a matching literal anywhere in its
       // unit are enough. Unrelated literals may over-refuse until the matrix
       // owns this consumer closure. Computed names remain outside this rule.
-      if TRegEx.IsMatch(lCode,
-        '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty)\s*\(',
+      if lRttiUnit or TRegEx.IsMatch(lConsumerCode,
+        '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty|GetField|GetFields|FindType|GetType|FieldAddress|' +
+        'GetPropValue|SetPropValue|GetPropInfo|IsPublishedProp|(?:Get|Set)\w*Prop)\s*\(',
         [roIgnoreCase]) then
-        for lMatch in TRegEx.Matches(lRaw, '''((?:''''|[^''])*)''', [roIgnoreCase]) do
-          if SameText(lMatch.Groups[1].Value.Replace('''''', ''''), lName) then
+      begin
+        lOffset := 1;
+        while NextRawStringLiteral(lConsumerRaw, lOffset, lLiteral, lStart) do
+          if MatchText(lName, lLiteral.Split(['.'])) then
             Refuse('rtti-string-name-consumer');
+      end;
     end;
   end;
 
@@ -1280,7 +1447,7 @@ begin
         // Coverage is independent of lexical shadowing and local scope.
         // Every retained active import must itself have captured raw text;
         // otherwise its inactive names and further imports are unknown.
-        if lFact.Unconditional and not lFact.SdkBoundary and
+        if (lFact.Cause = '') and not lFact.SdkBoundary and
           (lFact.TargetFileName <> '') and not lRetained.Contains(lFact.TargetFileName) then
           Report(lFact.TargetFileName, 'active-import-source-not-retained', aSymbol.Name, 0, 0);
       end;

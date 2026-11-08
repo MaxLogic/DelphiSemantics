@@ -10,6 +10,8 @@ function IsWordAt(const aText: string; const aOffset: Integer; const aWord: stri
 function IsWordAt(const aText, aWord: string; const aIndex: Integer): Boolean; overload;
 function TextContainsIdentifier(const aText, aIdentifier: string): Boolean;
 procedure SkipPascalStringLiteral(const aText: string; var aIndex: Integer);
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer): Boolean;
 function SanitizeCodeText(const aText: string): string;
 function FindSectionKeywordOffset(const aText, aKeyword: string): Integer;
 function TrySplitTopLevelCommaList(const aText: string; out aParts: TArray<string>): Boolean;
@@ -312,6 +314,36 @@ begin
         Exit;
     end;
     Inc(aIndex);
+  end;
+end;
+
+// Preserve the containment scan's conservative raw-quote behavior, including
+// comments, without PCRE recursion proportional to the quoted text length.
+function NextRawStringLiteral(const aText: string; var aOffset: Integer;
+  out aValue: string; out aStart: Integer): Boolean;
+begin
+  Result := False;
+  aValue := '';
+  aStart := 0;
+  while (aOffset <= Length(aText)) and (aText[aOffset] <> #39) do
+    Inc(aOffset);
+  if aOffset > Length(aText) then
+    Exit;
+  aStart := aOffset;
+  Inc(aOffset);
+  while aOffset <= Length(aText) do
+  begin
+    if aText[aOffset] = #39 then
+    begin
+      if (aOffset = Length(aText)) or (aText[aOffset + 1] <> #39) then
+      begin
+        aValue := Copy(aText, aStart + 1, aOffset - aStart - 1).Replace(#39#39, #39);
+        Inc(aOffset);
+        Exit(True);
+      end;
+      Inc(aOffset);
+    end;
+    Inc(aOffset);
   end;
 end;
 

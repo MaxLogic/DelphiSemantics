@@ -72,12 +72,12 @@ function CompareSnapshotImportBindings(const aSnapshot: TDelphiProjectSnapshot;
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.IOUtils,
+  System.Diagnostics, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
   DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -2612,6 +2612,101 @@ begin
   Inc(aMetrics.ReferenceCount);
 end;
 
+// Include consumer names are refusal facts, not binding or edit evidence.
+// Store them in the existing reference table so actual SQLite reloads retain
+// both captured names and missing-text barriers without rereading disk.
+procedure AddIncludeConsumerFacts(const aStrings: TSemanticStringPool;
+  const aUnit: TUnitSnapshot; const aModel: TDelphiSemanticUnitModel;
+  var aMetrics: TSnapshotUnitBuildResult);
+var
+  lFileName, lName, lConsumerCode, lLiteral: string;
+  lSource: TDelphiSemanticSourceText;
+  lFact: TSemanticReferenceFact;
+  lMatch: TMatch;
+  lRttiUnit: Boolean;
+  i, lOffset, lStart: Integer;
+
+  procedure AddConsumer(const aName, aReason: string; const aOffset: Integer);
+  var
+    lIndex: Integer;
+  begin
+    lFact := Default(TSemanticReferenceFact);
+    lFact.NameId := aStrings.Intern(aName);
+    lFact.FileId := aStrings.Intern(lFileName);
+    lFact.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+    lFact.ClassificationId := aStrings.Intern('implicit-name-consumer');
+    lFact.ReasonId := aStrings.Intern(aReason);
+    lFact.Line := 1;
+    lFact.Column := 1;
+    for lIndex := 1 to aOffset - 1 do
+      if lSource.Text[lIndex] = #10 then
+      begin
+        Inc(lFact.Line);
+        lFact.Column := 1;
+      end else
+        Inc(lFact.Column);
+    lFact.EndLine := lFact.Line;
+    lFact.EndColumn := lFact.Column;
+    aUnit.AddReference(lFact);
+    Inc(aMetrics.ReferenceCount);
+  end;
+
+begin
+  if Length(aModel.IncludeFileNames) = 0 then
+    Exit;
+  lRttiUnit := False;
+  for i := 0 to High(aModel.ImportFacts) do
+    lRttiUnit := lRttiUnit or MatchText(aModel.ImportFacts[i].Name,
+      ['System.Rtti', 'System.TypInfo', 'Rtti', 'TypInfo']);
+  lConsumerCode := SanitizeCodeText(aModel.SourceText);
+  // Include-to-include calls and literals also belong to this logical unit.
+  for lFileName in aModel.IncludeFileNames do
+    if (aModel.SourceObservations <> nil) and
+      aModel.SourceObservations.TryFind(lFileName, lSource) then
+      lConsumerCode := lConsumerCode + #13#10 + SanitizeCodeText(lSource.Text);
+  lRttiUnit := lRttiUnit or TRegEx.IsMatch(lConsumerCode,
+    '\b(?:FindComponent|MethodAddress|FindClass|GetMethod|GetProperty|GetField|GetFields|FindType|GetType|FieldAddress|' +
+    'GetPropValue|SetPropValue|GetPropInfo|IsPublishedProp|(?:Get|Set)\w*Prop)\s*\(', [roIgnoreCase]);
+  for lFileName in aModel.IncludeFileNames do
+  begin
+    if (aModel.SourceObservations = nil) or
+      not aModel.SourceObservations.TryFind(lFileName, lSource) or
+      (lSource.ContentHash = '') or ((lSource.Text = '') and
+      not SameText(lSource.ContentHash, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')) then
+    begin
+      lFact := Default(TSemanticReferenceFact);
+      lFact.FileId := aStrings.Intern(lFileName);
+      lFact.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
+      lFact.ReasonId := aStrings.Intern('include-text-not-retained');
+      aUnit.AddReference(lFact);
+      Inc(aMetrics.ReferenceCount);
+      Continue;
+    end;
+    // Declared may consume a qualified identifier in any directive arm.
+    for lMatch in TRegEx.Matches(lSource.Text, '\bDeclared\s*\(\s*([&\w.]+)\s*\)', [roIgnoreCase]) do
+      for lName in lMatch.Groups[1].Value.Split(['.']) do
+        AddConsumer(lName.TrimLeft(['&']), 'declared-name-consumer', lMatch.Index + 1);
+    if lRttiUnit then
+    begin
+      lOffset := 1;
+      while NextRawStringLiteral(lSource.Text, lOffset, lLiteral, lStart) do
+        for lName in lLiteral.Split(['.']) do
+          AddConsumer(lName, 'rtti-string-name-consumer', lStart);
+    end;
+    if TRegEx.IsMatch(lSource.Text, '\$\s*(?:M\+|TYPEINFO\s+ON)', [roIgnoreCase]) then
+    begin
+      // Include-driven typeinfo state is not represented in member visibility.
+      // A name in any member of this unit remains a possible published consumer.
+      for i := 0 to High(aModel.Members) do
+        AddConsumer(aModel.Members[i].Name, 'published-member', 1);
+      for i := 0 to High(aModel.Declarations) do
+        if SameText(aModel.Declarations[i].TypeName, 'class') or
+          SameText(aModel.Declarations[i].Kind, 'class') then
+          AddConsumer(aModel.Declarations[i].Name, 'published-member', 1);
+    end;
+  end;
+end;
+
 function CreateSnapshotUnitModel(const aStrings, aExactStrings: TSemanticStringPool;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
@@ -2662,6 +2757,7 @@ begin
         Result.AddReference(lSourceGap);
         Inc(aMetrics.ReferenceCount);
       end;
+    AddIncludeConsumerFacts(aStrings, Result, aModel, aMetrics);
     Result.SetImportFacts(aModel.ImportFacts);
     // Import reachability is provenance, separate from token references.
     for var lImport in aModel.PossibleUnitImports do

@@ -222,7 +222,7 @@ type
     [TestCase('declared-old', 'declared-old,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
     [TestCase('declared-new', 'declared-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
     [TestCase('case-only', 'case-only,UCertified.pas,3,5,counter,,Win32,True')]
-    [TestCase('same-line', 'same-line,UCertified.pas,3,5,Renamed,,Win32,True')]
+    [TestCase('same-line', 'same-line,UCertified.pas,5,22,Renamed,,Win32,True')]
     [TestCase('literal-findcomponent', 'literal-findcomponent,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
     [TestCase('literal-methodaddress', 'literal-methodaddress,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
     [TestCase('literal-findclass', 'literal-findclass,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
@@ -238,8 +238,23 @@ type
     [TestCase('unit-short-name', 'unit-short-name,UCertified.pas,4,5,Bar,unit-or-namespace-name,Win32,False')]
     [TestCase('literal-second-argument', 'literal-second-argument,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
     [TestCase('declared-qualified-new', 'declared-qualified-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('x1n-inherited-after-nested', 'x1n-inherited-after-nested,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x1e-inherited-before-end', 'x1e-inherited-before-end,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('p10-declared-in-include', 'p10-declared-in-include,UCertified.pas,3,5,RenamedValue,declared-name-consumer,Win32,False')]
+    [TestCase('p6-mplus-getpropvalue', 'p6-mplus-getpropvalue,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('p6-sealed-persistent', 'p6-sealed-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
+    [TestCase('p6-abstract-persistent', 'p6-abstract-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
+    [TestCase('f1-dfm-shared-dir', 'f1-dfm-shared-dir,proj\UCertified.pas,6,15,DMCreated,published-member,Win32,False')]
+    [TestCase('m1d-transitive-cond-nonmember', 'm1d-transitive-cond-nonmember,UCertified.pas,3,5,RenamedValue,active-import-source-not-retained,Win32,False')]
+    [TestCase('r1-rtti-getfield', 'r1-rtti-getfield,UCertified.pas,6,5,Total,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r2-rtti-findtype', 'r2-rtti-findtype,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('u2-sysinit-newname', 'u2-sysinit-newname,UCertified.pas,3,5,SysInit,unit-or-namespace-name,Win32,False')]
     procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
       const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
+
+    [TestCase('Unit quoted comment', 'False')]
+    [TestCase('Include quoted comment', 'True')]
+    procedure LargeQuotedTextKeepsRenameRefusal(const aInclude: Boolean);
 
     [TestCase('Literal false', 'false')]
     [TestCase('Local define', 'define')]
@@ -1530,7 +1545,7 @@ function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aCo
   const aNewName: string; const aCacheFileName: string = '';
   const aExpectCacheHit: Boolean = False; const aPlatform: string = '';
   const aCertified: Boolean = False; const aIdentifier: string = '';
-  const aProjectBase: string = 'P'): TDelphiSemanticRenamePlan;
+  const aProjectBase: string = 'P'; const aDefines: TArray<string> = nil): TDelphiSemanticRenamePlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lRequest: TDelphiSemanticCompilerDefineRequest;
@@ -1558,7 +1573,7 @@ begin
     lRequest.Platform := aPlatform;
     lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest,
       TDirectory.GetFiles(aRoot, '*.pas') + TDirectory.GetFiles(aRoot, '*.inc') +
-      [lRequest.MainSourceFileName], []);
+      [lRequest.MainSourceFileName], aDefines);
   end;
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -1855,7 +1870,8 @@ procedure TRenameCompletenessTests.KnownUnsoundShapesRefuseRename(
   const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
 var
   lRoot, lFixture, lFileName, lRelative: string;
-  lFiles, lOriginals: TArray<string>;
+  lFiles, lOriginals, lDefines: TArray<string>;
+  lEdit: TDelphiSemanticTextEdit;
   lPlan, lWarm: TDelphiSemanticRenamePlan;
   lUsage: TDelphiSemanticUsage;
   lFound: Boolean;
@@ -1873,14 +1889,20 @@ begin
     TFile.Copy(lFiles[i], lFileName);
     lOriginals[i] := TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(lFileName));
   end;
+  lDefines := nil;
+  if aCase = 'm1d-transitive-cond-nonmember' then
+    lDefines := ['MSWINDOWS'];
   lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', 'Certified');
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(aCase = 'f1-dfm-shared-dir', 'proj\Certified', 'Certified'), lDefines);
   lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', 'Certified');
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(aCase = 'f1-dfm-shared-dir', 'proj\Certified', 'Certified'), lDefines);
   if aSuccess then
   begin
     Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
-    Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All same-line occurrences must be retained.');
+    Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All control occurrences must be retained.');
+    if aCase = 'same-line' then
+      for lEdit in lPlan.Edits do
+        Assert.AreEqual(5, lEdit.StartLine, 'All four edits must share the local declaration line.');
   end else begin
     Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     lFound := False;
@@ -1902,6 +1924,42 @@ begin
     Assert.AreEqual(lOriginals[i], TNetEncoding.Base64.EncodeBytesToString(
       TFile.ReadAllBytes(TPath.Combine(lRoot, lRelative))), lRelative);
   end;
+end;
+
+// DS-797: raw quoted comments can span far more text than PCRE's stack.
+// Keep the real RTTI literal refusal even with a large unrelated quoted span.
+procedure TRenameCompletenessTests.LargeQuotedTextKeepsRenameRefusal(const aInclude: Boolean);
+var
+  lRoot, lConsumer, lText: string;
+  lFiles: TArray<TCompletenessFile>;
+  lPlan: TDelphiSemanticRenamePlan;
+  lUsage: TDelphiSemanticUsage;
+  lFound: Boolean;
+begin
+  lText := '{ ''start' + StringOfChar('x', 131072) + 'finish'' }'#13#10 +
+    'const NameText = ''Counter'';'#13#10;
+  lConsumer := 'unit URtti; interface uses System.Rtti; implementation'#13#10;
+  lFiles := [CompletenessFile('UProv.pas', 'unit UProv;'#13#10 +
+    'interface'#13#10'var Counter: Integer;'#13#10'implementation end.')];
+  if aInclude then
+  begin
+    lConsumer := lConsumer + '{$I Quoted.inc}'#13#10;
+    lFiles := lFiles + [CompletenessFile('Quoted.inc', lText)];
+  end else
+    lConsumer := lConsumer + lText;
+  lFiles := lFiles + [CompletenessFile('URtti.pas', lConsumer + 'end.')];
+  lRoot := WriteCompletenessProject('large-quoted-' + BoolToStr(aInclude, True),
+    'program P; uses UProv, URtti; begin Counter := 1; end.', lFiles);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 5, 'Total');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  lFound := False;
+  for lUsage in lPlan.UnresolvedReferences do
+    lFound := lFound or (lUsage.Reason = 'rtti-string-name-consumer');
+  Assert.IsTrue(lFound, 'The matching RTTI literal must remain a named refusal.');
+  Assert.AreEqual('', lPlan.ContextFingerprint);
+  Assert.AreEqual(lConsumer + 'end.', TFile.ReadAllText(TPath.Combine(lRoot, 'URtti.pas')));
+  if aInclude then
+    Assert.AreEqual(lText, TFile.ReadAllText(TPath.Combine(lRoot, 'Quoted.inc')));
 end;
 
 procedure TRenameCompletenessTests.AlternateImportCapturesRefuseRename(const aCase: string);
