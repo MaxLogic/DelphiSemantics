@@ -2571,11 +2571,11 @@ begin
   Inc(aMetrics.SymbolCount);
 end;
 
-procedure AddSnapshotReference(const aStrings: TSemanticStringPool;
+function AddSnapshotReference(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aUnitName: string;
   const aReference: TDelphiSemanticReference;
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
-  var aMetrics: TSnapshotUnitBuildResult);
+  var aMetrics: TSnapshotUnitBuildResult): TSemanticReferenceId;
 var
   lReference: TSemanticReferenceFact;
   lTarget: TSemanticSymbolRef;
@@ -2607,7 +2607,7 @@ begin
     lReference.TargetUnitId := lTarget.UnitId;
     lReference.TargetSymbolId := lTarget.SymbolId;
   end;
-  aUnit.AddReference(lReference);
+  Result := aUnit.AddReference(lReference);
   Inc(aMetrics.ReferenceCount);
 end;
 
@@ -2620,7 +2620,6 @@ var
   lProjection: TSnapshotSymbolProjection;
   lDiagnostic: TDelphiSemanticModelDiagnostic;
   lScopeDiagnostic: string;
-  lReference: TDelphiSemanticReference;
   lSourceGap: TSemanticReferenceFact;
   lWith: TDelphiSemanticWithStatement;
 begin
@@ -2678,9 +2677,10 @@ begin
     SetLength(lProjection.Locals, Length(aModel.Locals));
     for i := 0 to High(aModel.Locals) do
       lProjection.Locals[i] := AddSnapshotLocal(aStrings, Result, aModel.Locals[i], aMetrics);
-    for lReference in aModel.References do
-      AddSnapshotReference(aStrings, Result, aModel.UnitName, lReference,
-        aReferenceTargetLookup, aMetrics);
+    SetLength(lProjection.References, Length(aModel.References));
+    for i := 0 to High(aModel.References) do
+      lProjection.References[i] := AddSnapshotReference(aStrings, Result, aModel.UnitName,
+        aModel.References[i], aReferenceTargetLookup, aMetrics);
     ProjectPhysicalEvidence(aModel, lProjection, aStrings, aExactStrings, Result);
   except
     Result.Free;

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Snapshot global-vars analysis preserves bound owner-qualified class-variable usages when captured provenance or includes select physical analysis, including cache hits and SQLite reloads. Older snapshot storage rebuilds.
+
 - Remove-with reports unverified helper and inherited-member scopes explicitly instead of reporting a missing receiver member. The safety refusals and planned rewrites are unchanged (DS-795).
 - Remove-with avoids unused instance captures for class constants, class variables, explicit static methods and static class properties, and registers every unit constant declared on one line (DS-647).
 

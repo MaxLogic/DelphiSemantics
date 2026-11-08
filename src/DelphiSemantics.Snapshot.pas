@@ -38,6 +38,8 @@ type
 
 
   TSemanticPhysicalReferenceOccurrence = record
+    // Explicit producer association to this unit's legacy reference; never an origin.
+    SnapshotReferenceId: TSemanticReferenceId;
     NameId: TSemanticStringId;
     RoleId: TSemanticStringId;
     RoutineNameId: TSemanticStringId;

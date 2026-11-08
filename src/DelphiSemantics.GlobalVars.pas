@@ -1195,13 +1195,14 @@ end;
 
 procedure AnalyzePhysicalSnapshotUsages(
   const aDeclarations: TList<TDelphiSemanticGlobalDeclaration>;
+  const aDeclarationBySymbolRef: TDictionary<string, Integer>;
   const aUsages: TList<TDelphiSemanticGlobalUsage>;
   const aAmbiguities: TList<TDelphiSemanticGlobalAmbiguity>;
   const aDiagnostics: TList<TDelphiSemanticGlobalDiagnostic>;
   const aSeenUsages: TDictionary<string, Boolean>;
   const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
 var
-  i: Integer;
+  i, lDeclarationIndex: Integer;
   lAccess, lKey, lReason, lUnitFile, lUnitName: string;
   lCandidates: TList<TDelphiSemanticGlobalDeclaration>;
   lDeclaration: TDelphiSemanticGlobalDeclaration;
@@ -1238,10 +1239,20 @@ begin
       if lOccurrence.RoutineNameId = 0 then
         Continue;
       lCandidates.Clear;
-      for lDeclaration in aDeclarations do
-        if SameText(lDeclaration.Name, aSnapshot.TextOf(lOccurrence.NameId)) and
-          IsVisibleGlobalDeclaration(lUnitName, lVisibleUnits, nil, lDeclaration) then
-          lCandidates.Add(lDeclaration);
+      lFact := Default(TSemanticReferenceFact);
+      if lOccurrence.SnapshotReferenceId <> 0 then
+        lFact := aUnit.ReferenceById(lOccurrence.SnapshotReferenceId);
+      // Origin remains the physical witness. The explicit association supplies
+      // only the semantic target, already remapped with its legacy reference.
+      if (lFact.TargetUnitId <> 0) and (lFact.TargetSymbolId <> 0) and
+        aDeclarationBySymbolRef.TryGetValue(SnapshotSymbolRefKey(lFact.TargetUnitId,
+          lFact.TargetSymbolId), lDeclarationIndex) then
+        lCandidates.Add(aDeclarations[lDeclarationIndex])
+      else
+        for lDeclaration in aDeclarations do
+          if SameText(lDeclaration.Name, aSnapshot.TextOf(lOccurrence.NameId)) and
+            IsVisibleGlobalDeclaration(lUnitName, lVisibleUnits, nil, lDeclaration) then
+            lCandidates.Add(lDeclaration);
       if lCandidates.Count = 0 then
         Continue;
       if not SnapshotPhysicalReference(aSnapshot, lOccurrence, lReference) then
@@ -1351,7 +1362,7 @@ begin
   end;
   if aUnit.HasIncludes then
   begin
-    AnalyzePhysicalSnapshotUsages(aDeclarations, aUsages, aAmbiguities, aDiagnostics,
+    AnalyzePhysicalSnapshotUsages(aDeclarations, aDeclarationBySymbolRef, aUsages, aAmbiguities, aDiagnostics,
       aSeenUsages, aSnapshot, aUnit);
     Exit;
   end;

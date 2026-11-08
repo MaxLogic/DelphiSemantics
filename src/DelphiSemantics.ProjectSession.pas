@@ -237,7 +237,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v108';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v201';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v106';
 

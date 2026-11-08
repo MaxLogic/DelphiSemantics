@@ -6,7 +6,7 @@ uses
   System.SysUtils;
 
 const
-  cPhysicalReferenceColumnCount = 13;
+  cPhysicalReferenceColumnCount = 14;
   cPhysicalSymbolColumnCount = 23;
 
 type

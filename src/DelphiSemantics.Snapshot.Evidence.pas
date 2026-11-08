@@ -14,6 +14,7 @@ type
     Routines: TArray<TSemanticSymbolId>;
     Parameters: TArray<TArray<TSemanticSymbolId>>;
     Locals: TArray<TSemanticSymbolId>;
+    References: TArray<TSemanticReferenceId>;
     function SymbolId(const aOccurrence: TDelphiSemanticPhysicalSymbolOccurrence): TSemanticSymbolId;
   end;
 
@@ -318,13 +319,28 @@ begin
   aUnit.SetVisibleUnitNameIds(lIds.ToArray, aModel.Success);
 end;
 
+function ReferenceBindingMatches(const aOccurrence: TSemanticPhysicalReferenceOccurrence;
+  const aReference: TSemanticReferenceFact; const aUnit: TUnitSnapshot): Boolean;
+begin
+  // Check an explicit producer association. These comparisons never create one
+  // and never establish a physical origin from legacy coordinates.
+  Result := aOccurrence.Verified and (aOccurrence.FileId = aUnit.FileNameId) and
+    ((aReference.FileId = 0) or (aReference.FileId = aUnit.FileNameId)) and
+    (aOccurrence.NameId = aReference.NameId) and
+    (aOccurrence.RoutineScopeId = aReference.RoutineScopeId) and
+    (aOccurrence.Line = aReference.Line) and (aOccurrence.Column = aReference.Column) and
+    (aOccurrence.EndLine = aReference.EndLine) and (aOccurrence.EndColumn = aReference.EndColumn);
+end;
+
 procedure ProjectPhysicalEvidence(const aModel: TDelphiSemanticUnitModel;
   const aProjection: TSnapshotSymbolProjection; const aStrings, aExactStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot);
 var
   g: TGarbos;
-  i, lPrevious: Integer;
+  i, lPrevious, lOccurrenceIndex: Integer;
   lAvailable: Boolean;
+  lReference: TDelphiSemanticReference;
+  lClaimed: TArray<Boolean>;
   lExpected: Int64;
   lKey: string;
   lRawReference: TDelphiSemanticPhysicalReferenceOccurrence;
@@ -352,6 +368,25 @@ begin
     lReferences[i].EndLine := lRawReference.EndLine;
     lReferences[i].EndColumn := lRawReference.EndColumn;
     lReferences[i].Verified := lRawReference.Verified;
+  end;
+  SetLength(lClaimed, Length(lReferences));
+  for i := 0 to High(aModel.References) do
+  begin
+    lReference := aModel.References[i];
+    if (lReference.PhysicalOccurrenceId <= 0) or
+      (lReference.PhysicalOccurrenceId > Length(lReferences)) or
+      (i >= Length(aProjection.References)) then
+      Continue;
+    lOccurrenceIndex := lReference.PhysicalOccurrenceId - 1;
+    // Only the explicit extractor association can carry an existing root target.
+    // Includes, unverified origins and duplicate claims never acquire a binding.
+    if lClaimed[lOccurrenceIndex] then
+      lReferences[lOccurrenceIndex].SnapshotReferenceId := 0
+    else if (lReference.FileName = '') and
+      ReferenceBindingMatches(lReferences[lOccurrenceIndex],
+        aUnit.ReferenceById(aProjection.References[i]), aUnit) then
+      lReferences[lOccurrenceIndex].SnapshotReferenceId := aProjection.References[i];
+    lClaimed[lOccurrenceIndex] := True;
   end;
   aUnit.SetPhysicalReferenceOccurrences(lReferences, aModel.PhysicalReferenceOccurrencesAvailable);
   SetLength(lSymbols, Length(aModel.PhysicalSymbolOccurrences));
@@ -511,6 +546,7 @@ begin
       lValues[p + 10] := lReference.EndLine;
       lValues[p + 11] := lReference.EndColumn;
       lValues[p + 12] := Ord(lReference.Verified);
+      lValues[p + 13] := lReference.SnapshotReferenceId;
     end;
     Exit(EncodeOccurrenceValues(lValues, cPhysicalReferenceColumnCount));
   end;
@@ -578,6 +614,7 @@ begin
       lReferences[i].EndLine := EvidenceInteger(lValues[p + 10], 0, MaxInt);
       lReferences[i].EndColumn := EvidenceInteger(lValues[p + 11], 0, MaxInt);
       lReferences[i].Verified := (EvidenceInteger(lValues[p + 12], 0, 1) = 1);
+      lReferences[i].SnapshotReferenceId := EvidenceInteger(lValues[p + 13], 0, High(Cardinal));
     end;
     aUnit.SetPhysicalReferenceOccurrences(lReferences, aAvailable);
     Exit;
@@ -701,6 +738,8 @@ var
   lPreviousFile, lFile, lKind: string;
   lCanonicalFiles: TArray<string>;
   lSeenImports: THashSet<Cardinal>;
+  lSeenReferenceBindings: THashSet<Cardinal>;
+  lLegacyReference: TSemanticReferenceFact;
   lSeen: THashSet<TPhysicalAssociationKey>;
   lRoutines: THashSet<Integer>;
   lDensities: TDictionary<UInt64, TPhysicalAssociationDensity>;
@@ -735,9 +774,19 @@ begin
       ((lSource.Status = cCapturedSourceText) <> (lSource.TextId <> 0)) then
       raise EInvalidOpException.Create('SNAPSHOT_EVIDENCE_SOURCE_STATUS_INVALID');
   end;
+  GC(lSeenReferenceBindings, THashSet<Cardinal>.Create, g);
   for i := 0 to aUnit.PhysicalReferenceOccurrenceCount - 1 do
   begin
     lReference := aUnit.PhysicalReferenceOccurrenceByIndex(i);
+    if lReference.SnapshotReferenceId <> 0 then
+    begin
+      if (lReference.SnapshotReferenceId > Cardinal(aUnit.ReferenceCount)) or
+        not lSeenReferenceBindings.Add(lReference.SnapshotReferenceId) then
+        raise EInvalidOpException.Create('SNAPSHOT_EVIDENCE_REFERENCE_BINDING_INVALID');
+      lLegacyReference := aUnit.ReferenceById(lReference.SnapshotReferenceId);
+      if not ReferenceBindingMatches(lReference, lLegacyReference, aUnit) then
+        raise EInvalidOpException.Create('SNAPSHOT_EVIDENCE_REFERENCE_BINDING_INVALID');
+    end;
     CheckEvidenceId(aStrings, lReference.NameId);
     CheckEvidenceId(aStrings, lReference.RoleId);
     CheckEvidenceId(aStrings, lReference.RoutineNameId);

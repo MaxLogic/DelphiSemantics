@@ -160,6 +160,8 @@ type
     [Category('Fast')]
     [Test]
     procedure ProjectSessionGlobalAnalysisReportsSnapshotCacheMetrics;
+    [Test]
+    procedure OwnerQualifiedClassVarsRemainBoundColdWarmAndReopened;
     [Category('Fast')]
     [Test]
     procedure ProjectSessionGlobalAnalysisHonorsWritableTypedConstants;
@@ -1824,6 +1826,62 @@ begin
       'A cache hit must preserve verified lexical-scope provenance.');
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.OwnerQualifiedClassVarsRemainBoundColdWarmAndReopened;
+var
+  i, j, lWrites: Integer;
+  lRoot: string;
+  lOptions: TDelphiSemanticOptions;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lBuilt: TDelphiSemanticProjectSnapshotBuildResult;
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+  lUsage: TDelphiSemanticGlobalUsage;
+begin
+  lRoot := ProjectSessionTempPath('owner-classvars');
+  TDirectory.CreateDirectory(lRoot);
+  WriteTextFile(TPath.Combine(lRoot, 'P.dpr'), 'program P; uses Owners; begin end.');
+  WriteTextFile(TPath.Combine(lRoot, 'P.dproj'),
+    '<Project><PropertyGroup><MainSource>P.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Owners.pas"/></ItemGroup></Project>');
+  WriteTextFile(TPath.Combine(lRoot, 'empty.inc'), '// captured include');
+  WriteTextFile(TPath.Combine(lRoot, 'Owners.pas'),
+    'unit Owners;'#13#10'interface'#13#10'{$I empty.inc}'#13#10 +
+    'type TFirst = class public class var sCache: Integer; end;'#13#10 +
+    'TSecond = class public class var sCache: Integer; end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    'TFirst.sCache := 1;'#13#10'TSecond.sCache := 2;'#13#10'end;'#13#10'end.');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'P.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'cache.db');
+  for i := 0 to 1 do
+  begin
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      for j := 0 to 1 do
+      begin
+        lBuilt := lOpened.Session.BuildSnapshotResult;
+        try
+          if (i = 0) and (j = 0) then
+            Assert.AreEqual(2, lBuilt.Metrics.SnapshotCacheMisses)
+          else
+            Assert.AreEqual(2, lBuilt.Metrics.SnapshotCacheHits, 'Warm/reopened snapshots must be genuine hits.');
+          lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lBuilt.Snapshot);
+          Assert.AreEqual<Integer>(0, Length(lAnalysis.Ambiguities), 'An explicit class owner selects one declaration.');
+          lWrites := 0;
+          for lUsage in lAnalysis.Usages do
+            if SameText(lUsage.Name, 'sCache') and (lUsage.Access = 'write') then
+              Inc(lWrites);
+          Assert.AreEqual(2, lWrites);
+        finally
+          lBuilt.Snapshot.Free;
+        end;
+      end;
+    finally
+      lOpened.Session.Free;
+    end;
   end;
 end;
 

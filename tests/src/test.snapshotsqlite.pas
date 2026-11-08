@@ -54,6 +54,8 @@ type
     [TestCase('Overflowing varint', 'overflow')]
     [TestCase('Continued tenth byte', 'continued')]
     [TestCase('Invalid semantic ID', 'semantic')]
+    [TestCase('Binding outside reference array', 'binding')]
+    [TestCase('Unverified binding', 'binding-unverified')]
     [TestCase('Missing collection', 'missing')]
     [TestCase('Extra collection', 'extra')]
     [TestCase('Header count', 'count')]
@@ -726,6 +728,12 @@ begin
       end else if aMutation = 'semantic' then
       begin
         lValues[0] := High(Cardinal);
+        lBad := EncodeOccurrenceValues(lValues, cPhysicalReferenceColumnCount);
+      end else if (aMutation = 'binding') or (aMutation = 'binding-unverified') then
+      begin
+        lValues[13] := 1;
+        if aMutation = 'binding' then
+          lValues[13] := High(Cardinal);
         lBad := EncodeOccurrenceValues(lValues, cPhysicalReferenceColumnCount);
       end else if aMutation = 'fuzz' then
       begin

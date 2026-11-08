@@ -169,6 +169,9 @@ type
   end;
 
   TDelphiSemanticReference = record
+    // Producer association, 1-based in PhysicalReferenceOccurrences; 0 is unknown.
+    // It survives legacy deduplication without reconstructing a physical origin.
+    PhysicalOccurrenceId: Integer;
     Name: string;
     RoutineName: string;
     Role: string;

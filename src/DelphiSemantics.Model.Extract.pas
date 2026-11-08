@@ -6324,7 +6324,7 @@ procedure CapturePhysicalReferenceOccurrences(const aExpandedText: string;
   const aRootFileName: string; const aOutputOffsetShift: Integer;
   var aModel: TDelphiSemanticUnitModel);
 var
-  lExistingIndex: Integer;
+  i, lExistingIndex: Integer;
   lExistingOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
   lKey: Int64;
   lOccurrence: TDelphiSemanticPhysicalReferenceOccurrence;
@@ -6341,8 +6341,10 @@ begin
   lOccurrences := TList<TDelphiSemanticPhysicalReferenceOccurrence>.Create;
   lSeen := TDictionary<Int64, Integer>.Create;
   try
-    for lReference in aReferences do
+    for i := 0 to aReferences.Count - 1 do
     begin
+      lReference := aReferences[i];
+      lReference.PhysicalOccurrenceId := 0;
       lOccurrence := Default(TDelphiSemanticPhysicalReferenceOccurrence);
       lOccurrence.Name := lReference.Name;
       lOccurrence.Role := lReference.Role;
@@ -6414,8 +6416,12 @@ begin
             if lExistingOccurrence.RoutineScopeId = '' then
               lExistingOccurrence.RoutineScopeId := lOccurrence.RoutineScopeId;
             lOccurrences[lExistingIndex] := lExistingOccurrence;
+            if SameText(lOccurrence.FileName, aRootFileName) then
+              lReference.PhysicalOccurrenceId := lExistingIndex + 1;
+            aReferences[i] := lReference;
             Continue;
           end;
+          aReferences[i] := lReference;
           lExistingOccurrence.Verified := False;
           lOccurrences[lExistingIndex] := lExistingOccurrence;
           AddDiagnostic(aDiagnostics, 'PHYSICAL_REFERENCE_DESCRIPTION_CONFLICT',
@@ -6425,6 +6431,9 @@ begin
         end;
         lSeen.Add(lKey, lOccurrences.Count);
       end;
+      if lOccurrence.Verified and SameText(lOccurrence.FileName, aRootFileName) then
+        lReference.PhysicalOccurrenceId := lOccurrences.Count + 1;
+      aReferences[i] := lReference;
       lOccurrences.Add(lOccurrence);
     end;
     aModel.PhysicalReferenceOccurrences := lOccurrences.ToArray;

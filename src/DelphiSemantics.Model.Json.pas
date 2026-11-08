@@ -587,6 +587,7 @@ begin
   Result.AddPair('EndLine', TJSONNumber.Create(aReference.EndLine));
   Result.AddPair('EndColumn', TJSONNumber.Create(aReference.EndColumn));
   Result.AddPair('RoutineScopeId', aReference.RoutineScopeId);
+  Result.AddPair('PhysicalOccurrenceId', TJSONNumber.Create(aReference.PhysicalOccurrenceId));
   AddFactFileName(Result, aReference.FileName);
 end;
 
@@ -603,6 +604,7 @@ begin
   Result.EndLine := JsonInt(aObject, 'EndLine');
   Result.EndColumn := JsonInt(aObject, 'EndColumn');
   Result.RoutineScopeId := JsonString(aObject, 'RoutineScopeId');
+  Result.PhysicalOccurrenceId := JsonInt(aObject, 'PhysicalOccurrenceId');
   Result.FileName := JsonString(aObject, 'FileName');
 end;
 

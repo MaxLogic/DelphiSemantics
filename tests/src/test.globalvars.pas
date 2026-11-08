@@ -55,6 +55,11 @@ type
     [Category('Fast')]
     [Test]
     procedure AnalyzesProjectSnapshotUsingSnapshotSourceText;
+    [Test]
+    [TestCase('Projected snapshot', 'snapshot')]
+    [TestCase('Remapped cached units', 'remapped')]
+    [TestCase('SQLite close and reopen', 'sqlite')]
+    procedure OwnerQualifiedTargetsSurvivePhysicalSnapshotRoutes(const aRoute: string);
     [Category('Fast')]
     [Test]
     procedure SnapshotGlobalAnalysisDoesNotUseHiddenDuplicateFallback;
@@ -369,6 +374,94 @@ begin
     'Snapshot target IDs should preserve cross-unit global reads.');
   Assert.AreEqual(2, CountUsages(lAnalysis, 'sCache', 'write'),
     'Snapshot target IDs should preserve qualified class-var writes.');
+end;
+
+procedure TGlobalVarsSemanticTests.OwnerQualifiedTargetsSurvivePhysicalSnapshotRoutes(const aRoute: string);
+var
+  i: Integer;
+  lRoot: string;
+  lModelOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lObservations: TArray<TDelphiSemanticSourceText>;
+  lOptions: TDelphiSnapshotBuildOptions;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshot: TDelphiProjectSnapshot;
+  lParts: TArray<TDelphiProjectSnapshot>;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lIdentities: TArray<TDelphiSemanticSnapshotCacheIdentity>;
+  lAnalysis: TDelphiSemanticGlobalAnalysis;
+begin
+  lRoot := CreateTestTempRoot('owner-target-' + aRoute + '-temp');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Owners.pas'),
+    'unit Owners;'#13#10'interface'#13#10 +
+    'type TFirst = class public class var sCache: Integer; end;'#13#10 +
+    'TSecond = class public class var sCache: Integer; end;'#13#10 +
+    'procedure Run;'#13#10'implementation'#13#10'procedure Run;'#13#10'begin'#13#10 +
+    'TFirst.sCache := 1;'#13#10'TSecond.sCache := 2;'#13#10'end;'#13#10'end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Other.pas'),
+    'unit Other; interface implementation end.', TEncoding.ASCII);
+  SetLength(lModels, 2);
+  lModelOptions := Default(TDelphiSemanticModelOptions);
+  lModelOptions.SourceFileName := TPath.Combine(lRoot, 'Owners.pas');
+  lModels[0] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  lModelOptions.SourceFileName := TPath.Combine(lRoot, 'Other.pas');
+  lModels[1] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lModelOptions);
+  // DS-791 retains non-root provenance observations as well as include text.
+  // Their presence selects physical analysis without changing any bound target.
+  SetLength(lObservations, lModels[0].SourceObservations.Count + 1);
+  for i := 0 to lModels[0].SourceObservations.Count - 1 do
+    lObservations[i] := lModels[0].SourceObservations.Items[i];
+  lObservations[High(lObservations)].FileName := TPath.Combine(lRoot, 'ObservedImport.pas');
+  lObservations[High(lObservations)].Text := 'unit ObservedImport; interface implementation end.';
+  lModels[0].SourceObservations := TDelphiSemanticSourceEvidence.FromItems(lObservations);
+  lSnapshot := nil;
+  lCache := nil;
+  SetLength(lParts, 2);
+  SetLength(lIdentities, 2);
+  try
+    if aRoute = 'snapshot' then
+    begin
+      lOptions := Default(TDelphiSnapshotBuildOptions);
+      lOptions.ResolveReferenceTargets := True;
+      lSnapshot := BuildProjectSnapshotFromModels(lModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), lOptions, lMetrics);
+    end else begin
+      for i := 0 to High(lParts) do
+        lParts[i] := BuildProjectUnitSnapshotFromModels(lModels, [17, 18], i, [], lMetrics);
+      if aRoute = 'sqlite' then
+      begin
+        lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+        for i := 0 to High(lParts) do
+        begin
+          lIdentities[i] := Default(TDelphiSemanticSnapshotCacheIdentity);
+          lIdentities[i].CacheKey := 'owner-target-' + IntToStr(i);
+          lIdentities[i].SourceFileName := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(lModels[i].FileName);
+          lIdentities[i].IdentityKey := lIdentities[i].SourceFileName;
+          lIdentities[i].FileHash := 'owner-root-' + IntToStr(i);
+          lIdentities[i].ContextHash := 'owner-context';
+          lIdentities[i].IncludeGraphHash := 'owner-includes';
+          lIdentities[i].SchemaVersion := 'owner-target-regression';
+          lCache.StoreUnitFromSnapshot(lIdentities[i], lParts[i], 0);
+          FreeAndNil(lParts[i]);
+        end;
+        FreeAndNil(lCache);
+        lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.Combine(lRoot, 'cache.db'));
+        for i := 0 to High(lParts) do
+          Assert.IsTrue(lCache.TryLoadUnit(lIdentities[i], lParts[i]), lCache.LastInvalidationReason);
+      end;
+      lSnapshot := BuildProjectSnapshotFromUnitSnapshots([lParts[1], lParts[0]], lMetrics);
+    end;
+    lAnalysis := TDelphiSemanticGlobalAnalyzer.AnalyzeSnapshot(lSnapshot);
+    Assert.AreEqual(0, CountAmbiguities(lAnalysis, 'sCache'), 'Explicit owner bindings must remain usable.');
+    Assert.AreEqual(2, CountUsages(lAnalysis, 'sCache', 'write'));
+    Assert.IsTrue(HasUsageForOwner(lAnalysis, 'sCache', 'TFirst'));
+    Assert.IsTrue(HasUsageForOwner(lAnalysis, 'sCache', 'TSecond'));
+  finally
+    lSnapshot.Free;
+    lCache.Free;
+    for i := 0 to High(lParts) do
+      lParts[i].Free;
+  end;
 end;
 
 procedure SetSyntheticRootReferenceEvidence(var aModel: TDelphiSemanticUnitModel);
