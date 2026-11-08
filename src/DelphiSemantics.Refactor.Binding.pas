@@ -232,8 +232,23 @@ begin
   for i := 0 to aModelEvidence.SourceObservations.Count - 1 do
   begin
     lSource := aModelEvidence.SourceObservations.Items[i];
-    if not TryCanonicalPath(lSource.FileName, lCanonicalPath) or
-      (lSource.ContentHash = '') or aLookup.ContainsKey(lCanonicalPath) then
+    if not TryCanonicalPath(lSource.FileName, lCanonicalPath) then
+      Exit;
+    // Lookup absences constrain selection/currentness; they are not source text.
+    // Retain strict hash validation for every actual observed file.
+    if lSource.Role = 'possible-unit-directory' then
+    begin
+      if (lSource.ContentHash = '') or (lSource.Text <> '') then
+        Exit;
+      Continue;
+    end;
+    if lSource.Role = 'possible-source-absence' then
+    begin
+      if (lSource.ContentHash <> '') or (lSource.Text <> '') then
+        Exit;
+      Continue;
+    end;
+    if (lSource.ContentHash = '') or aLookup.ContainsKey(lCanonicalPath) then
       Exit;
     aLookup.Add(lCanonicalPath, lSource);
   end;
@@ -441,9 +456,14 @@ begin
     (SameText(aRequest.OperationIdentity, 'uses.remove-implementation-import') or
       SameText(aRequest.OperationIdentity, 'uses.add-explicit-import'));
   for lDiagnostic in aModelEvidence.ModelDiagnostics do
+  begin
+    // An SDK boundary records a proved resolution, not a source coverage gap.
+    if SameText(lDiagnostic.Code, 'POSSIBLE_UNIT_SDK_BOUNDARY') then
+      Continue;
     if not lUsesContextOnly or
       not SameText(lDiagnostic.Code, 'UNVERIFIED_PREPROCESS_CONDITION') then
       Exit(True);
+  end;
   Result := False;
 end;
 

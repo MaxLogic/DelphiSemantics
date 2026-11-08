@@ -53,6 +53,36 @@ type
     procedure ObservationMergeOrderIsDeterministic;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
+    procedure DirectoryObservationRetainsImmediateUnitNameSet;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    procedure ObservationLookupRetainsFirstSortedMatch;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    procedure IdentityBatchMatchesSingleUnitsAndRefreshesBetweenComputations;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    [TestCase('Source bytes', 'source')]
+    [TestCase('Directory names', 'directory')]
+    [TestCase('Absent candidate', 'absence')]
+    procedure IdentityInputCheckpointRejectsDrift(const aKind: string);
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    [TestCase('Binary before text', 'binary-first')]
+    [TestCase('Text before binary', 'text-first')]
+    procedure IdentityInputsAcceptBinaryAndTextOfSameBytes(const aOrder: string);
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    [TestCase('SDK source selection', 'source')]
+    [TestCase('SDK library inventory', 'library')]
+    procedure IdentityBatchSdkCheckpointRejectsChangedSelection(const aKind: string);
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    [TestCase('New source', '.pas')]
+    [TestCase('New binary', '.dcu')]
+    procedure AlternateUnitDirectoryRejectsNewCandidate(const aExtension: string);
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
     procedure RepeatedPreprocessDoesNotRetainEarlierObservations;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
@@ -66,7 +96,7 @@ uses
   FireDAC.Comp.Client,
   AutoFree, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model,
-  DelphiSemantics.Model.Json, DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceContext,
+  DelphiSemantics.Model.Json, DelphiSemantics.Model.PossibleSources, DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.Source.IdentityInputs, DelphiSemantics.SourceContext,
   Test.Support;
 
 var
@@ -341,6 +371,26 @@ begin
   Assert.AreEqual(THashSHA2.GetHashStringFromFile(lInclude), lAfter.ContentHash);
 end;
 
+procedure TSourceLoaderTests.AlternateUnitDirectoryRejectsNewCandidate(const aExtension: string);
+var
+  lPath: string;
+  lNames: TArray<string>;
+  lDirectory: TDelphiSemanticSourceText;
+  lEvidence: IDelphiSemanticSourceObservations;
+begin
+  lPath := ObservationPath('NewCandidate' + aExtension);
+  lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(ExtractFilePath(lPath), lNames);
+  lEvidence := TDelphiSemanticSourceEvidence.FromItems([lDirectory]);
+  TDelphiSemanticUnitCache.RequireCurrentSources(lEvidence);
+  WriteUtf8Bytes(lPath, 'new alternate unit candidate');
+  Assert.WillRaise(
+    procedure
+    begin
+      TDelphiSemanticUnitCache.RequireCurrentSources(lEvidence);
+    end, EInvalidOpException,
+    'A newly available alternate source or DCU must invalidate the earlier absence proof.');
+end;
+
 procedure TSourceLoaderTests.ObservationMergeOrderIsDeterministic;
 var
   lFirst, lSecond: TDelphiSemanticSourceLoadResult;
@@ -360,6 +410,223 @@ begin
   Assert.AreEqual(lForward.Items[0].FileName, lReverse.Items[0].FileName);
   Assert.AreEqual(lForward.Items[1].FileName, lReverse.Items[1].FileName);
   Assert.AreEqual(lPath, lForward.Items[0].FileName);
+end;
+
+procedure TSourceLoaderTests.DirectoryObservationRetainsImmediateUnitNameSet;
+var
+  lPath, lChild: string;
+  lNames: TArray<string>;
+  lDirectory: TDelphiSemanticSourceText;
+begin
+  lPath := ObservationPath('Zeta.pas');
+  WriteUtf8Bytes(lPath, 'unit source');
+  WriteUtf8Bytes(TPath.Combine(ExtractFilePath(lPath), 'Alpha.dcu'), 'unit binary');
+  WriteUtf8Bytes(TPath.Combine(ExtractFilePath(lPath), 'Ignore.pas.bak'), 'backup');
+  lChild := TPath.Combine(ExtractFilePath(lPath), 'Nested.pas');
+  TDirectory.CreateDirectory(lChild);
+  WriteUtf8Bytes(TPath.Combine(lChild, 'Hidden.pas'), 'nested source');
+  lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(ExtractFilePath(lPath), lNames);
+  Assert.AreEqual('alpha.dcu|zeta.pas', string.Join('|', lNames));
+  Assert.AreEqual(THashSHA2.GetHashString('present' + #10 + 'alpha.dcu' + #10 + 'zeta.pas'),
+    lDirectory.ContentHash);
+end;
+
+procedure TSourceLoaderTests.ObservationLookupRetainsFirstSortedMatch;
+var
+  lPath: string;
+  lFirst, lSecond, lFound: TDelphiSemanticSourceText;
+  lEvidence: IDelphiSemanticSourceObservations;
+begin
+  lPath := ObservationPath('Lookup.pas');
+  lFirst := Default(TDelphiSemanticSourceText);
+  lFirst.FileName := UpperCase(lPath);
+  lFirst.Text := 'first in ordinal order';
+  lSecond := lFirst;
+  lSecond.FileName := LowerCase(lPath);
+  lSecond.Text := 'later in ordinal order';
+  lEvidence := TDelphiSemanticSourceEvidence.FromItems([lSecond, lFirst]);
+  Assert.AreEqual(2, lEvidence.Count);
+  Assert.IsTrue(lEvidence.TryFind(lPath, lFound));
+  Assert.AreEqual(lEvidence.Items[0].FileName, lFound.FileName);
+  Assert.AreEqual('first in ordinal order', lFound.Text);
+  Assert.IsFalse(lEvidence.TryFind(lPath + '.missing', lFound));
+  Assert.AreEqual('', lFound.FileName);
+  Assert.AreEqual('', lFound.Text);
+end;
+
+procedure TSourceLoaderTests.IdentityBatchMatchesSingleUnitsAndRefreshesBetweenComputations;
+var
+  g: TGarbos;
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticModelOptions;
+  lFirst, lSecond: TArray<TDelphiSemanticUnitCacheIdentity>;
+  lSingle: TDelphiSemanticUnitCacheIdentity;
+  lPaths: TArray<string>;
+  lRoot, lInclude, lShared: string;
+  i: Integer;
+begin
+  g := Default(TGarbos);
+  lPaths := [ObservationPath('First.pas')];
+  lRoot := ExtractFilePath(lPaths[0]);
+  lPaths := lPaths + [TPath.Combine(lRoot, 'Second.pas')];
+  lInclude := TPath.Combine(lRoot, 'Shared.inc');
+  lShared := TPath.Combine(lRoot, 'Shared.pas');
+  WriteUtf8Bytes(lInclude, 'type TShared = Integer;');
+  WriteUtf8Bytes(lShared, 'unit Shared; interface implementation end.');
+  WriteUtf8Bytes(lPaths[0], 'unit First; interface uses Shared; {$I Shared.inc} implementation end.');
+  WriteUtf8Bytes(lPaths[1], 'unit Second; interface uses Shared; {$I Shared.inc} implementation end.');
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.ProjectContextApplied := True;
+  lOptions.ProjectSourceFileNames := lPaths;
+  lOptions.SearchPaths := [lRoot];
+  lOptions.IncludePaths := [lRoot];
+  lOptions.PossibleUnitSearchPaths := [lRoot];
+  GC(lCache, TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions)), g);
+  lFirst := lCache.BuildIdentities(lOptions, lPaths, [False, False]);
+  Assert.AreEqual<NativeInt>(2, Length(lFirst));
+  for i := 0 to High(lPaths) do
+  begin
+    lOptions.SourceFileName := lPaths[i];
+    lSingle := lCache.BuildIdentity(lOptions);
+    Assert.AreEqual(lSingle.UnitCacheKey, lFirst[i].UnitCacheKey);
+    Assert.AreEqual(lSingle.FileTimestampUtc, lFirst[i].FileTimestampUtc);
+    Assert.AreEqual(lSingle.SourceFileName, lFirst[i].SourceFileName);
+  end;
+  WriteUtf8Bytes(lInclude, 'type TShared = string;');
+  lSecond := lCache.BuildIdentities(lOptions, lPaths, [False, False]);
+  for i := 0 to High(lPaths) do
+  begin
+    Assert.AreNotEqual(lFirst[i].UnitCacheKey, lSecond[i].UnitCacheKey);
+    lOptions.SourceFileName := lPaths[i];
+    lSingle := lCache.BuildIdentity(lOptions);
+    Assert.AreEqual(lSingle.UnitCacheKey, lSecond[i].UnitCacheKey,
+      'A later identity computation must observe changed include bytes.');
+  end;
+end;
+
+procedure TSourceLoaderTests.IdentityInputCheckpointRejectsDrift(const aKind: string);
+var
+  g: TGarbos;
+  lInputs, lFresh: TDelphiSemanticIdentityInputs;
+  lPath, lDirectory: string;
+  lNames: TArray<string>;
+  lBefore, lAfter: TDelphiSemanticSourceText;
+begin
+  g := Default(TGarbos);
+  lPath := ObservationPath('Captured.pas');
+  lDirectory := ExtractFilePath(lPath);
+  WriteUtf8Bytes(lPath, 'unit Captured; interface implementation end.');
+  GC(lInputs, TDelphiSemanticIdentityInputs.Create(True), g);
+  if aKind = 'source' then
+  begin
+    lBefore := lInputs.LoadFile(lPath).Source;
+    WriteUtf8Bytes(lPath, 'unit Changed; interface implementation end.');
+    lAfter := lInputs.LoadFile(lPath).Source;
+    Assert.AreEqual(lBefore.ContentHash, lAfter.ContentHash);
+  end else if aKind = 'directory' then
+  begin
+    lBefore := lInputs.DirectoryObservation(lDirectory, lNames);
+    WriteUtf8Bytes(TPath.Combine(lDirectory, 'New.pas'), 'unit New; interface implementation end.');
+    lAfter := lInputs.DirectoryObservation(lDirectory, lNames);
+    Assert.AreEqual(lBefore.ContentHash, lAfter.ContentHash);
+  end else begin
+    lPath := TPath.Combine(lDirectory, 'Missing.dcu');
+    Assert.IsFalse(lInputs.FileExists(lPath));
+    WriteUtf8Bytes(lPath, 'new binary');
+    Assert.IsFalse(lInputs.FileExists(lPath));
+  end;
+  Assert.WillRaise(
+    procedure
+    begin
+      TDelphiSemanticUnitCache.RequireCurrentSources(lInputs.Observations);
+    end, EInvalidOpException, 'The fresh checkpoint must reject changed identity inputs.');
+  GC(lFresh, TDelphiSemanticIdentityInputs.Create(True), g);
+  if aKind = 'source' then
+    Assert.AreNotEqual(lBefore.ContentHash, lFresh.LoadFile(lPath).Source.ContentHash)
+  else if aKind = 'directory' then
+  begin
+    lAfter := lFresh.DirectoryObservation(lDirectory, lNames);
+    Assert.AreNotEqual(lBefore.ContentHash, lAfter.ContentHash);
+  end else begin
+    Assert.IsTrue(lFresh.FileExists(lPath));
+  end;
+end;
+
+procedure TSourceLoaderTests.IdentityInputsAcceptBinaryAndTextOfSameBytes(const aOrder: string);
+var
+  g: TGarbos;
+  lInputs: TDelphiSemanticIdentityInputs;
+  lPath: string;
+  lSource: TDelphiSemanticSourceLoadResult;
+  lBinary: TDelphiSemanticSourceText;
+begin
+  g := Default(TGarbos);
+  lPath := ObservationPath('BothRoles.pas');
+  WriteUtf8Bytes(lPath, 'unit BothRoles; interface implementation end.');
+  GC(lInputs, TDelphiSemanticIdentityInputs.Create(True), g);
+  if aOrder = 'binary-first' then
+  begin
+    lBinary := lInputs.BinaryObservation(lPath);
+    lSource := lInputs.LoadFile(lPath);
+  end else begin
+    lSource := lInputs.LoadFile(lPath);
+    lBinary := lInputs.BinaryObservation(lPath);
+  end;
+  Assert.IsTrue(lSource.Success);
+  Assert.AreEqual('unit BothRoles; interface implementation end.', lSource.Source.Text);
+  Assert.AreEqual(lBinary.ContentHash, lSource.Source.ContentHash);
+  TDelphiSemanticUnitCache.RequireCurrentSources(lInputs.Observations);
+  WriteUtf8Bytes(lPath, 'unit Changed; interface implementation end.');
+  Assert.WillRaise(
+    procedure
+    begin
+      TDelphiSemanticUnitCache.RequireCurrentSources(lInputs.Observations);
+    end, EInvalidOpException, 'Both observation orders must still reject changed bytes.');
+end;
+
+procedure TSourceLoaderTests.IdentityBatchSdkCheckpointRejectsChangedSelection(const aKind: string);
+var
+  g: TGarbos;
+  lBatch: TDelphiSemanticPossibleSourceBatch;
+  lOptions: TDelphiSemanticModelOptions;
+  lCaptured: TDelphiSemanticPossibleSources;
+  lPath, lSdkRoot, lSourceRoot, lLibraryRoot, lAdded: string;
+begin
+  g := Default(TGarbos);
+  lPath := ObservationPath('SdkOwner.pas');
+  WriteUtf8Bytes(lPath, 'unit SdkOwner; interface uses D489SdkOnly; implementation end.');
+  lSdkRoot := TPath.Combine(ExtractFilePath(lPath), 'sdk');
+  lSourceRoot := TPath.Combine(lSdkRoot, 'source');
+  lLibraryRoot := TPath.Combine(lSdkRoot, 'lib');
+  TDirectory.CreateDirectory(lSourceRoot);
+  TDirectory.CreateDirectory(lLibraryRoot);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.ProjectSourceFileNames := [lPath];
+  lOptions.SearchPaths := [ExtractFilePath(lPath)];
+  lOptions.InstalledSdkRoot := lSdkRoot;
+  GC(lBatch, TDelphiSemanticPossibleSourceBatch.Create(lOptions, True), g);
+  lCaptured := lBatch.Capture(lOptions, Default(TDelphiSemanticPreprocessResult), False);
+  Assert.IsNotNull(lCaptured.Sources);
+  lBatch.RequireCurrentDiscovery;
+  if aKind = 'source' then
+  begin
+    // The recursive fallback sees source files outside the fixed direct roots.
+    lAdded := TPath.Combine(lSourceRoot, 'new-sdk-directory');
+    TDirectory.CreateDirectory(lAdded);
+    WriteUtf8Bytes(TPath.Combine(lAdded, 'D489SdkOnly.pas'),
+      'unit D489SdkOnly; interface implementation end.');
+  end else begin
+    lAdded := TPath.Combine(lLibraryRoot, 'new-platform');
+    TDirectory.CreateDirectory(lAdded);
+    WriteUtf8Bytes(TPath.Combine(lAdded, 'D489SdkOnly.dcu'), 'new SDK binary');
+  end;
+  Assert.WillRaise(
+    procedure
+    begin
+      lBatch.RequireCurrentDiscovery;
+    end, EInvalidOpException, 'A newly available SDK selection must invalidate discovery.');
 end;
 
 procedure TSourceLoaderTests.RepeatedPreprocessDoesNotRetainEarlierObservations;

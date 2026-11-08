@@ -111,6 +111,8 @@ type
     UnitScopeNames: TArray<string>;
     UnitAliases: TArray<string>;
     ReferenceDirectories: TArray<string>;
+    PossibleUnitSearchPaths: TArray<string>;
+    PossibleUnitScopeNames: TArray<string>;
     Properties: TArray<TDelphiSemanticProperty>;
     CompilerProfileName: string;
     ContextFingerprint: string;
@@ -2535,6 +2537,8 @@ begin
   lBuilder := TStringBuilder.Create;
   try
     lBuilder.AppendLine('schema=semantic-project-configuration-v2');
+    AppendFingerprintItems(lBuilder, 'possibleUnitSearchPaths', aProject.PossibleUnitSearchPaths, True);
+    AppendFingerprintItems(lBuilder, 'possibleUnitScopeNames', aProject.PossibleUnitScopeNames, True);
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidenceAvailable', BoolToStr(aOptions.CompilerDefineEvidence <> nil, True));
     AppendFingerprintItem(lBuilder, 'compilerDefineEvidence', aProject.CompilerDefineEvidenceFingerprint);
     AppendFingerprintItem(lBuilder, 'defineEvidenceComplete', BoolToStr(aProject.DefineEvidenceComplete, True));
@@ -2864,22 +2868,26 @@ const
   cRegistryViews: array[0..1] of Cardinal = (KEY_WOW64_64KEY, KEY_WOW64_32KEY);
 var
   lProfile: TPropertyMap;
-  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lDiagnostics, lLibraryProblems: TList<TDelphiSemanticDiagnostic>;
   lInputs: IDelphiSemanticProfileInputs;
   lValues: TPropertyMap;
   lProperty: TDelphiSemanticProperty;
   lPair: TPair<string, string>;
   lVersion, lPlatform, lBaseKey, lRawPaths, lExpandedPaths: string;
   lEnvOptions, lBdsRoot, lTranslatedPaths: string;
-  lHasLibraryEvidence, lRegistryKnown: Boolean;
+  lLibraryPaths, lExpandedLibraryPaths, lTranslatedLibraryPaths: string;
+  lHasLibraryEvidence, lRegistryKnown, lHasCompilerLibraryEvidence: Boolean;
   lView: Cardinal;
 begin
   lProfile := TPropertyMap.Create;
   lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  lLibraryProblems := TList<TDelphiSemanticDiagnostic>.Create;
   lInputs := ProfileInputs(aOptions);
   lValues := TPropertyMap.Create;
   SetPropertyValue(aProperties, 'DSCompilerIncludePathsKnown', 'False');
   lHasLibraryEvidence := False;
+  lHasCompilerLibraryEvidence := False;
+  lExpandedLibraryPaths := '';
   lExpandedPaths := '';
   lEnvOptions := '';
   try
@@ -2902,6 +2910,11 @@ begin
       lRawPaths := GetPropertyValue(aProperties, 'DelphiLibraryPath') + ';' +
         GetPropertyValue(aProperties, 'DelphiBrowsingPath') + ';' +
         GetPropertyValue(aProperties, 'DelphiDebugDCUPath');
+      // Compiler lookup excludes IDE browsing-only source directories.
+      lLibraryPaths := GetPropertyValue(aProperties, 'DelphiLibraryPath') + ';' +
+        GetPropertyValue(aProperties, 'DelphiDebugDCUPath');
+      lTranslatedLibraryPaths := GetPropertyValue(aProperties, 'DelphiTranslatedLibraryPath') + ';' +
+        GetPropertyValue(aProperties, 'DelphiTranslatedDebugLibraryPath');
       lTranslatedPaths := GetPropertyValue(aProperties, 'DelphiTranslatedLibraryPath') + ';' +
         GetPropertyValue(aProperties, 'DelphiTranslatedDebugLibraryPath');
       for lView in cRegistryViews do
@@ -2912,6 +2925,13 @@ begin
         lValues.Clear;
         for lProperty in lInputs.RegistryValues(lBaseKey + '\Library\' + lPlatform, lView) do
           SetPropertyValue(lValues, lProperty.Name, lProperty.Value);
+        lHasCompilerLibraryEvidence := lHasCompilerLibraryEvidence or
+          lValues.ContainsKey(PropertyKey('Search Path'));
+        lLibraryPaths := lLibraryPaths + ';' + GetPropertyValue(lValues, 'Search Path') + ';' +
+          GetPropertyValue(lValues, 'Debug DCU Path');
+        lTranslatedLibraryPaths := lTranslatedLibraryPaths + ';' +
+          GetPropertyValue(lValues, 'Translated Library Path') + ';' +
+          GetPropertyValue(lValues, 'Translated Debug Library Path');
         if lValues.ContainsKey(PropertyKey('Search Path')) and
           lValues.ContainsKey(PropertyKey('Browsing Path')) then
         begin
@@ -2938,6 +2958,13 @@ begin
       begin
         ApplyPropertyFile(lEnvOptions, ExtractFilePath(lEnvOptions), lProfile,
           lDiagnostics, True, aObservations);
+        lHasCompilerLibraryEvidence := lHasCompilerLibraryEvidence or
+          lProfile.ContainsKey(PropertyKey('DelphiLibraryPath'));
+        lLibraryPaths := lLibraryPaths + ';' + GetPropertyValue(lProfile, 'DelphiLibraryPath') + ';' +
+          GetPropertyValue(lProfile, 'DelphiDebugDCUPath');
+        lTranslatedLibraryPaths := lTranslatedLibraryPaths + ';' +
+          GetPropertyValue(lProfile, 'DelphiTranslatedLibraryPath') + ';' +
+          GetPropertyValue(lProfile, 'DelphiTranslatedDebugLibraryPath');
         lRawPaths := lRawPaths + ';' + GetPropertyValue(lProfile, 'DelphiLibraryPath') + ';' +
           GetPropertyValue(lProfile, 'DelphiBrowsingPath') + ';' +
           GetPropertyValue(lProfile, 'DelphiDebugDCUPath');
@@ -2949,9 +2976,14 @@ begin
       end;
       // MSBuild enables translated paths only for a nonempty language directory.
       if GetPropertyValue(lProfile, 'LANGDIR').Trim <> '' then
+      begin
         lRawPaths := lRawPaths + ';' + lTranslatedPaths;
+        lLibraryPaths := lLibraryPaths + ';' + lTranslatedLibraryPaths;
+      end;
       // Directory inputs may themselves contain macros; reuse bounded semantic
       // expansion so final paths and their known state observe the same values.
+      lExpandedLibraryPaths := ExpandSemanticProjectProperty(lLibraryPaths, lEnvOptions,
+        lProfile, lLibraryProblems);
       lExpandedPaths := ExpandSemanticProjectProperty(lRawPaths, lEnvOptions,
         lProfile, lDiagnostics);
     except
@@ -2959,14 +2991,19 @@ begin
       begin
         // Inaccessible or malformed profiles leave absence unavailable.
         lExpandedPaths := '';
+        lHasCompilerLibraryEvidence := False;
         AddDiagnostic(lDiagnostics, CreateWarningDiagnostic('PROFILE_INPUT_UNAVAILABLE',
           lEnvOptions + ': ' + E.ClassName + ': ' + E.Message,
           GetPropertyValue(aProperties, 'MSBuildProjectFullPath')));
       end;
     end;
+    SetPropertyValue(aProperties, 'DSCompilerLibraryPaths', lExpandedLibraryPaths);
+    SetPropertyValue(aProperties, 'DSCompilerLibraryKnown', BoolToStr(lHasCompilerLibraryEvidence and
+      (lLibraryProblems.Count = 0) and (Pos('$(', lExpandedLibraryPaths) = 0), True));
     ReconcileWitnessProfile(lProfile, aProperties, lDiagnostics, aDiagnostics,
       lExpandedPaths, lHasLibraryEvidence);
   finally
+    lLibraryProblems.Free;
     lValues.Free;
     lDiagnostics.Free;
     lProfile.Free;
@@ -3044,6 +3081,126 @@ begin
     lReason, aProject.ProjectFileName));
 end;
 
+procedure CollectProjectSelections(const aNode: IXMLNode;
+  const aConfigurations, aPlatforms: TList<string>);
+var
+  i: Integer;
+  lValue, lCondition: string;
+  lMatch: TMatch;
+begin
+  if SameText(XmlNodeName(aNode), 'BuildConfiguration') then
+  begin
+    lValue := XmlNodeAttributeValue(aNode, 'Include');
+    if (lValue <> '') and not SameText(lValue, 'Base') then
+      AddUniqueText(aConfigurations, lValue);
+  end;
+  if SameText(XmlNodeName(aNode), 'Platform') then
+  begin
+    lValue := XmlNodeAttributeValue(aNode, 'value');
+    if lValue <> '' then
+      AddUniqueText(aPlatforms, lValue);
+  end;
+  // Minimal projects may declare selections only through property conditions.
+  lCondition := XmlNodeAttributeValue(aNode, 'Condition');
+  for lMatch in TRegEx.Matches(lCondition,
+    '[''" ]*\$\((Config|Platform)\)[''" ]*==[''" ]*([^''" ]+)', [roIgnoreCase]) do
+    if SameText(lMatch.Groups[1].Value, 'Config') then
+      AddUniqueText(aConfigurations, lMatch.Groups[2].Value)
+    else
+      AddUniqueText(aPlatforms, lMatch.Groups[2].Value);
+  for i := 0 to aNode.ChildNodes.Count - 1 do
+    CollectProjectSelections(aNode.ChildNodes[i], aConfigurations, aPlatforms);
+end;
+
+function PossibleProjectSearchPaths(const aProjectFileName: string;
+  const aDocument: IXMLDocument; const aOptions: TDelphiSemanticOptions;
+  const aSelected: TDelphiSemanticProjectInfo; const aSelectedProperties: TPropertyMap;
+  const aObservations: IProjectContextObservationsBuilder;
+  out aScopeNames: TArray<string>): TArray<string>;
+var
+  lConfigurations, lPlatforms, lPaths, lScopes: TList<string>;
+  lDiagnostics: TList<TDelphiSemanticDiagnostic>;
+  lOptions: TDelphiSemanticOptions;
+  lProperties: TPropertyMap;
+  lConfiguration, lPlatform, lPath: string;
+begin
+  lConfigurations := TList<string>.Create;
+  lPlatforms := TList<string>.Create;
+  lPaths := TList<string>.Create;
+  lScopes := TList<string>.Create;
+  lDiagnostics := TList<TDelphiSemanticDiagnostic>.Create;
+  try
+    AddUniqueText(lConfigurations, aSelected.Configuration);
+    AddUniqueText(lPlatforms, aSelected.Platform);
+    CollectProjectSelections(aDocument.DocumentElement, lConfigurations, lPlatforms);
+    for lConfiguration in lConfigurations do
+      for lPlatform in lPlatforms do
+      begin
+        if SameText(lConfiguration, aSelected.Configuration) and SameText(lPlatform, aSelected.Platform) then
+          Continue;
+        lOptions := aOptions;
+        lOptions.Configuration := lConfiguration;
+        lOptions.Platform := lPlatform;
+        lOptions.CompilerDefineEvidence := nil;
+        lProperties := CreateInitialProperties(aProjectFileName, aDocument, lOptions);
+        try
+          // Reuse the project evaluator. These paths can only refuse a rename;
+          // they cannot certify defines, source applicability or active binding.
+          ApplyPropertyDocument(aDocument, aProjectFileName, aSelected.ProjectDirectory,
+            lProperties, lDiagnostics, True, aObservations);
+          // The admitted compiler tables certify Win32/Win64. Explicit project
+          // paths/scopes are still checked for every declared selection below.
+          if SameText(lPlatform, 'Win32') or SameText(lPlatform, 'Win64') then
+            PopulateWitnessProfileProperties(lProperties, lOptions, aObservations, lDiagnostics);
+          if not SameText(GetPropertyValue(lProperties, 'DCC_UnitScopeNames'),
+            GetPropertyValue(aSelectedProperties, 'DCC_UnitScopeNames')) or
+            not SameText(GetPropertyValue(lProperties, 'DCC_Namespace'),
+            GetPropertyValue(aSelectedProperties, 'DCC_Namespace')) then
+          begin
+            // Retain the changed-selection signal even if the alternate scope
+            // list is empty or only removes selected scopes.
+            for lPath in aSelected.UnitScopeNames do
+              AddUniqueText(lScopes, lPath);
+            for lPath in (GetPropertyValue(lProperties, 'DCC_UnitScopeNames') + ';' +
+              GetPropertyValue(lProperties, 'DCC_Namespace')).Split([';']) do
+              if lPath.Trim <> '' then
+                AddUniqueText(lScopes, lPath);
+          end;
+          // Alias changes can select an unseen project unit even when paths and
+          // namespaces are identical. Until both alias maps are resolved, refuse.
+          if not SameText(GetPropertyValue(lProperties, 'DCC_UnitAlias'),
+            GetPropertyValue(aSelectedProperties, 'DCC_UnitAlias')) or
+            not SameText(GetPropertyValue(lProperties, 'DCC_UnitAliases'),
+            GetPropertyValue(aSelectedProperties, 'DCC_UnitAliases')) then
+            AddUniqueText(lPaths, '<alternate-alias-unverified>');
+          // Equal evaluated paths/scopes cannot introduce another file candidate.
+          // Alias variation above is an independent conservative gap.
+          if not SameText(GetPropertyValue(lProperties, 'DCC_UnitSearchPath'),
+            GetPropertyValue(aSelectedProperties, 'DCC_UnitSearchPath')) then
+            for lPath in GetPropertyValue(lProperties, 'DCC_UnitSearchPath').Split([';']) do
+              AddPartialSearchPath(lPaths, aSelected.ProjectDirectory, lPath, lDiagnostics);
+          if not SameText(GetPropertyValue(lProperties, 'DSCompilerLibraryPaths'),
+            GetPropertyValue(aSelectedProperties, 'DSCompilerLibraryPaths')) then
+            for lPath in GetPropertyValue(lProperties, 'DSCompilerLibraryPaths').Split([';']) do
+              AddPartialSearchPath(lPaths, aSelected.ProjectDirectory, lPath, lDiagnostics);
+          if (SameText(lPlatform, 'Win32') or SameText(lPlatform, 'Win64')) and
+            not SameText(GetPropertyValue(lProperties, 'DSCompilerLibraryKnown'), 'True') then
+            AddUniqueText(lPaths, '<alternate-library-unverified>');
+        finally
+          lProperties.Free;
+        end;
+      end;
+    Result := lPaths.ToArray;
+    aScopeNames := lScopes.ToArray;
+  finally
+    lDiagnostics.Free;
+    lScopes.Free;
+    lPaths.Free;
+    lPlatforms.Free;
+    lConfigurations.Free;
+  end;
+end;
+
 function LoadProjectInfo(const aProjectFileName: string; const aOptions: TDelphiSemanticOptions;
   const aRootAbsenceFingerprint: string; const aDiagnostics: TList<TDelphiSemanticDiagnostic>): TDelphiSemanticProjectInfo;
 var
@@ -3062,9 +3219,13 @@ begin
       lProperties, aDiagnostics, Trim(aOptions.Platform) <> '', lObservations);
     PopulateWitnessProfileProperties(lProperties, aOptions, lObservations, aDiagnostics);
     PopulateCompilerIncludePaths(lProperties, aOptions, aDiagnostics);
+    SetPropertyValue(lProperties, 'DSInstalledSdkRoot',
+      TDelphiSemanticCompilerProfileBuilder.ResolveBdsRoot(aOptions.DelphiVersion, aOptions.RsVarsPath));
     Result := CreateProjectInfoFromProperties(aProjectFileName, lDocument, lProperties);
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
+    Result.PossibleUnitSearchPaths := PossibleProjectSearchPaths(aProjectFileName,
+      lDocument, aOptions, Result, lProperties, lObservations, Result.PossibleUnitScopeNames);
     AddAdditionalSourceFiles(Result, aOptions);
     AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);

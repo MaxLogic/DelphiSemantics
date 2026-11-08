@@ -6,9 +6,20 @@ uses
   DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
+  TDelphiSemanticPreprocessSourceLoader = reference to function(const aFileName: string):
+    TDelphiSemanticSourceLoadResult;
+
+  TDelphiSemanticPreprocessSourceExists = reference to function(const aFileName: string): Boolean;
+
   TDelphiSemanticPreprocessOptions = record
     SourceFileName: string;
     SourceText: string;
+    // Optional input owner; its lifetime is one identity computation. Ordinary
+    // preprocessing and later currentness validation keep their fresh reads.
+    SourceLoader: TDelphiSemanticPreprocessSourceLoader;
+    SourceExists: TDelphiSemanticPreprocessSourceExists;
+    // Completeness-only text; never feed possible branches into the selected AST.
+    PreservePossibleText: Boolean;
     Defines: TArray<string>;
     // Only the owning model/context admission may certify ordinary absence.
     DefineEvidenceComplete: Boolean;
@@ -106,7 +117,11 @@ uses
 
 type
   TDefineMap = TDictionary<string, Boolean>;
-  TSourceTextCache = TDictionary<string, TDelphiSemanticSourceLoadResult>;
+  TSourceTextCache = class(TDictionary<string, TDelphiSemanticSourceLoadResult>)
+  public
+    Loader: TDelphiSemanticPreprocessSourceLoader;
+    function LoadFile(const aFileName: string): TDelphiSemanticSourceLoadResult;
+  end;
   TLineOriginList = TList<TDelphiSemanticSourceLineOrigin>;
 
   TPreprocessExpansion = record
@@ -319,6 +334,14 @@ begin
   Result := IntToHex(Int64(lHash), 8);
 end;
 
+function TSourceTextCache.LoadFile(const aFileName: string): TDelphiSemanticSourceLoadResult;
+begin
+  if Assigned(Loader) then
+    Result := Loader(aFileName)
+  else
+    Result := TDelphiSemanticSourceLoader.LoadFile(aFileName);
+end;
+
 function TryLoadPreprocessSource(const aFileName: string;
   const aSourceCache: TSourceTextCache;
   const aDiagnostics: TList<TDelphiSemanticPreprocessDiagnostic>;
@@ -335,7 +358,7 @@ begin
     Exit(True);
   end;
 
-  lSourceLoad := TDelphiSemanticSourceLoader.LoadFile(lFileName);
+  lSourceLoad := aSourceCache.LoadFile(lFileName);
   if not lSourceLoad.Success then
   begin
     if Length(lSourceLoad.Diagnostics) > 0 then
@@ -398,6 +421,13 @@ begin
   if aStack.Count = 0 then
     Exit(saActive);
   Result := aStack[Pred(aStack.Count)].Activity;
+end;
+
+function ShouldEmitSource(const aOptions: TDelphiSemanticPreprocessOptions;
+  const aStack: TList<TPreprocessFrame>): Boolean;
+begin
+  Result := CurrentActive(aStack) or
+    (aOptions.PreservePossibleText and (CurrentActivity(aStack) <> saInactive));
 end;
 
 procedure CaptureActivity(const aContext: TPreprocessOutputContext;
@@ -631,6 +661,7 @@ begin
   // Certificate currentness owns this source universe. These reads do not
   // make other units into includes of the unit we are preprocessing.
   lScopeCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lScopeCache.Loader := aOptions.SourceLoader;
   try
     lNames.CaseSensitive := False;
     lImports.CaseSensitive := False;
@@ -932,6 +963,15 @@ begin
     Result := TPath.GetFullPath(aOptions.SourceFileName);
 end;
 
+function PreprocessSourceExists(const aFileName: string;
+  const aOptions: TDelphiSemanticPreprocessOptions): Boolean;
+begin
+  if Assigned(aOptions.SourceExists) then
+    Result := aOptions.SourceExists(aFileName)
+  else
+    Result := TFile.Exists(aFileName);
+end;
+
 function ResolveIncludeFileName(const aIncludeName, aCurrentDirectory: string;
   const aOptions: TDelphiSemanticPreprocessOptions; out aFileName: string): Boolean;
 var
@@ -959,7 +999,7 @@ begin
     if TPath.IsPathRooted(lIncludeName) then
     begin
       aFileName := TPath.GetFullPath(lIncludeName);
-      Exit(TFile.Exists(aFileName));
+      Exit(PreprocessSourceExists(aFileName, aOptions));
     end;
 
     if (aOptions.SourceFileName = '') and not TPath.IsPathRooted(aCurrentDirectory) then
@@ -971,7 +1011,7 @@ begin
       lPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(aOptions.SourceFileName), lIncludeName))
     else
       lPath := TPath.GetFullPath(TPath.Combine(aCurrentDirectory, lIncludeName));
-    if TFile.Exists(lPath) then
+    if PreprocessSourceExists(lPath, aOptions) then
     begin
       aFileName := lPath;
       Exit(True);
@@ -985,7 +1025,7 @@ begin
         Exit(False);
       end;
       lPath := TPath.GetFullPath(TPath.Combine(lSearchPath, lIncludeName));
-      if TFile.Exists(lPath) then
+      if PreprocessSourceExists(lPath, aOptions) then
       begin
         aFileName := lPath;
         Exit(True);
@@ -1034,7 +1074,7 @@ begin
       if not aSources.TryGetValue(lCandidate, lSource) then
       begin
         try
-          lSource := TDelphiSemanticSourceLoader.LoadFile(lCandidate);
+          lSource := aSources.LoadFile(lCandidate);
         except
           // A skipped unreadable candidate withholds proof, not AST success.
           on E: EFOpenError do Continue;
@@ -1525,7 +1565,7 @@ begin
     if not fSources.TryGetValue(lChildFile, lSource) then
     begin
       try
-        lSource := TDelphiSemanticSourceLoader.LoadFile(lChildFile);
+        lSource := fSources.LoadFile(lChildFile);
       except
         on E: EFOpenError do
         begin
@@ -2000,7 +2040,7 @@ begin
     begin
       CaptureActivity(aContext, aStack, aSourceText, aFileName,
         aSourceLineStartOffset + lPos - 1, lDirectiveStart - lPos);
-      if CurrentActive(aStack) then
+      if ShouldEmitSource(aOptions, aStack) then
         AppendCopiedText(lLineOutput, lLineContext,
           Copy(aLine, lPos, lDirectiveStart - lPos), aSourceText, aFileName,
           aLineNumber, lPos, aSourceLineStartOffset)
@@ -2022,7 +2062,7 @@ begin
       lDirectiveActivity := CurrentActivity(aStack);
       if IsCompilerSwitchDirective(lDirective) then
       begin
-        if CurrentActive(aStack) then
+        if ShouldEmitSource(aOptions, aStack) then
           AppendCopiedText(lLineOutput, lLineContext,
             Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1),
             aSourceText, aFileName, aLineNumber, lDirectiveStart,
@@ -2051,7 +2091,7 @@ begin
 
     CaptureActivity(aContext, aStack, aSourceText, aFileName,
       aSourceLineStartOffset + lPos - 1, Length(aLine) - lPos + 1);
-    if CurrentActive(aStack) then
+    if ShouldEmitSource(aOptions, aStack) then
       AppendCopiedText(lLineOutput, lLineContext, Copy(aLine, lPos, MaxInt),
         aSourceText, aFileName, aLineNumber, lPos, aSourceLineStartOffset)
     else
@@ -2166,7 +2206,7 @@ begin
         AddRegion(aRegions, aFileName, i + 1, CurrentActive(aStack));
         CaptureActivity(aContext, aStack, aSourceText, aFileName,
           lLineStarts[i], Length(lLines[i]));
-        if CurrentActive(aStack) then
+        if ShouldEmitSource(aOptions, aStack) then
         begin
           AppendCopiedText(aOutput, aContext, lLines[i], aSourceText, aFileName,
             i + 1, 1, lLineStarts[i]);
@@ -2379,7 +2419,7 @@ begin
             'Invalid include file name in inactive branch: ' + lIncludeName, aFileName, aLine);
         Exit(True);
       end;
-      lEmitInclude := CurrentActive(aStack);
+      lEmitInclude := ShouldEmitSource(aOptions, aStack);
 
       if not ResolveIncludeFileName(lIncludeName, TPath.GetDirectoryName(aFileName), aOptions,
         lIncludeFileName) then
@@ -2582,6 +2622,7 @@ begin
     lOutput := TStringBuilder.Create;
     lRegions := TList<TDelphiSemanticSourceRegion>.Create;
     lSourceCache := TSourceTextCache.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lSourceCache.Loader := aOptions.SourceLoader;
     lStack := TList<TPreprocessFrame>.Create;
     if ContainsText(aOptions.SourceText, 'CompilerVersion') or ContainsText(aOptions.SourceText, 'RTLVersion') then
       lCapture.ProfileVersionsKnown := ProfileVersionsAreUnshadowed(aOptions, lDiagnostics);

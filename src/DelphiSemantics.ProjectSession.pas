@@ -229,9 +229,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v70';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v104';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v101';
+    'project-session-remove-with-facts-v104';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -267,6 +267,12 @@ begin
   Result.SourceFileName := aProject.MainSourceFileName;
   Result.Defines := aProject.Defines;
   Result.SearchPaths := aProject.SourceLookupPaths;
+  Result.PossibleUnitSearchPaths := aProject.PossibleUnitSearchPaths;
+  Result.PossibleUnitScopeNames := aProject.PossibleUnitScopeNames;
+  Result.UnitAliases := aProject.UnitAliases;
+  Result.UnitScopeNames := aProject.UnitScopeNames;
+  Result.ProjectSourceFileNames := [aProject.MainSourceFileName] + aProject.SourceFileNames;
+  Result.InstalledSdkRoot := aProject.PropertyValue('DSInstalledSdkRoot');
   Result.IncludePaths := [aProject.ProjectDirectory] + aProject.IncludePaths;
   Result.ProjectContextApplied := True;
   Result.DefineEvidenceComplete := aProject.DefineEvidenceComplete;
@@ -326,7 +332,8 @@ end;
 function ExtractProjectUnitModel(const aProject: TDelphiSemanticProjectInfo;
   const aFileName: string; const aCache: TDelphiSemanticUnitCache;
   const aSkipBodyAnalysis: Boolean;
-  out aIdentity: TDelphiSemanticUnitCacheIdentity):
+  out aIdentity: TDelphiSemanticUnitCacheIdentity;
+  const aSelectedConfigurationOnly: Boolean = False):
   TDelphiSemanticUnitModel; overload;
 var
   lAccessResult: TDelphiSemanticUnitCacheAccessResult;
@@ -337,6 +344,7 @@ begin
   lOptions.SourceFileName := aFileName;
   lOptions.SkipBodyAnalysis := aSkipBodyAnalysis;
   lOptions.SkipReferenceExtraction := aSkipBodyAnalysis;
+  lOptions.SelectedConfigurationOnly := aSelectedConfigurationOnly;
   if aCache = nil then
   begin
     Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
@@ -740,13 +748,15 @@ end;
 
 function BuildProjectUnitCacheIdentities(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
-  aScopedSourceFileNames: TArray<string>):
+  aScopedSourceFileNames: TArray<string>;
+  const aSelectedConfigurationOnly: Boolean = False):
   TArray<TDelphiSemanticUnitCacheIdentity>;
 var
   i: Integer;
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
   lOptions: TDelphiSemanticModelOptions;
+  lSkipBodyAnalysis: TArray<Boolean>;
 begin
   lBodyAnalysisSourceFiles := nil;
   lCache := nil;
@@ -754,15 +764,14 @@ begin
     lBodyAnalysisSourceFiles := ScopedSourceFileSet(aScopedSourceFileNames);
     lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(aOptions));
     lOptions := MainModelOptions(aProject);
-    SetLength(Result, Length(aSourceFileNames));
+    lOptions.SelectedConfigurationOnly := aSelectedConfigurationOnly;
+    SetLength(lSkipBodyAnalysis, Length(aSourceFileNames));
     for i := 0 to High(aSourceFileNames) do
     begin
-      lOptions.SourceFileName := aSourceFileNames[i];
-      lOptions.SkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
+      lSkipBodyAnalysis[i] := Assigned(lBodyAnalysisSourceFiles) and
         (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
-      lOptions.SkipReferenceExtraction := lOptions.SkipBodyAnalysis;
-      Result[i] := lCache.BuildIdentity(lOptions);
     end;
+    Result := lCache.BuildIdentities(lOptions, aSourceFileNames, lSkipBodyAnalysis);
   finally
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;
@@ -817,7 +826,8 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
   aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean;
   var aSemanticCachePersistenceAvailable: Boolean;
-  const aDeferCompilerCurrentness: Boolean = False):
+  const aDeferCompilerCurrentness: Boolean = False;
+  const aSelectedConfigurationOnly: Boolean = False):
   TProjectModelExtractionResult; overload;
 var
   lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
@@ -867,7 +877,7 @@ begin
       lSkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
         (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
       lModel := ExtractProjectUnitModel(aProject, aSourceFileNames[i], lCache,
-        lSkipBodyAnalysis, lIdentity);
+        lSkipBodyAnalysis, lIdentity, aSelectedConfigurationOnly);
       Result.CacheIdentities[i] := lIdentity;
       if (i = 0) and (lModel.Success) and (lModel.UnitName = '') and
         SameText(lModel.FileName, aProject.MainSourceFileName) then
@@ -908,6 +918,21 @@ begin
     lSemanticCachePersistenceAvailable;
 end;
 
+// WITH facts consume only the selected compilation. Keep the broader usage
+// completeness policy out of this path, with a distinct unit-cache identity.
+function ExtractSelectedConfigurationModels(const aProject: TDelphiSemanticProjectInfo;
+  const aOptions: TDelphiSemanticOptions; const aSourceFileNames,
+  aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean):
+  TProjectModelExtractionResult;
+var
+  lSemanticCachePersistenceAvailable: Boolean;
+begin
+  Result := ExtractProjectModels(aProject, aOptions, aSourceFileNames,
+    aScopedSourceFileNames, aUseScopedSourceFileNames,
+    lSemanticCachePersistenceAvailable, False, True);
+  Result.SemanticCachePersistenceAvailable := lSemanticCachePersistenceAvailable;
+end;
+
 procedure RequireCurrentRequestModels(const aOptions: TDelphiSemanticOptions;
   const aModels: TArray<TDelphiSemanticUnitModel>);
 var
@@ -928,12 +953,12 @@ var
   lWitness: IDelphiSemanticUnitNameWitness;
 begin
   lFiles := ProjectModelFileNames(aProject);
-  lExtraction := ExtractProjectModels(aProject, aOptions, lFiles, [], False);
+  lExtraction := ExtractSelectedConfigurationModels(aProject, aOptions, lFiles, [], False);
   lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
     TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
       aOptions.RsVarsPath));
   Result := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions, lFiles, [],
-    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, []), lWitness.IdentityText);
+    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, [], True), lWitness.IdentityText);
 end;
 {$ENDIF}
 
@@ -1175,7 +1200,7 @@ begin
   lFiles := ProjectModelFileNames(aProject);
   lExtraction := ExtractProjectModels(aProject, aOptions,
     lFiles, aScopedSourceFileNames,
-    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True);
+    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True, True);
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
 
@@ -2373,8 +2398,8 @@ begin
     (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
     lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
-      lSourceFileNames, aScopedSourceFileNames);
-    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+      lSourceFileNames, aScopedSourceFileNames, True);
+    lExtraction := ExtractSelectedConfigurationModels(fProject, fOptions, lSourceFileNames,
       aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
     lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
       TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,
@@ -2439,7 +2464,7 @@ begin
 
   if lWitness = nil then
   begin
-    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames,
+    lExtraction := ExtractSelectedConfigurationModels(fProject, fOptions, lSourceFileNames,
       aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
     lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
       TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,

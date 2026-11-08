@@ -9,6 +9,20 @@
 - Unknown include references use indexed physical-position replacement and cached line coordinates, preserving reference contents and order while reducing RTL indexing time (DAK-484).
 - Remove-with native proof type-checks generated pointer initializations for subjects without nested code-level `@`, without changing the published plain assignments. Nested addresses refuse as unverified; incomplete compiler-proof metadata fails closed (DS-787).
 
+- Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
+
+- Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
+
+- Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
+
+- Missing-import checks follow direct import visibility and uses order outside WITH, and interface-uses chains for member lookup. Safe lexical renames remain available when unrelated imports are missing (DS-791).
+
+- Rename and find-usages retain possible occurrences in recursive includes and inactive imported units, report unavailable possible source, and safely ignore source-proven never-compiled branches (DS-791).
+
+- Rename and find-usages retain inactive-configuration occurrences as unresolved advisory entries; native predefined tables are validated by contents as well as compiler/platform identity (DS-791).
+
+- Certified compiler define evidence supports verified Delphi 12 Win32 dcc32 hosts with a separate predefined-symbol table and platform-specific admission checks (DS-791).
+
 - Routine declaration facts include AST-derived heading spans across parameter, result-type and directive continuation lines. Unit caches and project snapshots retain those spans, including include-file coordinates. Integrated heading and implementation-owner extraction invalidates older caches.
 
 ### Fixed

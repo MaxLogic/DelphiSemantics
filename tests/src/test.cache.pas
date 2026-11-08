@@ -58,6 +58,8 @@ type
     [Category('Fast')]
     [Test]
     procedure NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
+    [Test]
+    procedure UnitCacheEnvelopeRequiresImportProvenance;
     [Category('Fast')]
     [Test]
     procedure UnitCacheIdentityBuilderReusesSingleSourceLoad;
@@ -88,6 +90,9 @@ type
     [Category('Fast')]
     [Test]
     procedure WritableTypedConstantsOptionInvalidatesCachedUnitModel;
+    [Category('Fast')]
+    [Test]
+    procedure SelectedConfigurationCoverageInvalidatesCachedUnitModel;
     [Category('Fast')]
     [Test]
     procedure EquivalentDefineOrderReusesCachedUnitModel;
@@ -418,6 +423,43 @@ begin
   end;
 end;
 
+procedure TCacheTests.UnitCacheEnvelopeRequiresImportProvenance;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lModel: TDelphiSemanticUnitModel;
+  lObject: TJSONObject;
+  lOptions: TDelphiSemanticModelOptions;
+  lPair: TJSONPair;
+  lRestored: TDelphiSemanticUnitModel;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TempPath('ProvenanceEnvelope.pas');
+  TFile.WriteAllText(lOptions.SourceFileName,
+    'unit ProvenanceEnvelope; interface implementation end.', TEncoding.ASCII);
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    lModel := lCache.GetOrExtractUnitModel(lOptions);
+    Assert.IsTrue(lModel.SourceObservations <> nil);
+    lObject := TJSONObject.ParseJSONValue(UnitCacheModelToJson(lModel)) as TJSONObject;
+    try
+      lRestored := JsonToUnitCacheModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.SourceObservations <> nil,
+        'The complete envelope must retain reusable source witnesses.');
+      lPair := lObject.RemovePair('ImportFacts');
+      lPair.Free;
+      lRestored := JsonToModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.Success, 'Legacy generic JSON remains readable.');
+      lRestored := JsonToUnitCacheModel(lObject.ToJSON);
+      Assert.IsTrue(lRestored.SourceObservations = nil,
+        'Missing import provenance cannot publish cache reuse evidence.');
+    finally
+      lObject.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
+end;
+
 procedure TCacheTests.NoContextScanWitnessSurvivesSqliteWithoutActivityAuthority;
 var
   lCache: TDelphiSemanticUnitCache;
@@ -489,8 +531,8 @@ begin
 
     Assert.AreEqual('10', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.96', lIdentity.ParserVersion,
-      'Integrated extraction and physical symbol origins require fresh extraction.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.123', lIdentity.ParserVersion,
+      'Ordered, configuration-neutral import provenance and directory witnesses require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
       'Dependent caches chain to the unit-model parser version.');
@@ -855,6 +897,53 @@ begin
     Assert.AreEqual(0, Integer(Length(lLean.Model.References)));
     Assert.AreEqual(2, lCache.Metrics.CacheMisses);
     Assert.AreEqual(1, lCache.Metrics.Invalidations);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TCacheTests.SelectedConfigurationCoverageInvalidatesCachedUnitModel;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lOptions, lSelectedOptions: TDelphiSemanticModelOptions;
+  lFull, lSelected, lAgain: TDelphiSemanticUnitCacheAccessResult;
+  lDiagnostic: TDelphiSemanticModelDiagnostic;
+  lFullGaps, lSelectedGaps: Integer;
+  lPath: string;
+begin
+  lPath := TempPath('SelectedConfigurationCoverage.pas');
+  TFile.WriteAllText(lPath, 'unit SelectedConfigurationCoverage;' + sLineBreak +
+    'interface' + sLineBreak + '{$IFDEF OTHER_CONFIGURATION}' + sLineBreak +
+    'uses MissingProjectConsumer;' + sLineBreak + '{$ENDIF}' + sLineBreak +
+    'implementation' + sLineBreak + 'end.', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lPath;
+  lOptions.ProjectContextApplied := True;
+  lOptions.ProjectSourceFileNames := [lPath];
+  lSelectedOptions := lOptions;
+  lSelectedOptions.SelectedConfigurationOnly := True;
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    lFull := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    lSelected := lCache.GetOrExtractUnitModelWithStatus(lSelectedOptions);
+    lFullGaps := 0;
+    for lDiagnostic in lFull.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lFullGaps);
+    lSelectedGaps := 0;
+    for lDiagnostic in lSelected.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lSelectedGaps);
+    Assert.IsTrue(lFullGaps > 0, 'Full queries must retain unavailable possible project sources.');
+    Assert.AreEqual(0, lSelectedGaps, 'Selected-configuration WITH models do not scan possible consumers.');
+    Assert.IsFalse(lSelected.CacheHit);
+    Assert.AreNotEqual(lFull.Identity.ExtractionOptionsHash, lSelected.Identity.ExtractionOptionsHash);
+    lAgain := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    lFullGaps := 0;
+    for lDiagnostic in lAgain.Model.Diagnostics do
+      if lDiagnostic.Code = 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE' then
+        Inc(lFullGaps);
+    Assert.IsTrue(lFullGaps > 0, 'A subsequent full query cannot reuse a selected-only model.');
   finally
     lCache.Free;
   end;

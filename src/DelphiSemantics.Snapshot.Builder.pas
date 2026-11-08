@@ -2644,11 +2644,16 @@ begin
     // Missing possible includes are project-wide coverage gaps even when the
     // including unit never spells the queried name. Retain them through SQLite.
     for lDiagnostic in aModel.Diagnostics do
-      if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+      if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') or
+        SameText(lDiagnostic.Code, 'POSSIBLE_UNIT_SOURCE_UNAVAILABLE') or
+        SameText(lDiagnostic.Code, 'POSSIBLE_SOURCE_COVERAGE_UNAVAILABLE') then
       begin
         lSourceGap := Default(TSemanticReferenceFact);
         lSourceGap.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
-        lSourceGap.ReasonId := aStrings.Intern('include-file-not-found');
+        if SameText(lDiagnostic.Code, 'INCLUDE_FILE_NOT_FOUND') then
+          lSourceGap.ReasonId := aStrings.Intern('include-file-not-found')
+        else
+          lSourceGap.ReasonId := aStrings.Intern(LowerCase(lDiagnostic.Code).Replace('_', '-'));
         lSourceGap.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
         if not SameText(lDiagnostic.FileName, aModel.FileName) then
           lSourceGap.FileId := aStrings.Intern(lDiagnostic.FileName);
@@ -2657,6 +2662,10 @@ begin
         Result.AddReference(lSourceGap);
         Inc(aMetrics.ReferenceCount);
       end;
+    Result.SetImportFacts(aModel.ImportFacts);
+    // Import reachability is provenance, separate from token references.
+    for var lImport in aModel.PossibleUnitImports do
+      Result.AddPossibleUnitImport(aStrings.Intern(lImport));
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
     for lDeclaration in aModel.Declarations do
@@ -3125,6 +3134,7 @@ function RemapUnitSnapshot(const aSourceStrings, aTargetStrings: TSemanticString
   TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
+  lImportIndex: Integer;
   lSymbolId: TSemanticSymbolId;
   lWithId: TSemanticWithId;
 begin
@@ -3139,6 +3149,10 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    Result.SetImportFacts(aUnit.ImportFacts);
+    for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
+      Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
+        aUnit.PossibleUnitImportByIndex(lImportIndex)));
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
         aUnit.SymbolById(lSymbolId)));
@@ -3162,6 +3176,7 @@ function RemapUnitSnapshotWithResolvedTargets(const aSourceStrings,
   TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
+  lImportIndex: Integer;
   lSymbolId: TSemanticSymbolId;
   lWithId: TSemanticWithId;
 begin
@@ -3176,6 +3191,10 @@ begin
       aUnit.ScopeModelStatusId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeModelVersionId), RemapStringId(aSourceStrings, aTargetStrings,
       aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
+    Result.SetImportFacts(aUnit.ImportFacts);
+    for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
+      Result.AddPossibleUnitImport(RemapStringId(aSourceStrings, aTargetStrings,
+        aUnit.PossibleUnitImportByIndex(lImportIndex)));
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSymbolFact(aSourceStrings, aTargetStrings,
         aUnit.SymbolById(lSymbolId)));

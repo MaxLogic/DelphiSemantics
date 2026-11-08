@@ -279,15 +279,72 @@ begin
     SameText(aDescriptor.DelphiVersion, aRequest.DelphiVersion);
 end;
 
+function NativePredefinedStatesMatch(const aDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  const aPlatform: string): Boolean;
+var
+  lExpectedTrue, lExpectedFalse, lActualTrue, lActualFalse: TArray<string>;
+  lSymbol: string;
+begin
+  // DS-772/DS-791: pinned native dcc64/dcc32 probes, not a caller-supplied label.
+  // The verified task fixes BCB=false. CONSOLE may be true, false or withheld
+  // when source APPTYPE propagation cannot prove a common state.
+  if SameText(aPlatform, 'Linux64') then
+  begin
+    lExpectedTrue := ['CONDITIONALEXPRESSIONS', 'CPU64BITS', 'CPUX64', 'DCC', 'ELF',
+      'EXTERNALLINKER', 'LINUX', 'LINUX64', 'LLVM', 'MANAGED_RECORD',
+      'NATIVECODE', 'PIC', 'POSIX', 'POSIX64', 'UNICODE',
+      'VER360', 'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT'];
+    lExpectedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'ASSEMBLER',
+      'AUTOREFCOUNT', 'BCB', 'CPU32BITS', 'CPU386', 'CPUARM',
+      'CPUARM32', 'CPUARM64', 'CPUX86', 'IOS', 'IOS32',
+      'IOS64', 'IOSSIMULATOR', 'LINUX32', 'MACOS', 'MACOS32',
+      'MACOS64', 'MSWINDOWS', 'NEXTGEN', 'OSX', 'OSX32',
+      'OSX64', 'PC_MAPPED_EXCEPTIONS', 'POSIX32', 'UNDERSCOREIMPORTNAME', 'VER120',
+      'VER80', 'VER90', 'WEAKINSTREF', 'WIN32', 'WIN64'];
+  end else if SameText(aPlatform, 'Win32') then
+  begin
+    lExpectedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU32BITS', 'CPU386',
+      'CPUX86', 'DCC', 'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNDERSCOREIMPORTNAME', 'UNICODE',
+      'VER360', 'WEAKINTFREF', 'WEAKREF', 'WEAK_NATIVEINT', 'WIN32'];
+    lExpectedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU64BITS', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX64', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN64'];
+  end else begin
+    lExpectedTrue := ['ASSEMBLER', 'CONDITIONALEXPRESSIONS', 'CPU64BITS', 'CPUX64', 'DCC',
+      'MANAGED_RECORD', 'MSWINDOWS', 'NATIVECODE', 'UNICODE', 'VER360', 'WEAKINTFREF', 'WEAKREF',
+      'WEAK_NATIVEINT', 'WIN64'];
+    lExpectedFalse := ['ALIGN_STACK', 'ANDROID', 'ANDROID32', 'ANDROID64', 'AUTOREFCOUNT',
+      'BCB', 'CPU32BITS', 'CPU386', 'CPUARM', 'CPUARM32', 'CPUARM64', 'CPUX86', 'ELF', 'EXTERNALLINKER', 'IOS',
+      'IOS32', 'IOS64', 'IOSSIMULATOR', 'LINUX', 'LINUX32', 'LINUX64', 'LLVM', 'MACOS', 'MACOS32', 'MACOS64',
+      'NEXTGEN', 'OSX', 'OSX32', 'OSX64', 'PC_MAPPED_EXCEPTIONS', 'PIC', 'POSIX', 'POSIX32', 'POSIX64',
+      'UNDERSCOREIMPORTNAME', 'VER120', 'VER80', 'VER90', 'WEAKINSTREF', 'WIN32'];
+  end;
+  lActualTrue := nil;
+  lActualFalse := nil;
+  for lSymbol in aDescriptor.PredefinedTrue do
+    if lSymbol <> 'CONSOLE' then
+      lActualTrue := lActualTrue + [lSymbol];
+  for lSymbol in aDescriptor.PredefinedFalse do
+    if lSymbol <> 'CONSOLE' then
+      lActualFalse := lActualFalse + [lSymbol];
+  Result := TDelphiSemanticCompilerDefines.SameDefines(lExpectedTrue, lActualTrue) and
+    TDelphiSemanticCompilerDefines.SameDefines(lExpectedFalse, lActualFalse);
+end;
+
 function ValidateDescriptor(var aDescriptor: TDelphiSemanticCompilerDefineDescriptor;
   const aRequest: TDelphiSemanticCompilerDefineRequest; out aReason: string): Boolean;
 const
   cVerifiedCompilerHash = 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
   cVerifiedCompiler64Hash = '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9';
+  cVerifiedWin32CompilerHash = 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
+  cVerifiedWin32Compiler64Hash = '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765';
 var
   i, j: Integer;
   lNormalized: TArray<string>;
-  lSymbol: string;
+  lSymbol, lPredefinedFormat: string;
+  lWin32, lLinux64: Boolean;
 begin
   aReason := 'invalid compiler define evidence envelope';
   if (aDescriptor.Format <> 'ds-compiler-defines-v1') or (aDescriptor.Producer = '') or
@@ -301,24 +358,50 @@ begin
   if not RequestMatches(aDescriptor.Invocation, aRequest) then
     Exit(False);
   aReason := 'compiler define evidence compiler identity unsupported';
+  lWin32 := SameText(aDescriptor.Invocation.Platform, 'Win32');
+  lLinux64 := SameText(aDescriptor.Invocation.Platform, 'Linux64');
   if (aDescriptor.Invocation.DelphiVersion <> '23.0') or
-    not SameText(aDescriptor.Invocation.Platform, 'Win64') or
+    (not lWin32 and not lLinux64 and not SameText(aDescriptor.Invocation.Platform, 'Win64')) or
     (aDescriptor.CompilerVersion <> '36.0') then
     Exit(False);
-  if (aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1') and
-    ((aDescriptor.CaptureKind <> 'native-msbuild-dcc-inputs-v1') or
-    (not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash) and
-    not SameText(aDescriptor.CompilerHash, cVerifiedCompiler64Hash))) then
-    Exit(False);
+  if aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1' then
+  begin
+    if aDescriptor.CaptureKind <> 'native-msbuild-dcc-inputs-v1' then
+      Exit(False);
+    if lLinux64 then
+    begin
+      if not SameText(ExtractFileName(aDescriptor.CompilerFileName), 'dcclinux64.exe') or
+        not SameText(aDescriptor.CompilerHash,
+          '7887660DBBB0C055B2AC6CB933020D6F966DD2A1E5913320C9D4C34980060B02') then
+        Exit(False);
+    end else if lWin32 then
+    begin
+      if not SameText(ExtractFileName(aDescriptor.CompilerFileName), 'dcc32.exe') or
+        (not SameText(aDescriptor.CompilerHash, cVerifiedWin32CompilerHash) and
+        not SameText(aDescriptor.CompilerHash, cVerifiedWin32Compiler64Hash)) then
+        Exit(False);
+    end else if not SameText(ExtractFileName(aDescriptor.CompilerFileName), 'dcc64.exe') or
+      (not SameText(aDescriptor.CompilerHash, cVerifiedCompilerHash) and
+      not SameText(aDescriptor.CompilerHash, cVerifiedCompiler64Hash)) then
+      Exit(False);
+  end;
   aReason := 'compiler define evidence contains invalid ordinary symbols';
   if not NormalizeSymbols(aDescriptor.Defines, lNormalized) then
     Exit(False);
   aDescriptor.Defines := lNormalized;
   aReason := 'compiler predefined witness invalid';
+  if lLinux64 and (aDescriptor.PredefinedFormat = '') then
+    Exit(False);
   if (aDescriptor.PredefinedFormat <> '') or (aDescriptor.PredefinedIdentity <> '') or
     (Length(aDescriptor.PredefinedTrue) <> 0) or (Length(aDescriptor.PredefinedFalse) <> 0) then
   begin
-    if (aDescriptor.PredefinedFormat <> 'compiler-predefines-23-win64-v1') or
+    if lLinux64 then
+      lPredefinedFormat := 'compiler-predefines-23-linux64-v1'
+    else if lWin32 then
+      lPredefinedFormat := 'compiler-predefines-23-win32-v1'
+    else
+      lPredefinedFormat := 'compiler-predefines-23-win64-v1';
+    if (aDescriptor.PredefinedFormat <> lPredefinedFormat) or
       (aDescriptor.PredefinedIdentity = '') then
       Exit(False);
     if not NormalizeSymbols(aDescriptor.PredefinedTrue, lNormalized) then
@@ -331,6 +414,9 @@ begin
       for i := 0 to High(aDescriptor.PredefinedFalse) do
         if lSymbol = aDescriptor.PredefinedFalse[i] then
           Exit(False);
+    if (aDescriptor.CaptureKind <> 'closed-generated-test-universe-v1') and
+      not NativePredefinedStatesMatch(aDescriptor, aDescriptor.Invocation.Platform) then
+      Exit(False);
   end;
   aDescriptor.Invocation.ProjectFileName := CanonicalPath(aDescriptor.Invocation.ProjectFileName);
   aDescriptor.Invocation.MainSourceFileName := CanonicalPath(aDescriptor.Invocation.MainSourceFileName);

@@ -3,7 +3,7 @@ unit DelphiSemantics.Model;
 interface
 
 uses
-  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ImportFacts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticModelOptions = record
@@ -11,6 +11,12 @@ type
     Defines: TArray<string>;
     SearchPaths: TArray<string>;
     IncludePaths: TArray<string>;
+    UnitAliases: TArray<string>;
+    UnitScopeNames: TArray<string>;
+    ProjectSourceFileNames: TArray<string>;
+    InstalledSdkRoot: string;
+    PossibleUnitSearchPaths: TArray<string>;
+    PossibleUnitScopeNames: TArray<string>;
     ProjectContextApplied: Boolean;
     DefineEvidenceComplete: Boolean;
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
@@ -19,6 +25,8 @@ type
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
+    // WITH binding does not consume cross-configuration usage completeness.
+    SelectedConfigurationOnly: Boolean;
     WritableTypedConstants: Boolean;
   end;
 
@@ -343,6 +351,8 @@ type
     // Syntax occurrences in the routine label namespace, never value-symbol references.
     LocalLabelReferences: TArray<TDelphiSemanticReference>;
     WithStatements: TArray<TDelphiSemanticWithStatement>;
+    PossibleUnitImports: TArray<string>;
+    ImportFacts: TArray<TDelphiSemanticImportFact>;
     Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
     UnindexedHelpers: TArray<TDelphiSemanticUnindexedHelperFact>;
     // DS-731: constants and variant tags bind in WITH, separately from ordinary Members.

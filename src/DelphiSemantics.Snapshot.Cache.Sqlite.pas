@@ -65,6 +65,8 @@ type
       const aExactStrings: TSemanticStringPool);
     function ProjectRemoveWithIdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
+    procedure LoadPossibleImports(const aCacheKey: string; const aConnection: TObject;
+      const aUnit: TUnitSnapshot);
     procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
       const aUnit: TUnitSnapshot);
     function LoadValueMemberEvidence(const aCacheKey: string; const aConnection: TObject):
@@ -96,6 +98,8 @@ type
       const aConnection: TObject; const aExactStrings: TSemanticStringPool);
     procedure StoreRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
       const aSnapshot: TDelphiProjectSnapshot);
+    procedure StorePossibleImports(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreRemoveWithPlanningFacts(
@@ -153,7 +157,7 @@ uses
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
-  DelphiSemantics.Cache, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.Cache, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Snapshot.RemoveWith;
 
@@ -168,7 +172,8 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  cSnapshotCacheSchemaVersion = '35';
+  // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
+  cSnapshotCacheSchemaVersion = '62';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -550,6 +555,13 @@ begin
   ValidateStringId(aStrings, aUnit.ScopeDiagnosticId,
     'scope_diagnostic_id');
 
+  for i := 0 to aUnit.PossibleUnitImportCount - 1 do
+  begin
+    if aUnit.PossibleUnitImportByIndex(i) = 0 then
+      raise Exception.Create('Snapshot possible import has an empty file ID.');
+    ValidateStringId(aStrings, aUnit.PossibleUnitImportByIndex(i), 'possible_import.file_name_id');
+  end;
+
   for i := 1 to aUnit.SymbolCount do
   begin
     lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
@@ -691,6 +703,8 @@ begin
     aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_project_remove_with_facts where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_import_facts where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_possible_imports where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_references where cache_key = ?', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_with_statements where cache_key = ?',
     aCacheKey);
@@ -784,6 +798,11 @@ begin
       'body_start_column integer not null, body_end_line integer not null, ' +
       'body_end_column integer not null, flags integer not null, ' +
       'primary key(cache_key, unit_id, with_id))');
+    lConnection.ExecSQL('create table if not exists snapshot_import_facts (' +
+      'cache_key text primary key not null, payload text not null, fact_count integer not null)');
+    lConnection.ExecSQL('create table if not exists snapshot_possible_imports (' +
+      'cache_key text not null, item_index integer not null, file_name_id integer not null, ' +
+      'import_count integer not null, primary key(cache_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_references (' +
       'cache_key text not null, unit_id integer not null, reference_id integer not null, ' +
       'with_id integer not null, target_unit_id integer not null, ' +
@@ -1030,6 +1049,54 @@ begin
       lQuery.Next;
     end;
     Inc(fMetrics.SnapshotDeserializeMilliseconds, lStopwatch.ElapsedMilliseconds);
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.LoadPossibleImports(const aCacheKey: string;
+  const aConnection: TObject; const aUnit: TUnitSnapshot);
+var
+  lQuery: TFDQuery;
+  lExpected, lIndex: Integer;
+begin
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select item_index, file_name_id, import_count from snapshot_possible_imports ' +
+    'where cache_key = ? order by item_index');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Open;
+    // A mandatory count row distinguishes a complete empty graph from lost rows.
+    if lQuery.Eof or (lQuery.Fields[0].AsInteger <> 0) or
+      (lQuery.Fields[1].AsInteger <> 0) or (lQuery.Fields[2].AsInteger < 0) then
+      raise Exception.Create('Snapshot possible import count row is missing or invalid.');
+    lExpected := lQuery.Fields[2].AsInteger;
+    lIndex := 0;
+    lQuery.Next;
+    while not lQuery.Eof do
+    begin
+      if (lQuery.Fields[0].AsInteger <> lIndex + 1) or
+        (lQuery.Fields[2].AsInteger <> lExpected) then
+        raise Exception.Create('Snapshot possible import rows are not complete and dense.');
+      aUnit.AddPossibleUnitImport(TSemanticStringId(lQuery.Fields[1].AsInteger));
+      Inc(lIndex);
+      lQuery.Next;
+    end;
+    if lIndex <> lExpected then
+      raise Exception.Create('Snapshot possible import row count mismatch.');
+  finally
+    lQuery.Free;
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'select payload, fact_count from snapshot_import_facts where cache_key = ?');
+  try
+    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Open;
+    if lQuery.Eof then
+      raise Exception.Create('Snapshot import provenance is missing.');
+    aUnit.SetImportFacts(JsonToImportFacts(lQuery.Fields[0].AsWideString));
+    if Length(aUnit.ImportFacts) <> lQuery.Fields[1].AsInteger then
+      raise Exception.Create('Snapshot import provenance count mismatch.');
   finally
     lQuery.Free;
   end;
@@ -2416,6 +2483,8 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_project_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
+  lConnection.ExecSQL('drop table if exists snapshot_import_facts');
+  lConnection.ExecSQL('drop table if exists snapshot_possible_imports');
   lConnection.ExecSQL('drop table if exists snapshot_references');
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
   lConnection.ExecSQL('drop table if exists snapshot_symbols');
@@ -2481,6 +2550,46 @@ begin
       lQuery.Params[2].AsWideString := aExactStrings.TextOf(TSemanticStringId(i));
       lQuery.ExecSQL;
     end;
+  finally
+    lQuery.Free;
+  end;
+end;
+
+procedure TDelphiSemanticSnapshotSqliteCache.StorePossibleImports(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aUnit: TUnitSnapshot);
+var
+  i: Integer;
+  lQuery: TFDQuery;
+begin
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_possible_imports(cache_key, item_index, file_name_id, import_count) ' +
+    'values (?, ?, ?, ?)');
+  try
+    lQuery.Params[0].DataType := ftWideString;
+    for i := 1 to 3 do
+      lQuery.Params[i].DataType := ftInteger;
+    lQuery.Prepare;
+    for i := -1 to aUnit.PossibleUnitImportCount - 1 do
+    begin
+      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+      lQuery.Params[1].AsInteger := i + 1;
+      lQuery.Params[2].AsInteger := 0;
+      if i >= 0 then
+        lQuery.Params[2].AsInteger := Integer(aUnit.PossibleUnitImportByIndex(i));
+      lQuery.Params[3].AsInteger := aUnit.PossibleUnitImportCount;
+      lQuery.ExecSQL;
+    end;
+  finally
+    lQuery.Free;
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection,
+    'insert into snapshot_import_facts(cache_key, payload, fact_count) values (?, ?, ?)');
+  try
+    SetWideParam(lQuery, 0, aIdentity.CacheKey);
+    SetWideParam(lQuery, 1, ImportFactsToJson(aUnit.ImportFacts));
+    lQuery.Params[2].AsInteger := Length(aUnit.ImportFacts);
+    lQuery.ExecSQL;
   finally
     lQuery.Free;
   end;
@@ -3029,6 +3138,7 @@ function BuildLocalUnitSnapshot(const aSnapshot: TDelphiProjectSnapshot;
   aTargetExactStrings: TSemanticStringPool): TUnitSnapshot;
 var
   lReferenceId: TSemanticReferenceId;
+  lImportIndex: Integer;
   lSymbolId: TSemanticSymbolId;
   lWithId: TSemanticWithId;
 begin
@@ -3043,6 +3153,10 @@ begin
     aTargetStrings, aUnit.ScopeModelVersionId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeDiagnosticId), aUnit.RejectedDeclarationCount);
   try
+    Result.SetImportFacts(aUnit.ImportFacts);
+    for lImportIndex := 0 to aUnit.PossibleUnitImportCount - 1 do
+      Result.AddPossibleUnitImport(RemapSnapshotStringId(aSnapshot, aTargetStrings,
+        aUnit.PossibleUnitImportByIndex(lImportIndex)));
     for lSymbolId := 1 to TSemanticSymbolId(aUnit.SymbolCount) do
       Result.AddSymbol(RemapSnapshotSymbolFact(aSnapshot, aTargetStrings,
         aUnit.SymbolById(lSymbolId)));
@@ -3088,6 +3202,7 @@ begin
       StoreStrings(aIdentity, lConnection, aStrings);
       StoreSymbols(aIdentity, lConnection, aUnit);
       StoreWithStatements(aIdentity, lConnection, aUnit);
+      StorePossibleImports(aIdentity, lConnection, aUnit);
       StoreReferences(aIdentity, lConnection, aUnit);
       StoreExactStringPool(aIdentity, lConnection, aExactStrings);
       lConnection.Commit;
@@ -3527,6 +3642,7 @@ begin
         raise Exception.Create('Snapshot unit header disappeared during load.');
       LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
+      LoadPossibleImports(aIdentity.CacheKey, lConnectionObject, lUnit);
       LoadReferences(aIdentity.CacheKey, lConnectionObject, lUnit);
       ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
         lWithStatementCount, lReferenceCount);

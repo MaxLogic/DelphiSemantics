@@ -183,6 +183,9 @@ type
       const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
     function BuildIdentity(const aOptions: TDelphiSemanticModelOptions):
       TDelphiSemanticUnitCacheIdentity;
+    function BuildIdentities(const aOptions: TDelphiSemanticModelOptions;
+      const aSourceFileNames: TArray<string>; const aSkipBodyAnalysis: TArray<Boolean>):
+      TArray<TDelphiSemanticUnitCacheIdentity>;
     procedure PublishValidatedUnitModel(const aIdentity: TDelphiSemanticUnitCacheIdentity;
       const aModel: TDelphiSemanticUnitModel);
     class procedure RequireCurrentSources(const aObservations:
@@ -205,7 +208,7 @@ implementation
 
 uses
   System.Classes, System.Hash, System.IOUtils, System.SysUtils,
-  DelphiSemantics.Preprocess, DelphiSemantics.Version;
+  DelphiSemantics.Model.PossibleSources, DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
   cCacheSchemaVersion = '10';
@@ -213,8 +216,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated extraction and DS-696 physical origins require a fresh generation above all lane values.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.96';
+  // Integrated extraction plus configuration-neutral include/import coverage and never-compiled activity.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.123';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -333,6 +336,13 @@ begin
     '|compilerDefineEvidence=' + TDelphiSemanticCompilerDefines.Fingerprint(aOptions.CompilerDefineEvidence) +
     // Include order affects lookup; equivalent Windows path spellings do not.
     '|includePaths=' + CanonicalIdentityArrayText(aOptions.IncludePaths, False, True) +
+    '|possibleSourceAliases=' + CanonicalIdentityArrayText(aOptions.UnitAliases, False, False) +
+    '|possibleSourceScopes=' + CanonicalIdentityArrayText(aOptions.UnitScopeNames, False, False) +
+    '|installedSdkRoot=' + TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.InstalledSdkRoot) +
+    '|possibleUnitScopeNames=' + CanonicalIdentityArrayText(aOptions.PossibleUnitScopeNames, False, True) +
+    '|possibleUnitSearchPaths=' + CanonicalIdentityArrayText(aOptions.PossibleUnitSearchPaths, False, True) +
+    '|possibleSourceRoots=' + CanonicalIdentityArrayText(aOptions.ProjectSourceFileNames, True, True) +
+    '|selectedConfigurationOnly=' + BoolToStr(aOptions.SelectedConfigurationOnly, True) +
     '|skippedIncludePolicy=all-candidates-v1' +
     '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
@@ -494,17 +504,25 @@ begin
   Result.WithStatements := Copy(aModel.WithStatements);
   Result.UnindexedHelpers := Copy(aModel.UnindexedHelpers);
   Result.TypeValueMembers := Copy(aModel.TypeValueMembers);
+  Result.PossibleUnitImports := Copy(aModel.PossibleUnitImports);
+  Result.ImportFacts := Copy(aModel.ImportFacts);
   Result.Diagnostics := Copy(aModel.Diagnostics);
 end;
 
 function BuildPreprocessResult(const aSource: TDelphiSemanticSourceLoadResult;
-  const aOptions: TDelphiSemanticModelOptions): TDelphiSemanticPreprocessResult;
+  const aOptions: TDelphiSemanticModelOptions;
+  const aBatch: TDelphiSemanticPossibleSourceBatch): TDelphiSemanticPreprocessResult;
 var
   lOptions: TDelphiSemanticPreprocessOptions;
 begin
   lOptions := Default(TDelphiSemanticPreprocessOptions);
   lOptions.SourceFileName := aOptions.SourceFileName;
   lOptions.SourceText := aSource.Source.Text;
+  if aBatch <> nil then
+  begin
+    lOptions.SourceLoader := aBatch.Inputs.LoadFile;
+    lOptions.SourceExists := aBatch.Inputs.FileExists;
+  end;
   lOptions.Defines := aOptions.Defines;
   lOptions.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
   lOptions.CompilerDefineEvidence := aOptions.CompilerDefineEvidence;
@@ -538,22 +556,33 @@ end;
 
 function BuildLoadedUnitIdentity(const aOptions: TDelphiSemanticModelOptions;
   const aCompilerProfileName, aParserVersion, aModelVersion, aDelphiVersion, aConfiguration,
-  aPlatform: string; out aObservations: IDelphiSemanticSourceObservations):
+  aPlatform: string; out aObservations: IDelphiSemanticSourceObservations;
+  const aBatch: TDelphiSemanticPossibleSourceBatch = nil):
   TDelphiSemanticUnitCacheIdentity;
 var
   lContext: TDelphiSemanticCacheIdentityContext;
   lPreprocessResult: TDelphiSemanticPreprocessResult;
+  lPossibleSources: TDelphiSemanticPossibleSources;
   lSourceFileName: string;
   lSourceResult: TDelphiSemanticSourceLoadResult;
   lObservationError: string;
 begin
   lSourceFileName := CanonicalIdentityPath(aOptions.SourceFileName);
-  lSourceResult := TDelphiSemanticSourceLoader.LoadFile(lSourceFileName);
+  if aBatch <> nil then
+    lSourceResult := aBatch.Inputs.LoadFile(lSourceFileName)
+  else
+    lSourceResult := TDelphiSemanticSourceLoader.LoadFile(lSourceFileName);
   if lSourceResult.Success then
-    lPreprocessResult := BuildPreprocessResult(lSourceResult, aOptions)
+    lPreprocessResult := BuildPreprocessResult(lSourceResult, aOptions, aBatch)
   else
     lPreprocessResult := Default(TDelphiSemanticPreprocessResult);
 
+  if aBatch <> nil then
+    lPossibleSources := aBatch.Capture(aOptions, lPreprocessResult, False)
+  else
+    lPossibleSources := TDelphiSemanticPossibleSources.Capture(aOptions, lPreprocessResult, False);
+  lPreprocessResult.SourceObservations := lPossibleSources.Sources;
+  lPreprocessResult.IncludeGraphHash := lPreprocessResult.IncludeGraphHash + lPossibleSources.Identity;
   aObservations := lSourceResult.SourceObservations;
   if lPreprocessResult.SourceObservations <> nil then
     if not TDelphiSemanticSourceEvidence.TryMerge(lSourceResult.SourceObservations,
@@ -614,12 +643,29 @@ var
   i: Integer;
   lExpected: TDelphiSemanticSourceText;
   lActualHash: string;
+  lDirectory: TDelphiSemanticSourceText;
+  lFileNames: TArray<string>;
 begin
   if (aObservations = nil) or (aObservations.Count = 0) then
     raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: missing observations');
   for i := 0 to aObservations.Count - 1 do
   begin
     lExpected := aObservations.Items[i];
+    if lExpected.Role = 'possible-unit-directory' then
+    begin
+      lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(lExpected.FileName, lFileNames);
+      if lDirectory.ContentHash <> lExpected.ContentHash then
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: unit directory drift: ' +
+          lExpected.FileName);
+      Continue;
+    end;
+    if lExpected.Role = 'possible-source-absence' then
+    begin
+      if TFile.Exists(lExpected.FileName) then
+        raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: source selection drift: ' +
+          lExpected.FileName);
+      Continue;
+    end;
     try
       lActualHash := THashSHA2.GetHashStringFromFile(lExpected.FileName);
     except
@@ -815,6 +861,52 @@ begin
     LeaveAccess(False);
   end;
   TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
+end;
+
+function TDelphiSemanticUnitCache.BuildIdentities(const aOptions: TDelphiSemanticModelOptions;
+  const aSourceFileNames: TArray<string>; const aSkipBodyAnalysis: TArray<Boolean>):
+  TArray<TDelphiSemanticUnitCacheIdentity>;
+var
+  i: Integer;
+  lBatch: TDelphiSemanticPossibleSourceBatch;
+  lOptions: TDelphiSemanticModelOptions;
+  lObservations: IDelphiSemanticSourceObservations;
+begin
+  if Length(aSkipBodyAnalysis) <> Length(aSourceFileNames) then
+    raise EArgumentException.Create('Identity batch requires one analysis selection per source.');
+  Result := nil;
+  lBatch := nil;
+  EnterAccess(False);
+  try
+    lBatch := TDelphiSemanticPossibleSourceBatch.Create(aOptions, True);
+    try
+      SetLength(Result, Length(aSourceFileNames));
+      for i := 0 to High(aSourceFileNames) do
+      begin
+        lOptions := aOptions;
+        lOptions.SourceFileName := aSourceFileNames[i];
+        lOptions.SkipBodyAnalysis := aSkipBodyAnalysis[i];
+        lOptions.SkipReferenceExtraction := aSkipBodyAnalysis[i];
+        lOptions := AdmitCompilerDefineModelOptions(lOptions);
+        Result[i] := BuildLoadedUnitIdentity(lOptions, fCompilerProfileName, fParserVersion,
+          fModelVersion, fDelphiVersion, fConfiguration, fPlatform, lObservations, lBatch);
+        TDelphiSemanticCompilerDefines.RequireCurrent(lOptions.CompilerDefineEvidence);
+      end;
+      // Sharing first observations must not conceal drift during the batch.
+      // This checkpoint deliberately bypasses the input owner: one fresh
+      // validation per distinct witness before any computed key is consumed.
+      lBatch.RequireCurrentDiscovery;
+      lObservations := lBatch.Inputs.Observations;
+      if lObservations.Count > 0 then
+        RequireCurrentSources(lObservations);
+    except
+      Result := nil;
+      raise;
+    end;
+  finally
+    lBatch.Free;
+    LeaveAccess(False);
+  end;
 end;
 
 function TDelphiSemanticUnitCache.PersistentEntryExistsForIdentity(

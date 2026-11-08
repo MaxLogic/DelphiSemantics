@@ -172,6 +172,9 @@ begin
     Result.Status := 'unresolved';
     Result.Confidence := 'no-candidates';
   end;
+  if MatchText(SnapshotText(aSnapshot, aReference.ClassificationId),
+    ['occurrence-in-inactive-configuration', 'unverified-condition']) then
+    Result.Confidence := 'possible-source-advisory';
 end;
 
 function SnapshotSymbolOwnerName(const aSnapshot: TDelphiProjectSnapshot;

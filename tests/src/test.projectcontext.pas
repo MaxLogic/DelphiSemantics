@@ -87,6 +87,10 @@ type
     [Category('Fast')]
     [Test]
     procedure DprojResolvesBasicMetadata;
+    [TestCase('Alternate namespaces', 'namespace')]
+    [TestCase('Per-platform IDE library', 'library')]
+    [TestCase('Browsing paths are not compiler libraries', 'browsing')]
+    procedure AlternateLookupIncludesNamespacesAndIdeLibraries(const aShape: string);
     [Test]
     [Category('Fast')]
     procedure UncertifiedEvaluatedDefinesRemainPartial;
@@ -1698,6 +1702,52 @@ begin
   Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
   Assert.IsFalse(lResult.Project.DefineEvidenceComplete,
     'XML evaluation does not certify compiler-only definitions.');
+end;
+
+procedure TProjectContextTests.AlternateLookupIncludesNamespacesAndIdeLibraries(const aShape: string);
+var
+  lRoot, lXml: string;
+  lOptions: TDelphiSemanticOptions;
+  lInputs: TIsolatedProfileInputs;
+  lResult: TDelphiSemanticContextResult;
+begin
+  lRoot := CreateTestTempRoot('alternate-lookup-temp');
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'lib-Win32'));
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'lib-Win64'));
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.Configuration := 'Debug';
+  lOptions.Platform := 'Win64';
+  lOptions.DelphiVersion := '23.0';
+  lInputs := TIsolatedProfileInputs.Create;
+  lOptions.ProfileInputs := lInputs;
+  lInputs.Documents := lRoot;
+  lInputs.PublicDocuments := lRoot;
+  SetLength(lInputs.RegistryLibrary, 2);
+  lInputs.RegistryLibrary[0].Name := 'Search Path';
+  lInputs.RegistryLibrary[1].Name := 'Browsing Path';
+  if aShape = 'browsing' then
+    lInputs.RegistryLibrary[1].Value := TPath.Combine(lRoot, 'browse-$(Platform)');
+  if aShape = 'library' then
+    lInputs.RegistryLibrary[0].Value := TPath.Combine(lRoot, 'lib-$(Platform)');
+  lXml := '<Project><PropertyGroup><MainSource>P.dpr</MainSource>' +
+    '<DCC_Namespace>DebugScope</DCC_Namespace></PropertyGroup>' +
+    '<PropertyGroup Condition="''$(Config)''==''Release''">' +
+    '<DCC_Namespace>ReleaseScope</DCC_Namespace></PropertyGroup>' +
+    '<ItemGroup><BuildConfiguration Include="Debug"/><BuildConfiguration Include="Release"/>' +
+    '</ItemGroup><ProjectExtensions><Platforms><Platform value="Win32">True</Platform>' +
+    '<Platform value="Win64">True</Platform></Platforms></ProjectExtensions></Project>';
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'P.dproj'), lXml);
+  WriteUtf8Bytes(TPath.Combine(lRoot, 'P.dpr'), 'program P; begin end.');
+  lResult := TDelphiSemanticProject.Load(TPath.Combine(lRoot, 'P.dproj'), lOptions);
+  Assert.IsTrue(lResult.Success, DiagnosticSummary(lResult));
+  if aShape = 'browsing' then
+    Assert.IsFalse(ContainsPath(lResult.Project.PossibleUnitSearchPaths,
+      TPath.Combine(lRoot, 'browse-Win32')), 'Browsing directories do not select compiler imports.')
+  else if aShape = 'namespace' then
+    Assert.IsTrue(MatchText('ReleaseScope', lResult.Project.PossibleUnitScopeNames))
+  else
+    Assert.IsTrue(ContainsPath(lResult.Project.PossibleUnitSearchPaths,
+      TPath.Combine(lRoot, 'lib-Win32')), 'Alternate library uses the alternate Platform value.');
 end;
 
 procedure TProjectContextTests.DprojResolvesBasicMetadata;
