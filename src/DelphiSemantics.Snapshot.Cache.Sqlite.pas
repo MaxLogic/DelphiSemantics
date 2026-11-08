@@ -61,69 +61,82 @@ type
     fLastBatchReadFallbackReason: string;
     function NewUnitReadQuery(const aConnection: TObject; const aCacheKey, aTable,
       aSql: string): TObject;
-    procedure StorePhysicalEvidence(const aCacheKey: string; const aConnection: TObject;
+    procedure StorePhysicalEvidence(const aUnitKey: Int64;
+      const aConnection: TObject; const aUnit: TUnitSnapshot);
+    procedure LoadPhysicalEvidence(const aCacheKey: string; const aUnitKey: Int64;
+      const aConnection: TObject; const aStrings, aExactStrings: TSemanticStringPool;
       const aUnit: TUnitSnapshot);
-    procedure LoadPhysicalEvidence(const aCacheKey: string; const aConnection: TObject;
-      const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
-    procedure StoreTargetIdentities(const aCacheKey: string; const aConnection: TObject;
-      const aUnit: TUnitSnapshot; const aIdentities: TSnapshotTargetIdentities);
-    procedure LoadTargetIdentities(const aCacheKey: string; const aConnection: TObject;
+    procedure StoreTargetIdentities(
+      const aUnitKey: Int64; const aConnection: TObject; const aUnit: TUnitSnapshot;
+      const aIdentities: TSnapshotTargetIdentities);
+    procedure LoadTargetIdentities(
+      const aCacheKey: string; const aUnitKey: Int64; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder; const aUnit: TUnitSnapshot);
     procedure CloseSharedConnection;
     procedure DeleteCacheKey(const aCacheKey: string);
-    procedure DeleteCacheKeyRows(const aConnection: TObject; const aCacheKey: string);
+    procedure DeleteCacheKeyRows(const aConnection: TObject;
+      const aCacheKey: string);
     procedure EnsureDatabase;
     procedure EnsureDatabaseOnce;
-    function IdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
-    procedure LoadExactStrings(const aCacheKey: string; const aConnection: TObject;
-      const aExactStrings: TSemanticStringPool);
-    function ProjectRemoveWithIdentityMatches(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
-    procedure LoadReferences(const aCacheKey: string; const aConnection: TObject;
-      const aUnit: TUnitSnapshot);
-    function LoadValueMemberEvidence(const aCacheKey: string; const aConnection: TObject):
-      TDelphiSemanticValueMemberEvidence;
-    procedure StoreValueMemberEvidence(const aCacheKey: string; const aConnection: TObject;
+    function IdentityMatches(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean; out aOwnerKey: Int64): Boolean;
+    procedure LoadExactStrings(const aCacheKey: string; const aOwnerKey: Int64;
+      const aConnection: TObject; const aExactStrings: TSemanticStringPool; const aProject: Boolean);
+    function ProjectRemoveWithIdentityMatches(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      const aConnection: TObject; out aEntryBelongsToIdentity: Boolean; out aOwnerKey: Int64): Boolean;
+    procedure LoadReferences(const aCacheKey: string; const aUnitKey: Int64;
+      const aConnection: TObject; const aUnit: TUnitSnapshot);
+    function LoadValueMemberEvidence(
+      const aProjectKey: Int64; const aConnection: TObject): TDelphiSemanticValueMemberEvidence;
+    procedure StoreValueMemberEvidence(
+      const aProjectKey: Int64; const aConnection: TObject;
       const aEvidence: TDelphiSemanticValueMemberEvidence);
-    procedure LoadRemoveWithPlanningFacts(const aCacheKey: string; const aConnection: TObject;
+    procedure LoadRemoveWithPlanningFacts(
+      const aProjectKey: Int64; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder);
-    procedure LoadRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
+    procedure LoadRemoveWithVisibility(
+      const aProjectKey: Int64; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder);
-    procedure LoadRemoveWithVisibilityCounts(const aCacheKey: string; const aConnection: TObject;
-      out aUnitCount, aRowCount: Integer);
-    procedure LoadStrings(const aCacheKey: string; const aConnection: TObject;
-      const aStrings: TSemanticStringPool);
-    procedure LoadSymbols(const aCacheKey: string; const aConnection: TObject;
-      const aUnit: TUnitSnapshot);
+    procedure LoadRemoveWithVisibilityCounts(
+      const aProjectKey: Int64; const aConnection: TObject; out aUnitCount, aRowCount: Integer);
+    procedure LoadStrings(const aCacheKey: string; const aUnitKey: Int64;
+      const aConnection: TObject; const aStrings: TSemanticStringPool);
+    procedure LoadSymbols(const aCacheKey: string; const aUnitKey: Int64;
+      const aConnection: TObject; const aUnit: TUnitSnapshot);
     function LoadUnitHeader(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; out aUnit: TUnitSnapshot; out aStringCount,
       aSymbolCount, aWithStatementCount, aReferenceCount: Integer;
       out aParseAvoidedEstimateMilliseconds: Int64): Boolean;
-    procedure LoadWithStatements(const aCacheKey: string; const aConnection: TObject;
-      const aUnit: TUnitSnapshot);
+    procedure LoadWithStatements(const aCacheKey: string; const aUnitKey: Int64;
+      const aConnection: TObject; const aUnit: TUnitSnapshot);
     function OpenConnection(out aConnection: TObject; out aDriverLink: TObject;
       out aError: string): Boolean;
     procedure RebuildSnapshotTables(const aConnection: TObject);
     procedure ResetProbeMetrics;
     function SharedConnection(out aConnection: TObject; out aError: string): Boolean;
-    procedure StoreExactStringPool(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aExactStrings: TSemanticStringPool;
-      const aUnit: TUnitSnapshot = nil);
-    procedure StoreRemoveWithVisibility(const aCacheKey: string; const aConnection: TObject;
-      const aSnapshot: TDelphiProjectSnapshot);
-    procedure StoreReferences(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aUnit: TUnitSnapshot);
+    procedure StoreExactStringPool(
+      const aOwnerKey: Int64; const aConnection: TObject;
+      const aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot; const aProject: Boolean);
+    procedure StoreRemoveWithVisibility(
+      const aProjectKey: Int64; const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
+    procedure StoreReferences(
+      const aUnitKey: Int64; const aConnection: TObject;
+      const aUnit: TUnitSnapshot);
     procedure StoreRemoveWithPlanningFacts(
-      const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+      const aProjectKey: Int64; const aConnection: TObject;
       const aSnapshot: TDelphiProjectSnapshot; const aExactStrings: TSemanticStringPool;
       const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>);
-    procedure StoreStrings(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aStrings: TSemanticStringPool);
-    procedure StoreSymbols(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aUnit: TUnitSnapshot);
-    procedure StoreUnitHeader(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aUnit: TUnitSnapshot; const aStringCount, aExactStringCount: Integer);
+    procedure StoreStrings(
+      const aUnitKey: Int64; const aConnection: TObject;
+      const aStrings: TSemanticStringPool);
+    procedure StoreSymbols(
+      const aUnitKey: Int64; const aConnection: TObject;
+      const aUnit: TUnitSnapshot);
+    function StoreUnitHeader(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+      const aUnit: TUnitSnapshot; const aStringCount, aExactStringCount: Integer): Int64;
     procedure StoreUnitFromProjectSnapshot(
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
@@ -131,8 +144,9 @@ type
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
       const aIdentities: TSnapshotTargetIdentities = nil);
-    procedure StoreWithStatements(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aUnit: TUnitSnapshot);
+    procedure StoreWithStatements(
+      const aUnitKey: Int64; const aConnection: TObject;
+      const aUnit: TUnitSnapshot);
   public
     constructor Create(const aCacheFileName: string);
     function TryLoadCombinedFactsPayload(const aIdentity: string; out aPayload: string;
@@ -189,7 +203,8 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  cSnapshotCacheSchemaVersion = '60';
+  // DS-793: integer rowid ownership replaces repeated child cache keys.
+  cSnapshotCacheSchemaVersion = '61';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -359,7 +374,9 @@ end;
 procedure CollectSnapshotSourceOrphans(const aConnection: TFDConnection);
 begin
   aConnection.ExecSQL('delete from snapshot_source_texts where not exists ' +
-    '(select 1 from snapshot_exact_strings where source_content_hash = snapshot_source_texts.content_hash)');
+    '(select 1 from snapshot_exact_strings where source_content_hash = snapshot_source_texts.content_hash) ' +
+    'and not exists (select 1 from snapshot_project_exact_strings ' +
+    'where source_content_hash = snapshot_source_texts.content_hash)');
 end;
 
 function SnapshotEvidenceLayoutValid(const aConnection: TFDConnection): Boolean;
@@ -371,10 +388,14 @@ begin
   lQuery := NewQuery(aConnection, 'select u.physical_reference_available, u.physical_symbol_available, ' +
     'u.captured_sources_available, u.visible_unit_names_available, u.has_includes, ' +
     'u.physical_reference_count, u.physical_symbol_count, u.captured_source_count, u.visible_unit_count, ' +
-    'u.exact_string_count, e.source_content_hash, s.content_hash, s.text, c.source_ordinal, c.file_id, ' +
-    'c.text_id, c.status, o.collection, o.payload, v.import_ordinal, v.unit_name_id ' +
+    'u.unit_key,u.exact_string_count,e.unit_key,e.source_content_hash,s.content_hash,s.text,c.unit_key,c.source_ordinal,c.file_id, ' +
+    'c.text_id,c.status,o.unit_key,o.collection,o.payload,v.unit_key,v.import_ordinal,v.unit_name_id, ' +
+    'p.project_key,pe.project_key,l.unit_key,ss.unit_key,sy.unit_key,r.unit_key,w.unit_key,f.project_key ' +
     'from snapshot_units u, snapshot_exact_strings e, snapshot_source_texts s, ' +
-    'snapshot_captured_sources c, snapshot_unit_occurrences o, snapshot_visible_units v where 0');
+    'snapshot_captured_sources c,snapshot_unit_occurrences o,snapshot_visible_units v, ' +
+    'snapshot_project_remove_with_facts p,snapshot_project_exact_strings pe,snapshot_target_lineage l, ' +
+    'snapshot_strings ss,snapshot_symbols sy,snapshot_references r,snapshot_with_statements w, ' +
+    'snapshot_remove_with_facts f where 0');
   try
     try
       lQuery.Open;
@@ -790,19 +811,22 @@ begin
     lKeys.Sort(TStringComparer.Ordinal);
     // This connection-local selector is never part of the persisted layout.
     aConnection.ExecSQL('create temp table if not exists snapshot_unit_load_keys (' +
-      'cache_key text primary key, load_index integer not null)');
+      'cache_key text primary key, load_index integer not null, unit_key integer not null unique)');
     aConnection.ExecSQL('delete from temp.snapshot_unit_load_keys');
     lQuery := NewQuery(aConnection,
-      'insert into temp.snapshot_unit_load_keys(cache_key,load_index) values (?,?)');
+      'insert into temp.snapshot_unit_load_keys(cache_key,load_index,unit_key) ' +
+      'select ?,?,unit_key from snapshot_units where cache_key=?');
     try
       lQuery.Params[0].DataType := ftWideString;
       lQuery.Params[1].DataType := ftInteger;
+      lQuery.Params[2].DataType := ftWideString;
       lQuery.Prepare;
       for i := 0 to lKeys.Count - 1 do
       begin
         fSlots[lKeys[i]] := i;
         lQuery.Params[0].AsWideString := lKeys[i];
         lQuery.Params[1].AsInteger := i;
+        lQuery.Params[2].AsWideString := lKeys[i];
         lQuery.ExecSQL;
       end;
     finally
@@ -819,7 +843,7 @@ begin
     't.identity_key,t.source_file_name,t.file_hash,t.context_hash,t.include_graph_hash,t.schema_version,' +
     't.physical_reference_available,t.physical_symbol_available,t.captured_sources_available,' +
     't.visible_unit_names_available,t.has_includes,t.physical_reference_count,' +
-    't.physical_symbol_count,t.captured_source_count,t.visible_unit_count,t.exact_string_count', '', '');
+    't.physical_symbol_count,t.captured_source_count,t.visible_unit_count,t.exact_string_count,t.unit_key', '', '');
   AddQuery(aConnection, 'snapshot_exact_strings',
     't.string_id,t.text_value,t.source_content_hash,s.text', 'string_id',
     ' left join snapshot_source_texts s on s.content_hash=t.source_content_hash');
@@ -851,7 +875,7 @@ begin
   if aOrder <> '' then
     lOrder := lOrder + ',t.' + aOrder;
   lQuery := NewQuery(aConnection, 'select ' + aColumns + ',k.load_index from ' + aTable +
-    ' t inner join temp.snapshot_unit_load_keys k on k.cache_key=t.cache_key' + aJoin +
+    ' t inner join temp.snapshot_unit_load_keys k on k.unit_key=t.unit_key' + aJoin +
     ' order by ' + lOrder);
   try
     lQuery.FormatOptions.StrsTrim := False;
@@ -968,37 +992,58 @@ var
   lConnection: TFDConnection;
 begin
   lConnection := aConnection as TFDConnection;
-  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visible_units where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visibility where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visible_units where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_visibility where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection,
-    'delete from snapshot_remove_with_binding_references where cache_key = ?', aCacheKey);
+    'delete from snapshot_remove_with_binding_references where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection,
-    'delete from snapshot_remove_with_binding_selectors where cache_key = ?', aCacheKey);
+    'delete from snapshot_remove_with_binding_selectors where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection,
-    'delete from snapshot_remove_with_type_identities where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_remove_with_bindings where cache_key = ?',
+    'delete from snapshot_remove_with_type_identities where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_bindings where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)',
     aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_remove_with_symbols where cache_key = ?',
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_symbols where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)',
     aCacheKey);
   ExecWideSql(lConnection,
-    'delete from snapshot_remove_with_routine_owners where cache_key = ?', aCacheKey);
+    'delete from snapshot_remove_with_routine_owners where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection,
-    'delete from snapshot_remove_with_value_evidence where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_remove_with_facts where cache_key = ?',
+    'delete from snapshot_remove_with_value_evidence where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_remove_with_facts where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)',
     aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_exact_strings where cache_key = ?',
+  ExecWideSql(lConnection, 'delete from snapshot_exact_strings where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)',
     aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_project_exact_strings where project_key = ' +
+    '(select project_key from snapshot_project_remove_with_facts where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection,
     'delete from snapshot_project_remove_with_facts where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_references where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_with_statements where cache_key = ?',
+  ExecWideSql(lConnection, 'delete from snapshot_references where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_with_statements where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)',
     aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_symbols where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_strings where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_captured_sources where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_unit_occurrences where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_visible_units where cache_key = ?', aCacheKey);
-  ExecWideSql(lConnection, 'delete from snapshot_target_lineage where cache_key = ?', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_symbols where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_strings where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_captured_sources where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_unit_occurrences where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_visible_units where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
+  ExecWideSql(lConnection, 'delete from snapshot_target_lineage where unit_key = ' +
+    '(select unit_key from snapshot_units where cache_key = ?)', aCacheKey);
   ExecWideSql(lConnection, 'delete from snapshot_units where cache_key = ?', aCacheKey);
 end;
 
@@ -1046,10 +1091,12 @@ begin
       RebuildSnapshotTables(lConnection);
 
     lConnection.ExecSQL('create table if not exists snapshot_target_lineage (' +
-      'cache_key text primary key not null, unit_id integer not null, ' +
+      'unit_key integer primary key, unit_id integer not null, ' +
       'value_count integer not null, payload blob not null)');
+    // A damaged cache may lose a header while retaining its child rows.
+    // Never reuse that storage owner for another unit or project generation.
     lConnection.ExecSQL('create table if not exists snapshot_units (' +
-      'cache_key text primary key not null, identity_key text not null, ' +
+      'unit_key integer primary key autoincrement, cache_key text unique not null, identity_key text not null, ' +
       'source_file_name text not null, file_hash text not null, context_hash text not null, ' +
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
@@ -1068,36 +1115,40 @@ begin
     lConnection.ExecSQL('create index if not exists idx_snapshot_units_identity on ' +
       'snapshot_units(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_strings (' +
-      'cache_key text not null, string_id integer not null, text_value text not null, ' +
-      'primary key(cache_key, string_id))');
+      'unit_key integer not null, string_id integer not null, text_value text not null, ' +
+      'primary key(unit_key, string_id))');
     lConnection.ExecSQL('create table if not exists snapshot_source_texts (' +
       'content_hash text primary key not null, text text not null)');
     lConnection.ExecSQL('create table if not exists snapshot_exact_strings (' +
-      'cache_key text not null, string_id integer not null, text_value text not null, ' +
-      'source_content_hash text, primary key(cache_key, string_id), ' +
+      'unit_key integer not null, string_id integer not null, text_value text not null, ' +
+      'source_content_hash text, primary key(unit_key, string_id), ' +
+      'check (source_content_hash is null or text_value=''''))');
+    lConnection.ExecSQL('create table if not exists snapshot_project_exact_strings (' +
+      'project_key integer not null, string_id integer not null, text_value text not null, ' +
+      'source_content_hash text, primary key(project_key, string_id), ' +
       'check (source_content_hash is null or text_value=''''))');
     lConnection.ExecSQL('create index if not exists idx_snapshot_exact_source on ' +
       'snapshot_exact_strings(source_content_hash)');
     lConnection.ExecSQL('create table if not exists snapshot_captured_sources (' +
-      'cache_key text not null, unit_id integer not null, source_ordinal integer not null, ' +
+      'unit_key integer not null, unit_id integer not null, source_ordinal integer not null, ' +
       'file_id integer not null, text_id integer not null, status integer not null, ' +
-      'primary key(cache_key, unit_id, source_ordinal), unique(cache_key, unit_id, file_id))');
+      'primary key(unit_key, unit_id, source_ordinal), unique(unit_key, unit_id, file_id))');
     lConnection.ExecSQL('create table if not exists snapshot_unit_occurrences (' +
-      'cache_key text not null, unit_id integer not null, collection integer not null, payload blob not null, ' +
-      'primary key(cache_key, unit_id, collection))');
+      'unit_key integer not null, unit_id integer not null, collection integer not null, payload blob not null, ' +
+      'primary key(unit_key, unit_id, collection))');
     lConnection.ExecSQL('create table if not exists snapshot_visible_units (' +
-      'cache_key text not null, unit_id integer not null, import_ordinal integer not null, ' +
-      'unit_name_id integer not null, primary key(cache_key, unit_id, import_ordinal), ' +
-      'unique(cache_key, unit_id, unit_name_id))');
+      'unit_key integer not null, unit_id integer not null, import_ordinal integer not null, ' +
+      'unit_name_id integer not null, primary key(unit_key, unit_id, import_ordinal), ' +
+      'unique(unit_key, unit_id, unit_name_id))');
     lConnection.ExecSQL('create table if not exists snapshot_project_remove_with_facts (' +
-      'cache_key text primary key not null, identity_key text not null, ' +
+      'project_key integer primary key autoincrement, cache_key text unique not null, identity_key text not null, ' +
       'source_file_name text not null, file_hash text not null, context_hash text not null, ' +
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null)');
     lConnection.ExecSQL('create index if not exists idx_snapshot_project_remove_with_identity on ' +
       'snapshot_project_remove_with_facts(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_symbols (' +
-      'cache_key text not null, unit_id integer not null, symbol_id integer not null, ' +
+      'unit_key integer not null, unit_id integer not null, symbol_id integer not null, ' +
       'name_id integer not null, owner_type_id integer not null, type_id integer not null, ' +
       'routine_id integer not null, kind_id integer not null, flags integer not null, ' +
       'section_kind_id integer not null, source_kind_id integer not null, ' +
@@ -1106,16 +1157,16 @@ begin
       'owner_scope_id integer not null, semantic_symbol_id integer not null, ' +
       'routine_scope_id integer not null, file_id integer not null, ' +
       'line integer not null, column integer not null, end_line integer not null, ' +
-      'end_column integer not null, primary key(cache_key, unit_id, symbol_id))');
+      'end_column integer not null, primary key(unit_key, unit_id, symbol_id))');
     lConnection.ExecSQL('create table if not exists snapshot_with_statements (' +
-      'cache_key text not null, unit_id integer not null, with_id integer not null, ' +
+      'unit_key integer not null, unit_id integer not null, with_id integer not null, ' +
       'routine_id integer not null, selector_start_line integer not null, ' +
       'selector_start_column integer not null, body_start_line integer not null, ' +
       'body_start_column integer not null, body_end_line integer not null, ' +
       'body_end_column integer not null, flags integer not null, ' +
-      'primary key(cache_key, unit_id, with_id))');
+      'primary key(unit_key, unit_id, with_id))');
     lConnection.ExecSQL('create table if not exists snapshot_references (' +
-      'cache_key text not null, unit_id integer not null, reference_id integer not null, ' +
+      'unit_key integer not null, unit_id integer not null, reference_id integer not null, ' +
       'with_id integer not null, target_unit_id integer not null, ' +
       'target_symbol_id integer not null, name_id integer not null, ' +
       'receiver_type_id integer not null, type_id integer not null, ' +
@@ -1125,9 +1176,9 @@ begin
       'classification_id integer not null, lookup_source_id integer not null, ' +
       'reason_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, file_id integer not null, ' +
-      'primary key(cache_key, unit_id, reference_id))');
+      'primary key(unit_key, unit_id, reference_id))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_value_evidence (' +
-      'cache_key text not null, row_kind integer not null, item_index integer not null, ' +
+      'project_key integer not null, row_kind integer not null, item_index integer not null, ' +
       'owner_index integer not null, declared_id text not null, unit_name text not null, ' +
       'file_name text not null, name text not null, next_id text not null, ' +
       'complete integer not null, terminal_verified integer not null, source_text text not null, ' +
@@ -1135,18 +1186,18 @@ begin
       'rejected_count integer not null, count1 integer not null, count2 integer not null, ' +
       'count3 integer not null, count4 integer not null, count5 integer not null, ' +
       'count6 integer not null, evidence_version integer not null, ' +
-      'primary key(cache_key, row_kind, owner_index, item_index))');
+      'primary key(project_key, row_kind, owner_index, item_index))');
   lConnection.ExecSQL('create table if not exists snapshot_remove_with_facts (' +
-      'cache_key text primary key not null, context_fingerprint_id integer not null, ' +
+      'project_key integer primary key, context_fingerprint_id integer not null, ' +
       'routine_owner_count integer not null, symbol_count integer not null, ' +
       'binding_count integer not null, type_identity_count integer not null)');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_visibility (' +
-      'cache_key text primary key not null, unit_count integer not null, row_count integer not null)');
+      'project_key integer primary key, unit_count integer not null, row_count integer not null)');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_visible_units (' +
-      'cache_key text not null, file_name text not null, visible_unit_name text not null, ' +
-      'primary key(cache_key, file_name, visible_unit_name))');
+      'project_key integer not null, file_name text not null, visible_unit_name text not null, ' +
+      'primary key(project_key, file_name, visible_unit_name))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_routine_owners (' +
-      'cache_key text not null, item_index integer not null, name_id integer not null, ' +
+      'project_key integer not null, item_index integer not null, name_id integer not null, ' +
       'symbol_class_id integer not null, kind_id integer not null, type_name_id integer not null, ' +
       'modifier_id integer not null, owner_name_id integer not null, owner_type_id integer not null, ' +
       'source_owner_type_id integer not null, related_type_name_id integer not null, ' +
@@ -1163,9 +1214,9 @@ begin
       'access_owner_column integer not null, ' +
       'heading_line integer not null, heading_column integer not null, ' +
       'heading_end_line integer not null, heading_end_column integer not null, ' +
-      'primary key(cache_key, item_index))');
+      'primary key(project_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_symbols (' +
-      'cache_key text not null, item_index integer not null, name_id integer not null, ' +
+      'project_key integer not null, item_index integer not null, name_id integer not null, ' +
       'symbol_class_id integer not null, kind_id integer not null, type_name_id integer not null, ' +
       'modifier_id integer not null, owner_name_id integer not null, owner_type_id integer not null, ' +
       'source_owner_type_id integer not null, related_type_name_id integer not null, ' +
@@ -1182,9 +1233,9 @@ begin
       'access_owner_column integer not null, ' +
       'heading_line integer not null, heading_column integer not null, ' +
       'heading_end_line integer not null, heading_end_column integer not null, ' +
-      'primary key(cache_key, item_index))');
+      'primary key(project_key, item_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_bindings (' +
-      'cache_key text not null, binding_index integer not null, semantic_id_id integer not null, ' +
+      'project_key integer not null, binding_index integer not null, semantic_id_id integer not null, ' +
       'provenance_id integer not null, file_name_id integer not null, unit_name_id integer not null, ' +
       'routine_name_id integer not null, line integer not null, column integer not null, ' +
       'end_line integer not null, end_column integer not null, body_line integer not null, ' +
@@ -1195,14 +1246,14 @@ begin
       'unsupported_reference_count integer not null, unresolved_reference_count integer not null, ' +
       'selector_count integer not null, reference_count integer not null, ' +
     'inactive_reference_count integer not null, inactive_skip_reason_id integer not null, ' +
-      'routine_scope_id_id integer not null, primary key(cache_key, binding_index))');
+      'routine_scope_id_id integer not null, primary key(project_key, binding_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_selectors (' +
-      'cache_key text not null, binding_index integer not null, selector_index integer not null, ' +
+      'project_key integer not null, binding_index integer not null, selector_index integer not null, ' +
       'selector_text_id integer not null, status_id integer not null, reason_code_id integer not null, ' +
       'type_name_id integer not null, capture_type_name_id integer not null, ' +
-      'capture_status_id integer not null, primary key(cache_key, binding_index, selector_index))');
+      'capture_status_id integer not null, primary key(project_key, binding_index, selector_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_type_identities (' +
-      'cache_key text not null, entity_kind text not null, item_index integer not null, ' +
+      'project_key integer not null, entity_kind text not null, item_index integer not null, ' +
       'sub_index integer not null, unit_id_id integer not null, unit_name_id integer not null, ' +
       'name_id integer not null, kind_id integer not null, declared_id_id integer not null, ' +
       'canonical_id_id integer not null, underlying_id_id integer not null, ' +
@@ -1212,14 +1263,14 @@ begin
       'column integer not null, end_line integer not null, end_column integer not null, ' +
       'scope_kind_id integer not null, owner_scope_id_id integer not null, ' +
       'semantic_symbol_id_id integer not null, ' +
-      'primary key(cache_key, entity_kind, item_index, sub_index))');
+      'primary key(project_key, entity_kind, item_index, sub_index))');
     lConnection.ExecSQL('create table if not exists snapshot_remove_with_binding_references (' +
-      'cache_key text not null, binding_index integer not null, reference_index integer not null, ' +
+      'project_key integer not null, binding_index integer not null, reference_index integer not null, ' +
       'semantic_id_id integer not null, name_id integer not null, classification_id integer not null, ' +
       'lookup_source_id integer not null, receiver_type_name_id integer not null, kind_id integer not null, ' +
       'type_name_id integer not null, reason_code_id integer not null, scope_conflict_kind_id integer not null, ' +
       'scope_conflict_name_id integer not null, line integer not null, column integer not null, ' +
-      'end_line integer not null, end_column integer not null, primary key(cache_key, binding_index, reference_index))');
+      'end_line integer not null, end_column integer not null, primary key(project_key, binding_index, reference_index))');
     ExecWideSql(lConnection, 'insert or replace into meta(key_name, value_text) values (?, ?)',
       cSnapshotSchemaMetaKey, cSnapshotCacheSchemaVersion);
     lConnection.Commit;
@@ -1236,7 +1287,7 @@ end;
 
 function TDelphiSemanticSnapshotSqliteCache.IdentityMatches(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
+  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean; out aOwnerKey: Int64): Boolean;
 var
   lOffset: Integer;
   lContextHashField: TField;
@@ -1250,8 +1301,9 @@ var
 begin
   Result := False;
   aEntryBelongsToIdentity := False;
+  aOwnerKey := 0;
   lQuery := NewUnitReadQuery(aConnection, aIdentity.CacheKey, 'snapshot_units', 'select identity_key, source_file_name, ' +
-    'file_hash, context_hash, include_graph_hash, schema_version from snapshot_units ' +
+    'file_hash, context_hash, include_graph_hash, schema_version, unit_key from snapshot_units ' +
     'where cache_key = ?') as TFDDataSet;
   try
     if lQuery is TFDQuery then
@@ -1282,6 +1334,13 @@ begin
       and (lContextHashField.AsWideString = aIdentity.ContextHash)
       and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
       and (lSchemaVersionField.AsWideString = aIdentity.SchemaVersion);
+    if Result then
+    begin
+      if fUnitLoadBatch <> nil then
+        aOwnerKey := CheckedCacheInteger(lQuery.Fields[30], 1, High(Int64))
+      else
+        aOwnerKey := CheckedCacheInteger(lQuery.Fields[6], 1, High(Int64));
+    end;
   finally
     lQuery.Free;
   end;
@@ -1289,7 +1348,7 @@ end;
 
 function TDelphiSemanticSnapshotSqliteCache.ProjectRemoveWithIdentityMatches(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean): Boolean;
+  const aConnection: TObject; out aEntryBelongsToIdentity: Boolean; out aOwnerKey: Int64): Boolean;
 var
   lContextHashField: TField;
   lFileHashField: TField;
@@ -1302,8 +1361,9 @@ var
 begin
   Result := False;
   aEntryBelongsToIdentity := False;
+  aOwnerKey := 0;
   lQuery := NewQuery(aConnection as TFDConnection, 'select identity_key, source_file_name, ' +
-    'file_hash, context_hash, include_graph_hash, schema_version from ' +
+    'file_hash, context_hash, include_graph_hash, schema_version, project_key from ' +
     'snapshot_project_remove_with_facts where cache_key = ?');
   try
     lQuery.Params[0].AsWideString := aIdentity.CacheKey;
@@ -1330,28 +1390,37 @@ begin
       and (lContextHashField.AsWideString = aIdentity.ContextHash)
       and (lIncludeGraphHashField.AsWideString = aIdentity.IncludeGraphHash)
       and (lSchemaVersionField.AsWideString = aIdentity.SchemaVersion);
+    if Result then
+      aOwnerKey := CheckedCacheInteger(lQuery.Fields[6], 1, High(Int64));
   finally
     lQuery.Free;
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadExactStrings(const aCacheKey: string;
-  const aConnection: TObject; const aExactStrings: TSemanticStringPool);
+procedure TDelphiSemanticSnapshotSqliteCache.LoadExactStrings(const aCacheKey: string; const aOwnerKey: Int64;
+  const aConnection: TObject; const aExactStrings: TSemanticStringPool; const aProject: Boolean);
 var
   lExpectedId: Int64;
-  lHash, lText: string;
+  lHash, lText, lTable, lOwner: string;
   lQuery: TFDDataSet;
   lStopwatch: TStopwatch;
 begin
   lExpectedId := 1;
-  lQuery := NewUnitReadQuery(aConnection, aCacheKey, 'snapshot_exact_strings', 'select e.string_id,e.text_value,' +
-    'e.source_content_hash,s.text from snapshot_exact_strings e left join snapshot_source_texts s ' +
-    'on s.content_hash=e.source_content_hash where e.cache_key=? order by e.string_id') as TFDDataSet;
+  lTable := 'snapshot_exact_strings';
+  lOwner := 'unit_key';
+  if aProject then
+  begin
+    lTable := 'snapshot_project_exact_strings';
+    lOwner := 'project_key';
+  end;
+  lQuery := NewUnitReadQuery(aConnection, aCacheKey, lTable, 'select e.string_id,e.text_value,' +
+    'e.source_content_hash,s.text from ' + lTable + ' e left join snapshot_source_texts s ' +
+    'on s.content_hash=e.source_content_hash where e.' + lOwner + '=? order by e.string_id') as TFDDataSet;
   try
     if lQuery is TFDQuery then
       TFDQuery(lQuery).FormatOptions.StrsTrim := False;
     if lQuery is TFDQuery then
-      SetWideParam(TFDQuery(lQuery), 0, aCacheKey);
+      TFDQuery(lQuery).Params[0].AsLargeInt := aOwnerKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1385,7 +1454,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadReferences(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.LoadReferences(const aCacheKey: string; const aUnitKey: Int64;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
   lClassificationIdField: TSnapshotIntegerReader;
@@ -1419,9 +1488,9 @@ begin
     'target_unit_id, target_symbol_id, name_id, receiver_type_id, type_id, classification_id, ' +
     'routine_id, section_kind_id, source_kind_id, lookup_source_id, reason_id, line, column, ' +
     'end_line, end_column, routine_scope_id, file_id, unit_id from snapshot_references ' +
-    'where cache_key = ? order by reference_id');
+    'where unit_key = ? order by reference_id');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1486,7 +1555,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadStrings(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.LoadStrings(const aCacheKey: string; const aUnitKey: Int64;
   const aConnection: TObject; const aStrings: TSemanticStringPool);
 var
   lExpectedId: TSemanticStringId;
@@ -1498,9 +1567,9 @@ var
 begin
   lExpectedId := 1;
   lQuery := NewQuery(aConnection as TFDConnection, 'select string_id, text_value from ' +
-    'snapshot_strings where cache_key = ? order by string_id');
+    'snapshot_strings where unit_key = ? order by string_id');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1527,7 +1596,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadSymbols(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.LoadSymbols(const aCacheKey: string; const aUnitKey: Int64;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
   lColumnField: TSnapshotIntegerReader;
@@ -1563,9 +1632,9 @@ begin
     'type_id, routine_id, kind_id, section_kind_id, source_kind_id, visibility_id, ' +
     'signature_id, declaration_role_id, scope_kind_id, owner_scope_id, semantic_symbol_id, ' +
     'routine_scope_id, flags, line, column, end_line, end_column, file_id, unit_id ' +
-    'from snapshot_symbols where cache_key = ? order by symbol_id');
+    'from snapshot_symbols where unit_key = ? order by symbol_id');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1637,7 +1706,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreRemoveWithVisibility(
-  const aCacheKey: string; const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
+  const aProjectKey: Int64; const aConnection: TObject; const aSnapshot: TDelphiProjectSnapshot);
 var
   i: Integer;
   lQuery: TFDQuery;
@@ -1661,9 +1730,9 @@ begin
   end;
 
   lQuery := NewQuery(aConnection as TFDConnection,
-    'insert into snapshot_remove_with_visibility(cache_key, unit_count, row_count) values (?, ?, ?)');
+    'insert into snapshot_remove_with_visibility(project_key, unit_count, row_count) values (?, ?, ?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lQuery.Params[1].AsInteger := lUnitCount;
     lQuery.Params[2].AsInteger := Length(lRows);
     lQuery.Prepare;
@@ -1672,9 +1741,9 @@ begin
     lQuery.Free;
   end;
   lQuery := NewQuery(aConnection as TFDConnection,
-    'insert into snapshot_remove_with_visible_units(cache_key, file_name, visible_unit_name) values (?, ?, ?)');
+    'insert into snapshot_remove_with_visible_units(project_key, file_name, visible_unit_name) values (?, ?, ?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     SetWideParam(lQuery, 1, '');
     SetWideParam(lQuery, 2, '');
     lQuery.Prepare;
@@ -1690,15 +1759,15 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithVisibilityCounts(
-  const aCacheKey: string; const aConnection: TObject; out aUnitCount, aRowCount: Integer);
+  const aProjectKey: Int64; const aConnection: TObject; out aUnitCount, aRowCount: Integer);
 var
   lQuery: TFDQuery;
   lStopwatch: TStopwatch;
 begin
   lQuery := NewQuery(aConnection as TFDConnection,
-    'select unit_count, row_count from snapshot_remove_with_visibility where cache_key = ?');
+    'select unit_count, row_count from snapshot_remove_with_visibility where project_key = ?');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1715,7 +1784,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithVisibility(
-  const aCacheKey: string; const aConnection: TObject;
+  const aProjectKey: Int64; const aConnection: TObject;
   const aBuilder: TDelphiProjectSnapshotBuilder);
 var
   i: Integer;
@@ -1726,12 +1795,12 @@ var
   lUnitCount: Integer;
   lVisibility: TRemoveWithUnitVisibility;
 begin
-  LoadRemoveWithVisibilityCounts(aCacheKey, aConnection, lUnitCount, lRowCount);
+  LoadRemoveWithVisibilityCounts(aProjectKey, aConnection, lUnitCount, lRowCount);
   lQuery := NewQuery(aConnection as TFDConnection,
     'select file_name, visible_unit_name from snapshot_remove_with_visible_units ' +
-    'where cache_key = ? order by file_name, visible_unit_name');
+    'where project_key = ? order by file_name, visible_unit_name');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -1764,7 +1833,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreValueMemberEvidence(
-  const aCacheKey: string; const aConnection: TObject;
+  const aProjectKey: Int64; const aConnection: TObject;
   const aEvidence: TDelphiSemanticValueMemberEvidence);
 var
   i, j: Integer;
@@ -1779,7 +1848,7 @@ begin
   lCounts := [1, Length(aEvidence.Units), Length(aEvidence.Owners), lNameIndex,
     Length(aEvidence.Queries), Length(aEvidence.ValueNames), Length(aEvidence.UnverifiedOwnerKeys)];
   lQuery := NewQuery(aConnection as TFDConnection,
-    'insert into snapshot_remove_with_value_evidence(cache_key, row_kind, item_index, ' +
+    'insert into snapshot_remove_with_value_evidence(project_key, row_kind, item_index, ' +
     'owner_index, declared_id, unit_name, file_name, name, next_id, complete, terminal_verified, ' +
     'source_text, active_source_text, scope_status, scope_version, rejected_count, ' +
     'count1, count2, count3, count4, count5, count6, evidence_version) ' +
@@ -1794,7 +1863,7 @@ begin
       lOwnerNameIndex := 0;
       for i := 0 to lCounts[lKind] - 1 do
       begin
-        SetWideParam(lQuery, 0, aCacheKey);
+        lQuery.Params[0].AsLargeInt := aProjectKey;
         lQuery.Params[1].AsInteger := lKind;
         lQuery.Params[2].AsInteger := i;
         lQuery.Params[3].AsInteger := -1;
@@ -1870,7 +1939,7 @@ begin
 end;
 
 function TDelphiSemanticSnapshotSqliteCache.LoadValueMemberEvidence(
-  const aCacheKey: string; const aConnection: TObject): TDelphiSemanticValueMemberEvidence;
+  const aProjectKey: Int64; const aConnection: TObject): TDelphiSemanticValueMemberEvidence;
 var
   i, j: Integer;
   lCounts, lLoaded, lNameCounts, lLoadedNames: TArray<Integer>;
@@ -1883,12 +1952,12 @@ begin
     'select row_kind, item_index, owner_index, declared_id, unit_name, file_name, name, ' +
     'next_id, complete, terminal_verified, source_text, active_source_text, scope_status, ' +
     'scope_version, rejected_count, count1, count2, count3, count4, count5, count6, ' +
-    'evidence_version from snapshot_remove_with_value_evidence where cache_key = ? ' +
+    'evidence_version from snapshot_remove_with_value_evidence where project_key = ? ' +
     'order by row_kind, owner_index, item_index');
   try
     // Source/activity text is exact, including final whitespace and line breaks.
     lQuery.FormatOptions.StrsTrim := False;
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lQuery.Open;
     lQuery.FetchAll;
     SetLength(lFields, lQuery.FieldCount);
@@ -1983,7 +2052,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts(
-  const aCacheKey: string; const aConnection: TObject;
+  const aProjectKey: Int64; const aConnection: TObject;
   const aBuilder: TDelphiProjectSnapshotBuilder);
 var
   i: Integer;
@@ -2090,9 +2159,9 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select context_fingerprint_id, ' +
     'routine_owner_count, symbol_count, binding_count, type_identity_count ' +
     'from snapshot_remove_with_facts ' +
-    'where cache_key = ?');
+    'where project_key = ?');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2128,9 +2197,9 @@ begin
     'access_owner_line, ' +
     'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column ' +
     'from snapshot_remove_with_routine_owners ' +
-    'where cache_key = ? order by item_index');
+    'where project_key = ? order by item_index');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2197,9 +2266,9 @@ begin
     'access_owner_line, ' +
     'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column ' +
     'from snapshot_remove_with_symbols ' +
-    'where cache_key = ? order by item_index');
+    'where project_key = ? order by item_index');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2271,9 +2340,9 @@ begin
     'unresolved_reference_count, selector_count, reference_count, routine_scope_id_id, ' +
     'inactive_reference_count, inactive_skip_reason_id ' +
     'from snapshot_remove_with_bindings ' +
-    'where cache_key = ? order by binding_index');
+    'where project_key = ? order by binding_index');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2356,9 +2425,9 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select binding_index, selector_index, ' +
     'selector_text_id, status_id, reason_code_id, type_name_id, capture_type_name_id, ' +
     'capture_status_id from ' +
-    'snapshot_remove_with_binding_selectors where cache_key = ? order by binding_index, selector_index');
+    'snapshot_remove_with_binding_selectors where project_key = ? order by binding_index, selector_index');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2394,9 +2463,9 @@ begin
     'semantic_id_id, name_id, classification_id, lookup_source_id, receiver_type_name_id, ' +
     'kind_id, type_name_id, reason_code_id, scope_conflict_kind_id, scope_conflict_name_id, ' +
     'line, column, end_line, end_column from snapshot_remove_with_binding_references ' +
-    'where cache_key = ? order by binding_index, reference_index');
+    'where project_key = ? order by binding_index, reference_index');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2451,9 +2520,9 @@ begin
     'canonical_name_id, underlying_name_id, base_type_name_id, helper_target_name_id, ' +
     'section_kind_id, file_name_id, line, column, end_line, end_column, ' +
     'scope_kind_id, owner_scope_id_id, semantic_symbol_id_id from ' +
-    'snapshot_remove_with_type_identities where cache_key = ?');
+    'snapshot_remove_with_type_identities where project_key = ?');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2544,7 +2613,7 @@ begin
         raise Exception.Create('Snapshot local receiver scope chain is incomplete.');
     end;
 
-  lEvidence := LoadValueMemberEvidence(aCacheKey, aConnection);
+  lEvidence := LoadValueMemberEvidence(aProjectKey, aConnection);
   if not lFacts.LookupIndex.IsAvailable then
     lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
       LoadedInventorySymbols(aBuilder.ExactStrings, lFacts.Symbols));
@@ -2653,7 +2722,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadWithStatements(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.LoadWithStatements(const aCacheKey: string; const aUnitKey: Int64;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
   lBodyEndColumnField: TField;
@@ -2675,10 +2744,10 @@ begin
   lExpectedId := 1;
   lQuery := NewQuery(aConnection as TFDConnection, 'select with_id, routine_id, ' +
     'selector_start_line, selector_start_column, body_start_line, body_start_column, ' +
-    'body_end_line, body_end_column, flags, unit_id from snapshot_with_statements where cache_key = ? ' +
+    'body_end_line, body_end_column, flags, unit_id from snapshot_with_statements where unit_key = ? ' +
     'order by with_id');
   try
-    lQuery.Params[0].AsWideString := aCacheKey;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
     lQuery.FetchAll;
@@ -2783,6 +2852,7 @@ begin
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_value_evidence');
   lConnection.ExecSQL('drop table if exists snapshot_remove_with_facts');
   lConnection.ExecSQL('drop table if exists snapshot_project_remove_with_facts');
+  lConnection.ExecSQL('drop table if exists snapshot_project_exact_strings');
   lConnection.ExecSQL('drop table if exists snapshot_exact_strings');
   lConnection.ExecSQL('drop table if exists snapshot_references');
   lConnection.ExecSQL('drop table if exists snapshot_with_statements');
@@ -2829,13 +2899,13 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStringPool(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-  const aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
+  const aOwnerKey: Int64; const aConnection: TObject;
+  const aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot; const aProject: Boolean);
 var
   i: Integer;
   lSourceIds: TArray<Boolean>;
   lSource: TSemanticCapturedSourceFact;
-  lHash, lText: string;
+  lHash, lText, lTable, lOwner: string;
   lQuery, lFind, lInsert: TFDQuery;
 begin
   if aExactStrings = nil then
@@ -2852,15 +2922,22 @@ begin
         lSourceIds[lSource.TextId] := True;
     end;
   end;
-  lQuery := NewQuery(aConnection as TFDConnection, 'insert into snapshot_exact_strings ' +
-    '(cache_key,string_id,text_value,source_content_hash) values (?,?,?,?)');
+  lTable := 'snapshot_exact_strings';
+  lOwner := 'unit_key';
+  if aProject then
+  begin
+    lTable := 'snapshot_project_exact_strings';
+    lOwner := 'project_key';
+  end;
+  lQuery := NewQuery(aConnection as TFDConnection, 'insert into ' + lTable +
+    ' (' + lOwner + ',string_id,text_value,source_content_hash) values (?,?,?,?)');
   lFind := NewQuery(aConnection as TFDConnection, 'select text from snapshot_source_texts where content_hash=?');
   lInsert := NewQuery(aConnection as TFDConnection, 'insert into snapshot_source_texts(content_hash,text) values (?,?)');
   try
     lQuery.FormatOptions.StrsTrim := False;
     lFind.FormatOptions.StrsTrim := False;
     lInsert.FormatOptions.StrsTrim := False;
-    SetWideParam(lQuery, 0, aIdentity.CacheKey);
+    lQuery.Params[0].AsLargeInt := aOwnerKey;
     lQuery.Params[1].DataType := ftLargeint;
     SetWideParam(lQuery, 2, '', ftWideMemo);
     SetWideParam(lQuery, 3, '');
@@ -2905,7 +2982,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreReferences(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aUnitKey: Int64; const aConnection: TObject;
   const aUnit: TUnitSnapshot);
 var
   i: Integer;
@@ -2915,20 +2992,19 @@ var
   lReference: TSemanticReferenceFact;
 begin
   lConnection := aConnection as TFDConnection;
-  lQuery := NewQuery(lConnection, 'insert into snapshot_references(cache_key, unit_id, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_references(unit_key, unit_id, ' +
     'reference_id, with_id, target_unit_id, target_symbol_id, name_id, receiver_type_id, ' +
     'type_id, routine_id, section_kind_id, source_kind_id, classification_id, ' +
     'lookup_source_id, reason_id, line, column, end_line, end_column, routine_scope_id, ' +
     'file_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     for lParamIndex := 1 to 20 do
       lQuery.Params[lParamIndex].DataType := ftLargeint;
     lQuery.Prepare;
     for i := 1 to aUnit.ReferenceCount do
     begin
       lReference := aUnit.ReferenceById(TSemanticReferenceId(i));
-      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsLargeInt := aUnit.UnitId;
       lQuery.Params[2].AsLargeInt := i;
       lQuery.Params[3].AsLargeInt := lReference.WithId;
@@ -2957,7 +3033,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreRemoveWithPlanningFacts(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aProjectKey: Int64; const aConnection: TObject;
   const aSnapshot: TDelphiProjectSnapshot; const aExactStrings: TSemanticStringPool;
   const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>);
 var
@@ -2980,7 +3056,7 @@ var
   begin
     if aFact.DeclaredIdId = 0 then
       Exit;
-    lIdentityQuery.Params[0].AsWideString := aIdentity.CacheKey;
+    lIdentityQuery.Params[0].AsLargeInt := aProjectKey;
     lIdentityQuery.Params[1].AsWideString := aKind;
     lIdentityQuery.Params[2].AsInteger := aItemIndex;
     lIdentityQuery.Params[3].AsInteger := aSubIndex;
@@ -3017,7 +3093,7 @@ var
     lStoredSymbol: TSemanticRemoveWithInventorySymbolFact;
   begin
     lInventoryQuery := NewQuery(lConnection, 'insert into ' + aTableName +
-      '(cache_key, item_index, name_id, symbol_class_id, kind_id, type_name_id, ' +
+      '(project_key, item_index, name_id, symbol_class_id, kind_id, type_name_id, ' +
       'modifier_id, owner_name_id, owner_type_id, source_owner_type_id, related_type_name_id, ' +
       'routine_name_id, unit_name_id, file_name_id, section_kind_id, line, column, end_line, ' +
       'end_column, unsupported_reason_id, flags, index_parameter_count, type_category_id, ' +
@@ -3029,14 +3105,14 @@ var
       'access_owner_column, heading_line, heading_column, heading_end_line, heading_end_column) ' +
       'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     try
-      lInventoryQuery.Params[0].DataType := ftWideString;
+      lInventoryQuery.Params[0].DataType := ftLargeint;
       for lParamIndex := 1 to 35 do
         lInventoryQuery.Params[lParamIndex].DataType := ftInteger;
       lInventoryQuery.Prepare;
       for lIndex := 0 to High(aSymbols) do
       begin
         lStoredSymbol := aSymbols[lIndex];
-        lInventoryQuery.Params[0].AsWideString := aIdentity.CacheKey;
+        lInventoryQuery.Params[0].AsLargeInt := aProjectKey;
         lInventoryQuery.Params[1].AsInteger := lIndex;
         lInventoryQuery.Params[2].AsInteger := Integer(lStoredSymbol.NameId);
         lInventoryQuery.Params[3].AsInteger := Integer(lStoredSymbol.SymbolClassId);
@@ -3086,15 +3162,15 @@ begin
   lFacts := aSnapshot.RemoveWithPlanningFacts;
   lLookupSymbols := StoredInventorySymbols(aExactStrings, aLookupSymbols);
   lIdentityCount := 0;
-  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(cache_key, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_facts(project_key, ' +
     'context_fingerprint_id, routine_owner_count, symbol_count, binding_count, ' +
     'type_identity_count) values (?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].DataType := ftLargeint;
     for lParamIndex := 1 to 5 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
-    lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+    lQuery.Params[0].AsLargeInt := aProjectKey;
     lQuery.Params[1].AsInteger := Integer(lFacts.ContextFingerprintId);
     lQuery.Params[2].AsInteger := Length(lFacts.RoutineOwners);
     lQuery.Params[3].AsInteger := Length(lLookupSymbols);
@@ -3109,7 +3185,7 @@ begin
   StoreInventoryFacts('snapshot_remove_with_symbols', lLookupSymbols);
 
   lIdentityQuery := NewQuery(lConnection,
-    'insert into snapshot_remove_with_type_identities(cache_key, entity_kind, ' +
+    'insert into snapshot_remove_with_type_identities(project_key, entity_kind, ' +
     'item_index, sub_index, unit_id_id, unit_name_id, name_id, kind_id, ' +
     'declared_id_id, canonical_id_id, underlying_id_id, canonical_name_id, ' +
     'underlying_name_id, base_type_name_id, helper_target_name_id, ' +
@@ -3117,8 +3193,8 @@ begin
     'scope_kind_id, owner_scope_id_id, semantic_symbol_id_id) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    for lParamIndex := 0 to 1 do
-      lIdentityQuery.Params[lParamIndex].DataType := ftWideString;
+    lIdentityQuery.Params[0].DataType := ftLargeint;
+    lIdentityQuery.Params[1].DataType := ftWideString;
     for lParamIndex := 2 to 23 do
       lIdentityQuery.Params[lParamIndex].DataType := ftInteger;
     lIdentityQuery.Prepare;
@@ -3142,16 +3218,16 @@ begin
     lIdentityQuery.Free;
   end;
   lQuery := NewQuery(lConnection, 'update snapshot_remove_with_facts ' +
-    'set type_identity_count = ? where cache_key = ?');
+    'set type_identity_count = ? where project_key = ?');
   try
     lQuery.Params[0].AsInteger := lIdentityCount;
-    lQuery.Params[1].AsWideString := aIdentity.CacheKey;
+    lQuery.Params[1].AsLargeInt := aProjectKey;
     lQuery.ExecSQL;
   finally
     lQuery.Free;
   end;
 
-  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_bindings(cache_key, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_bindings(project_key, ' +
     'binding_index, semantic_id_id, provenance_id, file_name_id, unit_name_id, routine_name_id, ' +
     'line, column, end_line, end_column, body_line, body_column, body_end_line, body_end_column, ' +
     'selector_text_id, status_id, skip_reason_id, flags, member_reference_count, ' +
@@ -3160,14 +3236,14 @@ begin
     'routine_scope_id_id, inactive_reference_count, inactive_skip_reason_id) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].DataType := ftLargeint;
     for lParamIndex := 1 to 29 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
     for i := 0 to High(lFacts.Bindings) do
     begin
       lBinding := lFacts.Bindings[i];
-      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+      lQuery.Params[0].AsLargeInt := aProjectKey;
       lQuery.Params[1].AsInteger := i;
       lQuery.Params[2].AsInteger := Integer(lBinding.SemanticIdId);
       lQuery.Params[3].AsInteger := Integer(lBinding.ProvenanceId);
@@ -3204,10 +3280,10 @@ begin
   end;
 
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_binding_selectors(' +
-    'cache_key, binding_index, selector_index, selector_text_id, status_id, reason_code_id, ' +
+    'project_key, binding_index, selector_index, selector_text_id, status_id, reason_code_id, ' +
     'type_name_id, capture_type_name_id, capture_status_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].DataType := ftLargeint;
     for lParamIndex := 1 to 8 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     lQuery.Prepare;
@@ -3215,7 +3291,7 @@ begin
       for j := 0 to High(lFacts.Bindings[i].Selectors) do
       begin
         lSelector := lFacts.Bindings[i].Selectors[j];
-        lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+        lQuery.Params[0].AsLargeInt := aProjectKey;
         lQuery.Params[1].AsInteger := i;
         lQuery.Params[2].AsInteger := j;
         lQuery.Params[3].AsInteger := Integer(lSelector.SelectorTextId);
@@ -3231,12 +3307,12 @@ begin
   end;
 
   lQuery := NewQuery(lConnection, 'insert into snapshot_remove_with_binding_references(' +
-    'cache_key, binding_index, reference_index, semantic_id_id, name_id, classification_id, ' +
+    'project_key, binding_index, reference_index, semantic_id_id, name_id, classification_id, ' +
     'lookup_source_id, receiver_type_name_id, kind_id, type_name_id, reason_code_id, ' +
     'scope_conflict_kind_id, scope_conflict_name_id, line, column, end_line, end_column) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].DataType := ftLargeint;
     for lParamIndex := 1 to 16 do
       lQuery.Params[lParamIndex].DataType := ftInteger;
     for lParamIndex := 3 to 12 do
@@ -3250,7 +3326,7 @@ begin
           lReference := lFacts.Bindings[i].InactiveSpanReferences[-j - 1]
         else
           lReference := lFacts.Bindings[i].References[j];
-        lQuery.Params[0].AsWideString := aIdentity.CacheKey;
+        lQuery.Params[0].AsLargeInt := aProjectKey;
         lQuery.Params[1].AsInteger := i;
         lQuery.Params[2].AsInteger := j;
         lQuery.Params[3].AsLargeInt := lReference.SemanticIdId;
@@ -3275,7 +3351,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreStrings(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aUnitKey: Int64; const aConnection: TObject;
   const aStrings: TSemanticStringPool);
 var
   i: Integer;
@@ -3283,16 +3359,15 @@ var
   lQuery: TFDQuery;
 begin
   lConnection := aConnection as TFDConnection;
-  lQuery := NewQuery(lConnection, 'insert into snapshot_strings(cache_key, string_id, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_strings(unit_key, string_id, ' +
     'text_value) values (?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lQuery.Params[1].DataType := ftInteger;
     lQuery.Params[2].DataType := ftWideString;
     lQuery.Prepare;
     for i := 1 to Integer(aStrings.Count) do
     begin
-      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsInteger := i;
       lQuery.Params[2].AsWideString := aStrings.TextOf(TSemanticStringId(i));
       lQuery.ExecSQL;
@@ -3303,7 +3378,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreSymbols(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aUnitKey: Int64; const aConnection: TObject;
   const aUnit: TUnitSnapshot);
 var
   i: Integer;
@@ -3313,21 +3388,20 @@ var
   lSymbol: TSemanticSymbolFact;
 begin
   lConnection := aConnection as TFDConnection;
-  lQuery := NewQuery(lConnection, 'insert into snapshot_symbols(cache_key, unit_id, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_symbols(unit_key, unit_id, ' +
     'symbol_id, name_id, owner_type_id, type_id, routine_id, kind_id, flags, line, column, ' +
     'end_line, end_column, section_kind_id, source_kind_id, visibility_id, signature_id, ' +
     'declaration_role_id, scope_kind_id, owner_scope_id, semantic_symbol_id, ' +
     'routine_scope_id, file_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
     '?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     for lParamIndex := 1 to 22 do
       lQuery.Params[lParamIndex].DataType := ftLargeint;
     lQuery.Prepare;
     for i := 1 to aUnit.SymbolCount do
     begin
       lSymbol := aUnit.SymbolById(TSemanticSymbolId(i));
-      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsLargeInt := aUnit.UnitId;
       lQuery.Params[2].AsLargeInt := i;
       lQuery.Params[3].AsLargeInt := lSymbol.NameId;
@@ -3491,6 +3565,7 @@ var
   lRetryStopwatch: TStopwatch;
   lWriteStopwatch: TStopwatch;
   lExactCount: Integer;
+  lUnitKey: Int64;
 begin
   if not Assigned(aStrings) then
     raise Exception.Create('Cannot store a unit snapshot without a string pool.');
@@ -3513,14 +3588,14 @@ begin
     try
       lConnection.StartTransaction;
       DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
-      StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count), lExactCount);
-      StoreStrings(aIdentity, lConnection, aStrings);
-      StoreSymbols(aIdentity, lConnection, aUnit);
-      StoreWithStatements(aIdentity, lConnection, aUnit);
-      StoreReferences(aIdentity, lConnection, aUnit);
-      StoreExactStringPool(aIdentity, lConnection, aExactStrings, aUnit);
-      StorePhysicalEvidence(aIdentity.CacheKey, lConnection, aUnit);
-      StoreTargetIdentities(aIdentity.CacheKey, lConnection, aUnit, aIdentities);
+      lUnitKey := StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count), lExactCount);
+      StoreStrings(lUnitKey, lConnection, aStrings);
+      StoreSymbols(lUnitKey, lConnection, aUnit);
+      StoreWithStatements(lUnitKey, lConnection, aUnit);
+      StoreReferences(lUnitKey, lConnection, aUnit);
+      StoreExactStringPool(lUnitKey, lConnection, aExactStrings, aUnit, False);
+      StorePhysicalEvidence(lUnitKey, lConnection, aUnit);
+      StoreTargetIdentities(lUnitKey, lConnection, aUnit, aIdentities);
       CollectSnapshotSourceOrphans(lConnection);
       lConnection.Commit;
       Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
@@ -3750,6 +3825,7 @@ var
   lError: string;
   lExactStrings: TSemanticStringPool;
   lQuery: TFDQuery;
+  lProjectKey: Int64;
   lRetryStopwatch: TStopwatch;
   lWriteStopwatch: TStopwatch;
 begin
@@ -3786,15 +3862,16 @@ begin
           SetWideParam(lQuery, 7, SnapshotUtcTimestamp);
           lQuery.Prepare;
           lQuery.ExecSQL;
+          lProjectKey := lConnection.ExecSQLScalar('select last_insert_rowid()');
         finally
           lQuery.Free;
         end;
-        StoreExactStringPool(aIdentity, lConnection, lExactStrings);
-        StoreRemoveWithPlanningFacts(aIdentity, lConnection, aSnapshot, lExactStrings,
+        StoreExactStringPool(lProjectKey, lConnection, lExactStrings, nil, True);
+        StoreRemoveWithPlanningFacts(lProjectKey, lConnection, aSnapshot, lExactStrings,
           aLookupSymbols);
-        StoreValueMemberEvidence(aIdentity.CacheKey, lConnection,
+        StoreValueMemberEvidence(lProjectKey, lConnection,
           aSnapshot.RemoveWithPlanningFacts.LookupIndex.ExportValueMemberEvidence);
-        StoreRemoveWithVisibility(aIdentity.CacheKey, lConnection, aSnapshot);
+        StoreRemoveWithVisibility(lProjectKey, lConnection, aSnapshot);
         lConnection.Commit;
         Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
         Exit;
@@ -3813,7 +3890,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.StorePhysicalEvidence(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.StorePhysicalEvidence(const aUnitKey: Int64;
   const aConnection: TObject; const aUnit: TUnitSnapshot);
 var
   i: Integer;
@@ -3822,9 +3899,9 @@ var
   lStream: TBytesStream;
 begin
   lQuery := NewQuery(aConnection as TFDConnection, 'insert into snapshot_captured_sources ' +
-    '(cache_key,unit_id,source_ordinal,file_id,text_id,status) values (?,?,?,?,?,?)');
+    '(unit_key,unit_id,source_ordinal,file_id,text_id,status) values (?,?,?,?,?,?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lQuery.Params[1].AsLargeInt := aUnit.UnitId;
     for i := 2 to 5 do
       lQuery.Params[i].DataType := ftLargeint;
@@ -3842,9 +3919,9 @@ begin
     lQuery.Free;
   end;
   lQuery := NewQuery(aConnection as TFDConnection, 'insert into snapshot_visible_units ' +
-    '(cache_key,unit_id,import_ordinal,unit_name_id) values (?,?,?,?)');
+    '(unit_key,unit_id,import_ordinal,unit_name_id) values (?,?,?,?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lQuery.Params[1].AsLargeInt := aUnit.UnitId;
     lQuery.Params[2].DataType := ftLargeint;
     lQuery.Params[3].DataType := ftLargeint;
@@ -3859,9 +3936,9 @@ begin
     lQuery.Free;
   end;
   lQuery := NewQuery(aConnection as TFDConnection, 'insert into snapshot_unit_occurrences ' +
-    '(cache_key,unit_id,collection,payload) values (?,?,?,?)');
+    '(unit_key,unit_id,collection,payload) values (?,?,?,?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lQuery.Params[1].AsLargeInt := aUnit.UnitId;
     lQuery.Params[2].DataType := ftInteger;
     lQuery.Params[3].DataType := ftBlob;
@@ -3882,7 +3959,7 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.LoadPhysicalEvidence(const aCacheKey: string;
+procedure TDelphiSemanticSnapshotSqliteCache.LoadPhysicalEvidence(const aCacheKey: string; const aUnitKey: Int64;
   const aConnection: TObject; const aStrings, aExactStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot);
 var
@@ -3920,10 +3997,10 @@ begin
   // Query rows before allocation, so a corrupt unbounded header cannot force a
   // giant allocation when the database has only a few (or zero) child rows.
   lQuery := NewUnitReadQuery(aConnection, aCacheKey, 'snapshot_captured_sources', 'select unit_id,source_ordinal,file_id,text_id,status ' +
-    'from snapshot_captured_sources where cache_key=? order by source_ordinal') as TFDDataSet;
+    'from snapshot_captured_sources where unit_key=? order by source_ordinal') as TFDDataSet;
   try
     if lQuery is TFDQuery then
-      SetWideParam(TFDQuery(lQuery), 0, aCacheKey);
+      TFDQuery(lQuery).Params[0].AsLargeInt := aUnitKey;
     lQuery.Open;
     lQuery.FetchAll;
     if lQuery.RecordCount <> lCounts[2] then
@@ -3946,10 +4023,10 @@ begin
     lQuery.Free;
   end;
   lQuery := NewUnitReadQuery(aConnection, aCacheKey, 'snapshot_visible_units', 'select unit_id,import_ordinal,unit_name_id ' +
-    'from snapshot_visible_units where cache_key=? order by import_ordinal') as TFDDataSet;
+    'from snapshot_visible_units where unit_key=? order by import_ordinal') as TFDDataSet;
   try
     if lQuery is TFDQuery then
-      SetWideParam(TFDQuery(lQuery), 0, aCacheKey);
+      TFDQuery(lQuery).Params[0].AsLargeInt := aUnitKey;
     lQuery.Open;
     lQuery.FetchAll;
     if lQuery.RecordCount <> lCounts[3] then
@@ -3970,10 +4047,10 @@ begin
     lQuery.Free;
   end;
   lQuery := NewUnitReadQuery(aConnection, aCacheKey, 'snapshot_unit_occurrences', 'select unit_id,collection,payload ' +
-    'from snapshot_unit_occurrences where cache_key=? order by collection') as TFDDataSet;
+    'from snapshot_unit_occurrences where unit_key=? order by collection') as TFDDataSet;
   try
     if lQuery is TFDQuery then
-      SetWideParam(TFDQuery(lQuery), 0, aCacheKey);
+      TFDQuery(lQuery).Params[0].AsLargeInt := aUnitKey;
     lQuery.Open;
     for i := 0 to 1 do
     begin
@@ -3994,7 +4071,7 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreTargetIdentities(
-  const aCacheKey: string; const aConnection: TObject; const aUnit: TUnitSnapshot;
+  const aUnitKey: Int64; const aConnection: TObject; const aUnit: TUnitSnapshot;
   const aIdentities: TSnapshotTargetIdentities);
 var
   lPayload: TBytes;
@@ -4006,9 +4083,9 @@ begin
     Exit;
   lPayload := aIdentities.Encode(lValueCount);
   lQuery := NewQuery(aConnection as TFDConnection,
-    'insert into snapshot_target_lineage(cache_key, unit_id, value_count, payload) values (?, ?, ?, ?)');
+    'insert into snapshot_target_lineage(unit_key, unit_id, value_count, payload) values (?, ?, ?, ?)');
   try
-    SetWideParam(lQuery, 0, aCacheKey);
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     lQuery.Params[1].AsLargeInt := aUnit.UnitId;
     lQuery.Params[2].AsInteger := lValueCount;
     lStream := TBytesStream.Create(lPayload);
@@ -4024,17 +4101,17 @@ begin
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.LoadTargetIdentities(
-  const aCacheKey: string; const aConnection: TObject;
+  const aCacheKey: string; const aUnitKey: Int64; const aConnection: TObject;
   const aBuilder: TDelphiProjectSnapshotBuilder; const aUnit: TUnitSnapshot);
 var
   lIdentities: TSnapshotTargetIdentities;
   lQuery: TFDDataSet;
 begin
   lQuery := NewUnitReadQuery(aConnection, aCacheKey, 'snapshot_target_lineage',
-    'select unit_id, value_count, payload from snapshot_target_lineage where cache_key = ?') as TFDDataSet;
+    'select unit_id, value_count, payload from snapshot_target_lineage where unit_key = ?') as TFDDataSet;
   try
     if lQuery is TFDQuery then
-      SetWideParam(TFDQuery(lQuery), 0, aCacheKey);
+      TFDQuery(lQuery).Params[0].AsLargeInt := aUnitKey;
     lQuery.Open;
     // The low-level StoreUnit API can intentionally omit target evidence. Such
     // snapshots remain readable but cannot establish ProjectSession cache hits.
@@ -4050,9 +4127,9 @@ begin
   end;
 end;
 
-procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitHeader(
+function TDelphiSemanticSnapshotSqliteCache.StoreUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-  const aUnit: TUnitSnapshot; const aStringCount, aExactStringCount: Integer);
+  const aUnit: TUnitSnapshot; const aStringCount, aExactStringCount: Integer): Int64;
 var
   lConnection: TFDConnection;
   lQuery: TFDQuery;
@@ -4117,13 +4194,14 @@ begin
     lQuery.Params[31].AsLargeInt := aExactStringCount;
     lQuery.Prepare;
     lQuery.ExecSQL;
+    Result := (aConnection as TFDConnection).ExecSQLScalar('select last_insert_rowid()');
   finally
     lQuery.Free;
   end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreWithStatements(
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
+  const aUnitKey: Int64; const aConnection: TObject;
   const aUnit: TUnitSnapshot);
 var
   i: Integer;
@@ -4133,19 +4211,18 @@ var
   lWith: TSemanticWithStatementFact;
 begin
   lConnection := aConnection as TFDConnection;
-  lQuery := NewQuery(lConnection, 'insert into snapshot_with_statements(cache_key, ' +
+  lQuery := NewQuery(lConnection, 'insert into snapshot_with_statements(unit_key, ' +
     'unit_id, with_id, routine_id, selector_start_line, selector_start_column, ' +
     'body_start_line, body_start_column, body_end_line, body_end_column, flags) values ' +
     '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
-    lQuery.Params[0].DataType := ftWideString;
+    lQuery.Params[0].AsLargeInt := aUnitKey;
     for lParamIndex := 1 to 10 do
       lQuery.Params[lParamIndex].DataType := ftLargeint;
     lQuery.Prepare;
     for i := 1 to aUnit.WithStatementCount do
     begin
       lWith := aUnit.WithStatementById(TSemanticWithId(i));
-      lQuery.Params[0].AsWideString := aIdentity.CacheKey;
       lQuery.Params[1].AsLargeInt := aUnit.UnitId;
       lQuery.Params[2].AsLargeInt := i;
       lQuery.Params[3].AsLargeInt := lWith.RoutineId;
@@ -4240,6 +4317,7 @@ var
   lStringCount: Integer;
   lSymbolCount: Integer;
   lUnit: TUnitSnapshot;
+  lUnitKey: Int64;
   lWithStatementCount: Integer;
 begin
   Result := False;
@@ -4259,7 +4337,7 @@ begin
   if lOwnsTransaction then
     lConnection.StartTransaction;
   try
-    if not IdentityMatches(aIdentity, lConnectionObject, lEntryBelongsToIdentity) then
+    if not IdentityMatches(aIdentity, lConnectionObject, lEntryBelongsToIdentity, lUnitKey) then
     begin
       if lOwnsTransaction then
         lConnection.Commit;
@@ -4277,16 +4355,16 @@ begin
     lBuilder.DeferTargetMetadata := True;
     try
       try
-        LoadStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.Strings);
-        LoadExactStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.ExactStrings);
+        LoadStrings(aIdentity.CacheKey, lUnitKey, lConnectionObject, lBuilder.Strings);
+        LoadExactStrings(aIdentity.CacheKey, lUnitKey, lConnectionObject, lBuilder.ExactStrings, False);
         if not LoadUnitHeader(aIdentity, lConnectionObject, lUnit, lStringCount, lSymbolCount,
           lWithStatementCount, lReferenceCount, lParseAvoidedEstimateMilliseconds) then
           raise Exception.Create('Snapshot unit header disappeared during load.');
-        LoadSymbols(aIdentity.CacheKey, lConnectionObject, lUnit);
-        LoadWithStatements(aIdentity.CacheKey, lConnectionObject, lUnit);
-        LoadReferences(aIdentity.CacheKey, lConnectionObject, lUnit);
-        LoadPhysicalEvidence(aIdentity.CacheKey, lConnectionObject, lBuilder.Strings, lBuilder.ExactStrings, lUnit);
-        LoadTargetIdentities(aIdentity.CacheKey, lConnectionObject, lBuilder, lUnit);
+        LoadSymbols(aIdentity.CacheKey, lUnitKey, lConnectionObject, lUnit);
+        LoadWithStatements(aIdentity.CacheKey, lUnitKey, lConnectionObject, lUnit);
+        LoadReferences(aIdentity.CacheKey, lUnitKey, lConnectionObject, lUnit);
+        LoadPhysicalEvidence(aIdentity.CacheKey, lUnitKey, lConnectionObject, lBuilder.Strings, lBuilder.ExactStrings, lUnit);
+        LoadTargetIdentities(aIdentity.CacheKey, lUnitKey, lConnectionObject, lBuilder, lUnit);
         ValidateLoadedCounts(lBuilder.Strings, lUnit, lStringCount, lSymbolCount,
           lWithStatementCount, lReferenceCount);
         ValidateUnitStringIds(lBuilder.Strings, lUnit);
@@ -4336,6 +4414,7 @@ function TDelphiSemanticSnapshotSqliteCache.TryLoadProjectRemoveWithPlanningFact
   out aSnapshot: TDelphiProjectSnapshot): Boolean;
 var
   lBuilder: TDelphiProjectSnapshotBuilder;
+  lProjectKey: Int64;
   lConnectionObject: TObject;
   lEntryBelongsToIdentity: Boolean;
   lError: string;
@@ -4350,7 +4429,7 @@ begin
     raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
 
   if not ProjectRemoveWithIdentityMatches(aIdentity, lConnectionObject,
-    lEntryBelongsToIdentity) then
+    lEntryBelongsToIdentity, lProjectKey) then
   begin
     if lEntryBelongsToIdentity then
     begin
@@ -4364,9 +4443,9 @@ begin
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
     try
-      LoadExactStrings(aIdentity.CacheKey, lConnectionObject, lBuilder.ExactStrings);
-      LoadRemoveWithPlanningFacts(aIdentity.CacheKey, lConnectionObject, lBuilder);
-      LoadRemoveWithVisibility(aIdentity.CacheKey, lConnectionObject, lBuilder);
+      LoadExactStrings(aIdentity.CacheKey, lProjectKey, lConnectionObject, lBuilder.ExactStrings, True);
+      LoadRemoveWithPlanningFacts(lProjectKey, lConnectionObject, lBuilder);
+      LoadRemoveWithVisibility(lProjectKey, lConnectionObject, lBuilder);
       lIndexRebuildStopwatch := TStopwatch.StartNew;
       aSnapshot := lBuilder.Build;
       if not aSnapshot.HasRemoveWithPlanningFacts then

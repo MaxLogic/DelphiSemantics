@@ -32,6 +32,10 @@ type
       const aNames: TArray<string>);
   public
     [Test]
+    [TestCase('Unit children', 'False')]
+    [TestCase('Project children', 'True')]
+    procedure ChildRowsUseIntegerOwnerKeys(const aProject: Boolean);
+    [Test]
     procedure PhysicalOccurrencesSurviveSqliteRoundTrip;
     [Test]
     [TestCase('Legacy references present', 'False')]
@@ -212,6 +216,7 @@ type
     procedure RemoveWithAccessOwnerIdentityReloadRejectsMissingRows;
     [Category('Fast')]
     [Test]
+    [TestCase('Before integer owner keys', '60')]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
     [TestCase('Schema24', '24')]
@@ -249,7 +254,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.Hash, System.IOUtils, System.StrUtils,
   System.SysUtils, System.Variants,
   Winapi.Windows,
-  FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def,
+  FireDAC.Comp.Client, FireDAC.Phys.SQLite, FireDAC.Stan.Async, FireDAC.Stan.Def, FireDAC.Stan.Intf,
   maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.GlobalVars,
   DelphiSemantics.Model,
@@ -463,7 +468,8 @@ begin
       ExecCacheSql(lDatabase, 'drop table snapshot_references');
       ExecCacheSql(lDatabase, 'alter table nullable_references rename to snapshot_references');
     end;
-    lSql := lSql + ' where cache_key=' + QuotedStr(lIdentityB.CacheKey);
+    lSql := lSql + ' where unit_key=(select unit_key from snapshot_units where cache_key=' +
+      QuotedStr(lIdentityB.CacheKey) + ')';
     if aMutation = 'hash' then
       lSql := lSql + ' and source_content_hash is not null';
     ExecCacheSql(lDatabase, lSql);
@@ -539,7 +545,8 @@ begin
     FreeAndNil(lCache);
     ExecCacheSql(lDatabase, 'update snapshot_unit_occurrences set payload=' +
       EvidenceBlobSql(EncodeOccurrenceValues(lValues, cPhysicalSymbolColumnCount)) +
-      ' where collection=1 and cache_key=' + QuotedStr(lIdentity.CacheKey));
+      ' where collection=1 and unit_key=(select unit_key from snapshot_units where cache_key=' +
+      QuotedStr(lIdentity.CacheKey) + ')');
     lCache := TDelphiSemanticSnapshotSqliteCache.Create(lDatabase);
     if aBatch then
       lCache.BeginUnitLoadBatch([lIdentity]);
@@ -691,13 +698,16 @@ begin
         end;
       end;
       lSql := 'update snapshot_unit_occurrences set payload=' + EvidenceBlobSql(lBad) +
-        ' where cache_key=' + QuotedStr(lIdentity.CacheKey) + ' and collection=0';
+        ' where unit_key=(select unit_key from snapshot_units where cache_key=' +
+        QuotedStr(lIdentity.CacheKey) + ') and collection=0';
       if aMutation = 'missing' then
-        lSql := 'delete from snapshot_unit_occurrences where cache_key=' + QuotedStr(lIdentity.CacheKey) +
+        lSql := 'delete from snapshot_unit_occurrences where unit_key=(select unit_key from snapshot_units where cache_key=' +
+          QuotedStr(lIdentity.CacheKey) + ')' +
           ' and collection=0'
       else if aMutation = 'extra' then
-        lSql := 'insert into snapshot_unit_occurrences select cache_key,unit_id,2,payload ' +
-          'from snapshot_unit_occurrences where cache_key=' + QuotedStr(lIdentity.CacheKey) + ' and collection=0'
+        lSql := 'insert into snapshot_unit_occurrences select unit_key,unit_id,2,payload ' +
+          'from snapshot_unit_occurrences where unit_key=(select unit_key from snapshot_units where cache_key=' +
+          QuotedStr(lIdentity.CacheKey) + ') and collection=0'
       else if aMutation = 'count' then
         lSql := 'update snapshot_units set physical_reference_count=physical_reference_count+1 where cache_key=' +
           QuotedStr(lIdentity.CacheKey);
@@ -932,6 +942,133 @@ begin
     lCache.Free;
     lLoaded.Free;
     lSnapshot.Free;
+  end;
+end;
+
+procedure TSnapshotSqliteTests.ChildRowsUseIntegerOwnerKeys(const aProject: Boolean);
+var
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lConnection: TFDConnection;
+  lDriverLink: TFDPhysSQLiteDriverLink;
+  lFacts: TSemanticRemoveWithPlanningFacts;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lCacheFileName, lParent, lOwner, lTable: string;
+  lTables: TArray<string>;
+  lQuery: TFDQuery;
+  lFound: Boolean;
+begin
+  lCacheFileName := TempPath('snapshot-integer-owner-' + BoolToStr(aProject, True) + '.sqlite3');
+  lIdentity := CreateIdentity('IntegerOwner', 'file-a', 'context-a', 'include-a', 'snapshot-v1');
+  lParent := 'snapshot_units';
+  lOwner := 'unit_key';
+  lTables := ['snapshot_strings', 'snapshot_exact_strings', 'snapshot_symbols',
+    'snapshot_references', 'snapshot_with_statements', 'snapshot_captured_sources',
+    'snapshot_unit_occurrences', 'snapshot_visible_units', 'snapshot_target_lineage'];
+  if aProject then
+  begin
+    lParent := 'snapshot_project_remove_with_facts';
+    lOwner := 'project_key';
+    lTables := ['snapshot_project_exact_strings', 'snapshot_remove_with_facts',
+      'snapshot_remove_with_value_evidence', 'snapshot_remove_with_visibility',
+      'snapshot_remove_with_visible_units', 'snapshot_remove_with_routine_owners',
+      'snapshot_remove_with_symbols', 'snapshot_remove_with_bindings',
+      'snapshot_remove_with_binding_selectors', 'snapshot_remove_with_binding_references',
+      'snapshot_remove_with_type_identities'];
+    lBuilder := TDelphiProjectSnapshotBuilder.Create;
+    try
+      lFacts := Default(TSemanticRemoveWithPlanningFacts);
+      lFacts.ContextFingerprintId := lBuilder.ExactStrings.Intern('IntegerOwnerContext');
+      lBuilder.SetRemoveWithPlanningFacts(lFacts);
+      lSnapshot := lBuilder.Build;
+    finally
+      lBuilder.Free;
+    end;
+    try
+      lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+      try
+        lCache.StoreProjectRemoveWithPlanningFacts(lIdentity, lSnapshot);
+      finally
+        lCache.Free;
+      end;
+    finally
+      lSnapshot.Free;
+    end;
+  end else begin
+    StoreDemoUnit(lCacheFileName, lIdentity);
+  end;
+  lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
+  lConnection := TFDConnection.Create(nil);
+  lQuery := TFDQuery.Create(nil);
+  try
+    lConnection.LoginPrompt := False;
+    lConnection.Params.Values['DriverID'] := 'SQLite';
+    lConnection.Params.Values['Database'] := lCacheFileName;
+    lConnection.Connected := True;
+    lQuery.Connection := lConnection;
+    // Match the full-width SQLite integer mapping used by cache reads.
+    lQuery.FormatOptions.OwnMapRules := True;
+    lQuery.FormatOptions.MapRules.Add(dtInt32, dtInt64);
+    for lTable in lTables do
+    begin
+      lQuery.SQL.Text := 'pragma table_info(' + lTable + ')';
+      lQuery.Open;
+      lFound := False;
+      while not lQuery.Eof do
+      begin
+        Assert.AreNotEqual('cache_key', lQuery.Fields[1].AsWideString,
+          lTable + ' must not repeat the text cache key');
+        if lQuery.Fields[1].AsWideString = lOwner then
+        begin
+          lFound := True;
+          Assert.AreEqual('INTEGER', UpperCase(lQuery.Fields[2].AsWideString));
+          Assert.AreEqual(1, lQuery.Fields[5].AsInteger, lTable + ' owner leads its primary key');
+        end;
+        lQuery.Next;
+      end;
+      lQuery.Close;
+      Assert.IsTrue(lFound, lTable + ' must have an integer owner');
+      lQuery.SQL.Text := 'select count(*) from ' + lTable + ' c left join ' + lParent +
+        ' p on p.rowid=c.' + lOwner + ' where p.rowid is null or typeof(c.' + lOwner + ')<>''integer''';
+      lQuery.Open;
+      Assert.AreEqual(0, lQuery.Fields[0].AsInteger, lTable + ' rows belong to the parent rowid');
+      lQuery.Close;
+    end;
+    lQuery.SQL.Text := 'select count(*) from ' + lParent + ' where rowid<>' + lOwner;
+    lQuery.Open;
+    Assert.AreEqual(0, lQuery.Fields[0].AsInteger, 'The explicit key aliases rowid');
+    lQuery.Close;
+    // Exercise 64-bit ownership independently of the small semantic UnitId.
+    lConnection.StartTransaction;
+    for lTable in lTables do
+      lConnection.ExecSQL('update ' + lTable + ' set ' + lOwner + '=4294967296');
+    lConnection.ExecSQL('update ' + lParent + ' set ' + lOwner + '=4294967296');
+    lConnection.Commit;
+    // An INTEGER PRIMARY KEY alias remains stable when SQLite compacts the file.
+    lConnection.ExecSQL('vacuum');
+    lQuery.SQL.Text := 'select rowid, ' + lOwner + ' from ' + lParent;
+    lQuery.Open;
+    Assert.AreEqual<Int64>(4294967296, lQuery.Fields[0].AsLargeInt,
+      'The parent rowid survives vacuum without 32-bit narrowing');
+    Assert.AreEqual<Int64>(lQuery.Fields[0].AsLargeInt, lQuery.Fields[1].AsLargeInt);
+    lQuery.Close;
+  finally
+    lQuery.Free;
+    lConnection.Free;
+    lDriverLink.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
+  lLoaded := nil;
+  try
+    if aProject then
+      Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lIdentity, lLoaded))
+    else
+      Assert.IsTrue(lCache.TryLoadUnit(lIdentity, lLoaded));
+    Assert.IsNotNull(lLoaded);
+  finally
+    lLoaded.Free;
+    lCache.Free;
   end;
 end;
 
@@ -1184,7 +1321,7 @@ begin
     try
       lQuery.Connection := lConnection;
       lQuery.SQL.Text := 'select count(*) from ' + aTableName +
-        ' where cache_key = ? and text_value = ?';
+        ' where unit_key = (select unit_key from snapshot_units where cache_key = ?) and text_value = ?';
       lQuery.Params[0].AsWideString := aCacheKey;
       lQuery.Params[1].AsWideString := aTextValue;
       lQuery.Open;
@@ -2947,8 +3084,8 @@ begin
     // A routine symbol without a source scope must still reject the stored facts.
     ExecCacheSql(lCacheFileName,
       'update snapshot_remove_with_symbols set routine_scope_id_id = 0 ' +
-      'where symbol_class_id in (select string_id from snapshot_exact_strings ' +
-      'where snapshot_exact_strings.cache_key = snapshot_remove_with_symbols.cache_key ' +
+      'where symbol_class_id in (select string_id from snapshot_project_exact_strings ' +
+      'where snapshot_project_exact_strings.project_key = snapshot_remove_with_symbols.project_key ' +
       'and text_value in (''local'', ''parameter''))');
     lCache := TDelphiSemanticSnapshotSqliteCache.Create(lCacheFileName);
     try
@@ -3371,8 +3508,9 @@ begin
   ExecCacheSql(lCacheFileName,
     'insert into source_owner_marker(value_text) values (''source-data'')');
   ExecCacheSql(lCacheFileName,
-    'create table old_remove_with_facts as select cache_key, context_fingerprint_id, ' +
-    'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts');
+    'create table old_remove_with_facts as select p.cache_key, context_fingerprint_id, ' +
+    'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts f ' +
+    'join snapshot_project_remove_with_facts p on p.project_key=f.project_key');
   ExecCacheSql(lCacheFileName, 'drop table snapshot_remove_with_facts');
   ExecCacheSql(lCacheFileName,
     'alter table old_remove_with_facts rename to snapshot_remove_with_facts');

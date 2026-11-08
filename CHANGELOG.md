@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- SQLite snapshot child rows use integer ownership keys to reduce cache size and repeated-key work; older storage generations rebuild (DS-793).
+
 - Query symbol and token-reference results preserve captured include filenames and physical ranges through direct models and snapshots. Include position lookup retains unit/routine identity, missing evidence stays unknown, and current disk text never replaces captured source (DS-692).
 
 - Snapshot caching preserves all units when shared Unicode include paths have different case spellings (DS-697).

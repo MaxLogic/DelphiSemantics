@@ -557,13 +557,6 @@ end;
 
 procedure SeedLegacyParentSelectorFacts(const aCacheFileName: string;
   const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity);
-const
-  cProjectFactTables: array[0..8] of string = (
-    'snapshot_exact_strings', 'snapshot_remove_with_facts',
-    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
-    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
-    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
-    'snapshot_remove_with_binding_references');
 var
   lConnection: TFDConnection;
   lDriverLink: TFDPhysSQLiteDriverLink;
@@ -572,8 +565,8 @@ var
   lMissingStatusId: Integer;
   lMissingTypeId: Integer;
   lQuery: TFDQuery;
+  lProjectKey: Int64;
   lRunNestedBindingIndex: Integer;
-  lTableName: string;
 begin
   lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
   lConnection := TFDConnection.Create(nil);
@@ -584,15 +577,20 @@ begin
     lConnection.Params.Values['Database'] := aCacheFileName;
     lConnection.Connected := True;
     lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select project_key from snapshot_project_remove_with_facts where cache_key=:key';
+    lQuery.ParamByName('key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.Open;
+    lProjectKey := lQuery.Fields[0].AsLargeInt;
+    lQuery.Close;
     lQuery.SQL.Text := 'select b.binding_index, s.status_id, s.reason_code_id, ' +
       's.type_name_id from snapshot_remove_with_bindings b ' +
-      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
+      'join snapshot_project_exact_strings r on r.project_key = b.project_key and ' +
       'r.string_id = b.routine_name_id ' +
       'join snapshot_remove_with_binding_selectors s on ' +
-      's.cache_key = b.cache_key and s.binding_index = b.binding_index and ' +
-      's.selector_index = 1 where b.cache_key = :cache_key and ' +
+      's.project_key = b.project_key and s.binding_index = b.binding_index and ' +
+      's.selector_index = 1 where b.project_key = :project_key and ' +
       'r.text_value = :routine';
-    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('project_key').AsLargeInt := lProjectKey;
     lQuery.ParamByName('routine').AsWideString := 'RunUnresolved';
     lQuery.Open;
     Assert.IsFalse(lQuery.Eof, 'Expected unresolved control selector.');
@@ -616,10 +614,6 @@ begin
     try
       if aCurrentIdentity.CacheKey <> aLegacyIdentity.CacheKey then
       begin
-        for lTableName in cProjectFactTables do
-          lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
-            QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
-            QuotedStr(aCurrentIdentity.CacheKey));
         lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
           'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
           ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
@@ -628,8 +622,8 @@ begin
       lConnection.ExecSQL('update snapshot_remove_with_binding_selectors set ' +
         'status_id = ' + IntToStr(lMissingStatusId) + ', reason_code_id = ' +
         IntToStr(lMissingReasonId) + ', type_name_id = ' +
-        IntToStr(lMissingTypeId) + ' where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lMissingTypeId) + ' where project_key = ' +
+        IntToStr(lProjectKey) + ' and binding_index = ' +
         IntToStr(lRunNestedBindingIndex) + ' and selector_index = 1');
       lConnection.Commit;
     except
@@ -648,21 +642,13 @@ procedure SeedLegacySimpleInheritedChildFacts(const aCacheFileName: string;
   const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity;
   const aUnitFileName: string; const aRunALine, aRunAColumn,
   aUnknownLine, aUnknownColumn: Integer);
-const
-  cProjectFactTables: array[0..10] of string = (
-    'snapshot_remove_with_value_evidence',
-    'snapshot_exact_strings', 'snapshot_remove_with_facts',
-    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
-    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
-    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
-    'snapshot_remove_with_binding_references', 'snapshot_remove_with_type_identities');
 var
   lConnection: TFDConnection;
   lDriverLink: TFDPhysSQLiteDriverLink;
   lQuery: TFDQuery;
+  lProjectKey: Int64;
   lRunABindingIndex: Integer;
   lRunAIdentityCount: Integer;
-  lTableName: string;
   lUnknownBindingIndex: Integer;
   lUnknownReasonId: Integer;
   lUnknownStatusId: Integer;
@@ -677,23 +663,28 @@ begin
     lConnection.Params.Values['Database'] := aCacheFileName;
     lConnection.Connected := True;
     lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select project_key from snapshot_project_remove_with_facts where cache_key=:key';
+    lQuery.ParamByName('key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.Open;
+    lProjectKey := lQuery.Fields[0].AsLargeInt;
+    lQuery.Close;
     lQuery.SQL.Text := 'select b.binding_index, s.status_id, ' +
       's.reason_code_id, s.type_name_id from snapshot_remove_with_bindings b ' +
-      'join snapshot_exact_strings f on f.cache_key = b.cache_key and ' +
+      'join snapshot_project_exact_strings f on f.project_key = b.project_key and ' +
       'f.string_id = b.file_name_id ' +
-      'join snapshot_exact_strings u on u.cache_key = b.cache_key and ' +
+      'join snapshot_project_exact_strings u on u.project_key = b.project_key and ' +
       'u.string_id = b.unit_name_id ' +
-      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
+      'join snapshot_project_exact_strings r on r.project_key = b.project_key and ' +
       'r.string_id = b.routine_name_id ' +
-      'join snapshot_exact_strings t on t.cache_key = b.cache_key and ' +
+      'join snapshot_project_exact_strings t on t.project_key = b.project_key and ' +
       't.string_id = b.selector_text_id ' +
       'join snapshot_remove_with_binding_selectors s on ' +
-      's.cache_key = b.cache_key and s.binding_index = b.binding_index and ' +
-      's.selector_index = 1 where b.cache_key = :cache_key and ' +
+      's.project_key = b.project_key and s.binding_index = b.binding_index and ' +
+      's.selector_index = 1 where b.project_key = :project_key and ' +
       'f.text_value = :file_name and u.text_value = ''AUnit'' and ' +
       'r.text_value = :routine and t.text_value = ''Child'' and ' +
       'b.line = :line and b.column = :column';
-    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('project_key').AsLargeInt := lProjectKey;
     lQuery.ParamByName('file_name').AsWideString := aUnitFileName;
     lQuery.ParamByName('routine').AsWideString := 'RunA';
     lQuery.ParamByName('line').AsInteger := aRunALine;
@@ -718,9 +709,9 @@ begin
     lQuery.Close;
     Assert.AreNotEqual(lRunABindingIndex, lUnknownBindingIndex);
     lQuery.SQL.Text := 'select count(*) as identity_count from ' +
-      'snapshot_remove_with_type_identities where cache_key = :cache_key and ' +
+      'snapshot_remove_with_type_identities where project_key = :project_key and ' +
       'entity_kind = ''selector'' and item_index = :binding_index and sub_index = 1';
-    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('project_key').AsLargeInt := lProjectKey;
     lQuery.ParamByName('binding_index').AsInteger := lRunABindingIndex;
     lQuery.Open;
     lRunAIdentityCount := lQuery.FieldByName('identity_count').AsInteger;
@@ -734,10 +725,6 @@ begin
 
     lConnection.StartTransaction;
     try
-      for lTableName in cProjectFactTables do
-        lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
-          QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
-          QuotedStr(aCurrentIdentity.CacheKey));
       lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
         'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
         ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
@@ -745,25 +732,25 @@ begin
       lConnection.ExecSQL('update snapshot_remove_with_binding_selectors set ' +
         'status_id = ' + IntToStr(lUnknownStatusId) + ', reason_code_id = ' +
         IntToStr(lUnknownReasonId) + ', type_name_id = ' +
-        IntToStr(lUnknownTypeId) + ' where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        IntToStr(lUnknownTypeId) + ' where project_key = ' +
+        IntToStr(lProjectKey) + ' and binding_index = ' +
         IntToStr(lRunABindingIndex) + ' and selector_index = 1');
       lConnection.ExecSQL('delete from snapshot_remove_with_type_identities ' +
-        'where cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        'where project_key = ' + IntToStr(lProjectKey) +
         ' and entity_kind = ''selector'' and item_index = ' +
         IntToStr(lRunABindingIndex) + ' and sub_index = 1');
       lConnection.ExecSQL('update snapshot_remove_with_facts set ' +
-        'type_identity_count = type_identity_count - 1 where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey));
+        'type_identity_count = type_identity_count - 1 where project_key = ' +
+        IntToStr(lProjectKey));
       lConnection.ExecSQL('update snapshot_remove_with_bindings set ' +
         'status_id = (select status_id from snapshot_remove_with_bindings ' +
-        'where cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
+        'where project_key = ' + IntToStr(lProjectKey) +
         ' and binding_index = ' + IntToStr(lUnknownBindingIndex) + '), ' +
         'skip_reason_id = (select skip_reason_id from ' +
-        'snapshot_remove_with_bindings where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
-        IntToStr(lUnknownBindingIndex) + ') where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        'snapshot_remove_with_bindings where project_key = ' +
+        IntToStr(lProjectKey) + ' and binding_index = ' +
+        IntToStr(lUnknownBindingIndex) + ') where project_key = ' +
+        IntToStr(lProjectKey) + ' and binding_index = ' +
         IntToStr(lRunABindingIndex));
       lConnection.Commit;
     except
@@ -780,20 +767,13 @@ end;
 
 procedure SeedLegacyReceiverSafetyFacts(const aCacheFileName: string;
   const aCurrentIdentity, aLegacyIdentity: TDelphiSemanticSnapshotCacheIdentity);
-const
-  cProjectFactTables: array[0..8] of string = (
-    'snapshot_exact_strings', 'snapshot_remove_with_facts',
-    'snapshot_remove_with_visibility', 'snapshot_remove_with_visible_units',
-    'snapshot_remove_with_routine_owners', 'snapshot_remove_with_symbols',
-    'snapshot_remove_with_bindings', 'snapshot_remove_with_binding_selectors',
-    'snapshot_remove_with_binding_references');
 var
   lBindingIndex: Integer;
   lConnection: TFDConnection;
   lDriverLink: TFDPhysSQLiteDriverLink;
   lQuery: TFDQuery;
+  lProjectKey: Int64;
   lReasonId: Integer;
-  lTableName: string;
 begin
   lDriverLink := TFDPhysSQLiteDriverLink.Create(nil);
   lConnection := TFDConnection.Create(nil);
@@ -804,13 +784,18 @@ begin
     lConnection.Params.Values['Database'] := aCacheFileName;
     lConnection.Connected := True;
     lQuery.Connection := lConnection;
+    lQuery.SQL.Text := 'select project_key from snapshot_project_remove_with_facts where cache_key=:key';
+    lQuery.ParamByName('key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.Open;
+    lProjectKey := lQuery.Fields[0].AsLargeInt;
+    lQuery.Close;
     lQuery.SQL.Text := 'select b.binding_index from snapshot_remove_with_bindings b ' +
-      'join snapshot_exact_strings r on r.cache_key = b.cache_key and ' +
-      'r.string_id = b.routine_name_id join snapshot_exact_strings s on ' +
-      's.cache_key = b.cache_key and s.string_id = b.selector_text_id ' +
-      'where b.cache_key = :cache_key and r.text_value = :routine and ' +
+      'join snapshot_project_exact_strings r on r.project_key = b.project_key and ' +
+      'r.string_id = b.routine_name_id join snapshot_project_exact_strings s on ' +
+      's.project_key = b.project_key and s.string_id = b.selector_text_id ' +
+      'where b.project_key = :project_key and r.text_value = :routine and ' +
       's.text_value = :selector';
-    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+    lQuery.ParamByName('project_key').AsLargeInt := lProjectKey;
     lQuery.ParamByName('routine').AsWideString := 'Run';
     lQuery.ParamByName('selector').AsWideString := 'Item^';
     lQuery.Open;
@@ -821,29 +806,25 @@ begin
     lQuery.Close;
 
     lQuery.SQL.Text := 'select coalesce(max(string_id), 0) + 1 as next_id ' +
-      'from snapshot_exact_strings where cache_key = :cache_key';
-    lQuery.ParamByName('cache_key').AsWideString := aCurrentIdentity.CacheKey;
+      'from snapshot_project_exact_strings where project_key = :project_key';
+    lQuery.ParamByName('project_key').AsLargeInt := lProjectKey;
     lQuery.Open;
     lReasonId := lQuery.FieldByName('next_id').AsInteger;
     lQuery.Close;
 
     lConnection.StartTransaction;
     try
-      for lTableName in cProjectFactTables do
-        lConnection.ExecSQL('update ' + lTableName + ' set cache_key = ' +
-          QuotedStr(aLegacyIdentity.CacheKey) + ' where cache_key = ' +
-          QuotedStr(aCurrentIdentity.CacheKey));
       lConnection.ExecSQL('update snapshot_project_remove_with_facts set ' +
         'cache_key = ' + QuotedStr(aLegacyIdentity.CacheKey) +
         ', schema_version = ' + QuotedStr(aLegacyIdentity.SchemaVersion) +
         ' where cache_key = ' + QuotedStr(aCurrentIdentity.CacheKey));
-      lConnection.ExecSQL('insert into snapshot_exact_strings ' +
-        '(cache_key, string_id, text_value) values (' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ', ' + IntToStr(lReasonId) +
+      lConnection.ExecSQL('insert into snapshot_project_exact_strings ' +
+        '(project_key, string_id, text_value) values (' +
+        IntToStr(lProjectKey) + ', ' + IntToStr(lReasonId) +
         ', ''MEMBERS_INCOMPLETE'')');
       lConnection.ExecSQL('update snapshot_remove_with_bindings set ' +
-        'skip_reason_id = ' + IntToStr(lReasonId) + ' where cache_key = ' +
-        QuotedStr(aLegacyIdentity.CacheKey) + ' and binding_index = ' +
+        'skip_reason_id = ' + IntToStr(lReasonId) + ' where project_key = ' +
+        IntToStr(lProjectKey) + ' and binding_index = ' +
         IntToStr(lBindingIndex));
       lConnection.Commit;
     except
@@ -5502,8 +5483,8 @@ begin
       'implementation'#13#10'end.', TEncoding.ASCII)
   else if aCheck = 'legacy' then
     ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
-      'delete from snapshot_target_lineage where cache_key in ' +
-      '(select cache_key from snapshot_units where source_file_name like ''%CSecond.pas'')')
+      'delete from snapshot_target_lineage where unit_key in ' +
+      '(select unit_key from snapshot_units where source_file_name like ''%CSecond.pas'')')
   else if aCheck = 'bad-slot' then
     ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
       'update snapshot_references set target_symbol_id = 999999 where target_unit_id <> 0')
