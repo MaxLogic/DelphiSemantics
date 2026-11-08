@@ -53,6 +53,12 @@ type
     procedure ObservationMergeOrderIsDeterministic;
     [Test]
     [Category('RefactoringLightObservations,Fast')]
+    procedure DirectoryObservationRetainsImmediateUnitNameSet;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
+    procedure ObservationLookupRetainsFirstSortedMatch;
+    [Test]
+    [Category('RefactoringLightObservations,Fast')]
     [TestCase('New source', '.pas')]
     [TestCase('New binary', '.dcu')]
     procedure AlternateUnitDirectoryRejectsNewCandidate(const aExtension: string);
@@ -385,6 +391,48 @@ begin
   Assert.AreEqual(lForward.Items[0].FileName, lReverse.Items[0].FileName);
   Assert.AreEqual(lForward.Items[1].FileName, lReverse.Items[1].FileName);
   Assert.AreEqual(lPath, lForward.Items[0].FileName);
+end;
+
+procedure TSourceLoaderTests.DirectoryObservationRetainsImmediateUnitNameSet;
+var
+  lPath, lChild: string;
+  lNames: TArray<string>;
+  lDirectory: TDelphiSemanticSourceText;
+begin
+  lPath := ObservationPath('Zeta.pas');
+  WriteUtf8Bytes(lPath, 'unit source');
+  WriteUtf8Bytes(TPath.Combine(ExtractFilePath(lPath), 'Alpha.dcu'), 'unit binary');
+  WriteUtf8Bytes(TPath.Combine(ExtractFilePath(lPath), 'Ignore.pas.bak'), 'backup');
+  lChild := TPath.Combine(ExtractFilePath(lPath), 'Nested.pas');
+  TDirectory.CreateDirectory(lChild);
+  WriteUtf8Bytes(TPath.Combine(lChild, 'Hidden.pas'), 'nested source');
+  lDirectory := TDelphiSemanticSourceEvidence.UnitDirectoryObservation(ExtractFilePath(lPath), lNames);
+  Assert.AreEqual('alpha.dcu|zeta.pas', string.Join('|', lNames));
+  Assert.AreEqual(THashSHA2.GetHashString('present' + #10 + 'alpha.dcu' + #10 + 'zeta.pas'),
+    lDirectory.ContentHash);
+end;
+
+procedure TSourceLoaderTests.ObservationLookupRetainsFirstSortedMatch;
+var
+  lPath: string;
+  lFirst, lSecond, lFound: TDelphiSemanticSourceText;
+  lEvidence: IDelphiSemanticSourceObservations;
+begin
+  lPath := ObservationPath('Lookup.pas');
+  lFirst := Default(TDelphiSemanticSourceText);
+  lFirst.FileName := UpperCase(lPath);
+  lFirst.Text := 'first in ordinal order';
+  lSecond := lFirst;
+  lSecond.FileName := LowerCase(lPath);
+  lSecond.Text := 'later in ordinal order';
+  lEvidence := TDelphiSemanticSourceEvidence.FromItems([lSecond, lFirst]);
+  Assert.AreEqual(2, lEvidence.Count);
+  Assert.IsTrue(lEvidence.TryFind(lPath, lFound));
+  Assert.AreEqual(lEvidence.Items[0].FileName, lFound.FileName);
+  Assert.AreEqual('first in ordinal order', lFound.Text);
+  Assert.IsFalse(lEvidence.TryFind(lPath + '.missing', lFound));
+  Assert.AreEqual('', lFound.FileName);
+  Assert.AreEqual('', lFound.Text);
 end;
 
 procedure TSourceLoaderTests.RepeatedPreprocessDoesNotRetainEarlierObservations;

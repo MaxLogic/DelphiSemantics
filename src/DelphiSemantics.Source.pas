@@ -56,15 +56,17 @@ implementation
 
 uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash,
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.Masks, System.SysUtils,
   AutoFree, MaxLogic.StrUtils;
 
 type
   TSourceObservations = class(TInterfacedObject, IDelphiSemanticSourceObservations)
   private
     fItems: TArray<TDelphiSemanticSourceText>;
+    fItemIndex: TDictionary<string, Integer>;
   public
     constructor Create(const aItems: TArray<TDelphiSemanticSourceText>);
+    destructor Destroy; override;
     function GetCount: Integer;
     function GetItem(const aIndex: Integer): TDelphiSemanticSourceText;
     function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
@@ -75,7 +77,9 @@ type
 class function TDelphiSemanticSourceEvidence.UnitDirectoryObservation(const aDirectory: string;
   out aFileNames: TArray<string>): TDelphiSemanticSourceText;
 var
+  g: TGarbos;
   i: Integer;
+  lDcuMask, lPasMask: TMask;
   lFiles: TArray<string>;
   lIdentity: string;
 begin
@@ -86,8 +90,16 @@ begin
   lIdentity := 'missing';
   if TDirectory.Exists(Result.FileName) then
   begin
-    lFiles := TDirectory.GetFiles(Result.FileName, '*.pas') +
-      TDirectory.GetFiles(Result.FileName, '*.dcu');
+    g := Default(TGarbos);
+    GC(lPasMask, TMask.Create('*.pas'), g);
+    GC(lDcuMask, TMask.Create('*.dcu'), g);
+    // '*.*' takes the RTL's match-all fast path. Reuse its exact unit masks
+    // across one immediate-directory walk; the sorted witness is unchanged.
+    lFiles := TDirectory.GetFiles(Result.FileName, '*.*', TSearchOption.soTopDirectoryOnly,
+      function(const aPath: string; const aSearchRec: TSearchRec): Boolean
+      begin
+        Result := lPasMask.Matches(aSearchRec.Name) or lDcuMask.Matches(aSearchRec.Name);
+      end);
     SetLength(aFileNames, Length(lFiles));
     for i := 0 to High(lFiles) do
       aFileNames[i] := LowerCase(ExtractFileName(lFiles[i]));
@@ -99,6 +111,7 @@ end;
 
 constructor TSourceObservations.Create(const aItems: TArray<TDelphiSemanticSourceText>);
 var
+  i: Integer;
   lPathComparer: IComparer<string>;
 begin
   inherited Create;
@@ -111,6 +124,17 @@ begin
         Result := lPathComparer.Compare(aLeft.FileName,
           aRight.FileName);
       end));
+  fItemIndex := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  // Preserve the first ordinal-sorted observation for case-insensitive duplicates.
+  for i := 0 to High(fItems) do
+    if not fItemIndex.ContainsKey(fItems[i].FileName) then
+      fItemIndex.Add(fItems[i].FileName, i);
+end;
+
+destructor TSourceObservations.Destroy;
+begin
+  fItemIndex.Free;
+  inherited;
 end;
 
 function TSourceObservations.GetCount: Integer;
@@ -126,18 +150,14 @@ end;
 function TSourceObservations.TryFind(const aFileName: string;
   out aSource: TDelphiSemanticSourceText): Boolean;
 var
-  lItem: TDelphiSemanticSourceText;
+  lIndex: Integer;
   lFileName: string;
 begin
   aSource := Default(TDelphiSemanticSourceText);
   lFileName := TPath.GetFullPath(aFileName);
-  for lItem in fItems do
-    if TFastCaseAwareComparer.OrdinalIgnoreCase.Equals(lItem.FileName, lFileName) then
-    begin
-      aSource := lItem;
-      Exit(True);
-    end;
-  Result := False;
+  Result := fItemIndex.TryGetValue(lFileName, lIndex);
+  if Result then
+    aSource := fItems[lIndex];
 end;
 
 class function TDelphiSemanticSourceEvidence.FromItems(

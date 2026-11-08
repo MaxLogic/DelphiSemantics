@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Source evidence checks reuse compiled PAS/DCU masks in one directory walk and index immutable observations, preserving witness hashes and lookup ordering (DAK-489).
+
 - Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
 
 - Rename checks inactive old/new-name tokens, retains import/helper uncertainty inside WITH, and refuses project-unit selection changes across configurations, platforms and namespaces (DS-791).
