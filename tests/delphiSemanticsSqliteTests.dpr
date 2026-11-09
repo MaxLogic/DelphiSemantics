@@ -29,6 +29,7 @@ uses
   DelphiSemantics.Query in '..\src\DelphiSemantics.Query.pas',
   DelphiSemantics.Refactor in '..\src\DelphiSemantics.Refactor.pas',
   DelphiSemantics.RemoveWith.Visibility in '..\src\DelphiSemantics.RemoveWith.Visibility.pas',
+  DelphiSemantics.Rename.Preparation in '..\src\DelphiSemantics.Rename.Preparation.pas',
   DelphiSemantics.Resolve in '..\src\DelphiSemantics.Resolve.pas',
   DelphiSemantics.Resolve.MemberResolver in '..\src\DelphiSemantics.Resolve.MemberResolver.pas',
   DelphiSemantics.Resolve.ScopeResolver in '..\src\DelphiSemantics.Resolve.ScopeResolver.pas',

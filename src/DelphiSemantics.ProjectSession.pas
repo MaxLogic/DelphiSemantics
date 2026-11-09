@@ -207,6 +207,11 @@ type
       TDelphiSemanticSessionInvalidationPlan;
     class function Open(const aOptions: TDelphiSemanticOptions):
       TDelphiSemanticProjectSessionResult; static;
+    // Command preparation reuses the exact ordinary project roots/options.
+    // Neither accessor builds or admits a semantic snapshot.
+    procedure RequireRenamePreparationCurrent;
+    function RenamePreparationModelOptions: TDelphiSemanticModelOptions;
+    function RenamePreparationSourceFileNames: TArray<string>;
     property Diagnostics: TArray<TDelphiSemanticDiagnostic> read fDiagnostics;
     property LastRemoveWithFactsAndPlanBuildMetrics:
       TDelphiSemanticRemoveWithFactsAndPlanBuildMetrics
@@ -328,6 +333,12 @@ begin
   ApplyProjectMainUnitName(aProject, Result);
 end;
 
+function TDelphiSemanticProjectSession.RenamePreparationModelOptions:
+  TDelphiSemanticModelOptions;
+begin
+  Result := MainModelOptions(fProject);
+end;
+
 function CacheOptionsFromSessionOptions(const aOptions: TDelphiSemanticOptions):
   TDelphiSemanticCacheOptions;
 begin
@@ -438,6 +449,11 @@ begin
     lSeen.Free;
     lFiles.Free;
   end;
+end;
+
+function TDelphiSemanticProjectSession.RenamePreparationSourceFileNames: TArray<string>;
+begin
+  Result := ProjectModelFileNames(fProject);
 end;
 
 // Typed import activity belongs to the selected source coordinates. A guarded
@@ -1095,6 +1111,11 @@ begin
         (THashSHA2.GetHashStringFromFile(lItem.FileName) <> lItem.ContentHash) then
         raise EInvalidOpException.Create('PLANNING_CACHE_CONTEXT_CHANGED: ' + lItem.FileName);
   end;
+end;
+
+procedure TDelphiSemanticProjectSession.RequireRenamePreparationCurrent;
+begin
+  RequireCombinedProjectCurrent(fProject);
 end;
 
 procedure RequireCombinedModelsCurrent(const aModels: TArray<TDelphiSemanticUnitModel>);

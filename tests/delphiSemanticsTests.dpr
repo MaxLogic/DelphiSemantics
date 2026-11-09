@@ -58,6 +58,7 @@ uses
   DelphiSemantics.Refactor.UnitOrder in '..\src\DelphiSemantics.Refactor.UnitOrder.pas',
   DelphiSemantics.Refactor.UsesPlanner in '..\src\DelphiSemantics.Refactor.UsesPlanner.pas',
   DelphiSemantics.RemoveWith.Visibility in '..\src\DelphiSemantics.RemoveWith.Visibility.pas',
+  DelphiSemantics.Rename.Preparation in '..\src\DelphiSemantics.Rename.Preparation.pas',
   DelphiSemantics.RemoveWithPlan in '..\src\DelphiSemantics.RemoveWithPlan.pas',
   DelphiSemantics.RemoveWithPlan.FinalBodyRenderer in '..\src\DelphiSemantics.RemoveWithPlan.FinalBodyRenderer.pas',
   DelphiSemantics.RemoveWithPlan.FinalRewrite in '..\src\DelphiSemantics.RemoveWithPlan.FinalRewrite.pas',
