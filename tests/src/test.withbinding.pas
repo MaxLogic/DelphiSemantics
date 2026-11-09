@@ -1839,7 +1839,7 @@ begin
       on E: EDelphiSemanticWithInventoryBudget do
       begin
         lRefused := True;
-        Assert.IsTrue(ContainsText(E.Message, 'count=3'), E.Message);
+        Assert.IsTrue(ContainsText(E.Message, 'exceeded at 3 records (total not measured)'), E.Message);
       end;
     end;
     Assert.IsTrue(lRefused, 'Expansion must admit newly inherited symbols');
@@ -1868,7 +1868,7 @@ begin
       begin
         lRefused := True;
         Assert.IsTrue(ContainsText(E.Message, 'limit=7'), E.Message);
-        Assert.IsTrue(ContainsText(E.Message, 'count=8'), E.Message);
+        Assert.IsTrue(ContainsText(E.Message, 'exceeded at 8 records (total not measured)'), E.Message);
       end;
     end;
     Assert.IsTrue(lRefused, 'Per-unit admission must include prior project inventory');
@@ -1899,7 +1899,7 @@ begin
     begin
       lRefused := True;
       Assert.IsTrue(ContainsText(E.Message, 'limit=2 records'), E.Message);
-      Assert.IsTrue(ContainsText(E.Message, 'count=3 records'), E.Message);
+      Assert.IsTrue(ContainsText(E.Message, 'exceeded at 3 records (total not measured)'), E.Message);
       Assert.IsTrue(ContainsText(E.Message, 'cached combined inventory'), E.Message);
     end;
   end;

@@ -40,6 +40,8 @@ type
     PersistentConnectionOpenCount: Integer;
     SnapshotCacheProbes: Integer;
     SnapshotSqlWriteMilliseconds: Int64;
+    // Streamed planning-symbol reads time Open here; subsequent row fetches
+    // run in the decoding loop outside this counter (DAK-491).
     SnapshotSqlReadMilliseconds: Int64;
     SnapshotDeserializeMilliseconds: Int64;
     SnapshotIndexRebuildMilliseconds: Int64;

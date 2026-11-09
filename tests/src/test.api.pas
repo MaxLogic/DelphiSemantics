@@ -79,6 +79,8 @@ type
     procedure WithInventoryBudgetRefusesIncompletePlan(const aCached: Boolean);
     [Test]
     procedure WithInventoryBudgetAppliesToPrimaryCache;
+    [Test]
+    procedure CompatibilityPlanBudgetReturnsBlockedResult;
   end;
 
 implementation
@@ -758,6 +760,30 @@ begin
     'Remove-with request scope must still preserve declarations from loaded sources.');
 end;
 
+procedure TApiTests.CompatibilityPlanBudgetReturnsBlockedResult;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lPlan: DelphiSemantics.Api.RemoveWith.Compatibility.TDelphiSemanticRemoveWithPlan;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.RemoveWithOptions.RecordLimit := 1;
+  try
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lRequest);
+  except
+    on E: Exception do
+      Assert.Fail('Budget exception escaped the plan API: ' + E.ClassName + ': ' + E.Message);
+  end;
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('remove-with', lPlan.Operation);
+  Assert.AreEqual(1, Integer(Length(lPlan.Diagnostics)));
+  Assert.AreEqual('WITH_INVENTORY_BUDGET_EXCEEDED', lPlan.Diagnostics[0].Code);
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'coverage is incomplete'), lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Statements)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
 procedure TApiTests.WithInventoryBudgetAppliesToPrimaryCache;
 var
   lRequest: TDelphiSemanticRemoveWithRequest;
@@ -831,7 +857,7 @@ begin
   Assert.AreEqual('blocked', lActual.Plan.Status);
   Assert.AreEqual('WITH_INVENTORY_BUDGET_EXCEEDED', lActual.Diagnostics[0].Code);
   Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'limit=128'));
-  Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'count=129'));
+  Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'exceeded at 129 records (total not measured)'));
   Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'coverage is incomplete'));
   Assert.AreEqual(0, Integer(Length(lActual.Facts.Symbols)));
   Assert.AreEqual(0, Integer(Length(lActual.Facts.Bindings)));

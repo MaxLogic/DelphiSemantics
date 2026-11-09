@@ -117,7 +117,9 @@ current isolation and retained-producer comparison.
 
 WITH binding and planning default to 1,000,000 admitted inventory records across
 the project and expansion. Exceeding that limit raises a native
-`WITH_INVENTORY_BUDGET_EXCEEDED` refusal with the count and incomplete coverage;
+`WITH_INVENTORY_BUDGET_EXCEEDED` refusal naming the limit, the record at which
+it was exceeded, and incomplete coverage. The project total is not measured;
+the threshold crossing does not identify a sufficient override;
 API remove-with results are blocked and contain no partial plan. Set the
 remove-with request option `RecordLimit` (or session `WithInventoryRecordLimit`)
 to a positive count to override it; zero selects the default. Cache replay obeys
@@ -126,4 +128,12 @@ Memory grows with the override. The default uses a 4 KiB per-record planning
 estimate (3.81 GiB): a measured 576-byte Win64 record plus resident copies, list
 capacity, strings, keys and indexes. This is not a hard byte cap; long strings
 and the rest of the project require additional memory. DAK exposes the override
-as `--with-inventory-record-limit <positive N>`.
+as `--with-inventory-record-limit <positive N>`. MaxTdb's admitted peak is
+54,876 records (5.49% of the default), including compatibility additions and
+expansion; the per-unit projection is smaller than the budgeted inventory.
+
+For streamed WITH planning-symbol rows, `SnapshotSqlReadMilliseconds` now times
+query `Open` only. Subsequent row fetches run in the iteration/decoding loop
+outside that counter; this counter no longer includes a preceding `FetchAll`
+for these rows. Other queries retain their existing timing boundaries. Compare
+this metric across versions only with that change in scope accounted for.

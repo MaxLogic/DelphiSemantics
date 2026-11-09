@@ -39,7 +39,8 @@ begin
   lLimit := WithInventoryRecordLimit(aLimit);
   if aCount > lLimit then
     raise EDelphiSemanticWithInventoryBudget.CreateFmt(
-      '%s: limit=%d records, count=%d records at %s; whole-project coverage is incomplete. ' +
+      '%s: limit=%d records, exceeded at %d records (total not measured) at %s; ' +
+      'whole-project coverage is incomplete. ' +
       'No partial plan is available. Raise the explicit record limit only with sufficient memory.',
       [cWithInventoryBudgetExceeded, lLimit, aCount, aStage]);
 end;

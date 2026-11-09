@@ -506,17 +506,27 @@ end;
 class function TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(
   const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticRemoveWithPlan;
 var
+  lFailure: TDelphiSemanticRemoveWithCombinedResult;
   lSession: TDelphiSemanticProjectSessionResult;
 begin
-  lSession := OpenProjectSession(aRequest);
   try
-    if (not lSession.Success) or (lSession.Session = nil) then
-      Exit(PlanSessionFailure(lSession));
+    lSession := OpenProjectSession(aRequest);
+    try
+      if (not lSession.Success) or (lSession.Session = nil) then
+        Exit(PlanSessionFailure(lSession));
 
-    Result := lSession.Session.PlanRemoveWith(aRequest.BodyAnalysisSourceFileNames);
-    Result.Diagnostics := Copy(lSession.Diagnostics);
-  finally
-    lSession.Session.Free;
+      Result := lSession.Session.PlanRemoveWith(aRequest.BodyAnalysisSourceFileNames);
+      Result.Diagnostics := Copy(lSession.Diagnostics);
+    finally
+      lSession.Session.Free;
+    end;
+  except
+    on E: EDelphiSemanticWithInventoryBudget do
+    begin
+      lFailure := CombinedFailure(cWithInventoryBudgetExceeded, E.Message,
+        aRequest.Options.ProjectFileName);
+      Result := lFailure.Plan;
+    end;
   end;
 end;
 

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- WITH inventory refusals identify the threshold crossing without claiming a measured project total; compatibility planning returns a blocked result, and native-evidence renewal stops on budget refusal (DAK-491).
+
 - WITH binding/planning refuses incomplete project inventories above the native one-million-record default, including cache replay; an explicit record-limit override is available with proportionally higher memory use (DAK-491).
 
 - Unit extraction indexes lexical scope and declaration candidates and shares the immutable source buffer between routine-header readers, reducing repeated work on large units while preserving model contents (DAK-491).
