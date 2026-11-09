@@ -226,7 +226,7 @@ uses
   Winapi.Windows,
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
-  DelphiSemantics.IdentifierScope, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.IdentifierScope, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.Snapshot.Builder,
   {$IFNDEF DS_PROJECT_SESSION_TEST_SUPPORT}
   DelphiSemantics.Snapshot.Cache.Sqlite,
@@ -432,6 +432,35 @@ begin
     lSeen.Free;
     lFiles.Free;
   end;
+end;
+
+// Typed import activity belongs to the selected source coordinates. A guarded
+// active import has an empty Cause even when Unconditional is false. Unknown
+// activity is retained conservatively, without supplying a native certificate.
+procedure AppendAnalysisImports(const aFacts: TArray<TDelphiSemanticImportFact>;
+  const aFiles: TList<string>; const aSeen: THashSet<string>);
+var
+  lFact: TDelphiSemanticImportFact;
+  lFileName: string;
+begin
+  for lFact in aFacts do
+    if not lFact.SdkBoundary and (lFact.TargetFileName <> '') and
+      (lFact.Cause <> 'occurrence-in-inactive-configuration') and
+      SameText(TPath.GetExtension(lFact.TargetFileName), '.pas') then
+    begin
+      lFileName := TPath.GetFullPath(lFact.TargetFileName);
+      if aSeen.Add(lFileName) then
+        aFiles.Add(lFileName);
+    end;
+end;
+
+function ModelSourceFileNames(const aModels: TArray<TDelphiSemanticUnitModel>): TArray<string>;
+var
+  i: Integer;
+begin
+  SetLength(Result, Length(aModels));
+  for i := 0 to High(aModels) do
+    Result[i] := aModels[i].FileName;
 end;
 
 function DependencyGraphSearchPaths(const aProject: TDelphiSemanticProjectInfo): TArray<string>; forward;
@@ -766,15 +795,17 @@ function BuildProjectUnitCacheIdentities(const aProject: TDelphiSemanticProjectI
   TArray<TDelphiSemanticUnitCacheIdentity>;
 var
   i: Integer;
-  lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
+  lBodyAnalysisSourceFiles, lEditSourceFiles: TDictionary<string, Byte>;
   lCache: TDelphiSemanticUnitCache;
   lOptions: TDelphiSemanticModelOptions;
   lSkipBodyAnalysis: TArray<Boolean>;
 begin
   lBodyAnalysisSourceFiles := nil;
+  lEditSourceFiles := nil;
   lCache := nil;
   try
     lBodyAnalysisSourceFiles := ScopedSourceFileSet(aScopedSourceFileNames);
+    lEditSourceFiles := ScopedSourceFileSet(ProjectModelFileNames(aProject));
     lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(aOptions));
     lOptions := MainModelOptions(aProject);
     lOptions.SelectedConfigurationOnly := aSelectedConfigurationOnly;
@@ -782,12 +813,16 @@ begin
     for i := 0 to High(aSourceFileNames) do
     begin
       lSkipBodyAnalysis[i] := Assigned(lBodyAnalysisSourceFiles) and
+        lEditSourceFiles.ContainsKey(aSourceFileNames[i]) and
         (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
+      if aSelectedConfigurationOnly and not lEditSourceFiles.ContainsKey(aSourceFileNames[i]) then
+        lSkipBodyAnalysis[i] := True;
     end;
     Result := lCache.BuildIdentities(lOptions, aSourceFileNames, lSkipBodyAnalysis);
   finally
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;
+    lEditSourceFiles.Free;
   end;
 end;
 
@@ -843,7 +878,9 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   const aSelectedConfigurationOnly: Boolean = False):
   TProjectModelExtractionResult; overload;
 var
-  lBodyAnalysisSourceFiles: TDictionary<string, Byte>;
+  lBodyAnalysisSourceFiles, lEditSourceFiles: TDictionary<string, Byte>;
+  lFiles: TList<string>;
+  lSeen: THashSet<string>;
   lCache: TDelphiSemanticUnitCache;
   lCacheOptions: TDelphiSemanticCacheOptions;
   i: Integer;
@@ -855,6 +892,9 @@ var
   lStopwatch: TStopwatch;
 begin
   lBodyAnalysisSourceFiles := nil;
+  lEditSourceFiles := nil;
+  lFiles := nil;
+  lSeen := nil;
   lModels := nil;
   lCache := nil;
   Result := Default(TProjectModelExtractionResult);
@@ -875,7 +915,12 @@ begin
       lCache.ProjectContextFingerprint := aProject.ContextFingerprint;
     end;
 
-    SetLength(Result.CacheIdentities, Length(aSourceFileNames));
+    lEditSourceFiles := ScopedSourceFileSet(ProjectModelFileNames(aProject));
+    lFiles := TList<string>.Create;
+    lSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    for lFileName in aSourceFileNames do
+      if lSeen.Add(lFileName) then
+        lFiles.Add(lFileName);
     if aUseScopedSourceFileNames then
     begin
       lBodyAnalysisSourceFiles := TDictionary<string, Byte>.Create(
@@ -885,17 +930,30 @@ begin
           lBodyAnalysisSourceFiles.AddOrSetValue(TPath.GetFullPath(lFileName), 1);
     end;
     lModels := TList<TDelphiSemanticUnitModel>.Create;
-    for i := 0 to High(aSourceFileNames) do
+    i := 0;
+    while i < lFiles.Count do
     begin
       lSkipBodyAnalysis := Assigned(lBodyAnalysisSourceFiles) and
-        (not lBodyAnalysisSourceFiles.ContainsKey(aSourceFileNames[i]));
-      lModel := ExtractProjectUnitModel(aProject, aSourceFileNames[i], lCache,
+        lEditSourceFiles.ContainsKey(lFiles[i]) and
+        (not lBodyAnalysisSourceFiles.ContainsKey(lFiles[i]));
+      // Imported WITH units supply declarations, never additional rewrite sites.
+      if aSelectedConfigurationOnly and not lEditSourceFiles.ContainsKey(lFiles[i]) then
+        lSkipBodyAnalysis := True;
+      lModel := ExtractProjectUnitModel(aProject, lFiles[i], lCache,
         lSkipBodyAnalysis, lIdentity, aSelectedConfigurationOnly);
+      SetLength(Result.CacheIdentities, i + 1);
       Result.CacheIdentities[i] := lIdentity;
+      lModel.AnalysisOnly := not lEditSourceFiles.ContainsKey(lFiles[i]);
       if (i = 0) and (lModel.Success) and (lModel.UnitName = '') and
         SameText(lModel.FileName, aProject.MainSourceFileName) then
         lModel.UnitName := aProject.ProjectName;
       lModels.Add(lModel);
+      // Selected WITH facts are a separate, established proof projection.
+      // Retention in the general analysis index does not certify extra units
+      // for helper absence, capture types or rewrite admission.
+      if not aSelectedConfigurationOnly then
+        AppendAnalysisImports(lModel.ImportFacts, lFiles, lSeen);
+      Inc(i);
     end;
 
     if ModelObservationOwner(aOptions) <> nil then
@@ -914,6 +972,9 @@ begin
     lCache.Free;
     lBodyAnalysisSourceFiles.Free;
     lModels.Free;
+    lSeen.Free;
+    lFiles.Free;
+    lEditSourceFiles.Free;
   end;
 end;
 
@@ -967,6 +1028,7 @@ var
 begin
   lFiles := ProjectModelFileNames(aProject);
   lExtraction := ExtractSelectedConfigurationModels(aProject, aOptions, lFiles, [], False);
+  lFiles := ModelSourceFileNames(lExtraction.Models);
   lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
     TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
       aOptions.RsVarsPath));
@@ -1216,6 +1278,7 @@ begin
     Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True, True);
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
+  lFiles := ModelSourceFileNames(lExtraction.Models);
 
   lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(aProject, lExtraction.Models,
     TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
@@ -1317,7 +1380,9 @@ var
 begin
   Result := Default(TDelphiSemanticUnitModel);
   for lModel in aModels do
-    if not lModel.Success then
+    // Analysis-input failures are persisted as named snapshot refusals. They
+    // must not replace the editable project context with a failed library model.
+    if not lModel.Success and not lModel.AnalysisOnly then
     begin
       Result := lModel;
       Exit;
@@ -1822,12 +1887,19 @@ function TDelphiSemanticProjectSession.BuildGlobalAnalysis(out aCacheIdentities:
   out aExtractionMilliseconds: Int64): TDelphiSemanticGlobalAnalysis;
 var
   lSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult;
+  lSourceFileNames: TArray<string>;
+  i: Integer;
 begin
-  aCacheIdentities := BuildGlobalCacheIdentities;
   aCacheMetrics := Default(TDelphiSemanticCacheMetrics);
   aExtractionMilliseconds := 0;
   lSnapshotResult := BuildSnapshotResult;
   try
+    SetLength(lSourceFileNames, lSnapshotResult.Snapshot.UnitCount);
+    for i := 0 to High(lSourceFileNames) do
+      lSourceFileNames[i] := lSnapshotResult.Snapshot.TextOf(
+        lSnapshotResult.Snapshot.UnitByIndex(i).FileNameId);
+    aCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
+      lSourceFileNames, []);
     aExtractionMilliseconds :=
       lSnapshotResult.Metrics.SnapshotBuilderParseExtractMilliseconds +
       lSnapshotResult.Metrics.SnapshotCacheUnitBuildMilliseconds;
@@ -1842,24 +1914,11 @@ end;
 function TDelphiSemanticProjectSession.BuildGlobalCacheIdentities:
   TArray<TDelphiSemanticUnitCacheIdentity>;
 var
-  i: Integer;
-  lCache: TDelphiSemanticUnitCache;
-  lOptions: TDelphiSemanticModelOptions;
-  lSourceFileNames: TArray<string>;
+  lExtraction: TProjectModelExtractionResult;
 begin
-  lCache := TDelphiSemanticUnitCache.Create(CacheOptionsFromSessionOptions(fOptions));
-  try
-    lOptions := MainModelOptions(fProject);
-    lSourceFileNames := ProjectModelFileNames(fProject);
-    SetLength(Result, Length(lSourceFileNames));
-    for i := 0 to High(lSourceFileNames) do
-    begin
-      lOptions.SourceFileName := lSourceFileNames[i];
-      Result[i] := lCache.BuildIdentity(lOptions);
-    end;
-  finally
-    lCache.Free;
-  end;
+  lExtraction := ExtractProjectModels(fProject, fOptions, ProjectModelFileNames(fProject),
+    [], False);
+  Result := lExtraction.CacheIdentities;
 end;
 
 function TDelphiSemanticProjectSession.BuildDependencyGraph:
@@ -2005,7 +2064,10 @@ begin
     for i := 1 to High(lExtraction.Models) do
     begin
       Result.IndexedUnitModels[i - 1] := lExtraction.Models[i];
-      Result.IndexedUnitSourceKinds[i - 1] := 'project-source';
+      if lExtraction.Models[i].AnalysisOnly then
+        Result.IndexedUnitSourceKinds[i - 1] := 'analysis-source'
+      else
+        Result.IndexedUnitSourceKinds[i - 1] := 'project-source';
     end;
   end;
 end;
@@ -2075,6 +2137,11 @@ function TDelphiSemanticProjectSession.BuildSnapshotResult(
 var
   lSnapshotCacheIdentities: TArray<TDelphiSemanticSnapshotCacheIdentity>;
   lSnapshotCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lClosureFiles: TList<string>;
+  lClosureSeen: THashSet<string>;
+  lClosureFile: string;
+  lNewIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lCacheHadPartialHit: Boolean;
   lCacheMetrics, lPreviousCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
@@ -2141,46 +2208,73 @@ begin
     SetLength(lUnitSnapshots, Length(lSourceFileNames));
     lLoadedAllUnits := True;
     lLoadedAnyUnit := False;
-    SetLength(lSnapshotCacheIdentities, Length(lSourceFileNames));
-    for i := 0 to High(lSourceFileNames) do
-      lSnapshotCacheIdentities[i] := SnapshotCacheIdentityForUnit(fProject, fOptions,
-        lSourceFileNames[i], lUnitCacheIdentities[i], 0);
-    lSnapshotCache := TDelphiSemanticSnapshotSqliteCache.Create(fOptions.SqliteCacheFileName);
+    lClosureFiles := TList<string>.Create;
+    lClosureSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lSnapshotCache := nil;
     try
-      lSnapshotCache.BeginUnitLoadBatch(lSnapshotCacheIdentities);
-      lPreviousCacheMetrics := Default(TDelphiSemanticSnapshotCacheMetrics);
-      try
-        for i := 0 to High(lSourceFileNames) do
+      for lClosureFile in lSourceFileNames do
+      begin
+        lClosureFiles.Add(lClosureFile);
+        lClosureSeen.Add(lClosureFile);
+      end;
+      lSnapshotCache := TDelphiSemanticSnapshotSqliteCache.Create(fOptions.SqliteCacheFileName);
+      i := 0;
+      while i < lClosureFiles.Count do
+      begin
+        if Length(lSourceFileNames) < lClosureFiles.Count then
         begin
-          lCacheSnapshot := nil;
-          if lSnapshotCache.TryLoadUnit(lSnapshotCacheIdentities[i], lCacheSnapshot) then
-          begin
-            lUnitSnapshots[i] := lCacheSnapshot;
-            lLoadedAnyUnit := True;
-          end else begin
-            lCacheSnapshot.Free;
-            lLoadedAllUnits := False;
-            SetLength(lMissingSourceFileNames, Length(lMissingSourceFileNames) + 1);
-            lMissingSourceFileNames[High(lMissingSourceFileNames)] := lSourceFileNames[i];
-          end;
-          if lSnapshotCache.LastInvalidationReason <> '' then
-            fDiagnostics := fDiagnostics + [SnapshotCacheDiagnostic('SNAPSHOT_CACHE_ENTRY_INVALID',
-              lSnapshotCache.LastInvalidationReason, lSourceFileNames[i],
-              TDelphiSemanticDiagnosticSeverity.dsWarning)];
-          lCacheMetrics := lSnapshotCache.Metrics;
-          // Connection counters are cumulative; per-probe timings reset on load.
-          Dec(lCacheMetrics.CacheHits, lPreviousCacheMetrics.CacheHits);
-          Dec(lCacheMetrics.CacheMisses, lPreviousCacheMetrics.CacheMisses);
-          Dec(lCacheMetrics.Invalidations, lPreviousCacheMetrics.Invalidations);
-          Dec(lCacheMetrics.SnapshotCacheProbes, lPreviousCacheMetrics.SnapshotCacheProbes);
-          lPreviousCacheMetrics := lSnapshotCache.Metrics;
-          AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
+          lSourceFileNames := lClosureFiles.ToArray;
+          lNewIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
+            Copy(lSourceFileNames, Length(lUnitCacheIdentities), MaxInt), aScopedSourceFileNames);
+          lUnitCacheIdentities := lUnitCacheIdentities + lNewIdentities;
+          SetLength(lUnitSnapshots, Length(lSourceFileNames));
         end;
-      finally
-        lSnapshotCache.EndUnitLoadBatch;
+        // Each newly discovered closure wave shares one identity/read batch.
+        // Never discard retained imports to recover the fixed project-only batch.
+        SetLength(lSnapshotCacheIdentities, Length(lSourceFileNames) - i);
+        for j := i to High(lSourceFileNames) do
+          lSnapshotCacheIdentities[j - i] := SnapshotCacheIdentityForUnit(fProject, fOptions,
+            lSourceFileNames[j], lUnitCacheIdentities[j], 0);
+        lSnapshotCache.BeginUnitLoadBatch(lSnapshotCacheIdentities);
+        lPreviousCacheMetrics := lSnapshotCache.Metrics;
+        try
+          while i < Length(lSourceFileNames) do
+          begin
+            lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions,
+              lSourceFileNames[i], lUnitCacheIdentities[i], 0);
+            lCacheSnapshot := nil;
+            if lSnapshotCache.TryLoadUnit(lCacheIdentity, lCacheSnapshot) then
+            begin
+              lUnitSnapshots[i] := lCacheSnapshot;
+              lLoadedAnyUnit := True;
+              AppendAnalysisImports(lCacheSnapshot.UnitByIndex(0).ImportFacts, lClosureFiles, lClosureSeen);
+            end else begin
+              lCacheSnapshot.Free;
+              lLoadedAllUnits := False;
+              lMissingSourceFileNames := lMissingSourceFileNames + [lSourceFileNames[i]];
+            end;
+            if lSnapshotCache.LastInvalidationReason <> '' then
+              fDiagnostics := fDiagnostics + [SnapshotCacheDiagnostic('SNAPSHOT_CACHE_ENTRY_INVALID',
+                lSnapshotCache.LastInvalidationReason, lSourceFileNames[i],
+                TDelphiSemanticDiagnosticSeverity.dsWarning)];
+            lCacheMetrics := lSnapshotCache.Metrics;
+            // Connection counters are cumulative; per-probe timings reset on load.
+            Dec(lCacheMetrics.CacheHits, lPreviousCacheMetrics.CacheHits);
+            Dec(lCacheMetrics.CacheMisses, lPreviousCacheMetrics.CacheMisses);
+            Dec(lCacheMetrics.Invalidations, lPreviousCacheMetrics.Invalidations);
+            Dec(lCacheMetrics.SnapshotCacheProbes, lPreviousCacheMetrics.SnapshotCacheProbes);
+            lPreviousCacheMetrics := lSnapshotCache.Metrics;
+            AccumulateSnapshotCacheMetrics(lCacheSnapshotMetrics, lCacheMetrics);
+            Inc(i);
+          end;
+        finally
+          lSnapshotCache.EndUnitLoadBatch;
+        end;
       end;
     finally
       lSnapshotCache.Free;
+      lClosureSeen.Free;
+      lClosureFiles.Free;
     end;
     SetLength(lCachedUnits, Length(lSourceFileNames));
     // Canonical filename wins when separately cached generations reused an ID.
@@ -2251,6 +2345,29 @@ begin
     end;
   end;
 
+  lExtractionSourceFileNames := lSourceFileNames;
+  lExtractionScopeSourceFileNames := aScopedSourceFileNames;
+  lExtractionUsesScopedSourceFileNames := Length(aScopedSourceFileNames) > 0;
+  if lCacheHadPartialHit then
+  begin
+    lExtractionUsesScopedSourceFileNames := True;
+    if Length(aScopedSourceFileNames) = 0 then
+      lExtractionScopeSourceFileNames := lMissingSourceFileNames
+    else
+      lExtractionScopeSourceFileNames := IntersectSourceFileNames(
+        lMissingSourceFileNames, aScopedSourceFileNames);
+  end;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  if Assigned(SnapshotBeforeExtractionForTest) then
+    SnapshotBeforeExtractionForTest();
+{$ENDIF}
+  lExtraction := ExtractProjectModels(fProject, fOptions, lExtractionSourceFileNames,
+    lExtractionScopeSourceFileNames, lExtractionUsesScopedSourceFileNames);
+  lSourceFileNames := ModelSourceFileNames(lExtraction.Models);
+  if Length(lUnitSnapshots) > 0 then
+    SetLength(lUnitSnapshots, Length(lSourceFileNames));
+  Result.FailedModel := FirstFailedModel(lExtraction.Models);
+  SetLength(lCachedUnits, Length(lSourceFileNames));
   SetLength(lUnitIds, Length(lSourceFileNames));
   lUsedIds := THashSet<TSemanticUnitId>.Create;
   try
@@ -2287,30 +2404,11 @@ begin
     lUsedIds.Free;
   end;
 
-  lExtractionSourceFileNames := lSourceFileNames;
-  lExtractionScopeSourceFileNames := aScopedSourceFileNames;
-  lExtractionUsesScopedSourceFileNames := Length(aScopedSourceFileNames) > 0;
-  if lCacheHadPartialHit then
-  begin
-    lExtractionUsesScopedSourceFileNames := True;
-    if Length(aScopedSourceFileNames) = 0 then
-      lExtractionScopeSourceFileNames := lMissingSourceFileNames
-    else
-      lExtractionScopeSourceFileNames := IntersectSourceFileNames(
-        lMissingSourceFileNames, aScopedSourceFileNames);
-  end;
-{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
-  if Assigned(SnapshotBeforeExtractionForTest) then
-    SnapshotBeforeExtractionForTest();
-{$ENDIF}
-  lExtraction := ExtractProjectModels(fProject, fOptions, lExtractionSourceFileNames,
-    lExtractionScopeSourceFileNames, lExtractionUsesScopedSourceFileNames);
-  Result.FailedModel := FirstFailedModel(lExtraction.Models);
   SetLength(lStoreCacheIdentities, Length(lSourceFileNames));
   for i := 0 to High(lSourceFileNames) do
     if TryUnitCaptureIdentity(lExtraction.CacheIdentities, lSourceFileNames[i], lCapturedIdentity) then
       lStoreCacheIdentities[i] := lCapturedIdentity;
-  SetLength(lExtractionModelUnitIds, Length(lExtractionSourceFileNames));
+  SetLength(lExtractionModelUnitIds, Length(lSourceFileNames));
   for i := 0 to High(lExtractionModelUnitIds) do
     lExtractionModelUnitIds[i] := lUnitIds[i];
   lParseAvoidedEstimateMilliseconds :=
@@ -2624,10 +2722,10 @@ begin
   if (fOptions.ImplicitRootMemberAbsence = nil) and
     (Length(lSourceFileNames) > 0) and (Trim(fOptions.SqliteCacheFileName) <> '') then
   begin
-    lUnitCacheIdentities := BuildProjectUnitCacheIdentities(fProject, fOptions,
-      lSourceFileNames, aScopedSourceFileNames, True);
     lExtraction := ExtractSelectedConfigurationModels(fProject, fOptions, lSourceFileNames,
       aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+    lSourceFileNames := ModelSourceFileNames(lExtraction.Models);
+    lUnitCacheIdentities := lExtraction.CacheIdentities;
     lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
       TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,
         fOptions.RsVarsPath));
@@ -2693,6 +2791,7 @@ begin
   begin
     lExtraction := ExtractSelectedConfigurationModels(fProject, fOptions, lSourceFileNames,
       aScopedSourceFileNames, Length(aScopedSourceFileNames) > 0);
+    lSourceFileNames := ModelSourceFileNames(lExtraction.Models);
     lWitness := TDelphiSemanticUnitNameWitnessBuilder.Build(fProject, lExtraction.Models,
       TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(fOptions.DelphiVersion,
         fOptions.RsVarsPath));

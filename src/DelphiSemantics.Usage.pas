@@ -64,7 +64,8 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.Generics.Defaults, System.Math, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.Math, System.RegularExpressions, System.StrUtils, System.SysUtils,
+  SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals, MaxLogic.StrUtils;
@@ -256,6 +257,9 @@ begin
     Exit;
 
   Result := CompareStringValues(aLeft.SourceKind, aRight.SourceKind);
+  if Result <> 0 then
+    Exit;
+  Result := CompareStringValues(aLeft.Reason, aRight.Reason);
 end;
 
 function SameUsageRange(const aLeft, aRight: TDelphiSemanticUsage): Boolean;
@@ -266,7 +270,7 @@ begin
     SameText(aLeft.SectionKind, aRight.SectionKind) and
     SameText(aLeft.SourceKind, aRight.SourceKind) and (aLeft.Line = aRight.Line) and
     (aLeft.Column = aRight.Column) and (aLeft.EndLine = aRight.EndLine) and
-    (aLeft.EndColumn = aRight.EndColumn);
+    (aLeft.EndColumn = aRight.EndColumn) and SameText(aLeft.Reason, aRight.Reason);
 end;
 
 function SortedUsages(const aUsages: TList<TDelphiSemanticUsage>): TArray<TDelphiSemanticUsage>;
@@ -771,6 +775,25 @@ begin
   Result := False;
 end;
 
+// DS-797 slice 1: implicit Self lookup precedes unit-level declarations.
+function SnapshotPositionInMethod(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aLine: Integer): Boolean;
+var
+  i: Integer;
+  lFact: TSemanticSymbolFact;
+begin
+  for i := 1 to aUnit.SymbolCount do
+  begin
+    lFact := aUnit.SymbolById(TSemanticSymbolId(i));
+    if (lFact.RoutineId <> 0) and (lFact.EndLine >= aLine) and
+      (lFact.Line <= aLine) and
+      (lFact.OwnerTypeId <> 0) and
+      SameText(SnapshotText(aSnapshot, lFact.KindId), 'routine') then
+      Exit(True);
+  end;
+  Result := False;
+end;
+
 function SnapshotLocalTarget(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; out aUnit: TUnitSnapshot;
   out aFact: TSemanticSymbolFact): Boolean;
@@ -821,6 +844,122 @@ begin
   Result := not lHasSpan;
 end;
 
+// The lexical successor distinguishes a bare call from inherited MethodName,
+// including a final inherited before END and a body following nested routines.
+function SnapshotRoutineHasBareInherited(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFact: TSemanticSymbolFact): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lSource: string;
+  lStart, lFinish: Integer;
+begin
+  Result := False;
+  lSource := aSnapshot.ExactTextOf(aUnit.SourceTextId);
+  if (aFact.FileId <> 0) and (aFact.FileId <> aUnit.FileNameId) then
+    Exit(True); // No unit-relative span can prove an include body's absence.
+  lStart := SnapshotOffsetOfPosition(lSource, aFact.Line, aFact.Column);
+  lFinish := SnapshotOffsetOfPosition(lSource, aFact.EndLine, aFact.EndColumn);
+  if (lStart = 0) or (lFinish < lStart) then
+    Exit(True);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := SanitizeCodeText(Copy(lSource, lStart, lFinish - lStart + 1));
+    if lLexer.IsJunk then
+      lLexer.NextNoJunk;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID = ptInherited then
+      begin
+        lLexer.NextNoJunk;
+        if lLexer.TokenID <> ptIdentifier then
+          Exit(True);
+      end else
+        lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+// Only a direct visibility section can prove a member explicit. Nested types'
+// visibility does not change the enclosing class's default section.
+function SnapshotMemberHasDefaultVisibility(const aCode: string;
+  const aTypeOffset, aMemberOffset: Integer): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lDepth: Integer;
+begin
+  Result := True;
+  if (aTypeOffset <= 0) or (aMemberOffset <= aTypeOffset) then
+    Exit;
+  lDepth := 0;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := Copy(aCode, aTypeOffset, aMemberOffset - aTypeOffset);
+    if lLexer.IsJunk then
+      lLexer.NextNoJunk;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.TokenID in [ptClass, ptRecord, ptObject, ptInterface] then
+        Inc(lDepth)
+      else if lLexer.TokenID = ptEnd then
+        Dec(lDepth);
+      // Visibility words are contextual identifiers in SimpleParser.
+      if (lDepth = 1) and (lLexer.TokenID = ptIdentifier) and (lLexer.ExID in
+        [ptPrivate, ptProtected, ptPublic, ptPublished, ptAutomated]) then
+        Result := False;
+      lLexer.NextNoJunk;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+// A known plain TObject root is non-published only when no retained M+ switch
+// can affect it. Unknown, ambiguous or cyclic source ancestry stays refused.
+function SnapshotClassMayPublish(const aSnapshot: TDelphiProjectSnapshot;
+  const aOwner: string; const aSeen: TArray<string>): Boolean;
+var
+  lUnit: TUnitSnapshot;
+  lName, lRaw, lCode, lBase: string;
+  lMatch: TMatch;
+  lMatches: Integer;
+  i: Integer;
+begin
+  Result := True;
+  if MatchText(aOwner, aSeen) then
+    Exit;
+  lName := Copy(aOwner, LastDelimiter('.', aOwner) + 1, MaxInt);
+  if MatchText(lName, ['TPersistent', 'TComponent', 'TDataModule', 'TForm', 'TFrame']) then
+    Exit;
+  lMatches := 0;
+  lBase := '';
+  for i := 0 to aSnapshot.UnitCount - 1 do
+  begin
+    lUnit := aSnapshot.UnitByIndex(i);
+    lRaw := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+    lCode := SanitizeCodeText(lRaw);
+    for lMatch in TRegEx.Matches(lCode, '\b' + TRegEx.Escape(lName) +
+      '\s*=\s*class\b(?:\s+(?:sealed|abstract)\b)*(?:\s*\(\s*([\w.]+))?', [roIgnoreCase]) do
+    begin
+      Inc(lMatches);
+      if HasPublishedTypeInfoSwitch(lRaw) then
+        Exit;
+      if lMatch.Groups.Count > 1 then
+        lBase := lMatch.Groups[1].Value;
+    end;
+  end;
+  if (lMatches = 0) and MatchText(aOwner, ['TObject', 'System.TObject']) then
+    Exit(False);
+  if lMatches <> 1 then
+    Exit;
+  if lBase = '' then
+    Exit(False);
+  Result := SnapshotClassMayPublish(aSnapshot, lBase, aSeen + [aOwner]);
+end;
+
 function ScopedSnapshotSourceGaps(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
 var
@@ -829,9 +968,9 @@ var
   lReference: TSemanticReferenceFact;
   lLocalFact: TSemanticSymbolFact;
   lImports: TObjectDictionary<string, TList<TDelphiSemanticImportFact>>;
-  lSeen, lReported: THashSet<string>;
+  lSeen, lReported, lRetained: THashSet<string>;
   lResult: TList<TDelphiSemanticUsage>;
-  lLocal: Boolean;
+  lLocal, lLocalMemberContext, lPackage: Boolean;
   lFact: TDelphiSemanticImportFact;
   lEdges: TList<TDelphiSemanticImportFact>;
   lKey: string;
@@ -913,7 +1052,9 @@ var
           else if not lImport.Unconditional then
           begin
             if aClosure then
-              Report(aOwner, 'inactive-import-may-capture-member', aName, aLine, aColumn)
+            begin
+              Report(aOwner, 'inactive-import-may-capture-member', aName, aLine, aColumn);
+            end
             else
               Report(aOwner, 'inactive-import-may-capture-name', aName, aLine, aColumn);
           end;
@@ -927,6 +1068,99 @@ var
     end;
   end;
 
+  function ProvenUnitQualifiedReference(const aCurrentUnit: TUnitSnapshot;
+    const aReference: TSemanticReferenceFact; const aLine, aColumn: Integer): Boolean;
+  var
+    lTargetUnit, lUnit: TUnitSnapshot;
+    lImport: TDelphiSemanticImportFact;
+    lLexer: TmwBasePasLex;
+    lUnitName, lRaw: string;
+    lOffset, lCurrentLine, i: Integer;
+    lImportProved, lInHeader, lInUses: Boolean;
+  begin
+    Result := False;
+    if (aReference.TargetSymbolId = 0) or
+      ((aReference.FileId <> 0) and (aReference.FileId <> aCurrentUnit.FileNameId)) or
+      not aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) then
+      Exit;
+    lUnitName := SnapshotText(aSnapshot, lTargetUnit.UnitNameId);
+    if (lUnitName = '') or ContainsText(lUnitName, '.') then
+      Exit;
+    lImportProved := False;
+    for lImport in aCurrentUnit.ImportFacts do
+      if SameText(lImport.Name, lUnitName) and lImport.Unconditional and
+        not lImport.ResolutionVaries and (lImport.Cause = '') and
+        (lImport.GapReason = '') and SameText(lImport.TargetFileName,
+        SnapshotText(aSnapshot, lTargetUnit.FileNameId)) then
+        lImportProved := True;
+    if not lImportProved then
+      Exit;
+    lRaw := SanitizeCodeText(aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId));
+    lOffset := 1;
+    lCurrentLine := 1;
+    while (lOffset <= Length(lRaw)) and (lCurrentLine < aLine) do
+    begin
+      if lRaw[lOffset] = #10 then
+        Inc(lCurrentLine);
+      Inc(lOffset);
+    end;
+    Inc(lOffset, aColumn - 1);
+    if not TRegEx.IsMatch(Copy(lRaw, 1, lOffset - 1),
+      '\b' + TRegEx.Escape(lUnitName) + '\s*\.\s*$', [roIgnoreCase]) then
+      Exit;
+    // Rule out a configuration-dependent value/type/routine with the unit's
+    // qualifier spelling. Unknown sources/includes/import selections withhold
+    // this narrow proof; parsed selected bindings alone are insufficient.
+    lLexer := nil;
+    try
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        for lImport in lUnit.ImportFacts do
+          if (lImport.GapReason <> '') or lImport.ResolutionVaries or
+            ((not lImport.Unconditional) and lImport.SdkBoundary) then
+            Exit;
+        lRaw := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+        if (lRaw = '') or TRegEx.IsMatch(lRaw,
+          '(?:\{\$|\(\*\$)\s*(?:I|INCLUDE)\s', [roIgnoreCase]) then
+          Exit;
+        // This lexer's Origin setter allocates a new buffer without releasing
+        // its previous one. Each physical source needs its own lexer lifetime.
+        FreeAndNil(lLexer);
+        lLexer := TmwBasePasLex.Create;
+        lLexer.UseDefines := False;
+        lLexer.Origin := lRaw;
+        while lLexer.IsJunk do
+          lLexer.Next;
+        lInHeader := False;
+        lInUses := False;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if lLexer.TokenID in [ptUnit, ptProgram, ptLibrary, ptPackage] then
+            lInHeader := True
+          else if lLexer.TokenID in [ptUses, ptContains] then
+            lInUses := True
+          else if lLexer.TokenID = ptSemiColon then
+          begin
+            lInHeader := False;
+            lInUses := False;
+          end else if SameText(lLexer.Token.TrimLeft(['&']), lUnitName) and
+            not lInHeader and not lInUses then
+          begin
+            lLexer.NextNoJunk;
+            if lLexer.Token <> '.' then
+              Exit;
+            Continue;
+          end;
+          lLexer.NextNoJunk;
+        end;
+      end;
+      Result := True;
+    finally
+      lLexer.Free;
+    end;
+  end;
+
   procedure CheckOccurrence(const aCurrentUnit: TUnitSnapshot; const aFileName,
     aName: string; const aLine, aColumn: Integer; const aInactive, aMember: Boolean;
     const aReference: TSemanticReferenceFact);
@@ -935,10 +1169,24 @@ var
     lTargetUnit: TUnitSnapshot;
     lProvider, lSection, lOwner: string;
     lInWith, lNewLocal: Boolean;
+    lBeforeImports: Integer;
   begin
     if lLocal and ((aCurrentUnit.UnitId <> lLocalUnit.UnitId) or
       not SnapshotInsideLocalRoutine(aSnapshot, lLocalUnit, lLocalFact, aFileName, aLine)) then
+    begin
+      // A capture source need not be inside the local's owning routine. The
+      // containment deliberately keeps all new-name tokens in the project
+      // closure when a renamed local is used under WITH/member lookup.
+      if lLocalMemberContext and not SameText(aName, aSymbol.Name) then
+        Report(aFileName, 'containment-local-capture', aName, aLine, aColumn);
       Exit;
+    end;
+    // A new local spelling can capture an existing call/reference inside its
+    // routine even when the provider is an intrinsic/SDK name with no project
+    // declaration (for example WriteLn). Token presence is enough to refuse;
+    // this containment does not try to prove the proposed binding harmless.
+    if lLocal and not SameText(aName, aSymbol.Name) then
+      Report(aFileName, 'containment-local-capture', aName, aLine, aColumn);
     // Includes have physical token coordinates but share their unit's imports.
     // Possible-only imported units retain their own owner when available.
     lOwner := aFileName;
@@ -955,6 +1203,19 @@ var
       Exit;
     end;
     lInWith := (aReference.WithId <> 0) or SnapshotPositionInWith(aCurrentUnit, aLine, aColumn);
+    if not lLocal and SnapshotPositionInMethod(aSnapshot, aCurrentUnit, aLine) then
+    begin
+      // Treat Self as a WITH receiver before considering the same-unit shortcut.
+      if (aReference.TargetSymbolId <> 0) and
+        aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) and
+        SnapshotFactIsRoutineLocal(lTargetUnit.SymbolById(aReference.TargetSymbolId), aSnapshot) then
+        Exit;
+      lInWith := True;
+      lBeforeImports := lResult.Count;
+      CheckImports(lOwner, '', '', aName, True, True, aLine, aColumn);
+      if lResult.Count > lBeforeImports then
+        Report(aFileName, 'implicit-self-may-capture-name', aName, aLine, aColumn);
+    end;
     lProvider := '';
     if (aReference.TargetSymbolId <> 0) and
       aSnapshot.TryFindUnitById(aReference.TargetUnitId, lTargetUnit) then
@@ -971,9 +1232,809 @@ var
       end;
       lProvider := SnapshotText(aSnapshot, lTargetUnit.FileNameId);
     end;
+    if aMember and not lInWith and
+      ProvenUnitQualifiedReference(aCurrentUnit, aReference, aLine, aColumn) then
+      Exit;
     lSection := SnapshotText(aSnapshot, aReference.SectionKindId);
     CheckImports(lOwner, lSection, lProvider, aName, lInWith or aMember, lNewLocal,
       aLine, aColumn);
+  end;
+
+  // Conservative implicit-consumer barriers. These are refusals, not a
+  // substitute for the per-configuration binding matrix (DS-797 slice 4).
+  procedure CheckImplicitConsumers(const aCurrentUnit: TUnitSnapshot);
+  var
+    lRaw, lCode, lConsumerRaw, lConsumerCode, lName, lPattern, lFileName, lKind, lBase: string;
+    lConsumer: TSemanticReferenceFact;
+    lTypeFact: TSemanticSymbolFact;
+    lRttiUnit, lCodeOnly: Boolean;
+    lCandidate: TDelphiSemanticStringLiteral;
+    lOwnerIndex, lTypeOffset, lMemberOffset: Integer;
+    lImport: TDelphiSemanticImportFact;
+    lMatch: TMatch;
+    lNames, lImportParts: TArray<string>;
+    lExpression, lExternalReason: string;
+    lMember, lType: Boolean;
+    lFact: TSemanticSymbolFact;
+    lIndex, lLine, lColumn: Integer;
+
+    procedure Refuse(const aReason: string);
+    begin
+      Report(lFileName, aReason, lName, lLine, lColumn);
+    end;
+
+  begin
+    lRaw := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
+    lCode := SanitizeCodeText(lRaw);
+    lFileName := SnapshotText(aSnapshot, aCurrentUnit.FileNameId);
+    lConsumerRaw := lRaw;
+    lConsumerCode := SanitizeCodeText(lConsumerRaw);
+    lRttiUnit := False;
+    for lImport in aCurrentUnit.ImportFacts do
+      lRttiUnit := lRttiUnit or MatchText(lImport.Name,
+        ['System.Rtti', 'System.TypInfo', 'Rtti', 'TypInfo']);
+    lNames := [aSymbol.Name] + aNames;
+    lMember := aSymbol.OwnerName <> '';
+    lType := MatchText(aSymbol.Kind, ['class', 'type', 'alias']);
+    for lName in lNames do
+    begin
+      lPattern := TRegEx.Escape(lName);
+      // The rule is project-wide; absent a match span, do not misattribute
+      // the target's coordinates to a different source unit.
+      lLine := 0;
+      lColumn := 0;
+      for lIndex := 1 to aCurrentUnit.ReferenceCount do
+      begin
+        lConsumer := aCurrentUnit.ReferenceById(TSemanticReferenceId(lIndex));
+        if SameText(SnapshotText(aSnapshot, lConsumer.ClassificationId), 'implicit-name-consumer') and
+          (SameText(SnapshotText(aSnapshot, lConsumer.NameId), lName) or
+          (lMember and (lConsumer.NameId = 0))) then
+          Report(SnapshotFactFileName(aSnapshot, aCurrentUnit, lConsumer.FileId),
+            SnapshotText(aSnapshot, lConsumer.ReasonId), lName, lConsumer.Line, lConsumer.Column);
+      end;
+      if SameText(lFileName, aSymbol.FileName) and SameText(aSymbol.Visibility, 'published') then
+        Refuse('published-member');
+      for lIndex := 1 to aCurrentUnit.SymbolCount do
+      begin
+        lFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lIndex));
+        if SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) and
+          SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aSymbol.OwnerName) and
+          SameText(SnapshotText(aSnapshot, lFact.VisibilityId), 'published') then
+          Refuse('published-member');
+        if lMember and SameText(SnapshotText(aSnapshot, lFact.NameId), aSymbol.Name) and
+          SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aSymbol.OwnerName) and
+          MatchText(SnapshotText(aSnapshot, lFact.KindId), ['method', 'field', 'property']) then
+          for lOwnerIndex := 1 to aCurrentUnit.SymbolCount do
+          begin
+            lTypeFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lOwnerIndex));
+            if not SameText(SnapshotText(aSnapshot, lTypeFact.NameId), aSymbol.OwnerName) or
+              not SameText(SnapshotText(aSnapshot, lTypeFact.TypeId), 'class') then
+              Continue;
+            lTypeOffset := SnapshotOffsetOfPosition(lCode, lTypeFact.Line, lTypeFact.Column);
+            lMemberOffset := SnapshotOffsetOfPosition(lCode, lFact.Line, lFact.Column);
+            if SnapshotMemberHasDefaultVisibility(lCode, lTypeOffset, lMemberOffset) and
+              (SnapshotClassMayPublish(aSnapshot, aSymbol.OwnerName, []) or
+              HasPublishedTypeInfoSwitch(lConsumerRaw)) then
+              Refuse('published-member');
+          end;
+      end;
+      if not lMember and SameText(aSymbol.Kind, 'routine') then
+      begin
+        lExternalReason := ImplicitExternalNameReason(lCode, lName);
+        if lExternalReason <> '' then
+          Refuse(lExternalReason);
+      end;
+      // Member facts do not carry a section; package methods still expose
+      // their Pascal spelling through the package's external symbol names.
+      if lPackage and SameText(lFileName, aSymbol.FileName) and
+        (SameText(aSymbol.Kind, 'method') or
+        (SameText(aSymbol.Kind, 'routine') and SameText(aSymbol.SectionKind, 'interface'))) then
+        Refuse('package-exported-name');
+      if lMember and (TRegEx.IsMatch(lCode, '\b(?:Variant|OleVariant)\b', [roIgnoreCase]) or
+        TRegEx.IsMatch(lCode, '\b' + TRegEx.Escape(aSymbol.OwnerName) +
+        '\s*=\s*dispinterface\b', [roIgnoreCase])) then
+        Refuse('late-bound-member-name');
+      // Some legacy dispinterface headings are modeled as ownerless routines.
+      // Their source-level Automation contract still consumes the Pascal name.
+      if TRegEx.IsMatch(lCode, '\bdispinterface\b(?:(?!\bend\b)[\s\S])*?' +
+        '\b(?:procedure|function|property)\s+&?' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('late-bound-member-name');
+      for lExpression in DirectiveNameExpressions(lRaw) do
+        if TextContainsIdentifier(lExpression, lName) then
+          Refuse('directive-name-consumer');
+      if lMember and MatchText(lName, ['GetEnumerator', 'MoveNext', 'Current']) then
+        Refuse('implicit-for-in-protocol');
+      if lMember then
+        for lIndex := 1 to aCurrentUnit.SymbolCount do
+        begin
+          lFact := aCurrentUnit.SymbolById(TSemanticSymbolId(lIndex));
+          if (lFact.OwnerTypeId <> 0) and
+            SameText(SnapshotText(aSnapshot, lFact.KindId), 'routine') and
+            SameText(SnapshotText(aSnapshot, lFact.NameId), lName) and
+            SnapshotRoutineHasBareInherited(aSnapshot, aCurrentUnit, lFact) then
+            Refuse('implicit-bare-inherited');
+        end;
+      // By-name implementation can be inherited or introduced by the new name.
+      // Until the matrix owns interface obligations, any matching method in
+      // a project containing an interface is a possible implementation.
+      if lMember and TRegEx.IsMatch(lCode, '=\s*interface\b', [roIgnoreCase]) and
+        TRegEx.IsMatch(lCode, '\b(?:procedure|function)\s+' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-interface-method');
+      if lMember and TRegEx.IsMatch(lCode,
+        '\b(?:procedure|function)\s+[&\w]+\.[&\w]+\s*=\s*' + lPattern + '\b',
+        [roIgnoreCase]) then
+        Refuse('implicit-interface-method');
+      if lMember and TRegEx.IsMatch(lCode, '\bproperty\b[^;]*\b(?:read|write)\s+' +
+        lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-property-accessor');
+      if TRegEx.IsMatch(lCode, '\bproperty\b[^;]*\b' + lPattern +
+        '\b[^;]*\bimplements\b', [roIgnoreCase]) then
+        Refuse('implicit-implements');
+      if lMember and TRegEx.IsMatch(lCode, '\bproperty\s+' + lPattern +
+        '\b[^;]*\bimplements\b|\bimplements\s+' + lPattern + '\b', [roIgnoreCase]) then
+        Refuse('implicit-implements');
+      if lMember and TRegEx.IsMatch(lCode, '\boperator\s+(?:[&\w]+\.)?' + lPattern +
+        '\b', [roIgnoreCase]) then
+        Refuse('implicit-operator-method');
+      lBase := lName;
+      if EndsText('Attribute', lBase) then
+        SetLength(lBase, Length(lBase) - Length('Attribute'));
+      if lType and (EndsText('Attribute', lName) or
+        (SameText(lFileName, aSymbol.FileName) and TRegEx.IsMatch(lCode,
+        '\b' + TRegEx.Escape(aSymbol.Name) + '\s*=\s*class\s*\([^)]*\bTCustomAttribute\b',
+        [roIgnoreCase])) or TRegEx.IsMatch(lCode, '\[\s*(?:' + lPattern + '|' +
+        TRegEx.Escape(lBase) + '|' + TRegEx.Escape(lBase + 'Attribute') + ')(?:\s*[\],(])', [roIgnoreCase])) then
+        Refuse('implicit-attribute-name');
+      if not SameText(lName, aSymbol.Name) then
+      begin
+        lKind := SnapshotText(aSnapshot, aCurrentUnit.UnitNameId);
+        if MatchText(lName, ['System', 'SysInit']) or MatchText(lName, lKind.Split(['.'])) or
+          StartsText(lName + '.', lKind) then
+          Refuse('unit-or-namespace-name');
+        for lImport in aCurrentUnit.ImportFacts do
+        begin
+          lImportParts := lImport.Name.Split(['.']);
+          if MatchText(lName, lImportParts) or StartsText(lName + '.', lImport.Name) then
+            Refuse('unit-or-namespace-name');
+        end;
+      end;
+      // Declared is a name consumer even when its condition is currently false.
+      if TRegEx.IsMatch(lConsumerRaw, '\{\$\s*(?:IF|ELSEIF)\b[^}]*\bDeclared\s*\([^)]*\b' +
+        lPattern + '\b[^)]*\)', [roIgnoreCase]) or
+        TRegEx.IsMatch(lConsumerRaw, '\(\*\$\s*(?:IF|ELSEIF)\b[\s\S]*?\bDeclared\s*\([^)]*\b' +
+        lPattern + '\b[^)]*\)', [roIgnoreCase]) then
+        Refuse('declared-name-consumer');
+      // A runtime consumer may live in another unit or receive a constant.
+      // Every matching literal therefore refuses; call/import evidence only
+      // selects the more specific diagnostic and never grants edit authority.
+      // Retain raw conservative candidates, then scan code independently so
+      // an unmatched quote in a comment cannot conceal a real literal.
+      for lCodeOnly := False to True do
+      begin
+        for lCandidate in StringLiteralCandidates(lConsumerRaw, lCodeOnly) do
+          if MatchText(lName, lCandidate.Value.Split(['.'])) then
+          begin
+            if lRttiUnit or HasRuntimeNameConsumerCode(lConsumerCode) then
+              Refuse('rtti-string-name-consumer')
+            else
+              Refuse('string-name-consumer');
+          end;
+      end;
+    end;
+  end;
+
+  // One retained expression inventory covers constants, initializers and code.
+  // Equal duplicate values are safe containment evidence; ambiguity is unknown.
+  // None of this inventory supplies binding or edits.
+  procedure CheckStringConstants;
+  type
+    TConstant = record
+      Item: TDelphiSemanticStringConstant;
+      Owner, FileName: string;
+      UnitIndex: Integer;
+    end;
+  var
+    lConstants: TArray<TConstant>;
+    lValues: TArray<string>;
+    lStates: TArray<Integer>;
+    lVisiting: TArray<Boolean>;
+    lByName: TDictionary<string, TArray<Integer>>;
+    lAliases: TDictionary<string, string>;
+    lConstant: TConstant;
+    lUnit, lImportedUnit: TUnitSnapshot;
+    lFact: TSemanticReferenceFact;
+    lSymbol: TSemanticSymbolFact;
+    lImport: TDelphiSemanticImportFact;
+    lName, lOwnerType, lAlias: string;
+    i, j, k: Integer;
+
+    procedure IndexName(const aName: string; const aIndex: Integer);
+    var
+      lIndices: TArray<Integer>;
+    begin
+      if aName = '' then
+        Exit;
+      if not lByName.TryGetValue(aName, lIndices) then
+        lIndices := nil;
+      for var lIndex in lIndices do
+        if lIndex = aIndex then
+          Exit;
+      lByName.AddOrSetValue(aName, lIndices + [aIndex]);
+    end;
+
+    function FindConstants(const aIndex: Integer; const aName: string): TArray<Integer>;
+    var
+      lQualified, lTarget: string;
+      lDot: Integer;
+    begin
+      lQualified := aName;
+      lDot := Pos('.', aName);
+      if (lDot > 0) and lAliases.TryGetValue(lConstants[aIndex].Owner + '|' +
+        Copy(aName, 1, lDot - 1), lTarget) then
+        lQualified := lTarget + Copy(aName, lDot, MaxInt);
+      if not lByName.TryGetValue(lQualified, Result) then
+        Result := nil;
+    end;
+
+    function Evaluate(const aIndex, aDepth: Integer): Boolean; forward;
+
+    function EvaluateName(const aIndex: Integer; const aName: string;
+      const aDepth: Integer; out aValue: string): Boolean;
+    var
+      lIndices: TArray<Integer>;
+      lFirst: Boolean;
+    begin
+      Result := False;
+      aValue := '';
+      lIndices := FindConstants(aIndex, aName);
+      if Length(lIndices) = 0 then
+        Exit;
+      lFirst := True;
+      for var lIndex in lIndices do
+      begin
+        if not Evaluate(lIndex, aDepth) then
+          Exit;
+        if not lFirst and (aValue <> lValues[lIndex]) then
+          Exit;
+        aValue := lValues[lIndex];
+        lFirst := False;
+      end;
+      Result := True;
+    end;
+
+    function Evaluate(const aIndex, aDepth: Integer): Boolean;
+    var
+      lText: string;
+      lOffset: Integer;
+
+      procedure SkipTrivia;
+      begin
+        while lOffset <= Length(lText) do
+        begin
+          if CharInSet(lText[lOffset], [#9, #10, #13, #32]) then
+            Inc(lOffset)
+          else if (lText[lOffset] = '{') and (Copy(lText, lOffset, 2) <> '{$') then
+          begin
+            while (lOffset <= Length(lText)) and (lText[lOffset] <> '}') do
+              Inc(lOffset);
+            Inc(lOffset);
+          end else if (Copy(lText, lOffset, 2) = '(*') and
+            (Copy(lText, lOffset, 3) <> '(*$') then
+          begin
+            Inc(lOffset, 2);
+            while (lOffset <= Length(lText)) and (Copy(lText, lOffset, 2) <> '*)') do
+              Inc(lOffset);
+            Inc(lOffset, 2);
+          end else if Copy(lText, lOffset, 2) = '//' then
+          begin
+            while (lOffset <= Length(lText)) and not CharInSet(lText[lOffset], [#10, #13]) do
+              Inc(lOffset);
+          end else
+            Break;
+        end;
+      end;
+
+      function Expression(out aValue: string; const aLevel: Integer): Boolean;
+      var
+        lPart: string;
+
+        function Operand(out aPart: string): Boolean;
+        var
+          lStart, lLiteralStart: Integer;
+          lIdentifier: string;
+        begin
+          Result := False;
+          aPart := '';
+          SkipTrivia;
+          if (lOffset > Length(lText)) or (aLevel >= 64) then
+            Exit;
+          if lText[lOffset] = '(' then
+          begin
+            Inc(lOffset);
+            if not Expression(aPart, aLevel + 1) then
+              Exit;
+            SkipTrivia;
+            if (lOffset > Length(lText)) or (lText[lOffset] <> ')') then
+              Exit;
+            Inc(lOffset);
+            Exit(True);
+          end;
+          if CharInSet(lText[lOffset], [#39, '#']) then
+          begin
+            lStart := lOffset;
+            Exit(NextRawStringLiteral(lText, lOffset, aPart, lLiteralStart, True) and
+              (lLiteralStart = lStart));
+          end;
+          // Delphi caret character literals are string values, not identifiers.
+          if (lText[lOffset] = '^') and (lOffset < Length(lText)) then
+          begin
+            while (lOffset < Length(lText)) and (lText[lOffset] = '^') do
+            begin
+              aPart := aPart + Char(Ord(UpCase(lText[lOffset + 1])) and 31);
+              Inc(lOffset, 2);
+            end;
+            Exit(True);
+          end;
+          if not IsIdentifierStart(lText[lOffset]) then
+            Exit;
+          lStart := lOffset;
+          while (lOffset <= Length(lText)) and
+            (IsIdentifierChar(lText[lOffset]) or (lText[lOffset] = '.')) do
+            Inc(lOffset);
+          lIdentifier := Copy(lText, lStart, lOffset - lStart);
+          Result := EvaluateName(aIndex, lIdentifier, aDepth + 1, aPart);
+        end;
+
+      begin
+        Result := Operand(aValue);
+        if not Result then
+          Exit;
+        while True do
+        begin
+          SkipTrivia;
+          if (lOffset > Length(lText)) or (lText[lOffset] <> '+') then
+            Break;
+          Inc(lOffset);
+          if not Operand(lPart) then
+            Exit(False);
+          aValue := aValue + lPart;
+        end;
+      end;
+
+    begin
+      if lStates[aIndex] = 2 then
+        Exit(True);
+      if (lStates[aIndex] <> 0) or (aDepth >= 64) then
+        Exit(False);
+      lStates[aIndex] := 1;
+      lText := lConstants[aIndex].Item.Expression;
+      if lText = '' then
+      begin
+        lStates[aIndex] := 3;
+        Exit(False);
+      end;
+      lOffset := 1;
+      Result := Expression(lValues[aIndex], 0);
+      SkipTrivia;
+      Result := Result and (lOffset > Length(lText));
+      if Result then
+        lStates[aIndex] := 2
+      else
+        lStates[aIndex] := 3;
+    end;
+
+    function NonStringType(const aType: string; const aDepth: Integer): Boolean;
+    var
+      lType: string;
+      lIndices: TArray<Integer>;
+    begin
+      lType := LowerCase(Trim(aType));
+      Result := False;
+      if (lType = '') or (aDepth >= 64) then
+        Exit;
+      // A declared alias can shadow even Integer. Its retained type evidence
+      // takes precedence over intrinsic spelling; ambiguity withholds proof.
+      if lByName.TryGetValue(lType, lIndices) then
+      begin
+        Result := Length(lIndices) > 0;
+        for var lIndex in lIndices do
+          if (lConstants[lIndex].Item.TypeName = '') or
+            not NonStringType(lConstants[lIndex].Item.TypeName, aDepth + 1) then
+            Exit(False);
+        Exit;
+      end;
+      Result := MatchText(lType, ['integer', 'byte', 'shortint', 'smallint', 'word',
+        'longint', 'longword', 'cardinal', 'int8', 'int16', 'int32', 'int64',
+        'uint8', 'uint16', 'uint32', 'uint64', 'nativeint', 'nativeuint',
+        'boolean', 'bytebool', 'wordbool', 'longbool', 'single', 'double', 'extended',
+        'real', 'currency', 'comp', 'pointer']) or StartsText('^', lType) or
+        StartsText('set ', lType);
+    end;
+
+    // A primitive scalar cast or a complete intrinsic call proves a
+    // non-string result without executing it. Nested arguments do not change
+    // that result type, but their string/concatenation witnesses remain scanned.
+    function NonStringCall(const aCode: string): Boolean;
+    var
+      lOpen, lDepth, lIndex: Integer;
+      lHead: string;
+      lIndices: TArray<Integer>;
+    begin
+      Result := False;
+      lOpen := Pos('(', aCode);
+      if lOpen = 0 then
+        Exit;
+      lHead := Trim(Copy(aCode, 1, lOpen - 1));
+      if lByName.TryGetValue(lHead, lIndices) then
+        for var lCandidateIndex in lIndices do
+          if not NonStringType(lConstants[lCandidateIndex].Item.TypeName, 0) then
+            Exit; // A same-spelled declaration withholds intrinsic-call proof.
+      if not NonStringType(lHead, 0) and not MatchText(lHead,
+        ['Ord', 'SizeOf', 'Length', 'Round', 'Trunc']) then
+        Exit;
+      lDepth := 0;
+      for lIndex := lOpen to Length(aCode) do
+      begin
+        if aCode[lIndex] = '(' then
+          Inc(lDepth)
+        else if aCode[lIndex] = ')' then
+        begin
+          Dec(lDepth);
+          if lDepth = 0 then
+            Exit(Trim(Copy(aCode, lIndex + 1, MaxInt)) = '');
+        end;
+      end;
+    end;
+
+    function MaskNonStringCalls(const aCode: string): string;
+    var
+      lMatch: TMatch;
+      lStart, lIndex, lDepth: Integer;
+    begin
+      Result := aCode;
+      // Preserve every physical offset for subsequent snapshot type lookups.
+      for lMatch in TRegEx.Matches(aCode, '[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*\s*\(') do
+      begin
+        lStart := lMatch.Index;
+        lIndex := lStart + Length(lMatch.Value) - 1;
+        lDepth := 0;
+        while lIndex <= Length(aCode) do
+        begin
+          if aCode[lIndex] = '(' then
+            Inc(lDepth)
+          else if aCode[lIndex] = ')' then
+          begin
+            Dec(lDepth);
+            if lDepth = 0 then
+            begin
+              if NonStringCall(Copy(aCode, lStart, lIndex - lStart + 1)) then
+                Result := Copy(Result, 1, lStart - 1) +
+                  StringOfChar(' ', lIndex - lStart) + '0' + Copy(Result, lIndex + 1, MaxInt);
+              Break;
+            end;
+          end;
+          Inc(lIndex);
+        end;
+      end;
+    end;
+
+    function OperandHasNonStringType(const aIndex, aRelativeOffset: Integer;
+      const aIdentifier: string): Boolean;
+    var
+      lSource, lToken: string;
+      lOffset, lLine, lColumn, lDot, i: Integer;
+      lResolution: TDelphiSemanticSnapshotPositionResolution;
+      lUnit: TUnitSnapshot;
+    begin
+      Result := False;
+      lUnit := aSnapshot.UnitByIndex(lConstants[aIndex].UnitIndex);
+      if not SameText(lConstants[aIndex].FileName, SnapshotText(aSnapshot, lUnit.FileNameId)) then
+        Exit; // Include witnesses have no invented source-offset identity.
+      lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+      lDot := LastDelimiter('.', aIdentifier);
+      lToken := Copy(aIdentifier, lDot + 1, MaxInt);
+      lOffset := lConstants[aIndex].Item.Offset + aRelativeOffset + lDot;
+      if (lOffset < 1) or (lOffset > Length(lSource)) then
+        Exit;
+      lLine := 1;
+      lColumn := 1;
+      for i := 1 to lOffset - 1 do
+        if lSource[i] = #10 then
+        begin
+          Inc(lLine);
+          lColumn := 1;
+        end else
+          Inc(lColumn);
+      if TryResolveSnapshotPosition(aSnapshot, lConstants[aIndex].FileName,
+        lLine, lColumn, lToken, lResolution) and lResolution.SymbolFound then
+        Result := NonStringType(SnapshotText(aSnapshot, lResolution.Symbol.TypeId), 0);
+    end;
+
+    // A flat record/array does not concatenate its fields. Literal string
+    // fields are already scanned, and non-string fields cannot supply a name.
+    // Unknown field types, nested records and unknown string values withhold
+    // this proof. AnsiChar/Char fields have a one-character value bound.
+    function StructuredValueCovered(const aIndex: Integer): Boolean;
+    var
+      lLexer: TmwBasePasLex;
+      lType, lField, lValue, lFieldType, lLiteral: string;
+      lMatch: TMatch;
+      lIndices: TArray<Integer>;
+      lStart, lDepth, lCursor, lLiteralStart: Integer;
+      lCovered, lSawField, lLongNames: Boolean;
+    begin
+      Result := False;
+      lType := Trim(lConstants[aIndex].Item.TypeName);
+      if StartsText('array', lType) then
+      begin
+        lMatch := TRegEx.Match(lType, '\bof\s+([A-Za-z_][A-Za-z_0-9.]*)\s*$', [roIgnoreCase]);
+        if not lMatch.Success then
+          Exit;
+        lType := lMatch.Groups[1].Value;
+      end;
+      if (lType = '') or ContainsText(lType, 'string') then
+        Exit;
+      lLongNames := True;
+      for var lName in aNames do
+        lLongNames := lLongNames and (Length(lName) > 1);
+      lLexer := TmwBasePasLex.Create;
+      try
+        lLexer.UseDefines := False;
+        lLexer.Origin := lConstants[aIndex].Item.Expression;
+        lSawField := False;
+        while lLexer.TokenID <> ptNull do
+        begin
+          if lLexer.TokenID <> ptIdentifier then
+          begin
+            lLexer.NextNoJunk;
+            Continue;
+          end;
+          lField := lLexer.Token.TrimLeft(['&']);
+          lLexer.NextNoJunk;
+          if lLexer.Token <> ':' then
+            Exit; // An array scalar or another unsupported value shape.
+          lSawField := True;
+          lLexer.NextNoJunk;
+          lStart := lLexer.TokenPos + 1;
+          lDepth := 0;
+          while lLexer.TokenID <> ptNull do
+          begin
+            if (lDepth = 0) and MatchText(lLexer.Token, [';', ')']) then
+              Break;
+            if lLexer.Token = ':' then
+              Exit; // A nested record requires its own field-owner proof.
+            if lLexer.Token = '(' then
+              Inc(lDepth)
+            else if lLexer.Token = ')' then
+              Dec(lDepth);
+            lLexer.NextNoJunk;
+          end;
+          lValue := Trim(Copy(lConstants[aIndex].Item.Expression, lStart,
+            lLexer.TokenPos + 1 - lStart));
+          lIndices := FindConstants(aIndex, lType + '.' + lField);
+          if Length(lIndices) = 0 then
+            Exit;
+          for var lIndex in lIndices do
+          begin
+            lFieldType := Trim(lConstants[lIndex].Item.TypeName);
+            lCovered := NonStringType(lFieldType, 0) or (lLongNames and
+              MatchText(lFieldType, ['Char', 'AnsiChar', 'WideChar', 'System.Char',
+                'System.AnsiChar', 'System.WideChar']));
+            if ContainsText(lFieldType, 'string') then
+            begin
+              lCursor := 1;
+              lCovered := NextRawStringLiteral(lValue, lCursor, lLiteral, lLiteralStart, True) and
+                (lLiteralStart = 1) and (Trim(Copy(lValue, lCursor, MaxInt)) = '');
+            end;
+            if not lCovered then
+              Exit;
+          end;
+        end;
+        Result := lSawField;
+      finally
+        lLexer.Free;
+      end;
+    end;
+
+    function CouldSupplyName(const aIndex, aDepth: Integer): Boolean;
+    var
+      lText, lCode, lValue, lIdentifier: string;
+      lMatch: TMatch;
+      lLiteral: TDelphiSemanticStringLiteral;
+      lDependencies: TArray<Integer>;
+      lHasString, lUnknownString, lIncompatible, lKnownNonString, lRelevant, lStructured: Boolean;
+
+      procedure AddFragment(const aValue: string);
+      var
+        lFits: Boolean;
+        lName: string;
+      begin
+        lHasString := True;
+        lFits := aValue = '';
+        for lName in aNames do
+          lFits := lFits or ContainsText(lName, aValue);
+        lIncompatible := lIncompatible or not lFits;
+      end;
+
+    begin
+      if (aDepth >= 64) or lVisiting[aIndex] then
+        Exit(True);
+      lText := Trim(lConstants[aIndex].Item.Expression);
+      if NonStringType(lConstants[aIndex].Item.TypeName, 0) then
+        Exit(False);
+      // Structured values are not names. Their literals and nested '+'
+      // expressions have their own independent witnesses.
+      if StartsText('[', lText) then
+        Exit(False); // A set's elements cannot turn its value into a string.
+      lStructured := StartsText('array', Trim(lConstants[aIndex].Item.TypeName)) or
+        StartsText('record', Trim(lConstants[aIndex].Item.TypeName)) or
+        ((Copy(lText, 1, 1) = '(') and (Pos(':', SanitizeCodeText(lText)) > 0));
+      if lStructured and StructuredValueCovered(aIndex) then
+        Exit(False);
+      lCode := MaskNonStringCalls(SanitizeCodeText(lText));
+      if lStructured then
+        lCode := TRegEx.Replace(lCode, '\b[A-Za-z_][A-Za-z_0-9]*\s*:', ' ');
+      if NonStringCall(Trim(lCode)) then
+        Exit(False);
+      if (lCode <> '') and TRegEx.IsMatch(lCode,
+        '^(?:\s|(?:\$[0-9A-Fa-f]+)|(?:\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)|[.+*/()<>:=\-])+$') then
+        Exit(False);
+      lVisiting[aIndex] := True;
+      try
+        lHasString := not lStructured and (ContainsText(lConstants[aIndex].Item.TypeName, 'string') or
+          MatchText(Trim(lConstants[aIndex].Item.TypeName), ['char', 'ansichar', 'widechar']));
+        lUnknownString := False;
+        lIncompatible := False;
+        lKnownNonString := False;
+        for lLiteral in StringLiteralCandidates(lText, True) do
+          AddFragment(lLiteral.Value);
+        for lMatch in TRegEx.Matches(lCode,
+          '[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*') do
+        begin
+          lIdentifier := lMatch.Value;
+          if MatchText(lIdentifier, ['nil', 'true', 'false', 'div', 'mod', 'shl', 'shr',
+            'and', 'or', 'xor', 'not']) then
+          begin
+            lKnownNonString := True;
+            Continue;
+          end;
+          if EvaluateName(aIndex, lIdentifier, aDepth + 1, lValue) then
+          begin
+            AddFragment(lValue);
+            Continue;
+          end;
+          if OperandHasNonStringType(aIndex, lMatch.Index - 1, lIdentifier) then
+          begin
+            lKnownNonString := True;
+            Continue;
+          end;
+          lDependencies := FindConstants(aIndex, lIdentifier);
+          if Length(lDependencies) = 0 then
+          begin
+            // Implicit System.sLineBreak is a control-character string on all
+            // certified platforms. Imports or declarations can shadow its bare
+            // spelling; without absence proof we keep the value unknown.
+            if (SameText(lIdentifier, 'System.sLineBreak') and
+              not lByName.ContainsKey('System')) or
+              (SameText(lIdentifier, 'sLineBreak') and
+              (Length(aSnapshot.UnitByIndex(lConstants[aIndex].UnitIndex).ImportFacts) = 0)) then
+              AddFragment(#10)
+            else
+              lUnknownString := True;
+            Continue;
+          end;
+          lRelevant := False;
+          for var lDependency in lDependencies do
+            lRelevant := lRelevant or CouldSupplyName(lDependency, aDepth + 1);
+          if lRelevant then
+            lUnknownString := True
+          else
+            lKnownNonString := True;
+        end;
+        // Unknown string operands may themselves supply a complete name. A
+        // known incompatible fragment alone cannot excuse such an operand.
+        Result := lUnknownString or (not lStructured and lHasString and
+          not lIncompatible and not lKnownNonString);
+        if (lText = '') and not lKnownNonString then
+          Result := not NonStringType(lConstants[aIndex].Item.TypeName, 0);
+      finally
+        lVisiting[aIndex] := False;
+      end;
+    end;
+
+  begin
+    lByName := TDictionary<string, TArray<Integer>>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    lAliases := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      for i := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lUnit := aSnapshot.UnitByIndex(i);
+        lConstant := Default(TConstant);
+        lConstant.Owner := SnapshotText(aSnapshot, lUnit.UnitNameId);
+        lConstant.FileName := SnapshotText(aSnapshot, lUnit.FileNameId);
+        lConstant.UnitIndex := i;
+        for var lItem in StringExpressionWitnesses(aSnapshot.ExactTextOf(lUnit.SourceTextId)) do
+        begin
+          lConstant.Item := lItem;
+          lConstants := lConstants + [lConstant];
+        end;
+        for j := 1 to lUnit.ReferenceCount do
+        begin
+          lFact := lUnit.ReferenceById(TSemanticReferenceId(j));
+          if not SameText(SnapshotText(aSnapshot, lFact.ClassificationId), 'string-constant-expression') then
+            Continue;
+          lConstant.Item := Default(TDelphiSemanticStringConstant);
+          lConstant.Item.Name := SnapshotText(aSnapshot, lFact.ReasonId);
+          lConstant.Item.TypeName := SnapshotText(aSnapshot, lFact.TypeId);
+          lConstant.Item.Expression := SnapshotText(aSnapshot, lFact.LookupSourceId);
+          lConstant.FileName := SnapshotText(aSnapshot, lFact.FileId);
+          lConstants := lConstants + [lConstant];
+        end;
+        // Mutable and unresolved symbols participate only as unknown operands,
+        // preventing a same-spelled constant from proving a shadowed value.
+        for j := 1 to lUnit.SymbolCount do
+        begin
+          lSymbol := lUnit.SymbolById(TSemanticSymbolId(j));
+          if not MatchText(SnapshotText(aSnapshot, lSymbol.KindId),
+            ['var', 'threadvar', 'field', 'class-var', 'property', 'parameter', 'local', 'type', 'alias', 'enum-value', 'routine']) then
+            Continue;
+          lConstant.Item := Default(TDelphiSemanticStringConstant);
+          lConstant.Item.Name := SnapshotText(aSnapshot, lSymbol.NameId);
+          lConstant.Item.TypeName := SnapshotText(aSnapshot, lSymbol.TypeId);
+          if SameText(SnapshotText(aSnapshot, lSymbol.KindId), 'enum-value') then
+            lConstant.Item.TypeName := 'Integer';
+          lOwnerType := SnapshotText(aSnapshot, lSymbol.OwnerTypeId);
+          if lOwnerType <> '' then
+            lConstant.Item.Name := lOwnerType + '.' + lConstant.Item.Name;
+          lConstants := lConstants + [lConstant];
+        end;
+        for lImport in lUnit.ImportFacts do
+          for k := 0 to aSnapshot.UnitCount - 1 do
+          begin
+            lImportedUnit := aSnapshot.UnitByIndex(k);
+            if SameText(lImport.TargetFileName, SnapshotText(aSnapshot, lImportedUnit.FileNameId)) then
+            begin
+              lAlias := lConstant.Owner + '|' + lImport.Name;
+              lName := SnapshotText(aSnapshot, lImportedUnit.UnitNameId);
+              if lAliases.ContainsKey(lAlias) and not SameText(lAliases[lAlias], lName) then
+                lAliases[lAlias] := '<ambiguous-import>'
+              else
+                lAliases.AddOrSetValue(lAlias, lName);
+            end;
+          end;
+      end;
+      SetLength(lValues, Length(lConstants));
+      SetLength(lStates, Length(lConstants));
+      SetLength(lVisiting, Length(lConstants));
+      for i := 0 to High(lConstants) do
+        if lConstants[i].Item.Name <> '' then
+        begin
+          IndexName(lConstants[i].Item.Name, i);
+          IndexName(lConstants[i].Owner + '.' + lConstants[i].Item.Name, i);
+          if Pos('.', lConstants[i].Item.Name) > 0 then
+            IndexName(lConstants[i].Item.Name.Split(['.'])[High(lConstants[i].Item.Name.Split(['.']))], i);
+        end;
+      for i := 0 to High(lConstants) do
+      begin
+        if lConstants[i].Item.Expression = '' then
+          Continue;
+        if Evaluate(i, 0) then
+        begin
+          for lName in aNames do
+            if MatchText(lName, lValues[i].Split(['.'])) then
+              Report(lConstants[i].FileName, 'string-name-consumer', lName, 0, 0);
+        end else if CouldSupplyName(i, 0) then
+        begin
+          lName := lConstants[i].Item.Name;
+          if lName = '' then
+            lName := lConstants[i].Item.Expression.Trim;
+          Report(lConstants[i].FileName, 'string-constant-value-unproved', lName, 0, 0);
+        end;
+      end;
+    finally
+      lAliases.Free;
+      lByName.Free;
+    end;
   end;
 
   procedure CheckUnitTokens(const aCurrentUnit: TUnitSnapshot);
@@ -982,8 +2043,9 @@ var
     lOffset, lScanned, lLine, lLineStart, lEnd, lPrevious, lIndex: Integer;
     lReference: TSemanticReferenceFact;
     lDeclaration: TSemanticSymbolFact;
-    lIsDeclaration: Boolean;
+    lIsDeclaration, lInAsm: Boolean;
   begin
+    lInAsm := False;
     lSource := aSnapshot.ExactTextOf(aCurrentUnit.SourceTextId);
     lEvidence := aSnapshot.ExactTextOf(aCurrentUnit.VerifiedActiveSourceTextId);
     lScan := SanitizeCodeText(lSource);
@@ -1006,8 +2068,13 @@ var
       lName := Copy(lScan, lOffset, lEnd - lOffset);
       if StartsText('&', lName) then
         Delete(lName, 1, 1);
-      if MatchText(lName, aNames) and
-        not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lEvidence, lOffset) then
+      if SameText(lName, 'asm') then
+        lInAsm := True
+      else if SameText(lName, 'end') then
+        lInAsm := False;
+      if (lInAsm and (SameText(lName, aSymbol.Name) or MatchText(lName, aNames))) or
+        (MatchText(lName, aNames) and
+        not TDelphiSemanticSourceConditionals.NeverAtOffset(lSource, lEvidence, lOffset)) then
       begin
         while lScanned < lOffset do
         begin
@@ -1017,6 +2084,14 @@ var
             lLineStart := lScanned + 1;
           end;
           Inc(lScanned);
+        end;
+        // Assembly tokens have no certified binding/edit facts. Reconcile both
+        // spellings in every raw asm span, including conditional and pure bodies.
+        if lInAsm then
+        begin
+          Report(lFileName, 'unclassified-occurrence', lName, lLine, lOffset - lLineStart + 1);
+          lOffset := lEnd;
+          Continue;
         end;
         lReference := Default(TSemanticReferenceFact);
         for lIndex := 1 to aCurrentUnit.ReferenceCount do
@@ -1039,6 +2114,10 @@ var
             Break;
           end;
         end;
+        if not lIsDeclaration and (lReference.NameId = 0) and
+          not SameText(lName, aSymbol.Name) then
+          Report(lFileName, 'unclassified-new-name-occurrence', lName,
+            lLine, lOffset - lLineStart + 1);
         lPrevious := lOffset - 1;
         while (lPrevious > 0) and CharInSet(lScan[lPrevious], [#9, #10, #13, ' ']) do
           Dec(lPrevious);
@@ -1054,7 +2133,7 @@ var
           // even when the declaring unit has no expression using its old name.
           CheckImports(lFileName, 'implementation', lFileName, lName, False, True, lLine,
             lOffset - lLineStart + 1)
-        else if not lIsDeclaration or
+        else if (lLocalMemberContext and not SameText(lName, aSymbol.Name)) or not lIsDeclaration or
           (lLocal and (not SameText(lName, aSymbol.Name) or
           SnapshotPositionInWith(aCurrentUnit, lLine, lOffset - lLineStart + 1))) then
           CheckOccurrence(aCurrentUnit, lFileName, lName, lLine, lOffset - lLineStart + 1,
@@ -1086,8 +2165,29 @@ begin
   lSeen := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lReported := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lResult := TList<TDelphiSemanticUsage>.Create;
+  lRetained := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   try
+    lPackage := False;
+    for i := 0 to aSnapshot.UnitCount - 1 do
+    begin
+      lUnit := aSnapshot.UnitByIndex(i);
+      lPackage := lPackage or TRegEx.IsMatch(SanitizeCodeText(
+        aSnapshot.ExactTextOf(lUnit.SourceTextId)), '^\s*package\b', [roIgnoreCase]);
+      if aSnapshot.ExactTextOf(lUnit.SourceTextId) <> '' then
+        lRetained.Add(SnapshotText(aSnapshot, lUnit.FileNameId));
+    end;
     lLocal := SnapshotLocalTarget(aSnapshot, aSymbol, lLocalUnit, lLocalFact);
+    lLocalMemberContext := False;
+    if lLocal then
+      for i := 1 to lLocalUnit.ReferenceCount do
+      begin
+        lReference := lLocalUnit.ReferenceById(TSemanticReferenceId(i));
+        if SameText(SnapshotText(aSnapshot, lReference.NameId), aSymbol.Name) and
+          ((lReference.WithId <> 0) or (lReference.ReceiverTypeId <> 0) or
+          SnapshotPositionInWith(lLocalUnit, lReference.Line, lReference.Column) or
+          SnapshotPositionInMethod(aSnapshot, lLocalUnit, lReference.Line)) then
+          lLocalMemberContext := True;
+      end;
     for i := 0 to aSnapshot.UnitCount - 1 do
       for lFact in aSnapshot.UnitByIndex(i).ImportFacts do
       begin
@@ -1103,11 +2203,18 @@ begin
           lImports.Add(lFact.OwnerFileName, lEdges);
         end;
         lEdges.Add(lFact);
+        // Coverage is independent of lexical shadowing and local scope.
+        // Every retained active import must itself have captured raw text;
+        // otherwise its inactive names and further imports are unknown.
+        if (lFact.Cause = '') and not lFact.SdkBoundary and
+          (lFact.TargetFileName <> '') and not lRetained.Contains(lFact.TargetFileName) then
+          Report(lFact.TargetFileName, 'active-import-source-not-retained', aSymbol.Name, 0, 0);
       end;
     for i := 0 to aSnapshot.UnitCount - 1 do
     begin
       lUnit := aSnapshot.UnitByIndex(i);
       CheckUnitTokens(lUnit);
+      CheckImplicitConsumers(lUnit);
       for j := 1 to lUnit.ReferenceCount do
       begin
         lReference := lUnit.ReferenceById(TSemanticReferenceId(j));
@@ -1120,8 +2227,10 @@ begin
           SnapshotText(aSnapshot, lReference.ReasonId), lReference.FileId);
       end;
     end;
+    CheckStringConstants;
     Result := SortedUsages(lResult);
   finally
+    lRetained.Free;
     lResult.Free;
     lReported.Free;
     lSeen.Free;

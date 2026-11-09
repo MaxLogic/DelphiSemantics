@@ -72,12 +72,12 @@ function CompareSnapshotImportBindings(const aSnapshot: TDelphiProjectSnapshot;
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.IOUtils,
+  System.Diagnostics, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
   DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity;
+  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.Source;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -2411,7 +2411,7 @@ end;
 
 function AddSnapshotDeclaration(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aDeclaration: TDelphiSemanticDeclaration;
-  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2426,7 +2426,7 @@ begin
   lSymbol.TypeId := aStrings.Intern(aDeclaration.TypeName);
   lSymbol.KindId := aStrings.Intern(SnapshotDeclarationKind(aDeclaration.Kind));
   lSymbol.SectionKindId := aStrings.Intern(aDeclaration.SectionKind);
-  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SourceKindId := aSourceKindId;
   lSymbol.DeclarationRoleId := aStrings.Intern(aDeclaration.DeclarationRole);
   lSymbol.ScopeKindId := aStrings.Intern(aDeclaration.ScopeKind);
   if SameText(aDeclaration.ScopeKind, 'type') then
@@ -2447,7 +2447,7 @@ end;
 function AddSnapshotMember(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aUnitName: string;
   const aMember: TDelphiSemanticMember;
-  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2456,7 +2456,7 @@ begin
   lSymbol.OwnerTypeId := aStrings.Intern(aMember.OwnerName);
   lSymbol.TypeId := aStrings.Intern(aMember.TypeName);
   lSymbol.KindId := aStrings.Intern(aMember.Kind);
-  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SourceKindId := aSourceKindId;
   lSymbol.VisibilityId := aStrings.Intern(aMember.Visibility);
   lSymbol.SignatureId := aStrings.Intern(aMember.Signature);
   if SameText(aStrings.TextOf(aUnit.ScopeModelStatusId), 'ast') and
@@ -2486,7 +2486,7 @@ function AddSnapshotParameter(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aRoutineName, aRoutineSectionKind,
   aRoutineSignature, aRoutineScopeId: string;
   const aParameter: TDelphiSemanticParameter;
-  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lSymbol: TSemanticSymbolFact;
 begin
@@ -2496,7 +2496,7 @@ begin
   lSymbol.RoutineId := aStrings.Intern(aRoutineName);
   lSymbol.KindId := aStrings.Intern(cSnapshotSymbolKindParameter);
   lSymbol.SectionKindId := aStrings.Intern(aRoutineSectionKind);
-  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SourceKindId := aSourceKindId;
   lSymbol.SignatureId := aStrings.Intern(aRoutineSignature);
   lSymbol.RoutineScopeId := aStrings.Intern(aRoutineScopeId);
   lSymbol.FileId := SnapshotFactFileId(aStrings, aParameter.FileName);
@@ -2510,7 +2510,8 @@ end;
 
 function AddSnapshotRoutine(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aRoutine: TDelphiSemanticRoutine;
-  out aParameterIds: TArray<TSemanticSymbolId>; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
+  out aParameterIds: TArray<TSemanticSymbolId>;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   i: Integer;
   lRoutineName: string;
@@ -2524,7 +2525,7 @@ begin
   lSymbol.RoutineId := aStrings.Intern(lRoutineName);
   lSymbol.KindId := aStrings.Intern(cSnapshotSymbolKindRoutine);
   lSymbol.SectionKindId := aStrings.Intern(aRoutine.SectionKind);
-  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SourceKindId := aSourceKindId;
   lSymbol.SignatureId := aStrings.Intern(aRoutine.Signature);
   lSymbol.RoutineScopeId := aStrings.Intern(aRoutine.ScopeId);
   lSymbol.FileId := SnapshotFactFileId(aStrings, aRoutine.FileName);
@@ -2542,12 +2543,12 @@ begin
   SetLength(aParameterIds, Length(aRoutine.Parameters));
   for i := 0 to High(aRoutine.Parameters) do
     aParameterIds[i] := AddSnapshotParameter(aStrings, aUnit, lRoutineName, aRoutine.SectionKind,
-      aRoutine.Signature, aRoutine.ScopeId, aRoutine.Parameters[i], aMetrics);
+      aRoutine.Signature, aRoutine.ScopeId, aRoutine.Parameters[i], aSourceKindId, aMetrics);
 end;
 
 function AddSnapshotLocal(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aLocal: TDelphiSemanticLocal;
-  var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticSymbolId;
 var
   lKind: string;
   lSymbol: TSemanticSymbolFact;
@@ -2560,7 +2561,7 @@ begin
   lSymbol.TypeId := aStrings.Intern(aLocal.TypeName);
   lSymbol.RoutineId := aStrings.Intern(aLocal.RoutineName);
   lSymbol.KindId := aStrings.Intern(lKind);
-  lSymbol.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lSymbol.SourceKindId := aSourceKindId;
   lSymbol.RoutineScopeId := aStrings.Intern(aLocal.RoutineScopeId);
   lSymbol.FileId := SnapshotFactFileId(aStrings, aLocal.FileName);
   lSymbol.Line := aLocal.Line;
@@ -2575,7 +2576,7 @@ function AddSnapshotReference(const aStrings: TSemanticStringPool;
   const aUnit: TUnitSnapshot; const aUnitName: string;
   const aReference: TDelphiSemanticReference;
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
-  var aMetrics: TSnapshotUnitBuildResult): TSemanticReferenceId;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult): TSemanticReferenceId;
 var
   lReference: TSemanticReferenceFact;
   lTarget: TSemanticSymbolRef;
@@ -2588,7 +2589,7 @@ begin
   lReference.NameId := aStrings.Intern(aReference.Name);
   lReference.RoutineId := aStrings.Intern(aReference.RoutineName);
   lReference.SectionKindId := aStrings.Intern(aReference.SectionKind);
-  lReference.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+  lReference.SourceKindId := aSourceKindId;
   lReference.ClassificationId := aStrings.Intern(aReference.Role);
   lReference.RoutineScopeId := aStrings.Intern(aReference.RoutineScopeId);
   lReference.Line := aReference.Line;
@@ -2611,6 +2612,153 @@ begin
   Inc(aMetrics.ReferenceCount);
 end;
 
+// Include consumer names are refusal facts, not binding or edit evidence.
+// Store them in the existing reference table so actual SQLite reloads retain
+// both captured names and missing-text barriers without rereading disk.
+procedure AddIncludeConsumerFacts(const aStrings: TSemanticStringPool;
+  const aUnit: TUnitSnapshot; const aModel: TDelphiSemanticUnitModel;
+  const aSourceKindId: TSemanticStringId; var aMetrics: TSnapshotUnitBuildResult);
+var
+  lFileName, lName, lConsumerCode, lExpression, lReason, lIncludeCode: string;
+  lSource: TDelphiSemanticSourceText;
+  lFact: TSemanticReferenceFact;
+  lMatch: TMatch;
+  lRttiUnit: Boolean;
+  lConstant: TDelphiSemanticStringConstant;
+  i: Integer;
+
+  procedure AddConsumer(const aName, aReason: string; const aOffset: Integer);
+  var
+    lIndex: Integer;
+  begin
+    lFact := Default(TSemanticReferenceFact);
+    lFact.NameId := aStrings.Intern(aName);
+    lFact.FileId := aStrings.Intern(lFileName);
+    lFact.SourceKindId := aSourceKindId;
+    lFact.ClassificationId := aStrings.Intern('implicit-name-consumer');
+    lFact.ReasonId := aStrings.Intern(aReason);
+    lFact.Line := 1;
+    lFact.Column := 1;
+    for lIndex := 1 to aOffset - 1 do
+      if lSource.Text[lIndex] = #10 then
+      begin
+        Inc(lFact.Line);
+        lFact.Column := 1;
+      end else
+        Inc(lFact.Column);
+    lFact.EndLine := lFact.Line;
+    lFact.EndColumn := lFact.Column;
+    aUnit.AddReference(lFact);
+    Inc(aMetrics.ReferenceCount);
+  end;
+
+
+  procedure AddLiteralConsumers(const aReason: string);
+  var
+    lSeen: TDictionary<string, Byte>;
+    lKey, lName: string;
+    lCandidate: TDelphiSemanticStringLiteral;
+    lCodeOnly: Boolean;
+  begin
+    lSeen := TDictionary<string, Byte>.Create;
+    try
+      for lCodeOnly := False to True do
+      begin
+        for lCandidate in StringLiteralCandidates(lSource.Text, lCodeOnly) do
+          for lName in lCandidate.Value.Split(['.']) do
+          begin
+            lKey := IntToStr(lCandidate.Offset) + '|' + lName;
+            if not lSeen.ContainsKey(lKey) then
+            begin
+              lSeen.Add(lKey, 0);
+              AddConsumer(lName, aReason, lCandidate.Offset);
+            end;
+          end;
+      end;
+    finally
+      lSeen.Free;
+    end;
+  end;
+
+begin
+  if Length(aModel.IncludeFileNames) = 0 then
+    Exit;
+  lRttiUnit := False;
+  for i := 0 to High(aModel.ImportFacts) do
+    lRttiUnit := lRttiUnit or MatchText(aModel.ImportFacts[i].Name,
+      ['System.Rtti', 'System.TypInfo', 'Rtti', 'TypInfo']);
+  lConsumerCode := SanitizeCodeText(aModel.SourceText);
+  // Include-to-include calls and literals also belong to this logical unit.
+  for lFileName in aModel.IncludeFileNames do
+    if (aModel.SourceObservations <> nil) and
+      aModel.SourceObservations.TryFind(lFileName, lSource) then
+      lConsumerCode := lConsumerCode + #13#10 + SanitizeCodeText(lSource.Text);
+  lRttiUnit := lRttiUnit or HasRuntimeNameConsumerCode(lConsumerCode);
+  for lFileName in aModel.IncludeFileNames do
+  begin
+    if (aModel.SourceObservations = nil) or
+      not aModel.SourceObservations.TryFind(lFileName, lSource) or
+      (lSource.ContentHash = '') or ((lSource.Text = '') and
+      not SameText(lSource.ContentHash, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')) then
+    begin
+      lFact := Default(TSemanticReferenceFact);
+      lFact.FileId := aStrings.Intern(lFileName);
+      lFact.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
+      lFact.ReasonId := aStrings.Intern('include-text-not-retained');
+      lFact.SourceKindId := aSourceKindId;
+      aUnit.AddReference(lFact);
+      Inc(aMetrics.ReferenceCount);
+      Continue;
+    end;
+    for lExpression in DirectiveNameExpressions(lSource.Text) do
+      for lMatch in TRegEx.Matches(lExpression, '&?[A-Za-z_][A-Za-z_0-9]*') do
+        AddConsumer(lMatch.Value.TrimLeft(['&']), 'directive-name-consumer', 1);
+    // Persist expression witnesses so warm SQLite queries evaluate the same
+    // transitive constants without reopening an include from disk.
+    for lConstant in StringExpressionWitnesses('const ' + lSource.Text) do
+    begin
+      lFact := Default(TSemanticReferenceFact);
+      lFact.ReasonId := aStrings.Intern(lConstant.Name);
+      lFact.TypeId := aStrings.Intern(lConstant.TypeName);
+      lFact.LookupSourceId := aStrings.Intern(lConstant.Expression);
+      lFact.FileId := aStrings.Intern(lFileName);
+      lFact.SourceKindId := aSourceKindId;
+      lFact.ClassificationId := aStrings.Intern('string-constant-expression');
+      aUnit.AddReference(lFact);
+      Inc(aMetrics.ReferenceCount);
+    end;
+    lIncludeCode := SanitizeCodeText(lSource.Text);
+    if TRegEx.IsMatch(lIncludeCode, '\b(?:Variant|OleVariant)\b', [roIgnoreCase]) then
+      AddConsumer('', 'late-bound-member-name', 1);
+    if TRegEx.IsMatch(lIncludeCode, '\b(?:external|exports)\b', [roIgnoreCase]) then
+      for i := 0 to High(aModel.Routines) do
+      begin
+        lReason := ImplicitExternalNameReason(lIncludeCode, aModel.Routines[i].Name);
+        if lReason <> '' then
+          AddConsumer(aModel.Routines[i].Name, lReason, 1);
+      end;
+    // Declared may consume a qualified identifier in any directive arm.
+    for lMatch in TRegEx.Matches(lSource.Text, '\bDeclared\s*\(\s*([&\w.]+)\s*\)', [roIgnoreCase]) do
+      for lName in lMatch.Groups[1].Value.Split(['.']) do
+        AddConsumer(lName.TrimLeft(['&']), 'declared-name-consumer', lMatch.Index + 1);
+    lReason := 'string-name-consumer';
+    if lRttiUnit then
+      lReason := 'rtti-string-name-consumer';
+    AddLiteralConsumers(lReason);
+    if HasPublishedTypeInfoSwitch(lSource.Text) then
+    begin
+      // Include-driven typeinfo state is not represented in member visibility.
+      // A name in any member of this unit remains a possible published consumer.
+      for i := 0 to High(aModel.Members) do
+        AddConsumer(aModel.Members[i].Name, 'published-member', 1);
+      for i := 0 to High(aModel.Declarations) do
+        if SameText(aModel.Declarations[i].TypeName, 'class') or
+          SameText(aModel.Declarations[i].Kind, 'class') then
+          AddConsumer(aModel.Declarations[i].Name, 'published-member', 1);
+    end;
+  end;
+end;
+
 function CreateSnapshotUnitModel(const aStrings, aExactStrings: TSemanticStringPool;
   const aModel: TDelphiSemanticUnitModel; const aUnitId: TSemanticUnitId;
   const aReferenceTargetLookup: TSnapshotReferenceTargetLookup;
@@ -2620,9 +2768,15 @@ var
   lProjection: TSnapshotSymbolProjection;
   lDiagnostic: TDelphiSemanticModelDiagnostic;
   lScopeDiagnostic: string;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lSourceKindId: TSemanticStringId;
   lSourceGap: TSemanticReferenceFact;
   lWith: TDelphiSemanticWithStatement;
 begin
+  if aModel.AnalysisOnly then
+    lSourceKindId := aStrings.Intern('analysis-source')
+  else
+    lSourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
     aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
@@ -2650,7 +2804,7 @@ begin
           lSourceGap.ReasonId := aStrings.Intern('include-file-not-found')
         else
           lSourceGap.ReasonId := aStrings.Intern(LowerCase(lDiagnostic.Code).Replace('_', '-'));
-        lSourceGap.SourceKindId := aStrings.Intern(cSnapshotSourceKindProject);
+        lSourceGap.SourceKindId := lSourceKindId;
         if not SameText(lDiagnostic.FileName, aModel.FileName) then
           lSourceGap.FileId := aStrings.Intern(lDiagnostic.FileName);
         lSourceGap.Line := lDiagnostic.Line;
@@ -2658,29 +2812,71 @@ begin
         Result.AddReference(lSourceGap);
         Inc(aMetrics.ReferenceCount);
       end;
+    AddIncludeConsumerFacts(aStrings, Result, aModel, lSourceKindId, aMetrics);
+    // A retained analysis source can be readable while preprocessing or AST
+    // extraction fails. Keep its exact diagnostics as unconditional refusals;
+    // raw-source retention is never a claim that its semantic model is complete.
+    if aModel.AnalysisOnly and not aModel.Success then
+    begin
+      for lDiagnostic in aModel.Diagnostics do
+      begin
+        lSourceGap := Default(TSemanticReferenceFact);
+        lSourceGap.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
+        lSourceGap.ReasonId := aStrings.Intern('analysis-input-' + LowerCase(lDiagnostic.Code).Replace('_', '-'));
+        lSourceGap.SourceKindId := lSourceKindId;
+        lSourceGap.FileId := SnapshotFactFileId(aStrings, lDiagnostic.FileName);
+        lSourceGap.Line := lDiagnostic.Line;
+        lSourceGap.EndLine := lDiagnostic.Line;
+        Result.AddReference(lSourceGap);
+        Inc(aMetrics.ReferenceCount);
+      end;
+      if Length(aModel.Diagnostics) = 0 then
+      begin
+        lSourceGap := Default(TSemanticReferenceFact);
+        lSourceGap.ClassificationId := aStrings.Intern(cSnapshotReferenceClassificationUnseenSource);
+        lSourceGap.ReasonId := aStrings.Intern('analysis-input-model-incomplete');
+        lSourceGap.SourceKindId := lSourceKindId;
+        Result.AddReference(lSourceGap);
+        Inc(aMetrics.ReferenceCount);
+      end;
+    end;
     Result.SetImportFacts(aModel.ImportFacts);
     // Import reachability is provenance, separate from token references.
     for var lImport in aModel.PossibleUnitImports do
       Result.AddPossibleUnitImport(aStrings.Intern(lImport));
     for lWith in aModel.WithStatements do
       AddSnapshotWithStatement(aStrings, Result, aModel, lWith, aMetrics);
+    // Metadata only: do not let a supplemental declaration enter symbol lookup.
+    for lDeclaration in aModel.ContainmentDeclarations do
+    begin
+      lSourceGap := Default(TSemanticReferenceFact);
+      lSourceGap.ClassificationId := aStrings.Intern('containment-declaration');
+      lSourceGap.ReasonId := aStrings.Intern(lDeclaration.Name);
+      lSourceGap.TypeId := aStrings.Intern(lDeclaration.Kind);
+      lSourceGap.SourceKindId := lSourceKindId;
+      lSourceGap.FileId := SnapshotFactFileId(aStrings, lDeclaration.FileName);
+      lSourceGap.Line := lDeclaration.Line;
+      lSourceGap.Column := lDeclaration.Column;
+      Result.AddReference(lSourceGap);
+      Inc(aMetrics.ReferenceCount);
+    end;
     SetLength(lProjection.Declarations, Length(aModel.Declarations));
     for i := 0 to High(aModel.Declarations) do
-      lProjection.Declarations[i] := AddSnapshotDeclaration(aStrings, Result, aModel.Declarations[i], aMetrics);
+      lProjection.Declarations[i] := AddSnapshotDeclaration(aStrings, Result, aModel.Declarations[i], lSourceKindId, aMetrics);
     SetLength(lProjection.Members, Length(aModel.Members));
     for i := 0 to High(aModel.Members) do
-      lProjection.Members[i] := AddSnapshotMember(aStrings, Result, aModel.UnitName, aModel.Members[i], aMetrics);
+      lProjection.Members[i] := AddSnapshotMember(aStrings, Result, aModel.UnitName, aModel.Members[i], lSourceKindId, aMetrics);
     SetLength(lProjection.Routines, Length(aModel.Routines));
     SetLength(lProjection.Parameters, Length(aModel.Routines));
     for i := 0 to High(aModel.Routines) do
-      lProjection.Routines[i] := AddSnapshotRoutine(aStrings, Result, aModel.Routines[i], lProjection.Parameters[i], aMetrics);
+      lProjection.Routines[i] := AddSnapshotRoutine(aStrings, Result, aModel.Routines[i], lProjection.Parameters[i], lSourceKindId, aMetrics);
     SetLength(lProjection.Locals, Length(aModel.Locals));
     for i := 0 to High(aModel.Locals) do
-      lProjection.Locals[i] := AddSnapshotLocal(aStrings, Result, aModel.Locals[i], aMetrics);
+      lProjection.Locals[i] := AddSnapshotLocal(aStrings, Result, aModel.Locals[i], lSourceKindId, aMetrics);
     SetLength(lProjection.References, Length(aModel.References));
     for i := 0 to High(aModel.References) do
       lProjection.References[i] := AddSnapshotReference(aStrings, Result, aModel.UnitName,
-        aModel.References[i], aReferenceTargetLookup, aMetrics);
+        aModel.References[i], aReferenceTargetLookup, lSourceKindId, aMetrics);
     ProjectPhysicalEvidence(aModel, lProjection, aStrings, aExactStrings, Result);
   except
     Result.Free;

@@ -4,14 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
-  DelphiSemantics.Api,
-  DelphiSemantics.Cache,
-  DelphiSemantics.CompilerProfile,
-  DelphiSemantics.Index,
-  DelphiSemantics.Model,
-  DelphiSemantics.Query,
-  DelphiSemantics.Refactor,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.Api, DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Index,
+  DelphiSemantics.Model, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot;
 
 type
   [TestFixture]
@@ -193,6 +187,145 @@ type
     [TestCase('Interface project source variation', 'r4c-interface-shadow-active')]
     [TestCase('Inactive new name in include', 'r4b2-include-newname')]
     procedure AlternateImportCapturesRefuseRename(const aCase: string);
+    [TestCase('n1-type-inactive-member', 'n1-type-inactive-member,UCertified.pas,23,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n2-same-unit-record-helper', 'n2-same-unit-record-helper,UCertified.pas,22,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper', 'n3-active-import-inactive-helper,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n6-method-self-impl-global', 'n6-method-self-impl-global,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
+    [TestCase('m1-nonmember-inactive-oldname', 'm1-nonmember-inactive-oldname,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('m1-member-inactive-oldname', 'm1-member-inactive-oldname,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-g-dpr', 'n3-active-import-inactive-helper-g-dpr,UCertified.pas,12,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-dpr', 'n3-active-import-inactive-helper-dpr,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('n1-type-inactive-member-g', 'n1-type-inactive-member-g,UCertified.pas,21,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n3-active-import-inactive-helper-g', 'n3-active-import-inactive-helper-g,UCertified.pas,12,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n2-same-unit-record-helper-g', 'n2-same-unit-record-helper-g,UCertified.pas,20,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('n6d-method-self-objhelper-rel', 'n6d-method-self-objhelper-rel,UCertified.pas,15,5,RenamedValue,implicit-self-may-capture-name,Win32,False')]
+    [TestCase('x1-bare-inherited', 'x1-bare-inherited,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x1-bare-inherited-reverse', 'x1-bare-inherited-reverse,UCertified.pas,8,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x2-interface-by-name', 'x2-interface-by-name,UCertified.pas,14,15,Exec,implicit-interface-method,Win32,False')]
+    [TestCase('x3-attribute-suffix', 'x3-attribute-suffix,UCertified.pas,6,3,TagAttribute,implicit-attribute-name,Win32,False')]
+    [TestCase('for-in-getenumerator', 'for-in-getenumerator,UCertified.pas,5,10,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-movenext', 'for-in-movenext,UCertified.pas,5,10,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-current', 'for-in-current,UCertified.pas,5,27,Other,implicit-for-in-protocol,Win32,False')]
+    [TestCase('for-in-newname', 'for-in-newname,UCertified.pas,5,10,MoveNext,implicit-for-in-protocol,Win32,False')]
+    [TestCase('property-accessor', 'property-accessor,UCertified.pas,5,10,Other,implicit-property-accessor,Win32,False')]
+    [TestCase('implements', 'implements,UCertified.pas,5,30,Other,implicit-implements,Win32,False')]
+    [TestCase('published-member', 'published-member,UCertified.pas,5,21,Other,published-member,Win32,False')]
+    [TestCase('operator-method', 'operator-method,UCertified.pas,5,16,Other,implicit-operator-method,Win32,False')]
+    [TestCase('unit-name', 'unit-name,UCertified.pas,3,5,UCertified,unit-or-namespace-name,Win32,False')]
+    [TestCase('namespace-name', 'namespace-name,UCertified.pas,3,5,System,unit-or-namespace-name,Win32,False')]
+    [TestCase('declared-old', 'declared-old,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('declared-new', 'declared-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('case-only', 'case-only,UCertified.pas,3,5,counter,,Win32,True')]
+    [TestCase('same-line', 'same-line,UCertified.pas,5,22,Renamed,,Win32,True')]
+    [TestCase('literal-findcomponent', 'literal-findcomponent,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-methodaddress', 'literal-methodaddress,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-findclass', 'literal-findclass,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-getmethod', 'literal-getmethod,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('literal-getproperty', 'literal-getproperty,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('interface-resolution', 'interface-resolution,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
+    [TestCase('interface-inherited', 'interface-inherited,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
+    [TestCase('interface-newname', 'interface-newname,UCertified.pas,8,11,Run,implicit-interface-method,Win32,False')]
+    [TestCase('local-newname-sdk-call', 'local-newname-sdk-call,UCertified.pas,6,5,WriteLn,containment-local-capture,Win32,False')]
+    [TestCase('parameter-newname-sdk-call', 'parameter-newname-sdk-call,UCertified.pas,5,17,WriteLn,containment-local-capture,Win32,False')]
+    [TestCase('inherited-escaped', 'inherited-escaped,UCertified.pas,5,16,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('declared-qualified', 'declared-qualified,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('unit-short-name', 'unit-short-name,UCertified.pas,4,5,Bar,unit-or-namespace-name,Win32,False')]
+    [TestCase('literal-second-argument', 'literal-second-argument,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
+    [TestCase('declared-qualified-new', 'declared-qualified-new,UCertified.pas,3,5,Renamed,declared-name-consumer,Win32,False')]
+    [TestCase('x1n-inherited-after-nested', 'x1n-inherited-after-nested,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('x1e-inherited-before-end', 'x1e-inherited-before-end,UCertified.pas,5,15,Other,implicit-bare-inherited,Win32,False')]
+    [TestCase('p10-declared-in-include', 'p10-declared-in-include,UCertified.pas,3,5,RenamedValue,declared-name-consumer,Win32,False')]
+    [TestCase('p6-mplus-getpropvalue', 'p6-mplus-getpropvalue,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('p6-sealed-persistent', 'p6-sealed-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
+    [TestCase('p6-abstract-persistent', 'p6-abstract-persistent,UCertified.pas,7,14,RenamedValue,published-member,Win32,False')]
+    [TestCase('f1-dfm-shared-dir', 'f1-dfm-shared-dir,proj\UCertified.pas,6,15,DMCreated,published-member,Win32,False')]
+    [TestCase('m1d-transitive-cond-nonmember', 'm1d-transitive-cond-nonmember,UCertified.pas,3,5,RenamedValue,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('r1-rtti-getfield', 'r1-rtti-getfield,UCertified.pas,6,5,Total,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r2-rtti-findtype', 'r2-rtti-findtype,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('u2-sysinit-newname', 'u2-sysinit-newname,UCertified.pas,3,5,SysInit,unit-or-namespace-name,Win32,False')]
+    [TestCase('r3-external-implicit', 'r3-external-implicit,UCertified.pas,3,10,GetTicks,external-pascal-name,Win32,False')]
+    [TestCase('r3-external-escaped', 'r3-external-escaped,UCertified.pas,3,11,GetTicks,external-pascal-name,Win32,False')]
+    [TestCase('r3-exports-implicit', 'r3-exports-implicit,UCertified.pas,3,10,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-exports-escaped', 'r3-exports-escaped,UCertified.pas,3,11,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-exports-index', 'r3-exports-index,UCertified.pas,3,10,RenamedValue,export-pascal-name,Win32,False')]
+    [TestCase('r3-package-export', 'r3-package-export,UCertified.pas,3,10,RenamedValue,package-exported-name,Win32,False')]
+    [TestCase('r3-classnameis', 'r3-classnameis,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-classname', 'r3-classname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-qualifiedclassname', 'r3-qualifiedclassname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-unitname', 'r3-unitname,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-gettypename', 'r3-gettypename,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-ptypeinfo', 'r3-ptypeinfo,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-typeinfo-name', 'r3-typeinfo-name,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-variant', 'r3-variant,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-olevariant', 'r3-olevariant,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-dispinterface', 'r3-dispinterface,UCertified.pas,6,15,Changed,late-bound-member-name,Win32,False')]
+    [TestCase('r3-asm-guarded-old', 'r3-asm-guarded-old,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-guarded-new', 'r3-asm-guarded-new,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-pure-old', 'r3-asm-pure-old,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-asm-pure-new', 'r3-asm-pure-new,UCertified.pas,3,5,RenamedValue,unclassified-occurrence,Win32,False')]
+    [TestCase('r3-if-constant', 'r3-if-constant,UCertified.pas,3,7,ChangedLimit,directive-name-consumer,Win32,False')]
+    [TestCase('r3-elseif-constant', 'r3-elseif-constant,UCertified.pas,3,7,ChangedLimit,directive-name-consumer,Win32,False')]
+    [TestCase('r3-if-sizeof', 'r3-if-sizeof,UCertified.pas,3,6,TD,directive-name-consumer,Win32,False')]
+    [TestCase('r3-include-if-sizeof', 'r3-include-if-sizeof,UCertified.pas,3,6,TD,directive-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-index', 'r3-external-explicit-index,UCertified.pas,3,10,GetTicks,,Win32,True')]
+    [TestCase('k1-rtti-const-other-unit', 'k1-rtti-const-other-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('k2-rtti-wrapper-other-unit', 'k2-rtti-wrapper-other-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('k3-classnameis', 'k3-classnameis,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('k4-getclass', 'k4-getclass,UCertified.pas,5,3,TD,string-name-consumer,Win32,False')]
+    [TestCase('k5-mplus-combined-const', 'k5-mplus-combined-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k5b-mplus-plain-const', 'k5b-mplus-plain-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k6-mplus-include-const', 'k6-mplus-include-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k6b-mplus-include-combined-const', 'k6b-mplus-include-combined-const,UCertified.pas,11,14,Amount,published-member,Win32,False')]
+    [TestCase('k10-charcode-literal', 'k10-charcode-literal,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('k11-multiline-literal', 'k11-multiline-literal,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-hex', 'r3-literal-hex,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-in-include', 'r3-literal-in-include,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-name', 'r3-external-explicit-name,UCertified.pas,3,10,GetTicks,string-name-consumer,Win32,False')]
+    [TestCase('r3-external-explicit-stable-name', 'r3-external-explicit-stable-name,UCertified.pas,3,10,GetTicks,,Win32,True')]
+    [TestCase('r3-literal-after-comment', 'r3-literal-after-comment,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-include-literal-after-comment', 'r3-include-literal-after-comment,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r3-literal-comment-adjacency', 'r3-literal-comment-adjacency,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r3-package-method', 'r3-package-method,UCertified.pas,6,20,RenamedValue,package-exported-name,Win32,False')]
+    [TestCase('closure-clean', 'closure-clean,UCertified.pas,3,5,Renamed,,Win32,True')]
+    [TestCase('closure-unsupported-condition', 'closure-unsupported-condition,UCertified.pas,3,5,Renamed,analysis-input-unsupported-preprocess-directive,Win32,False')]
+    [TestCase('closure-inactive-name', 'closure-inactive-name,UCertified.pas,3,5,Renamed,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('closure-readonly-reference', 'closure-readonly-reference,UCertified.pas,3,5,Renamed,analysis-input-outside-edit-scope,Win32,False')]
+    [TestCase('closure-release-helper', 'closure-release-helper,UCertified.pas,14,3,RenamedValue,containment-local-capture,Win32,False')]
+    [TestCase('closure-selected-ifdef', 'closure-selected-ifdef,UCertified.pas,3,5,Renamed,occurrence-in-inactive-configuration,Win32,False')]
+    [TestCase('r5-o06-two-vars-one-line', 'r5-o06-two-vars-one-line,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-o10-comment-before-var', 'r5-o10-comment-before-var,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-o11-var-then-name-next-decl', 'r5-o11-var-then-name-next-decl,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r5-p03-const-of-const-cross-unit', 'r5-p03-const-of-const-cross-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-p04-const-of-const-same-unit', 'r5-p04-const-of-const-same-unit,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-p05-name-plus-suffix-trim', 'r5-p05-name-plus-suffix-trim,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r5-p10-prefix-plus-name', 'r5-p10-prefix-plus-name,UCertified.pas,6,5,Amount,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r4-o01-sameline-interface-newname-collision', 'r4-o01-sameline-interface-newname-collision,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r4-o02-sameline-impl-var-newname-collision', 'r4-o02-sameline-impl-var-newname-collision,UCertified.pas,4,3,RenamedValue,Rename collision,Win32,False')]
+    [TestCase('r4-l02-const-plus-concat', 'r4-l02-const-plus-concat,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r4-plus-parenthesized-expression', 'r4-plus-parenthesized-expression,UCertified.pas,4,3,TD,rtti-string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-qualified-transitive', 'r5-constant-qualified-transitive,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-include-transitive', 'r5-constant-include-transitive,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r5-constant-unknown-dependency', 'r5-constant-unknown-dependency,UCertified.pas,6,5,Amount,string-constant-value-unproved,Win32,False')]
+    [TestCase('r5-qualified-unit-inactive-import-control', 'r5-qualified-unit-inactive-import-control,UCertified.pas,3,5,RenamedValue,,Win32,True')]
+    [TestCase('r6-string-shadowing-numeric-type', 'r6-string-shadowing-numeric-type,UCertified.pas,6,5,Amount,string-constant-value-unproved,Win32,False')]
+    [TestCase('r6-t01-code-const-concat', 'r6-t01-code-const-concat,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t02-initialized-var', 'r6-t02-initialized-var,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t03-class-const-expr', 'r6-t03-class-const-expr,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t03b-class-const-code', 'r6-t03b-class-const-code,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t04-namespace-alias-qualified', 'r6-t04-namespace-alias-qualified,UCertified.pas,6,5,Amount,string-name-consumer,Win32,False')]
+    [TestCase('r6-t08-ctl-charset-const', 'r6-t08-ctl-charset-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t09-ctl-string-array-const', 'r6-t09-ctl-string-array-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t10-ctl-ord-const', 'r6-t10-ctl-ord-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-record-literal-fields', 'r6-record-literal-fields,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-numeric-sizeof-expression', 'r6-numeric-sizeof-expression,UCertified.pas,6,5,Amount,,Win32,True')]
+    [TestCase('r6-t11-ctl-sdk-const', 'r6-t11-ctl-sdk-const,UCertified.pas,6,5,Amount,,Win32,True')]
+    procedure KnownUnsoundShapesRefuseRename(const aCase, aFile: string; const aLine, aColumn: Integer;
+      const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
+
+    [TestCase('Unit quoted comment', 'False')]
+    [TestCase('Include quoted comment', 'True')]
+    procedure LargeQuotedTextKeepsRenameRefusal(const aInclude: Boolean);
+
     [TestCase('Literal false', 'false')]
     [TestCase('Local define', 'define')]
     [TestCase('Local undef', 'undef')]
@@ -1482,7 +1615,8 @@ function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aCo
   const aNewName: string; const aCacheFileName: string = '';
   const aExpectCacheHit: Boolean = False; const aPlatform: string = '';
   const aCertified: Boolean = False; const aIdentifier: string = '';
-  const aProjectBase: string = 'P'): TDelphiSemanticRenamePlan;
+  const aProjectBase: string = 'P'; const aDefines: TArray<string> = nil;
+  const aAnalysisSourceDirectory: string = ''): TDelphiSemanticRenamePlan;
 var
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lRequest: TDelphiSemanticCompilerDefineRequest;
@@ -1491,6 +1625,10 @@ var
   lOptions: TDelphiSemanticOptions;
   lSessionResult: TDelphiSemanticProjectSessionResult;
   lScopeMetrics: TDelphiSemanticIdentifierScopeMetrics;
+  lProofSources: TArray<string>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lUnit: TUnitSnapshot;
+  i, j, lAnalysisSymbols: Integer;
 begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := TPath.Combine(aRoot, aProjectBase + '.dproj');
@@ -1505,12 +1643,16 @@ begin
     lRequest := Default(TDelphiSemanticCompilerDefineRequest);
     lRequest.ProjectFileName := lOptions.ProjectPath;
     lRequest.MainSourceFileName := TPath.Combine(aRoot, aProjectBase + '.dpr');
+    if TFile.Exists(TPath.Combine(aRoot, aProjectBase + '.dpk')) then
+      lRequest.MainSourceFileName := TPath.Combine(aRoot, aProjectBase + '.dpk');
     lRequest.Configuration := 'Debug';
     lRequest.DelphiVersion := '23.0';
     lRequest.Platform := aPlatform;
-    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest,
-      TDirectory.GetFiles(aRoot, '*.pas') + TDirectory.GetFiles(aRoot, '*.inc') +
-      [lRequest.MainSourceFileName], []);
+    lProofSources := TDirectory.GetFiles(aRoot, '*.pas') +
+      TDirectory.GetFiles(aRoot, '*.inc') + [lRequest.MainSourceFileName];
+    if aAnalysisSourceDirectory <> '' then
+      lProofSources := lProofSources + TDirectory.GetFiles(aAnalysisSourceDirectory, '*.pas');
+    lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lRequest, lProofSources, aDefines);
   end;
   lSessionResult := TDelphiSemanticProjectSession.Open(lOptions);
   try
@@ -1525,6 +1667,31 @@ begin
       Assert.IsTrue(lCacheMetrics.CacheHits > 0, 'Warm control must actually reuse cached units.');
     try
       Assert.IsNotNull(lContext.ProjectSnapshot, 'Rename must run on the project snapshot.');
+      if aAnalysisSourceDirectory <> '' then
+      begin
+        lSnapshot := lContext.ProjectSnapshot.Snapshot;
+        Assert.AreEqual(4, lSnapshot.UnitCount, 'Root, explicit unit and both transitive library units are retained.');
+        if aExpectCacheHit then
+          Assert.AreEqual(4, lCacheMetrics.CacheHits, 'Warm reuse includes every library unit.');
+        lAnalysisSymbols := 0;
+        for i := 0 to lSnapshot.UnitCount - 1 do
+        begin
+          lUnit := lSnapshot.UnitByIndex(i);
+          Assert.IsFalse(ContainsText(lSnapshot.TextOf(lUnit.FileNameId), '\wrong\'),
+            'The earlier native search path must win.');
+          Assert.AreEqual(TFile.ReadAllText(lSnapshot.TextOf(lUnit.FileNameId)),
+            lSnapshot.ExactTextOf(lUnit.SourceTextId), 'Retain the current source bytes as decoded text.');
+          if StartsText(IncludeTrailingPathDelimiter(aAnalysisSourceDirectory),
+            lSnapshot.TextOf(lUnit.FileNameId)) then
+            for j := 1 to lUnit.SymbolCount do
+            begin
+              Assert.AreEqual('analysis-source',
+                lSnapshot.TextOf(lUnit.SymbolById(TSemanticSymbolId(j)).SourceKindId), 'Library declarations are read-only analysis inputs.');
+              Inc(lAnalysisSymbols);
+            end;
+        end;
+        Assert.IsTrue(lAnalysisSymbols > 0, 'The transitive library declaration must be indexed.');
+      end;
       Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
         TPath.Combine(aRoot, aFileName), aLine, aColumn, aNewName);
       RetainCompletenessRenameProof(aRoot, aNewName, Result);
@@ -1800,6 +1967,129 @@ begin
   Assert.Contains(SortedKeysText(PlanUnresolvedKeys(lPlan)), 'uprov.pas:');
   Assert.AreEqual('possible-unit-source-unavailable', lPlan.UnresolvedReferences[0].Reason);
   Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)), SortedKeysText(PlanUnresolvedKeys(lWarm)));
+end;
+
+procedure TRenameCompletenessTests.KnownUnsoundShapesRefuseRename(
+  const aCase, aFile: string; const aLine, aColumn: Integer;
+  const aNewName, aReason, aPlatform: string; const aSuccess: Boolean);
+var
+  lRoot, lFixture, lFileName, lRelative, lAnalysisSourceDirectory: string;
+  lFiles, lOriginals, lDefines: TArray<string>;
+  lEdit: TDelphiSemanticTextEdit;
+  lPlan, lWarm: TDelphiSemanticRenamePlan;
+  lUsage: TDelphiSemanticUsage;
+  lFound: Boolean;
+  i: Integer;
+begin
+  lFixture := FixturePath(TPath.Combine('rename-containment', aCase));
+  lRoot := RenameTempPath(aCase);
+  lFiles := TDirectory.GetFiles(lFixture, '*', TSearchOption.soAllDirectories);
+  SetLength(lOriginals, Length(lFiles));
+  for i := 0 to High(lFiles) do
+  begin
+    lRelative := Copy(lFiles[i], Length(lFixture) + 2, MaxInt);
+    lFileName := TPath.Combine(lRoot, lRelative);
+    TDirectory.CreateDirectory(ExtractFilePath(lFileName));
+    TFile.Copy(lFiles[i], lFileName);
+    lOriginals[i] := TNetEncoding.Base64.EncodeBytesToString(TFile.ReadAllBytes(lFileName));
+  end;
+  lDefines := nil;
+  if aCase = 'm1d-transitive-cond-nonmember' then
+    lDefines := ['MSWINDOWS']
+  else if StartsText('r3-asm-', aCase) then
+    lDefines := ['CPUX86'];
+  lAnalysisSourceDirectory := '';
+  if StartsText('closure-', aCase) then
+    lAnalysisSourceDirectory := TPath.Combine(lRoot, 'lib');
+  lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
+  lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
+  if StartsText('closure-', aCase) or (aCase = 'm1d-transitive-cond-nonmember') then
+    for lUsage in lPlan.UnresolvedReferences do
+      Assert.AreNotEqual('active-import-source-not-retained', lUsage.Reason,
+        'An available analysis input must be scanned, including cold and warm libraries.');
+  if aSuccess then
+  begin
+    Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+    if aCase = 'r5-qualified-unit-inactive-import-control' then
+      Assert.AreEqual(5, Integer(Length(lPlan.Edits)))
+    else if (StartsText('r6-t', aCase) or MatchText(aCase, ['r6-numeric-sizeof-expression', 'r6-record-literal-fields'])) then
+      Assert.AreEqual(2, Integer(Length(lPlan.Edits)))
+    else if StartsText('r3-external-explicit-', aCase) then
+    begin
+      Assert.AreEqual(2, Integer(Length(lPlan.Edits)));
+      for lEdit in lPlan.Edits do
+        Assert.AreEqual(IfThen(aCase = 'r3-external-explicit-stable-name', 'GetCounter', 'GetTickCount'), lEdit.ExpectedSourceText,
+          'Only Pascal identifier tokens may change; the external clause stays byte-identical.');
+    end else
+      Assert.AreEqual(4, Integer(Length(lPlan.Edits)), 'All control occurrences must be retained.');
+    if aCase = 'same-line' then
+      for lEdit in lPlan.Edits do
+        Assert.AreEqual(5, lEdit.StartLine, 'All four edits must share the local declaration line.');
+  end else begin
+    if aReason = 'Rename collision' then
+    begin
+      Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+      Assert.AreEqual('Rename collision: a visible symbol already uses "RenamedValue".', lPlan.Diagnostic);
+    end else
+      Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+    lFound := (aReason = 'Rename collision') and (lPlan.Status = 'blocked');
+    for lUsage in lPlan.UnresolvedReferences do
+      if lUsage.Reason = aReason then
+      begin
+        lFound := True;
+        if aCase = 'operator-method' then
+          Assert.AreEqual(aColumn, lUsage.Column, 'Operator refusal must report the exact token column.');
+      end;
+    Assert.IsTrue(lFound, aCase + ': missing named refusal ' + aReason + #13#10 +
+      SortedKeysText(PlanUnresolvedKeys(lPlan)));
+    Assert.AreEqual('', lPlan.ContextFingerprint, 'A refusal must have no apply authority.');
+  end;
+  Assert.AreEqual(lPlan.Status, lWarm.Status);
+  Assert.AreEqual(SortedKeysText(PlanUnresolvedKeys(lPlan)), SortedKeysText(PlanUnresolvedKeys(lWarm)));
+  for i := 0 to High(lFiles) do
+  begin
+    lRelative := Copy(lFiles[i], Length(lFixture) + 2, MaxInt);
+    Assert.AreEqual(lOriginals[i], TNetEncoding.Base64.EncodeBytesToString(
+      TFile.ReadAllBytes(TPath.Combine(lRoot, lRelative))), lRelative);
+  end;
+end;
+
+// DS-797: raw quoted comments can span far more text than PCRE's stack.
+// Keep the real RTTI literal refusal even with a large unrelated quoted span.
+procedure TRenameCompletenessTests.LargeQuotedTextKeepsRenameRefusal(const aInclude: Boolean);
+var
+  lRoot, lConsumer, lText: string;
+  lFiles: TArray<TCompletenessFile>;
+  lPlan: TDelphiSemanticRenamePlan;
+  lUsage: TDelphiSemanticUsage;
+  lFound: Boolean;
+begin
+  lText := '{ ''start' + StringOfChar('x', 131072) + 'finish'' }'#13#10 +
+    'const NameText = ''Counter'';'#13#10;
+  lConsumer := 'unit URtti; interface uses System.Rtti; implementation'#13#10;
+  lFiles := [CompletenessFile('UProv.pas', 'unit UProv;'#13#10 +
+    'interface'#13#10'var Counter: Integer;'#13#10'implementation end.')];
+  if aInclude then
+  begin
+    lConsumer := lConsumer + '{$I Quoted.inc}'#13#10;
+    lFiles := lFiles + [CompletenessFile('Quoted.inc', lText)];
+  end else
+    lConsumer := lConsumer + lText;
+  lFiles := lFiles + [CompletenessFile('URtti.pas', lConsumer + 'end.')];
+  lRoot := WriteCompletenessProject('large-quoted-' + BoolToStr(aInclude, True),
+    'program P; uses UProv, URtti; begin Counter := 1; end.', lFiles);
+  lPlan := PlanCompletenessRename(lRoot, 'UProv.pas', 3, 5, 'Total');
+  Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
+  lFound := False;
+  for lUsage in lPlan.UnresolvedReferences do
+    lFound := lFound or (lUsage.Reason = 'rtti-string-name-consumer');
+  Assert.IsTrue(lFound, 'The matching RTTI literal must remain a named refusal.');
+  Assert.AreEqual('', lPlan.ContextFingerprint);
+  Assert.AreEqual(lConsumer + 'end.', TFile.ReadAllText(TPath.Combine(lRoot, 'URtti.pas')));
+  if aInclude then
+    Assert.AreEqual(lText, TFile.ReadAllText(TPath.Combine(lRoot, 'Quoted.inc')));
 end;
 
 procedure TRenameCompletenessTests.AlternateImportCapturesRefuseRename(const aCase: string);

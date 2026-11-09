@@ -23,6 +23,20 @@
 - Remove-with native proof type-checks generated pointer initializations for subjects without nested code-level `@`, without changing the published plain assignments. Nested addresses refuse as unverified; incomplete compiler-proof metadata fails closed (DS-787).
 
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
+- Rename checks retained string constants, variable initializers and concatenations in code, including class constants and namespace-qualified imports. It refuses relevant unknown string operands while excluding proved numeric values and independently scanned structured values. Declaration sections follow token positions (DS-797).
+
+- Rename checks each literal operand as well as folded literal expressions, evaluates transitive retained string constants (including qualified and include-defined constants), and refuses unknown string-constant dependencies. Parsed declarations at any position on a line participate in collision checks; newly discovered declarations are containment evidence only and do not enable previously refused plans (DS-797).
+
+- Rename retains imports after compiler directives, detects declarations after same-line section keywords, and refuses matching literal string expressions (DS-797). Names serialised via RTTI by library code are outside static proof.
+
+- Refuse rename plans for implicit external/export names, package routines, late-bound members, assembler tokens, directive expressions and matching literal values across retained units/includes; normalize Delphi literal sequences and combined M+ switches (DS-797).
+- Evaluate IFOPT for certified native R/Q/O/I/H states and ordered source/include switch changes. Unknown option states still refuse; proven inactive compiler diagnostics do not fail preprocessing (DS-799).
+
+- Project sessions retain and index non-SDK search/library-path import sources, including transitive and selected-active conditional imports. Newly discovered sources stay outside edit scope; native selection uncertainty and SDK pairing rules still apply (DS-798).
+
+- Refuse certified renames with bare inherited calls after nested routines, Declared consumers in includes, implicit published members, guarded active source gaps, and additional RTTI name consumers (DS-797).
+
+- Rename and find-usages refuse known conditional capture, missing active-source coverage, implicit inherited/interface/attribute/protocol consumers, published members and literal reflection uses. Refusals retain named reasons and no apply authority (DS-797 slice 1).
 
 - Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
 

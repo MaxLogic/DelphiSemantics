@@ -38,6 +38,17 @@ bin\DelphiAIKit.exe rename --project F:\path\to\App.dproj --symbol TFoo --new-na
 Do not apply rename directly to read-only fixtures or external projects. Clone
 fixtures to a temp workspace before any apply-mode test.
 
+Project sessions also retain resolved non-SDK import sources from search and
+library paths. Newly discovered units are read-only analysis inputs; their facts
+use `analysis-source`. A rename that would edit one refuses with
+`analysis-input-outside-edit-scope`. Failed library extraction retains named
+`analysis-input-*` diagnostics and grants no apply authority. Existing project
+edit scope and shared-source warnings still apply. SDK units keep their pairing
+rules; retained source alone does not certify native compiler selection.
+The specialized WITH planner keeps its established project proof set. Retaining
+a library in the general analysis index grants no extra helper-absence,
+capture-type or rewrite-admission authority to that planner.
+
 ## Dead-Code Reports
 
 Review dead-code findings before deciding whether to delete code.

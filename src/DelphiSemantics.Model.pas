@@ -321,6 +321,8 @@ type
   end;
   TDelphiSemanticUnitModel = record
     Success: Boolean;
+    // Project-session view only: imported sources are analysis inputs outside edit scope.
+    AnalysisOnly: Boolean;
     FileName: string;
     UnitName: string;
     SourceText: string;
@@ -342,6 +344,8 @@ type
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;
     Declarations: TArray<TDelphiSemanticDeclaration>;
+    // DS-797: supplemental declarations may block rename, never establish a binding.
+    ContainmentDeclarations: TArray<TDelphiSemanticDeclaration>;
     Members: TArray<TDelphiSemanticMember>;
     Routines: TArray<TDelphiSemanticRoutine>;
     Locals: TArray<TDelphiSemanticLocal>;

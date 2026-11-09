@@ -1,0 +1,4 @@
+package Certified;
+requires rtl;
+contains UCertified in 'UCertified.pas';
+end.

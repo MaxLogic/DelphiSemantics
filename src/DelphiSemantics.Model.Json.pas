@@ -1098,6 +1098,7 @@ begin
     lObject.AddPair('InterfaceUses', StringArrayToJson(aModel.InterfaceUses));
     lObject.AddPair('ImplementationUses', StringArrayToJson(aModel.ImplementationUses));
     lObject.AddPair('Declarations', DeclarationsToJson(aModel.Declarations));
+    lObject.AddPair('ContainmentDeclarations', DeclarationsToJson(aModel.ContainmentDeclarations));
     lObject.AddPair('Members', MembersToJson(aModel.Members));
     lObject.AddPair('Routines', RoutinesToJson(aModel.Routines));
     lObject.AddPair('Locals', LocalsToJson(aModel.Locals));
@@ -1157,6 +1158,7 @@ begin
     Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
     Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
     Result.Declarations := JsonToDeclarations(lObject.GetValue('Declarations') as TJSONArray);
+    Result.ContainmentDeclarations := JsonToDeclarations(lObject.GetValue('ContainmentDeclarations') as TJSONArray);
     Result.Members := JsonToMembers(lObject.GetValue('Members') as TJSONArray);
     Result.Routines := JsonToRoutines(lObject.GetValue('Routines') as TJSONArray);
     Result.Locals := JsonToLocals(lObject.GetValue('Locals') as TJSONArray);

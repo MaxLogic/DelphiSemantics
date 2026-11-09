@@ -690,10 +690,10 @@ var
   lActivities, lNeutralActivities: TDictionary<string, TPossibleImportState>;
   lName, lExplicit, lCause, lFileName, lNeutralFileName: string;
   lInUses: Boolean;
+  lPrevious: TptTokenKind;
   lOffset, lDiagnosticStart, lIndex, lOrder: Integer;
   lSection: string;
   lFact: TDelphiSemanticImportFact;
-  lPrevious: TptTokenKind;
   lResolution: TDelphiSemanticUnitResolutionResult;
 begin
   lActivities := TDictionary<string, TPossibleImportState>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -706,13 +706,15 @@ begin
     lLexer.Origin := aPossible.OutputText;
     lLexer.NextNoJunk;
     lInUses := False;
-    lPrevious := ptNull;
     lSection := 'interface';
+    lPrevious := ptNull;
     lOrder := 0;
     while lLexer.TokenID <> ptNull do
     begin
       if lLexer.TokenID = ptImplementation then
         lSection := 'implementation';
+      // Directives are trivia at clause boundaries. Keep the structural-token
+      // guard so prose in unsupported inactive branches cannot invent imports.
       if (lLexer.TokenID in [ptUses, ptContains]) and
         (lPrevious in [ptNull, ptInterface, ptImplementation, ptSemiColon]) then
         lInUses := True
@@ -802,7 +804,8 @@ begin
         lPrevious := ptIdentifier;
         Continue;
       end;
-      lPrevious := lLexer.TokenID;
+      if not lLexer.IsCompilerDirective then
+        lPrevious := lLexer.TokenID;
       lLexer.NextNoJunk;
     end;
   finally

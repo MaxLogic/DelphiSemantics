@@ -2153,6 +2153,46 @@ begin
   aDeclarations.Add(lDeclaration);
 end;
 
+// Retain parsed inventory gaps as containment evidence only. Physical line
+// starts, comments and peers never establish absence of a capturing declaration.
+procedure EnsureAstUnitValueDeclaration(const aText: string; const aNode: TSyntaxNode;
+  const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aCandidates: TDeclarationCandidateIndex);
+var
+  lName: string;
+  lOffset: Integer;
+  lTypeNode: TSyntaxNode;
+  lDeclaration: TDelphiSemanticDeclaration;
+begin
+  lName := AstNodeName(aNode);
+  lOffset := OffsetOfLineColumn(aText, aNode.Line, aNode.Col);
+  if (lName = '') or (lOffset < 1) or not TextHasWordAt(aText, lOffset, lName) then
+    raise EInvalidOpException.Create('AST declaration identifier does not match source');
+  if aCandidates.Contains(lOffset, lName) then
+    Exit;
+  lTypeNode := aNode.FindNode(ntType);
+  if (aNode.Typ = ntConstant) and not Assigned(lTypeNode) then
+  begin
+    EnsureUnitConstantDeclaration(aText, aNode, aDeclarations, aCandidates);
+    Exit;
+  end;
+  lDeclaration := Default(TDelphiSemanticDeclaration);
+  lDeclaration.Name := lName;
+  lDeclaration.DeclarationRole := 'containment-only';
+  if aNode.Typ = ntVariable then
+    lDeclaration.Kind := 'var'
+  else
+    lDeclaration.Kind := 'typed-const';
+  if Assigned(lTypeNode) then
+    lDeclaration.TypeName := AstTypeText(lTypeNode);
+  lDeclaration.SectionKind := SectionForOffset(aText, lOffset);
+  lDeclaration.Line := aNode.Line;
+  lDeclaration.Column := aNode.Col;
+  lDeclaration.Offset := lOffset;
+  lDeclaration.EndOffset := lOffset + Length(lName);
+  aDeclarations.Add(lDeclaration);
+end;
+
 function AstEnumValueDeclaration(const aText, aTypeName: string;
   const aNode: TSyntaxNode): TDelphiSemanticDeclaration;
 begin
@@ -2484,8 +2524,9 @@ var
             lNameOffset);
         end;
       end;
-      if (aNode.Typ = ntConstant) and (lCurrentScopeIndex < 0) and (aTypeOwnerPath = '') then
-        EnsureUnitConstantDeclaration(aText, aNode, aDeclarations, lDeclarationCandidates);
+      if (aNode.Typ in [ntVariable, ntConstant]) and
+        (lCurrentScopeIndex < 0) and (aTypeOwnerPath = '') then
+        EnsureAstUnitValueDeclaration(aText, aNode, aDeclarations, lDeclarationCandidates);
       lFact := Default(TAstDeclarationScopeFact);
       lFact.Name := AstNodeName(aNode);
       lFact.Kind := SyntaxNodeNames[aNode.Typ];
@@ -2935,9 +2976,13 @@ begin
     for i := 0 to Pred(aDeclarations.Count) do
     begin
       lDeclaration := aDeclarations[i];
+      // Section identity belongs to the declaration token, never its physical line.
+      // Supplemental declarations retain their containment-only role.
+      lDeclaration.SectionKind := SectionForOffset(aText, lDeclaration.Offset);
       if FindDeclarationFact(lDeclaration, lFact, lMatchedFactIndex) then
       begin
-        lDeclaration.DeclarationRole := IfThen(lFact.IsForward, 'forward', 'declaration');
+        if lDeclaration.DeclarationRole <> 'containment-only' then
+          lDeclaration.DeclarationRole := IfThen(lFact.IsForward, 'forward', 'declaration');
         if lFact.ScopeIndex < 0 then
         begin
           lDeclaration.ScopeKind := 'unit';
@@ -2972,7 +3017,8 @@ begin
           OffsetOfLineColumn(aText, lDeclaration.Line, lDeclaration.Column),
           aOptions.WritableTypedConstants);
       end else begin
-        lDeclaration.DeclarationRole := 'invalid';
+        if lDeclaration.DeclarationRole <> 'containment-only' then
+          lDeclaration.DeclarationRole := 'invalid';
         lDeclaration.ScopeKind := 'unknown';
         Inc(aModel.RejectedDeclarationCount);
       end;
@@ -3443,6 +3489,42 @@ begin
     AddDeclaration(aDeclarations, aName, 'type-alias', aTypeName, lSection, aText, lNameOffset);
 end;
 
+// Mask only lexical headers, preserving every source offset. Section keywords
+// and USES clauses may share a physical line with the following declaration.
+function DeclarationScanText(const aText: string): string;
+var
+  lLexer: TmwBasePasLex;
+  lSections: TDelphiSemanticSourceSections;
+  lStart, lFinish, i: Integer;
+begin
+  Result := aText;
+  lSections := BuildSourceSections(aText);
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aText;
+    while lLexer.TokenID <> ptNull do
+    begin
+      lStart := lLexer.TokenPos + 1;
+      lFinish := lStart - 1;
+      if lLexer.TokenID in [ptUnit, ptProgram, ptLibrary, ptPackage, ptUses] then
+      begin
+        while not (lLexer.TokenID in [ptSemiColon, ptNull]) do
+          lLexer.Next;
+        lFinish := lLexer.TokenPos + Length(lLexer.Token);
+      end else if ((lLexer.TokenID = ptInterface) and (lStart = lSections.InterfaceOffset)) or
+        ((lLexer.TokenID = ptImplementation) and (lStart = lSections.ImplementationOffset)) then
+        lFinish := lLexer.TokenPos + Length(lLexer.Token);
+      for i := lStart to lFinish do
+        if not CharInSet(Result[i], [#10, #13]) then
+          Result[i] := ' ';
+      lLexer.Next;
+    end;
+  finally
+    lLexer.Free;
+  end;
+end;
+
 procedure ExtractTypeDeclarations(const aText: string;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
   const aReferences: TList<TDelphiSemanticReference>);
@@ -3468,7 +3550,7 @@ var
 begin
   lLines := TStringList.Create;
   try
-    lLines.Text := aText;
+    lLines.Text := DeclarationScanText(aText);
     lBlockKind := '';
     lInImplementation := False;
     lInRoutine := False;
@@ -3481,6 +3563,13 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      if lInImplementation <> SameText(SectionForOffset(aText,
+        lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft) + 1), 'implementation') then
+      begin
+        lBlockKind := '';
+        lInRoutine := False;
+        lInImplementation := not lInImplementation;
+      end;
       lScopeLine := StripTrailingDeclarationComment(lLine);
       if lTypeDepth > 0 then
         Inc(lTypeDepth, AnonymousRecordDepthDelta(lScopeLine));
@@ -3692,7 +3781,7 @@ begin
       '^(?:(?:class\s+)?(?:procedure|function|constructor|destructor)|class\s+operator)\b', [roIgnoreCase]);
     lSectionPattern := TRegEx.Create('^(const|resourcestring|var|threadvar|type)\b\s*', [roIgnoreCase]);
     lConstantPattern := TRegEx.Create('^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=', [roIgnoreCase]);
-    lLines.Text := aText;
+    lLines.Text := DeclarationScanText(aText);
     lHeaderText := SanitizeCodeText(aText);
     lBlockKind := '';
     lInImplementation := False;
@@ -3702,6 +3791,13 @@ begin
     for i := 0 to Pred(lLines.Count) do
     begin
       lLine := lLines[i].Trim;
+      if lInImplementation <> SameText(SectionForOffset(aText,
+        lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft) + 1), 'implementation') then
+      begin
+        lBlockKind := '';
+        lInRoutine := False;
+        lInImplementation := not lInImplementation;
+      end;
       lLineOffset := lOffset + Length(lLines[i]) - Length(lLines[i].TrimLeft);
       // DS-730: a physical comment line cannot declare a symbol in an open section.
       if Copy(lHeaderText, lOffset + 1, Length(lLines[i])).Trim = '' then
@@ -6591,10 +6687,26 @@ procedure AssignModelArrays(var aModel: TDelphiSemanticUnitModel;
   const aMembers: TList<TDelphiSemanticMember>; const aRoutines: TList<TDelphiSemanticRoutine>;
   const aLocals: TList<TDelphiSemanticLocal>; const aReferences: TList<TDelphiSemanticReference>;
   const aWithStatements: TList<TDelphiSemanticWithStatement>);
+var
+  lDeclarations, lContainment: TList<TDelphiSemanticDeclaration>;
+  lDeclaration: TDelphiSemanticDeclaration;
 begin
   aModel.InterfaceUses := aInterfaceUses.ToArray;
   aModel.ImplementationUses := aImplementationUses.ToArray;
-  aModel.Declarations := aDeclarations.ToArray;
+  lDeclarations := TList<TDelphiSemanticDeclaration>.Create;
+  lContainment := TList<TDelphiSemanticDeclaration>.Create;
+  try
+    for lDeclaration in aDeclarations do
+      if lDeclaration.DeclarationRole = 'containment-only' then
+        lContainment.Add(lDeclaration)
+      else
+        lDeclarations.Add(lDeclaration);
+    aModel.Declarations := lDeclarations.ToArray;
+    aModel.ContainmentDeclarations := lContainment.ToArray;
+  finally
+    lContainment.Free;
+    lDeclarations.Free;
+  end;
   aModel.Members := aMembers.ToArray;
   aModel.Routines := aRoutines.ToArray;
   aModel.Locals := aLocals.ToArray;

@@ -1,0 +1,4 @@
+object Form1: TC
+  object Button1: TButton
+  end
+end

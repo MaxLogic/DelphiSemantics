@@ -137,6 +137,7 @@ type
     Expansions: TList<TPreprocessExpansion>;
     DefineEvidenceComplete: Boolean;
     ProfileVersionsKnown: Boolean;
+    CompilerSwitches: TDefineMap;
     UnknownSymbols: TDictionary<string, Boolean>;
     AllSymbolsUnknown: Boolean;
     HasUnknownActivity: Boolean;
@@ -168,6 +169,7 @@ constructor TPreprocessCapture.Create;
 begin
   inherited Create;
   ActivityComplete := True;
+  CompilerSwitches := TDefineMap.Create;
   Expansions := TList<TPreprocessExpansion>.Create;
   SkippedIncludes := TList<string>.Create;
   Spans := TList<TDelphiSemanticCopiedSourceSpan>.Create;
@@ -177,6 +179,7 @@ end;
 
 destructor TPreprocessCapture.Destroy;
 begin
+  CompilerSwitches.Free;
   Expansions.Free;
   SkippedIncludes.Free;
   UnknownSymbols.Free;
@@ -1217,6 +1220,78 @@ begin
   end;
 end;
 
+function IsSupportedOption(const aSwitch: Char): Boolean;
+begin
+  Result := CharInSet(UpCase(aSwitch), ['R', 'Q', 'O', 'I', 'H']);
+end;
+
+function LongOptionName(const aSwitch: Char): string;
+begin
+  case aSwitch of
+    'R': Result := 'RANGECHECKS';
+    'Q': Result := 'OVERFLOWCHECKS';
+    'O': Result := 'OPTIMIZATION';
+    'I': Result := 'IOCHECKS';
+    'H': Result := 'LONGSTRINGS';
+  else
+    Result := '';
+  end;
+end;
+
+procedure ObserveCompilerSwitches(const aDirective: string;
+  const aActivity: TDelphiSemanticSourceActivity; const aCapture: TPreprocessCapture);
+var
+  c: Char;
+  lEnabled, lKnown, lTouched: Boolean;
+  lText, lName: string;
+begin
+  if aActivity = saInactive then
+    Exit;
+  lText := UpperCase(aDirective.Trim);
+  for c in ['R', 'Q', 'O', 'I', 'H'] do
+  begin
+    lKnown := TryReadShortCompilerSwitch(lText, c, lEnabled);
+    lName := LongOptionName(c);
+    lTouched := lKnown or StartsText(lName + ' ', lText);
+    if not lKnown and lTouched then
+    begin
+      lKnown := (lText = lName + ' ON') or (lText = lName + ' OFF');
+      lEnabled := lText = lName + ' ON';
+    end;
+    if not lTouched then
+      Continue;
+    if lKnown and (aActivity = saActive) then
+      aCapture.CompilerSwitches.AddOrSetValue(string(c), lEnabled)
+    else
+      // A possible assignment does not carry a selected branch's state onward.
+      aCapture.CompilerSwitches.Remove(string(c));
+  end;
+end;
+
+function IsSupportedIfOpt(const aText: string): Boolean;
+begin
+  Result := (Length(aText) = 2) and IsSupportedOption(aText[1]) and
+    CharInSet(aText[2], ['+', '-']);
+end;
+
+procedure CaptureInitialCompilerSwitches(const aOptions: TDelphiSemanticPreprocessOptions;
+  const aCapture: TPreprocessCapture);
+var
+  lDescriptor: TDelphiSemanticCompilerDefineDescriptor;
+  lSwitch: string;
+begin
+  // Defines alone and a reachable source do not certify its compiler history.
+  if not aOptions.DefineEvidenceComplete or
+    not TDelphiSemanticCompilerDefines.AppliesToSource(aOptions.CompilerDefineEvidence,
+      aOptions.SourceFileName) then
+    Exit;
+  lDescriptor := aOptions.CompilerDefineEvidence.Descriptor;
+  if lDescriptor.CompilerSwitchFormat <> 'compiler-switches-23-windows-v1' then
+    Exit;
+  for lSwitch in lDescriptor.CompilerSwitches do
+    aCapture.CompilerSwitches.AddOrSetValue(Copy(lSwitch, 1, 1), lSwitch[2] = '+');
+end;
+
 function IsCompilerSwitchDirective(const aDirective: string): Boolean;
 var
   lText: string;
@@ -1228,6 +1303,8 @@ begin
     StartsText('ENDREGION', lText) or StartsText('MINENUMSIZE ', lText) or StartsText('MODE ', lText) or
     StartsText('POINTERMATH ', lText) or StartsText('R ', lText) or StartsText('REGION', lText) or
     StartsText('RESOURCE ', lText) or StartsText('RANGECHECKS ', lText) or StartsText('RTTI ', lText) or
+    StartsText('OVERFLOWCHECKS ', lText) or StartsText('OPTIMIZATION ', lText) or
+    StartsText('IOCHECKS ', lText) or StartsText('LONGSTRINGS ', lText) or
     StartsText('SCOPEDENUMS ', lText) or StartsText('SETPEFLAGS ', lText) or
     StartsText('STRONGLINKTYPES ', lText) or StartsText('WARN ', lText) or
     StartsText('WARNINGS ', lText) or StartsText('WEAKLINKRTTI ', lText) or
@@ -1269,6 +1346,8 @@ begin
     Exit(IsPlainConditionalIdentifier(lArgument));
   if MatchText(lName, ['IF', 'ELSEIF']) then
     Exit(IsModeledImportExpression(lArgument));
+  if SameText(lName, 'IFOPT') then
+    Exit(IsSupportedIfOpt(lArgument));
   if MatchText(lName, ['ELSE', 'ENDIF', 'IFEND']) then
     Exit(True);
   Result := IsCompilerSwitchDirective(lText) or
@@ -2062,6 +2141,7 @@ begin
       lDirectiveActivity := CurrentActivity(aStack);
       if IsCompilerSwitchDirective(lDirective) then
       begin
+        ObserveCompilerSwitches(lDirective, lDirectiveActivity, aContext.Capture);
         if ShouldEmitSource(aOptions, aStack) then
           AppendCopiedText(lLineOutput, lLineContext,
             Copy(aLine, lDirectiveStart, lDirectiveStop - lDirectiveStart + 1),
@@ -2436,6 +2516,7 @@ begin
           // later conditions, rather than discarding the whole unit's activity evidence.
           aContext.Capture.UnknownSymbols.Clear;
           aContext.Capture.AllSymbolsUnknown := True;
+          aContext.Capture.CompilerSwitches.Clear;
           Exit(True);
         end;
         aContext.Capture.ActivityComplete := False;
@@ -2450,6 +2531,7 @@ begin
         begin
           aContext.Capture.UnknownSymbols.Clear;
           aContext.Capture.AllSymbolsUnknown := True;
+          aContext.Capture.CompilerSwitches.Clear;
           Exit(True);
         end;
         aContext.Capture.ActivityComplete := False;
@@ -2493,14 +2575,23 @@ begin
 
     if StartsText('IFOPT ', lText) then
     begin
+      lIncludeName := UpperCase(Copy(lText, 7, MaxInt).Trim);
+      if IsSupportedIfOpt(lIncludeName) and
+        aContext.Capture.CompilerSwitches.TryGetValue(Copy(lIncludeName, 1, 1), lActive) then
+      begin
+        PushConditionalFrame(aStack, lActive = (lIncludeName[2] = '+'), True);
+        Exit(True);
+      end;
+      // Retain failure and omit both arms when option state is unavailable.
       AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
-        'Unsupported conditional directive: ' + aDirective, aFileName, aLine);
+        'Unverified compiler option conditional: ' + aDirective, aFileName, aLine);
       PushUnsupportedConditionalFrame(aStack);
       Exit(False);
     end;
 
     if IsCompilerSwitchDirective(lText) then
     begin
+      ObserveCompilerSwitches(lText, CurrentActivity(aStack), aContext.Capture);
       if CurrentActive(aStack) then
       begin
         aOutput.AppendLine('{$' + lText + '}');
@@ -2510,12 +2601,18 @@ begin
       Exit(True);
     end;
 
+    // dcc ignores non-structural directives in a proven inactive arm, including
+    // FATAL/ERROR. An unknown arm retains its diagnostic and taint below.
+    if CurrentActivity(aStack) = saInactive then
+      Exit(True);
+
     // An unmodeled directive may affect later conditions. It cannot erase already
     // classified source regions and thereby make our selected AST branch into proof.
     if CurrentActivity(aStack) <> saInactive then
     begin
       aContext.Capture.UnknownSymbols.Clear;
       aContext.Capture.AllSymbolsUnknown := True;
+      aContext.Capture.CompilerSwitches.Clear;
     end;
     AddDiagnostic(aDiagnostics, 'UNSUPPORTED_PREPROCESS_DIRECTIVE',
       'Unsupported preprocessing directive: ' + aDirective, aFileName, aLine);
@@ -2610,6 +2707,7 @@ begin
   try
     lCapture := TPreprocessCapture.Create;
     lCapture.DefineEvidenceComplete := aOptions.DefineEvidenceComplete;
+    CaptureInitialCompilerSwitches(aOptions, lCapture);
     lDefines := CreateDefineMap(aOptions.Defines);
     // Positive -D/source definitions retain precedence over predefined negatives.
     for var lSymbol in aOptions.PredefinedFalse do

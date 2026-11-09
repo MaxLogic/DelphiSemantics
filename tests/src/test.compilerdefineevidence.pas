@@ -15,6 +15,7 @@ type
     [TestCase('normalization', 'normalization')]
     [TestCase('source applicability', 'source')]
     [TestCase('immutable descriptor', 'immutable')]
+    [TestCase('compiler switch identity and immutability', 'switches')]
     procedure AdmitsClosedCompilerInputs(const aShape: string);
     [TestCase('Native 32-bit host', 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03')]
     [TestCase('Native 64-bit host', '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9')]
@@ -67,6 +68,11 @@ type
     [TestCase('malformed symbol', 'symbol')]
     [TestCase('stale producer', 'stale')]
     [TestCase('missing evidence', 'missing')]
+    [TestCase('missing switch format', 'switch-format')]
+    [TestCase('missing switch identity', 'switch-identity')]
+    [TestCase('invalid switch state', 'switch-value')]
+    [TestCase('unsupported switch', 'switch-unknown')]
+    [TestCase('contradictory switch', 'switch-duplicate')]
     procedure RejectsUnprovedInputs(const aShape: string);
     [Test]
     [TestCase('cold publication', 'cold')]
@@ -413,6 +419,12 @@ begin
   lDescriptor := ClosedDescriptor;
   if aShape = 'empty' then
     lDescriptor.Defines := nil;
+  if aShape = 'switches' then
+  begin
+    lDescriptor.CompilerSwitchFormat := 'compiler-switches-23-windows-v1';
+    lDescriptor.CompilerSwitchIdentity := 'closed-switch-inputs-v1';
+    lDescriptor.CompilerSwitches := ['R+', 'Q-', 'O+', 'I+', 'H+'];
+  end;
   lProvider := TTestDefineEvidence.Create(lDescriptor);
   Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
     lAdmitted, lReason), lReason);
@@ -437,6 +449,20 @@ begin
       lEquivalent, lReason), lReason);
     Assert.AreEqual(TDelphiSemanticCompilerDefines.Fingerprint(lAdmitted),
       TDelphiSemanticCompilerDefines.Fingerprint(lEquivalent));
+  end;
+  if aShape = 'switches' then
+  begin
+    lDescriptor.CompilerSwitches[0] := 'R-';
+    lRead := lAdmitted.Descriptor;
+    Assert.AreEqual('R+', lRead.CompilerSwitches[0]);
+    lRead.CompilerSwitches[0] := 'R-';
+    Assert.AreEqual('R+', lAdmitted.Descriptor.CompilerSwitches[0]);
+    lProvider := TTestDefineEvidence.Create(lDescriptor);
+    Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
+      lEquivalent, lReason), lReason);
+    Assert.AreNotEqual(TDelphiSemanticCompilerDefines.Fingerprint(lAdmitted),
+      TDelphiSemanticCompilerDefines.Fingerprint(lEquivalent),
+      'Changing only an effective switch invalidates dependent artifacts.');
   end;
   if aShape = 'immutable' then
   begin
@@ -471,6 +497,17 @@ begin
   end;
   if aShape = 'symbol' then lDescriptor.Defines := ['FEATURE=2'];
   if aShape = 'stale' then lDescriptor.ProducerInputIdentity := 'stale';
+  if aShape.StartsWith('switch-') then
+  begin
+    lDescriptor.CompilerSwitchFormat := 'compiler-switches-23-windows-v1';
+    lDescriptor.CompilerSwitchIdentity := 'closed-switch-inputs-v1';
+    lDescriptor.CompilerSwitches := ['R+'];
+    if aShape = 'switch-format' then lDescriptor.CompilerSwitchFormat := '';
+    if aShape = 'switch-identity' then lDescriptor.CompilerSwitchIdentity := '';
+    if aShape = 'switch-value' then lDescriptor.CompilerSwitches := ['R?'];
+    if aShape = 'switch-unknown' then lDescriptor.CompilerSwitches := ['Z+'];
+    if aShape = 'switch-duplicate' then lDescriptor.CompilerSwitches := ['R+', 'R-'];
+  end;
   if aShape <> 'missing' then
     lProvider := TTestDefineEvidence.Create(lDescriptor);
   Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lRequest, lAdmitted, lReason));
