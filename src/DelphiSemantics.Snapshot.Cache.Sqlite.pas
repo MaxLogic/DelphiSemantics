@@ -111,7 +111,8 @@ type
     procedure StoreSymbols(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aConnection: TObject; const aUnit: TUnitSnapshot);
     procedure StoreUnitHeader(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      const aConnection: TObject; const aUnit: TUnitSnapshot; const aStringCount: Integer);
+      const aConnection: TObject; const aUnit: TUnitSnapshot; const aStringCount: Integer;
+      const aNameFlowFactsJsonId: TSemanticStringId);
     procedure StoreUnitFromProjectSnapshot(
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
       const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot);
@@ -157,7 +158,7 @@ uses
   Data.DB,
   FireDAC.Comp.Client, FireDAC.DApt, FireDAC.Phys.SQLite, FireDAC.Stan.Async,
   FireDAC.Stan.Def,
-  DelphiSemantics.Cache, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.Cache, DelphiSemantics.ImportFacts, DelphiSemantics.NameFlow.Facts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Snapshot.RemoveWith;
 
@@ -174,7 +175,7 @@ const
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
   // 39: DS-798 keeps analysis-only closure source kinds in persisted facts.
-  cSnapshotCacheSchemaVersion = '200';
+  cSnapshotCacheSchemaVersion = '1001';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -616,6 +617,11 @@ procedure ValidateUnitExactStringIds(const aExactStrings: TSemanticStringPool;
 begin
   ValidateStringId(aExactStrings, aUnit.SourceTextId, 'source_text_id');
   ValidateStringId(aExactStrings, aUnit.VerifiedActiveSourceTextId, 'verified_active_source_text_id');
+  ValidateStringId(aExactStrings, aUnit.NameFlowFactsJsonId, 'name_flow_facts_json_id');
+  if (aUnit.NameFlowFactsJsonId = 0) or
+    NameFlowFactsFromJson(aExactStrings.TextOf(aUnit.NameFlowFactsJsonId)).CoverageReason.StartsWith(
+      'name-flow-facts-json-unverified') then
+    raise Exception.Create('Snapshot name-flow facts are missing or corrupt.');
 end;
 
 procedure ValidateLoadedCounts(const aStrings: TSemanticStringPool; const aUnit: TUnitSnapshot;
@@ -760,7 +766,7 @@ begin
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
       'unit_name_id integer not null, source_text_id integer not null, ' +
-      'verified_active_source_text_id integer not null, ' +
+      'verified_active_source_text_id integer not null, name_flow_facts_json_id integer not null, ' +
       'scope_model_status_id integer not null, scope_model_version_id integer not null, ' +
       'scope_diagnostic_id integer not null, rejected_declaration_count integer not null, ' +
       'string_count integer not null, ' +
@@ -2267,6 +2273,7 @@ begin
     try
       lUnit.SetVerifiedActiveSourceTextId(
         aBuilder.ExactStrings.Intern(lEvidenceUnit.VerifiedActiveSourceText));
+      lUnit.SetNameFlowFactsJsonId(aBuilder.ExactStrings.Intern(NameFlowFactsToJson(nil)));
       lUnit.SetScopeModelMetadata(aBuilder.Strings.Intern(lEvidenceUnit.ScopeModelStatus),
         aBuilder.Strings.Intern(lEvidenceUnit.ScopeModelVersion), 0, lEvidenceUnit.RejectedDeclarationCount);
       aBuilder.AddUnit(lUnit);
@@ -2308,7 +2315,7 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select unit_id, file_name_id, unit_name_id, ' +
     'source_text_id, scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, string_count, symbol_count, with_statement_count, ' +
-    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id ' +
+    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id, name_flow_facts_json_id ' +
     'from snapshot_units where cache_key = ? ' +
     'and identity_key = ?');
   try
@@ -2340,6 +2347,7 @@ begin
         TSemanticStringId(lUnitNameIdField.AsInteger),
         TSemanticStringId(lSourceTextIdField.AsInteger));
       aUnit.SetVerifiedActiveSourceTextId(TSemanticStringId(lQuery.Fields[13].AsInteger));
+      aUnit.SetNameFlowFactsJsonId(TSemanticStringId(lQuery.Fields[14].AsInteger));
       aUnit.SetScopeModelMetadata(
         TSemanticStringId(lScopeModelStatusIdField.AsInteger),
         TSemanticStringId(lScopeModelVersionIdField.AsInteger),
@@ -3149,6 +3157,8 @@ begin
     aTargetExactStrings, aUnit.SourceTextId));
   Result.SetVerifiedActiveSourceTextId(RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
+  Result.SetNameFlowFactsJsonId(RemapSnapshotExactStringId(aSnapshot,
+    aTargetExactStrings, aUnit.NameFlowFactsJsonId));
   Result.SetScopeModelMetadata(RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeModelStatusId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.ScopeModelVersionId), RemapSnapshotStringId(aSnapshot,
@@ -3177,9 +3187,12 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitWithExactStrings(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   const aStrings, aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot);
 var
+  i: Integer;
   lConnectionObject: TObject;
   lConnection: TFDConnection;
+  lEffectiveExactStrings, lOwnedExactStrings: TSemanticStringPool;
   lError: string;
+  lNameFlowFactsJsonId: TSemanticStringId;
   lRetryStopwatch: TStopwatch;
   lWriteStopwatch: TStopwatch;
 begin
@@ -3189,36 +3202,55 @@ begin
     raise Exception.Create('Cannot store a nil unit snapshot.');
   ValidateIdentityComplete(aIdentity, 'store');
 
-  if not SharedConnection(lConnectionObject, lError) then
-    raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
-
-  lConnection := lConnectionObject as TFDConnection;
-  lWriteStopwatch := TStopwatch.StartNew;
-  lRetryStopwatch := TStopwatch.StartNew;
-  repeat
-    try
-      lConnection.StartTransaction;
-      DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
-      StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count));
-      StoreStrings(aIdentity, lConnection, aStrings);
-      StoreSymbols(aIdentity, lConnection, aUnit);
-      StoreWithStatements(aIdentity, lConnection, aUnit);
-      StorePossibleImports(aIdentity, lConnection, aUnit);
-      StoreReferences(aIdentity, lConnection, aUnit);
-      StoreExactStringPool(aIdentity, lConnection, aExactStrings);
-      lConnection.Commit;
-      Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
-      Exit;
-    except
-      on E: Exception do
-      begin
-        if lConnection.InTransaction then
-          lConnection.Rollback;
-        if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
-          raise;
-      end;
+  lOwnedExactStrings := nil;
+  try
+    lEffectiveExactStrings := aExactStrings;
+    lNameFlowFactsJsonId := aUnit.NameFlowFactsJsonId;
+    if lNameFlowFactsJsonId = 0 then
+    begin
+      // Manual snapshots have no extracted graph. Persist that refusal explicitly
+      // without mutating the caller or accepting missing payloads during load.
+      lOwnedExactStrings := TSemanticStringPool.Create(True);
+      if aExactStrings <> nil then
+        for i := 1 to Integer(aExactStrings.Count) do
+          lOwnedExactStrings.Intern(aExactStrings.TextOf(TSemanticStringId(i)));
+      lNameFlowFactsJsonId := lOwnedExactStrings.Intern(NameFlowFactsToJson(nil));
+      lEffectiveExactStrings := lOwnedExactStrings;
     end;
-  until False;
+    if not SharedConnection(lConnectionObject, lError) then
+      raise Exception.Create('Cannot open SQLite snapshot cache: ' + lError);
+
+    lConnection := lConnectionObject as TFDConnection;
+    lWriteStopwatch := TStopwatch.StartNew;
+    lRetryStopwatch := TStopwatch.StartNew;
+    repeat
+      try
+        lConnection.StartTransaction;
+        DeleteCacheKeyRows(lConnection, aIdentity.CacheKey);
+        StoreUnitHeader(aIdentity, lConnection, aUnit, Integer(aStrings.Count),
+          lNameFlowFactsJsonId);
+        StoreStrings(aIdentity, lConnection, aStrings);
+        StoreSymbols(aIdentity, lConnection, aUnit);
+        StoreWithStatements(aIdentity, lConnection, aUnit);
+        StorePossibleImports(aIdentity, lConnection, aUnit);
+        StoreReferences(aIdentity, lConnection, aUnit);
+        StoreExactStringPool(aIdentity, lConnection, lEffectiveExactStrings);
+        lConnection.Commit;
+        Inc(fMetrics.SnapshotSqlWriteMilliseconds, VisibleElapsedMilliseconds(lWriteStopwatch));
+        Exit;
+      except
+        on E: Exception do
+        begin
+          if lConnection.InTransaction then
+            lConnection.Rollback;
+          if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
+            raise;
+        end;
+      end;
+    until False;
+  finally
+    lOwnedExactStrings.Free;
+  end;
 end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnit(
@@ -3497,7 +3529,8 @@ end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.StoreUnitHeader(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aConnection: TObject;
-  const aUnit: TUnitSnapshot; const aStringCount: Integer);
+  const aUnit: TUnitSnapshot; const aStringCount: Integer;
+  const aNameFlowFactsJsonId: TSemanticStringId);
 var
   lConnection: TFDConnection;
   lQuery: TFDQuery;
@@ -3508,9 +3541,9 @@ begin
     'stored_at_utc, unit_id, file_name_id, unit_name_id, source_text_id, string_count, ' +
     'scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, symbol_count, with_statement_count, reference_count, ' +
-    'parse_avoided_estimate_ms, verified_active_source_text_id) ' +
+    'parse_avoided_estimate_ms, verified_active_source_text_id, name_flow_facts_json_id) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
-    '?, ?, ?, ?, ?, ?)');
+    '?, ?, ?, ?, ?, ?, ?)');
   try
     SetWideParam(lQuery, 0, aIdentity.CacheKey);
     SetWideParam(lQuery, 1, aIdentity.IdentityKey);
@@ -3548,6 +3581,8 @@ begin
     lQuery.Params[20].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
     lQuery.Params[21].DataType := ftInteger;
     lQuery.Params[21].AsInteger := Integer(aUnit.VerifiedActiveSourceTextId);
+    lQuery.Params[22].DataType := ftInteger;
+    lQuery.Params[22].AsInteger := Integer(aNameFlowFactsJsonId);
     lQuery.Prepare;
     lQuery.ExecSQL;
   finally

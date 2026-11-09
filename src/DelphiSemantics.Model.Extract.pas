@@ -24,6 +24,7 @@ uses
   System.StrUtils, System.SyncObjs, System.SysUtils,
   DelphiAST, DelphiAST.Classes, DelphiAST.Consts, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.PossibleSources, DelphiSemantics.Model.Text,
+  DelphiSemantics.NameFlow.Extract, DelphiSemantics.NameFlow.Facts,
   DelphiSemantics.Preprocess, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
@@ -57,7 +58,7 @@ type
 
   // Parser-owned metadata attached to the exact method AST node. End coordinates
   // are exclusive and stop at the last heading/directive semicolon, before locals.
-  TSemanticRoutineHeadingNode = class(TCompoundSyntaxNode)
+  TSemanticRoutineHeadingNode = class(TDelphiNameFlowRoutineHeadingNode)
   public
     Closed: Boolean;
   end;
@@ -2393,6 +2394,11 @@ var
   lRoutine: TDelphiSemanticRoutine;
   lScopeIndex: Integer;
   lScopes: TList<TAstRoutineScope>;
+  lFlowNodes: TArray<TDelphiNameFlowNode>;
+  lFlowNode: TDelphiNameFlowNode;
+  lFlowReason: string;
+  lFlowIndex, lFlowScopeIndex: Integer;
+  lFlowScopes: TDictionary<Int64, string>;
   lSyntaxTree: TSyntaxNode;
   lTypeCount: Integer;
   lUnownedBlocks: TList<TOffsetRange>;
@@ -2896,6 +2902,45 @@ begin
       if lComplete then
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
       CollectFacts(lSyntaxTree, nil, -1, '');
+      lFlowReason := '';
+      if aOptions.SkipBodyAnalysis then
+        lFlowReason := 'name-flow-body-extraction-skipped';
+      if aOptions.SkipReferenceExtraction then
+        lFlowReason := 'name-flow-reference-extraction-skipped';
+      if not lComplete then
+        lFlowReason := 'name-flow-parser-recovered';
+      if aOptions.SkipBodyAnalysis or aOptions.SkipReferenceExtraction then
+        // A projected declaration tree cannot certify calls in omitted bodies.
+        // Keep the explicit gap without allocating an unusable partial graph.
+        aModel.NameFlowFacts := CreateNameFlowFacts(nil, False,
+          aModel.DefineEvidenceComplete, lFlowReason)
+      else
+        aModel.NameFlowFacts := ExtractNameFlowFacts(lSyntaxTree, aModel.FileName, aText,
+          lComplete, aModel.DefineEvidenceComplete, lFlowReason, aOptions.NameFlowFactLimit);
+      lFlowScopes := TDictionary<Int64, string>.Create;
+      try
+        for lFlowScopeIndex := 0 to lScopes.Count - 1 do
+          lFlowScopes.AddOrSetValue((Int64(lScopes[lFlowScopeIndex].StartLine) shl 32) or
+            Cardinal(lScopes[lFlowScopeIndex].StartColumn), lScopes[lFlowScopeIndex].ScopeId);
+        SetLength(lFlowNodes, aModel.NameFlowFacts.NodeCount);
+        for lFlowIndex := 1 to aModel.NameFlowFacts.NodeCount do
+        begin
+          lFlowNode := aModel.NameFlowFacts.NodeById(lFlowIndex);
+          if lFlowNode.ParentId > 0 then
+            lFlowNode.ScopeId := lFlowNodes[lFlowNode.ParentId - 1].ScopeId;
+          if lFlowNode.Kind = TDelphiNameFlowNodeKind.Routine then
+          begin
+            lFlowNode.ScopeId := aModel.NameFlowFacts.NodeById(lFlowIndex).ScopeId;
+            if lFlowScopes.ContainsKey((Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)) then
+              lFlowNode.ScopeId := lFlowScopes[(Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)];
+          end;
+          lFlowNodes[lFlowIndex - 1] := lFlowNode;
+        end;
+        aModel.NameFlowFacts := CreateNameFlowFacts(lFlowNodes, aModel.NameFlowFacts.Complete,
+          aModel.NameFlowFacts.ConfigurationComplete, aModel.NameFlowFacts.CoverageReason);
+      finally
+        lFlowScopes.Free;
+      end;
       lDeclarationCandidates.Compact;
       ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
         lMemberReferences);
@@ -2929,6 +2974,7 @@ begin
     except
       on e: Exception do
       begin
+        aModel.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-ast-failed');
         // Drop partial syntax-backed facts; the bounded line scan below replaces them.
         aDeclarations.Count := lDeclarationCount;
         aDiagnostics.Count := lDiagnosticCount;
@@ -6650,6 +6696,7 @@ var
   lWritableSwitches: TArray<TWritableConstantSwitch>;
 begin
   Result := Default(TDelphiSemanticUnitModel);
+  Result.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-extraction-incomplete');
   lExtractionContext := nil;
   lDiagnostics := nil;
   lUnindexedHelpers := nil;
@@ -6919,6 +6966,8 @@ begin
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
     Result.TypeValueMembers := lExtractionContext.TypeValueMembers.ToArray;
+    Result.NameFlowFacts := MapNameFlowFacts(Result.NameFlowFacts, lText,
+      lPreprocessResult, lOutputOffsetShift);
     // AST success does not prove that its ordered imports include discarded
     // compiler-option/constant-expression branches from the original source.
     if (Result.DirectiveFacts.ImportCause <> '') then

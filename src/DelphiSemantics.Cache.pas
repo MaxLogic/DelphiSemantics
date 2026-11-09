@@ -214,7 +214,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // Integrated extraction plus configuration-neutral include/import coverage and never-compiled activity.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.200';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.1001';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -343,6 +343,7 @@ begin
     '|skippedIncludePolicy=all-candidates-v1' +
     '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
+    sLineBreak + 'nameFlowFactLimit=' + IntToStr(aOptions.NameFlowFactLimit) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
     sLineBreak + 'writableTypedConstants=' + BoolToStr(aOptions.WritableTypedConstants, True);

@@ -3,7 +3,7 @@ unit DelphiSemantics.Model;
 interface
 
 uses
-  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ImportFacts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ImportFacts, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 type
   TDelphiSemanticModelOptions = record
@@ -22,6 +22,8 @@ type
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
     CompilerDefineRequest: TDelphiSemanticCompilerDefineRequest;
     CompilerDefineEvidenceReason: string;
+    // Zero selects the default syntax-fact budget; a positive value lowers the bound.
+    NameFlowFactLimit: Integer;
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;
@@ -307,6 +309,7 @@ type
     LineBreak: string;
     SourceSections: TDelphiSemanticSourceSections;
     DependencyFacts: TDelphiSemanticUnitDependencyFacts;
+    NameFlowFacts: IDelphiNameFlowFacts;
     DirectiveFacts: TDelphiSemanticDirectiveFacts;
     InterfaceUses: TArray<string>;
     ImplementationUses: TArray<string>;

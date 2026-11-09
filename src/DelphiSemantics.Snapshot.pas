@@ -124,6 +124,7 @@ type
     fScopeModelStatusId: TSemanticStringId;
     fScopeModelVersionId: TSemanticStringId;
     fSourceTextId: TSemanticStringId;
+    fNameFlowFactsJsonId: TSemanticStringId;
     fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fUnitId: TSemanticUnitId;
@@ -154,6 +155,7 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    procedure SetNameFlowFactsJsonId(const aId: TSemanticStringId);
     procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
@@ -173,6 +175,7 @@ type
     property ScopeModelStatusId: TSemanticStringId read fScopeModelStatusId;
     property ScopeModelVersionId: TSemanticStringId read fScopeModelVersionId;
     property SourceTextId: TSemanticStringId read fSourceTextId;
+    property NameFlowFactsJsonId: TSemanticStringId read fNameFlowFactsJsonId;
     property VerifiedActiveSourceTextId: TSemanticStringId read fVerifiedActiveSourceTextId;
     property SymbolCount: Integer read GetSymbolCount;
     property UnitId: TSemanticUnitId read fUnitId;
@@ -511,6 +514,12 @@ procedure TUnitSnapshot.CheckMutable;
 begin
   if fFrozen then
     raise Exception.Create('Cannot mutate a frozen unit snapshot.');
+end;
+
+procedure TUnitSnapshot.SetNameFlowFactsJsonId(const aId: TSemanticStringId);
+begin
+  CheckMutable;
+  fNameFlowFactsJsonId := aId;
 end;
 
 procedure TUnitSnapshot.SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);

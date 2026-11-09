@@ -75,7 +75,7 @@ uses
   System.Diagnostics, System.Generics.Collections, System.IOUtils, System.RegularExpressions,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
-  DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
+  DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
   DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
   DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source;
 
@@ -2782,6 +2782,7 @@ begin
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
     aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
+    Result.SetNameFlowFactsJsonId(aExactStrings.Intern(NameFlowFactsToJson(aModel.NameFlowFacts)));
     Result.SetVerifiedActiveSourceTextId(aExactStrings.Intern(aModel.VerifiedActiveSourceText));
     lScopeDiagnostic := '';
     for lDiagnostic in aModel.Diagnostics do
@@ -3337,6 +3338,8 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetNameFlowFactsJsonId(RemapStringId(aSourceExactStrings,
+      aTargetExactStrings, aUnit.NameFlowFactsJsonId));
     Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
       aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,
@@ -3379,6 +3382,8 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetNameFlowFactsJsonId(RemapStringId(aSourceExactStrings,
+      aTargetExactStrings, aUnit.NameFlowFactsJsonId));
     Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
       aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,
@@ -3800,6 +3805,7 @@ begin
         lBuilder.Strings.Intern(SnapshotFullPath(lModel.FileName)),
         lBuilder.Strings.Intern(lModel.UnitName), lBuilder.ExactStrings.Intern(lModel.SourceText));
       try
+        lUnit.SetNameFlowFactsJsonId(lBuilder.ExactStrings.Intern(NameFlowFactsToJson(lModel.NameFlowFacts)));
         lUnit.SetVerifiedActiveSourceTextId(lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
         lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),
           lBuilder.Strings.Intern(lModel.ScopeModelVersion),
