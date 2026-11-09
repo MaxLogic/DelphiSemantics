@@ -18,6 +18,8 @@ type
     LookupIdentity: string;
     ConsoleSafe: Boolean;
     Cause: string;
+    // Candidate names bound lookup observations; they never establish selection.
+    CandidateUnitNames: TArray<string>;
     class function Build(const aProject: TDelphiSemanticProjectInfo):
       TDelphiSemanticCompilerSourceInventory; static;
     class function BuildForApply(const aProject: TDelphiSemanticProjectInfo;
@@ -44,6 +46,7 @@ type
     fVisited: TStringList;
     fExpansions: TStringList;
     fImports: TStringList;
+    fCandidateNames: TStringList;
     fSourcePaths: TArray<string>;
     fPascalSourceNames: TStringList;
     fFiles: TList<TDelphiSemanticCompilerSourceWitness>;
@@ -99,6 +102,10 @@ begin
   fExpansions.Sorted := True;
   fExpansions.CaseSensitive := False;
   fExpansions.Duplicates := dupIgnore;
+  fCandidateNames := TStringList.Create;
+  fCandidateNames.Sorted := True;
+  fCandidateNames.CaseSensitive := False;
+  fCandidateNames.Duplicates := dupIgnore;
   fImports := TStringList.Create;
   fImports.Sorted := True;
   fImports.CaseSensitive := False;
@@ -117,6 +124,7 @@ begin
   fIdentity.Free;
   fFiles.Free;
   fPascalSourceNames.Free;
+  fCandidateNames.Free;
   fImports.Free;
   fExpansions.Free;
   fVisited.Free;
@@ -334,6 +342,7 @@ var
 begin
   if aExplicitPath <> '' then
   begin
+    fCandidateNames.Add(aName);
     ScanUnit(TPath.GetFullPath(TPath.Combine(ExtractFilePath(aFileName), aExplicitPath)));
     Exit;
   end;
@@ -352,6 +361,7 @@ begin
   lNames := lNames + TDelphiSemanticUnitResolver.CandidateNames(lUnaliased, aName);
   for lName in lNames do
   begin
+    fCandidateNames.Add(lName.TargetName);
     if not fPascalSourceNames.Find(lName.TargetName + '.pas', lIndex) then
       Continue;
     for lPath in TStringList(fPascalSourceNames.Objects[lIndex]) do
@@ -449,6 +459,10 @@ begin
       // an unproved inventory identity so currentness refuses normally.
       Unproved('compiler-source-inventory-unavailable: ' + E.Message);
   end;
+  Result.CandidateUnitNames := fCandidateNames.ToStringArray;
+  fIdentity.AppendLine('native-selection-candidates-v1');
+  for lFileName in Result.CandidateUnitNames do
+    fIdentity.AppendLine(LowerCase(lFileName));
   Result.Files := fFiles.ToArray;
   Result.ConsoleSafe := fConsoleSafe;
   Result.Cause := fCause;

@@ -78,6 +78,16 @@ type
     [TestCase('cold publication', 'cold')]
     [TestCase('warm reuse', 'warm')]
     procedure ChangedProducerAbortsModelPublication(const aShape: string);
+    [TestCase('Dependency transport is not semantic input', 'transport')]
+    [TestCase('Source selection is immutable', 'source')]
+    [TestCase('DCU has no source applicability', 'dcu')]
+    [TestCase('Missing format', 'format')]
+    [TestCase('Missing dependency digest', 'dependency')]
+    [TestCase('Unmatched source witness', 'witness')]
+    [TestCase('Duplicate unit selection', 'duplicate')]
+    [TestCase('DCU cannot grant source evidence', 'dcu-source')]
+    [TestCase('Capture failure cannot publish rows', 'failure')]
+    procedure ValidatesNativeSourceSelection(const aShape: string);
     [Test]
     procedure FrozenModelAdmissionDoesNotReevaluateNativeInputs;
     [TestCase('Before facts publication', 'facts')]
@@ -473,6 +483,83 @@ begin
     lRead := lAdmitted.Descriptor;
     Assert.AreEqual('DEBUG', lRead.Defines[0]);
   end;
+end;
+
+procedure TCompilerDefineEvidenceTests.ValidatesNativeSourceSelection(const aShape: string);
+var
+  lDescriptor, lRead: TDelphiSemanticCompilerDefineDescriptor;
+  lProvider, lAdmitted, lChanged: IDelphiSemanticCompilerDefineEvidence;
+  lReason, lFingerprint: string;
+begin
+  lDescriptor := ClosedDescriptor;
+  lDescriptor.Sources[0].SourceFileName :=
+    TPath.GetFullPath('tests/fixtures/RemoveWithPointerEvaluation/PointerReceiverUnit.pas');
+  lDescriptor.Sources[0].ContentHash := THashSHA2.GetHashStringFromFile(lDescriptor.Sources[0].SourceFileName);
+  lDescriptor.SourceSelectionFormat := 'dcc-dependencies-rebuilt-units-v1';
+  lDescriptor.SourceSelectionIdentity := StringOfChar('B', 64);
+  lDescriptor.DependencyContentHash := StringOfChar('C', 64);
+  SetLength(lDescriptor.SourceSelections, 1);
+  lDescriptor.SourceSelections[0].UnitName := lDescriptor.Sources[0].UnitName;
+  lDescriptor.SourceSelections[0].DependencyFileName :=
+    TPath.ChangeExtension(lDescriptor.Sources[0].SourceFileName, '.dcu');
+  lDescriptor.SourceSelections[0].Kind := 'source';
+  lDescriptor.SourceSelections[0].SourceFileName := lDescriptor.Sources[0].SourceFileName;
+  lDescriptor.SourceSelections[0].ContentHash := lDescriptor.Sources[0].ContentHash;
+  lDescriptor.SourceSelections[0].CompiledUnitHash := StringOfChar('D', 64);
+  if (aShape = 'dcu') or (aShape = 'dcu-source') then
+  begin
+    lDescriptor.SourceSelections[0].Kind := 'dcu';
+    lDescriptor.SourceSelections[0].SourceFileName := '';
+    lDescriptor.SourceSelections[0].CompiledUnitHash := '';
+    if aShape = 'dcu' then
+      lDescriptor.Sources := nil;
+  end;
+  if aShape = 'format' then lDescriptor.SourceSelectionFormat := '';
+  if aShape = 'dependency' then lDescriptor.DependencyContentHash := '';
+  if aShape = 'witness' then lDescriptor.SourceSelections[0].ContentHash := StringOfChar('E', 64);
+  if aShape = 'duplicate' then
+    lDescriptor.SourceSelections := lDescriptor.SourceSelections + [lDescriptor.SourceSelections[0]];
+  if aShape = 'failure' then lDescriptor.SourceSelectionReason := 'compile failed';
+  lProvider := TTestDefineEvidence.Create(lDescriptor);
+  if (aShape <> 'source') and (aShape <> 'dcu') and (aShape <> 'transport') then
+  begin
+    Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
+      lAdmitted, lReason), 'Malformed source selection must fail closed.');
+    Assert.IsNotEmpty(lReason);
+    Exit;
+  end;
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
+    lAdmitted, lReason), lReason);
+  if aShape = 'dcu' then
+  begin
+    Assert.IsFalse(TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted,
+      TPath.ChangeExtension(lDescriptor.SourceSelections[0].DependencyFileName, '.pas')));
+    Exit;
+  end;
+  lFingerprint := TDelphiSemanticCompilerDefines.Fingerprint(lAdmitted);
+  if aShape = 'transport' then
+  begin
+    // Native .d headers name a unique owned output directory on every launch.
+    // Unchanged parsed dependencies and selected bytes must reuse the snapshot.
+    lDescriptor.DependencyContentHash := StringOfChar('E', 64);
+    lProvider := TTestDefineEvidence.Create(lDescriptor);
+    Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
+      lChanged, lReason), lReason);
+    Assert.AreEqual(lFingerprint, TDelphiSemanticCompilerDefines.Fingerprint(lChanged));
+    Exit;
+  end;
+  lDescriptor.SourceSelections[0].CompiledUnitHash := StringOfChar('E', 64);
+  lDescriptor.SourceSelectionIdentity := StringOfChar('F', 64);
+  lProvider := TTestDefineEvidence.Create(lDescriptor);
+  Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
+    lChanged, lReason), lReason);
+  Assert.AreNotEqual(lFingerprint, TDelphiSemanticCompilerDefines.Fingerprint(lChanged));
+  lRead := lAdmitted.Descriptor;
+  Assert.AreEqual(StringOfChar('D', 64), lRead.SourceSelections[0].CompiledUnitHash);
+  lRead.SourceSelections[0].Kind := 'dcu';
+  lRead := lAdmitted.Descriptor;
+  Assert.AreEqual('source', lRead.SourceSelections[0].Kind);
+  Assert.AreEqual(lFingerprint, TDelphiSemanticCompilerDefines.Fingerprint(lAdmitted));
 end;
 
 procedure TCompilerDefineEvidenceTests.RejectsUnprovedInputs(const aShape: string);

@@ -17,6 +17,16 @@ type
     ContentHash: string;
   end;
 
+  // Each descriptor belongs to exactly one Invocation configuration/platform.
+  TDelphiSemanticCompilerSourceSelection = record
+    UnitName: string;
+    DependencyFileName: string;
+    Kind: string;
+    SourceFileName: string;
+    ContentHash: string;
+    CompiledUnitHash: string;
+  end;
+
   TDelphiSemanticCompilerDefineDescriptor = record
     Format: string;
     Producer: string;
@@ -43,6 +53,11 @@ type
     PredefinedSources: TArray<TDelphiSemanticCompilerSourceWitness>;
     PredefinedTrue: TArray<string>;
     PredefinedFalse: TArray<string>;
+    SourceSelectionFormat: string;
+    SourceSelectionIdentity: string;
+    SourceSelectionReason: string;
+    DependencyContentHash: string;
+    SourceSelections: TArray<TDelphiSemanticCompilerSourceSelection>;
   end;
 
   // The producer owns native inputs and re-evaluation. Descriptor reads occur
@@ -143,6 +158,7 @@ begin
   Result.OrderedArguments := Copy(aDescriptor.OrderedArguments);
   Result.CompilerSwitches := Copy(aDescriptor.CompilerSwitches);
   Result.Sources := Copy(aDescriptor.Sources);
+  Result.SourceSelections := Copy(aDescriptor.SourceSelections);
   Result.PredefinedSources := Copy(aDescriptor.PredefinedSources);
   Result.PredefinedTrue := Copy(aDescriptor.PredefinedTrue);
   Result.PredefinedFalse := Copy(aDescriptor.PredefinedFalse);
@@ -221,6 +237,7 @@ function DescriptorFingerprint(const aDescriptor: TDelphiSemanticCompilerDefineD
 var
   lBuilder: TStringBuilder;
   lSource: TDelphiSemanticCompilerSourceWitness;
+  lSelection: TDelphiSemanticCompilerSourceSelection;
 begin
   lBuilder := TStringBuilder.Create;
   try
@@ -232,7 +249,16 @@ begin
       aDescriptor.ProducerInputIdentity, aDescriptor.SourceApplicabilityIdentity,
       aDescriptor.CompilerSwitchFormat, aDescriptor.CompilerSwitchIdentity,
       aDescriptor.PredefinedFormat, aDescriptor.PredefinedIdentity,
-      aDescriptor.PredefinedSourceLookupIdentity]);
+      aDescriptor.PredefinedSourceLookupIdentity,
+      aDescriptor.SourceSelectionFormat, aDescriptor.SourceSelectionIdentity,
+      aDescriptor.SourceSelectionReason]);
+    // Raw dependency/DCU digests are audit evidence, not semantic inputs:
+    // headers and emitted DCUs vary between identical native launches. The
+    // normalized selection identity and selected input bytes bind the closure.
+    lBuilder.Append(Length(aDescriptor.SourceSelections)).Append(':');
+    for lSelection in aDescriptor.SourceSelections do
+      AppendValues(lBuilder, [lSelection.UnitName, lSelection.DependencyFileName,
+        lSelection.Kind, lSelection.SourceFileName, lSelection.ContentHash]);
     AppendValues(lBuilder, aDescriptor.Defines);
     AppendValues(lBuilder, aDescriptor.OrderedArguments);
     AppendValues(lBuilder, aDescriptor.CompilerSwitches);
@@ -351,7 +377,7 @@ var
   i, j: Integer;
   lNormalized: TArray<string>;
   lSymbol, lPredefinedFormat: string;
-  lWin32, lLinux64: Boolean;
+  lWin32, lLinux64, lSourceFound: Boolean;
 begin
   aReason := 'invalid compiler define evidence envelope';
   if (aDescriptor.Format <> 'ds-compiler-defines-v1') or (aDescriptor.Producer = '') or
@@ -464,6 +490,61 @@ begin
         (aDescriptor.Sources[j].SourceFileName = aDescriptor.Sources[i].SourceFileName) then
         Exit(False);
   end;
+  aReason := 'compiler source selection evidence invalid';
+  if aDescriptor.SourceSelectionFormat <> '' then
+  begin
+    if (aDescriptor.SourceSelectionFormat <> 'dcc-dependencies-rebuilt-units-v1') or
+      not IsDigest(aDescriptor.SourceSelectionIdentity) or
+      not IsDigest(aDescriptor.DependencyContentHash) or
+      (aDescriptor.SourceSelectionReason <> '') or (Length(aDescriptor.SourceSelections) = 0) then
+      Exit(False);
+    for i := 0 to High(aDescriptor.SourceSelections) do
+    begin
+      if (aDescriptor.SourceSelections[i].UnitName = '') or
+        not TPath.IsPathRooted(aDescriptor.SourceSelections[i].DependencyFileName) or
+        not SameText(TPath.GetExtension(aDescriptor.SourceSelections[i].DependencyFileName), '.dcu') or
+        not IsDigest(aDescriptor.SourceSelections[i].ContentHash) then
+        Exit(False);
+      if aDescriptor.SourceSelections[i].Kind = 'source' then
+      begin
+        if not TPath.IsPathRooted(aDescriptor.SourceSelections[i].SourceFileName) or
+          not SameText(TPath.GetExtension(aDescriptor.SourceSelections[i].SourceFileName), '.pas') or
+          not IsDigest(aDescriptor.SourceSelections[i].CompiledUnitHash) then
+          Exit(False);
+        aDescriptor.SourceSelections[i].SourceFileName :=
+          CanonicalPath(aDescriptor.SourceSelections[i].SourceFileName);
+        if aDescriptor.SourceSelections[i].SourceFileName <>
+          CanonicalPath(TPath.ChangeExtension(aDescriptor.SourceSelections[i].DependencyFileName, '.pas')) then
+          Exit(False);
+        lSourceFound := False;
+        for j := 0 to High(aDescriptor.Sources) do
+          if SameText(aDescriptor.Sources[j].UnitName, aDescriptor.SourceSelections[i].UnitName) and
+            (aDescriptor.Sources[j].SourceFileName = aDescriptor.SourceSelections[i].SourceFileName) and
+            SameText(aDescriptor.Sources[j].ContentHash, aDescriptor.SourceSelections[i].ContentHash) then
+            lSourceFound := True;
+        if not lSourceFound then
+          Exit(False);
+      end else if (aDescriptor.SourceSelections[i].Kind <> 'dcu') or
+        (aDescriptor.SourceSelections[i].SourceFileName <> '') or
+        (aDescriptor.SourceSelections[i].CompiledUnitHash <> '') then
+        Exit(False);
+      if aDescriptor.SourceSelections[i].Kind = 'dcu' then
+        for j := 0 to High(aDescriptor.Sources) do
+          if SameText(aDescriptor.Sources[j].UnitName, aDescriptor.SourceSelections[i].UnitName) then
+            Exit(False);
+      aDescriptor.SourceSelections[i].ContentHash := UpperCase(aDescriptor.SourceSelections[i].ContentHash);
+      aDescriptor.SourceSelections[i].CompiledUnitHash := UpperCase(aDescriptor.SourceSelections[i].CompiledUnitHash);
+      aDescriptor.SourceSelections[i].UnitName := UpperCase(aDescriptor.SourceSelections[i].UnitName);
+      aDescriptor.SourceSelections[i].DependencyFileName :=
+        CanonicalPath(aDescriptor.SourceSelections[i].DependencyFileName);
+      for j := 0 to i - 1 do
+        if (aDescriptor.SourceSelections[i].UnitName = aDescriptor.SourceSelections[j].UnitName) or
+          (aDescriptor.SourceSelections[i].DependencyFileName = aDescriptor.SourceSelections[j].DependencyFileName) then
+          Exit(False);
+    end;
+  end else if (Length(aDescriptor.SourceSelections) <> 0) or
+    (aDescriptor.SourceSelectionIdentity <> '') or (aDescriptor.DependencyContentHash <> '') then
+    Exit(False);
   aReason := '';
   Result := True;
 end;

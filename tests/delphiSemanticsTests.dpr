@@ -9,6 +9,7 @@ uses
   Dak.Build.LinuxCertificate in '..\..\DelphiAiKit\src\Dak.Build.LinuxCertificate.pas',
   Dak.Build.NativeContext in '..\..\DelphiAiKit\src\Dak.Build.NativeContext.pas',
   Dak.CompilerDefineSettings in '..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas',
+  Dak.CompilerDependencies in '..\..\DelphiAiKit\src\Dak.CompilerDependencies.pas',
   Dak.Build.Types in '..\..\DelphiAiKit\src\Dak.Build.Types.pas',
   Dak.ExternalToolProcess in '..\..\DelphiAiKit\src\Dak.ExternalToolProcess.pas',
   Dak.Hash.Sha256 in '..\..\DelphiAiKit\src\Dak.Hash.Sha256.pas',
