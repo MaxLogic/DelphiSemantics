@@ -72,11 +72,14 @@ type
   TDeadCodeSourceEntry = record
     Text: string;
     LowerText: string;
+    LineStarts: TArray<Integer>;
   end;
 
   TDeadCodeSourceIndex = class
   private
     fEntries: TDictionary<string, TDeadCodeSourceEntry>;
+    fExportBlocks: TDictionary<string, TArray<string>>;
+    fSectionIdentifiers: TObjectDictionary<string, TDictionary<string, Boolean>>;
     fFilesByUnit: TDictionary<string, Boolean>;
     fIncompleteUnits: TDictionary<string, Boolean>;
     // Every unit and program file, with or without known text (DS-659).
@@ -119,15 +122,23 @@ type
   // Finds whole-word source occurrences of a name that no declaration or reference fact covers.
   // Such an occurrence (inactive code, assembler, an extraction gap) may be a use, so a symbol
   // with one is never reported unused (DS-653).
+  TDeadCodeOccurrence = record
+    TextIndex: NativeInt;
+    Line: Integer;
+    Column: Integer;
+  end;
+
   TDeadCodeOccurrenceScanner = class
   private
     fCovered: TDictionary<string, Boolean>;
+    fOccurrences: TObjectDictionary<string, TList<TDeadCodeOccurrence>>;
     fCoveredByUnit: TDictionary<string, Boolean>;
     fResults: TDictionary<string, Boolean>;
     fTexts: TList<TPair<string, string>>;
     fUnitFiles: TDictionary<string, string>;
     fSourceIndex: TDeadCodeSourceIndex;
     fInterfaceNames: TDictionary<string, Boolean>;
+    procedure BuildOccurrences;
     class function PositionKey(const aFileName: string; const aLine, aColumn: Integer): string;
       static;
     function IsCovered(const aUnitName, aFileName: string; const aLine, aColumn: Integer;
@@ -138,6 +149,42 @@ type
     destructor Destroy; override;
     function HasUnclassifiedOccurrence(const aSymbol: TDelphiSemanticIndexedSymbol): Boolean;
   end;
+
+// Match the original ASCII whole-word boundary predicate. Non-identifier names
+// keep the original substring scan, including operators and unusual model facts.
+function WholeIdentifierName(const aName: string): Boolean;
+var
+  lCharacter: Char;
+begin
+  Result := aName <> '';
+  for lCharacter in aName do
+    if not IsIdentifierChar(lCharacter) then
+      Exit(False);
+end;
+
+function IdentifierNames(const aText: string): TDictionary<string, Boolean>;
+var
+  i: Integer;
+  lStart: Integer;
+begin
+  Result := TDictionary<string, Boolean>.Create;
+  try
+    i := 1;
+    while i <= Length(aText) do
+      if IsIdentifierChar(aText[i]) then
+      begin
+        lStart := i;
+        repeat
+          Inc(i);
+        until (i > Length(aText)) or not IsIdentifierChar(aText[i]);
+        Result.AddOrSetValue(Copy(aText, lStart, i - lStart), True);
+      end else
+        Inc(i);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
 
 class function TDelphiSemanticDeadCodeProfiles.AllowedNamesText: string;
 begin
@@ -206,6 +253,10 @@ var
   lSnapshot: TDelphiProjectSnapshot;
 begin
   inherited Create;
+  fExportBlocks := TDictionary<string, TArray<string>>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSectionIdentifiers := TObjectDictionary<string, TDictionary<string, Boolean>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
   fEntries := TDictionary<string, TDeadCodeSourceEntry>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fUnitFiles := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -223,7 +274,9 @@ begin
   fIncompleteUnits.Free;
   fFilesByUnit.Free;
   fUnitFiles.Free;
+  fSectionIdentifiers.Free;
   fEntries.Free;
+  fExportBlocks.Free;
   inherited;
 end;
 
@@ -234,11 +287,30 @@ end;
 
 procedure TDeadCodeSourceIndex.AddEntry(const aFileName, aText: string);
 var
+  i: Integer;
+  lCount: Integer;
   lEntry: TDeadCodeSourceEntry;
 begin
   if (aFileName = '') or (aText = '') then
     Exit;
 
+  fSectionIdentifiers.Remove(aFileName + #1 + 'initialization');
+  fSectionIdentifiers.Remove(aFileName + #1 + 'finalization');
+  fExportBlocks.Remove(aFileName);
+  // Line boundaries belong to this captured text, not the mutable file.
+  lCount := 1;
+  for i := 1 to Length(aText) do
+    if aText[i] = #10 then
+      Inc(lCount);
+  SetLength(lEntry.LineStarts, lCount);
+  lEntry.LineStarts[0] := 1;
+  lCount := 1;
+  for i := 1 to Length(aText) do
+    if aText[i] = #10 then
+    begin
+      lEntry.LineStarts[lCount] := i + 1;
+      Inc(lCount);
+    end;
   lEntry.Text := aText;
   lEntry.LowerText := LowerCase(lEntry.Text);
   fEntries.AddOrSetValue(aFileName, lEntry);
@@ -448,10 +520,12 @@ constructor TDeadCodeOccurrenceScanner.Create(const aIndex: TDelphiSemanticProje
   const aSourceIndex: TDeadCodeSourceIndex);
 var
   lEntry: TPair<string, TDeadCodeSourceEntry>;
+  lName: string;
   lReference: TDelphiSemanticIndexedReference;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   inherited Create;
+  fOccurrences := TObjectDictionary<string, TList<TDeadCodeOccurrence>>.Create([doOwnsValues]);
   fCovered := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fCoveredByUnit := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fResults := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -461,6 +535,9 @@ begin
   fInterfaceNames := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   for lSymbol in aIndex.Symbols do
   begin
+    lName := LowerCase(lSymbol.Name);
+    if WholeIdentifierName(lName) and not fOccurrences.ContainsKey(lName) then
+      fOccurrences.Add(lName, TList<TDeadCodeOccurrence>.Create);
     fCovered.AddOrSetValue(PositionKey(lSymbol.FileName, lSymbol.Line, lSymbol.Column), True);
     fCoveredByUnit.AddOrSetValue(lSymbol.UnitName + #1 +
       PositionKey(lSymbol.FileName, lSymbol.Line, lSymbol.Column), True);
@@ -480,17 +557,63 @@ begin
   for lEntry in aSourceIndex.fEntries do
     fTexts.Add(TPair<string, string>.Create(lEntry.Key,
       LowerCase(SanitizeCodeText(lEntry.Value.Text))));
+  BuildOccurrences;
 end;
 
 destructor TDeadCodeOccurrenceScanner.Destroy;
 begin
   fInterfaceNames.Free;
   fUnitFiles.Free;
+  fOccurrences.Free;
   fTexts.Free;
   fResults.Free;
   fCoveredByUnit.Free;
   fCovered.Free;
   inherited;
+end;
+
+// Scan each immutable captured text once. Queries still apply the original file,
+// declaring-unit, include-completeness and position-coverage checks (DAK-491).
+procedure TDeadCodeOccurrenceScanner.BuildOccurrences;
+var
+  i: NativeInt;
+  lColumnStart: Integer;
+  lIndex: Integer;
+  lLine: Integer;
+  lList: TList<TDeadCodeOccurrence>;
+  lOccurrence: TDeadCodeOccurrence;
+  lStart: Integer;
+  lText: string;
+begin
+  for i := 0 to fTexts.Count - 1 do
+  begin
+    lText := fTexts[i].Value;
+    lLine := 1;
+    lColumnStart := 1;
+    lIndex := 1;
+    while lIndex <= Length(lText) do
+      if IsIdentifierChar(lText[lIndex]) then
+      begin
+        lStart := lIndex;
+        repeat
+          Inc(lIndex);
+        until (lIndex > Length(lText)) or not IsIdentifierChar(lText[lIndex]);
+        if fOccurrences.TryGetValue(Copy(lText, lStart, lIndex - lStart), lList) then
+        begin
+          lOccurrence.TextIndex := i;
+          lOccurrence.Line := lLine;
+          lOccurrence.Column := lStart - lColumnStart + 1;
+          lList.Add(lOccurrence);
+        end;
+      end else begin
+        if lText[lIndex] = #10 then
+        begin
+          Inc(lLine);
+          lColumnStart := lIndex + 1;
+        end;
+        Inc(lIndex);
+      end;
+  end;
 end;
 
 class function TDeadCodeOccurrenceScanner.PositionKey(const aFileName: string; const aLine,
@@ -520,6 +643,8 @@ var
   lName: string;
   lPosition: Integer;
   lScanned: Integer;
+  lOccurrence: TDeadCodeOccurrence;
+  lOccurrences: TList<TDeadCodeOccurrence>;
   lText: TPair<string, string>;
 begin
   lDeclaringFile := '';
@@ -537,6 +662,26 @@ begin
   if fResults.TryGetValue(lCacheKey, Result) then
     Exit;
   Result := False;
+  if fOccurrences.TryGetValue(lName, lOccurrences) then
+  begin
+    for lOccurrence in lOccurrences do
+    begin
+      lText := fTexts[lOccurrence.TextIndex];
+      if (lDeclaringFile = '') and not fSourceIndex.IsUnitFile(lText.Key) then
+        Continue;
+      if (lDeclaringFile <> '') and not fSourceIndex.fFilesByUnit.ContainsKey(
+        aSymbol.UnitName + #1 + lText.Key) then
+        Continue;
+      if not IsCovered(aSymbol.UnitName, lText.Key, lOccurrence.Line,
+        lOccurrence.Column, lDeclaringFile <> '') then
+      begin
+        Result := True;
+        Break;
+      end;
+    end;
+    fResults.Add(lCacheKey, Result);
+    Exit;
+  end;
   for lText in fTexts do
   begin
     // Preserve the existing project-wide scan for interface names. Captured includes extend
@@ -675,38 +820,19 @@ begin
   Result := False;
 end;
 
-function SourceLineText(const aText: string; const aLine: Integer): string;
+function SourceLineText(const aEntry: TDeadCodeSourceEntry; const aLine: Integer): string;
 var
-  i: Integer;
-  lLine: Integer;
-  lLineStart: Integer;
+  lEnd: Integer;
+  lStart: Integer;
 begin
-  Result := '';
-  if aLine <= 0 then
-    Exit;
-
-  lLine := 1;
-  lLineStart := 1;
-  for i := 1 to Length(aText) do
-  begin
-    if aText[i] = #10 then
-    begin
-      if lLine = aLine then
-      begin
-        Result := Copy(aText, lLineStart, i - lLineStart);
-        Result := StringReplace(Result, #13, '', [rfReplaceAll]);
-        Exit;
-      end;
-      Inc(lLine);
-      lLineStart := i + 1;
-    end;
-  end;
-
-  if lLine = aLine then
-  begin
-    Result := Copy(aText, lLineStart, MaxInt);
-    Result := StringReplace(Result, #13, '', [rfReplaceAll]);
-  end;
+  if (aLine <= 0) or (aLine > Length(aEntry.LineStarts)) then
+    Exit('');
+  lStart := aEntry.LineStarts[aLine - 1];
+  if aLine < Length(aEntry.LineStarts) then
+    lEnd := aEntry.LineStarts[aLine] - 1
+  else
+    lEnd := Length(aEntry.Text) + 1;
+  Result := StringReplace(Copy(aEntry.Text, lStart, lEnd - lStart), #13, '', [rfReplaceAll]);
 end;
 
 function SourceLineContains(const aSourceIndex: TDeadCodeSourceIndex; const aFileName: string;
@@ -718,13 +844,15 @@ begin
     Exit(False);
 
   Result := aSourceIndex.TryGetEntry(aFileName, lEntry) and
-    ContainsText(SourceLineText(lEntry.Text, aLine), aText);
+    ContainsText(SourceLineText(lEntry, aLine), aText);
 end;
 
 function SourceSectionContainsIdentifier(const aSourceIndex: TDeadCodeSourceIndex;
   const aFileName, aSectionName, aName: string): Boolean;
 var
   lAfterSectionLower: string;
+  lIdentifiers: TDictionary<string, Boolean>;
+  lKey: string;
   lEndPos: Integer;
   lEntry: TDeadCodeSourceEntry;
   lLowerName: string;
@@ -736,16 +864,31 @@ begin
   if not aSourceIndex.TryGetEntry(aFileName, lEntry) then
     Exit(False);
 
+  lLowerName := LowerCase(aName);
+  lKey := aFileName + #1 + LowerCase(aSectionName);
+  if WholeIdentifierName(lLowerName) and
+    aSourceIndex.fSectionIdentifiers.TryGetValue(lKey, lIdentifiers) then
+    Exit(lIdentifiers.ContainsKey(lLowerName));
+
   lStartPos := Pos(LowerCase(aSectionName), lEntry.LowerText);
   if lStartPos <= 0 then
+  begin
+    if WholeIdentifierName(lLowerName) then
+      aSourceIndex.fSectionIdentifiers.Add(lKey, TDictionary<string, Boolean>.Create);
     Exit(False);
+  end;
 
   lAfterSectionLower := Copy(lEntry.LowerText, lStartPos + Length(aSectionName), MaxInt);
   lEndPos := Pos('end.', lAfterSectionLower);
   if lEndPos > 0 then
     lAfterSectionLower := Copy(lAfterSectionLower, 1, lEndPos - 1);
 
-  lLowerName := LowerCase(aName);
+  if WholeIdentifierName(lLowerName) then
+  begin
+    lIdentifiers := IdentifierNames(lAfterSectionLower);
+    aSourceIndex.fSectionIdentifiers.Add(lKey, lIdentifiers);
+    Exit(lIdentifiers.ContainsKey(lLowerName));
+  end;
   Result := TextContainsIdentifier(lAfterSectionLower, lLowerName);
 end;
 
@@ -753,6 +896,8 @@ function SourceExportsSymbol(const aSourceIndex: TDeadCodeSourceIndex; const aFi
   aName: string): Boolean;
 var
   lBlock: string;
+  lBlocks: TArray<string>;
+  lList: TList<string>;
   lEndPos: Integer;
   lEntry: TDeadCodeSourceEntry;
   lLowerName: string;
@@ -765,27 +910,39 @@ begin
   if not aSourceIndex.TryGetEntry(aFileName, lEntry) then
     Exit(False);
 
+  // Retain the original exports boundaries and identifier predicate. Scan
+  // each captured file once, including files with no exports (DAK-491).
+  if not aSourceIndex.fExportBlocks.TryGetValue(aFileName, lBlocks) then
+  begin
+    lList := TList<string>.Create;
+    try
+      lSearchFrom := 1;
+      repeat
+        lStartPos := Pos('exports', lEntry.LowerText, lSearchFrom);
+        if lStartPos <= 0 then
+          Break;
+        if ((lStartPos = 1) or not IsIdentifierChar(lEntry.LowerText[lStartPos - 1])) and
+          ((lStartPos + 7 > Length(lEntry.LowerText)) or not IsIdentifierChar(lEntry.LowerText[
+          lStartPos + 7])) then
+        begin
+          lEndPos := Pos(';', lEntry.LowerText, lStartPos + 7);
+          if lEndPos <= 0 then
+            lEndPos := Length(lEntry.LowerText) + 1;
+          lList.Add(Copy(lEntry.LowerText, lStartPos + 7, lEndPos - lStartPos - 7));
+          lSearchFrom := lEndPos + 1;
+        end else
+          lSearchFrom := lStartPos + 1;
+      until False;
+      lBlocks := lList.ToArray;
+      aSourceIndex.fExportBlocks.Add(aFileName, lBlocks);
+    finally
+      lList.Free;
+    end;
+  end;
   lLowerName := LowerCase(aName);
-  lSearchFrom := 1;
-  repeat
-    lStartPos := Pos('exports', lEntry.LowerText, lSearchFrom);
-    if lStartPos <= 0 then
-      Break;
-    if ((lStartPos = 1) or not IsIdentifierChar(lEntry.LowerText[lStartPos - 1])) and
-      ((lStartPos + 7 > Length(lEntry.LowerText)) or not IsIdentifierChar(lEntry.LowerText[
-      lStartPos + 7])) then
-    begin
-      lEndPos := Pos(';', lEntry.LowerText, lStartPos + 7);
-      if lEndPos <= 0 then
-        lEndPos := Length(lEntry.LowerText) + 1;
-      lBlock := Copy(lEntry.LowerText, lStartPos + 7, lEndPos - lStartPos - 7);
-      if TextContainsIdentifier(lBlock, lLowerName) then
-        Exit(True);
-      lSearchFrom := lEndPos + 1;
-    end else
-      lSearchFrom := lStartPos + 1;
-  until False;
-
+  for lBlock in lBlocks do
+    if TextContainsIdentifier(lBlock, lLowerName) then
+      Exit(True);
   Result := False;
 end;
 

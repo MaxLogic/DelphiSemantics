@@ -51,6 +51,7 @@ uses
   DelphiSemantics.Usage in '..\src\DelphiSemantics.Usage.pas',
   DelphiSemantics.Version in '..\src\DelphiSemantics.Version.pas',
   DelphiSemantics.WithBinding in '..\src\DelphiSemantics.WithBinding.pas',
+  DelphiSemantics.WithBinding.Budget in '..\src\DelphiSemantics.WithBinding.Budget.pas',
   DelphiSemantics.WithBinding.Inventory in '..\src\DelphiSemantics.WithBinding.Inventory.pas',
   DelphiSemantics.WithScan in '..\src\DelphiSemantics.WithScan.pas',
   Test.CacheSqlite in 'src\test.cachesqlite.pas',

@@ -429,12 +429,12 @@ end;
 function FindModel(const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string;
   out aModel: TDelphiSemanticUnitModel): Boolean;
 var
-  lModel: TDelphiSemanticUnitModel;
+  i: Integer;
 begin
-  for lModel in aModels do
-    if SameUnit(lModel.UnitName, aUnitName) then
+  for i := 0 to High(aModels) do
+    if SameUnit(aModels[i].UnitName, aUnitName) then
     begin
-      aModel := lModel;
+      aModel := aModels[i];
       Exit(True);
     end;
 

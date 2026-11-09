@@ -114,3 +114,16 @@ current isolation and retained-producer comparison.
 - [migration gate](docs/migration-gate.md) runs DelphiSemantics tests, DAK
   remove-with tests, and the cloned proprietary fixture smoke in the migration proof order.
   Use `run-migration-gate.bat --skip-build` for the repo-root Windows wrapper.
+
+WITH binding and planning default to 1,000,000 admitted inventory records across
+the project and expansion. Exceeding that limit raises a native
+`WITH_INVENTORY_BUDGET_EXCEEDED` refusal with the count and incomplete coverage;
+API remove-with results are blocked and contain no partial plan. Set the
+remove-with request option `RecordLimit` (or session `WithInventoryRecordLimit`)
+to a positive count to override it; zero selects the default. Cache replay obeys
+the current request budget without changing cache identity or storage formats.
+Memory grows with the override. The default uses a 4 KiB per-record planning
+estimate (3.81 GiB): a measured 576-byte Win64 record plus resident copies, list
+capacity, strings, keys and indexes. This is not a hard byte cap; long strings
+and the rest of the project require additional memory. DAK exposes the override
+as `--with-inventory-record-limit <positive N>`.

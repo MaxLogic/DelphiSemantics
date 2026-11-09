@@ -1440,15 +1440,15 @@ function CanonicalProjectImport(const aProject: TDelphiSemanticProjectInfo;
   const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string): string;
 var
   lCandidate: TUnitCandidateName;
-  lModel: TDelphiSemanticUnitModel;
+  i: Integer;
   lResolved: TDelphiSemanticUnitResolutionResult;
 begin
   Result := aUnitName;
   // Only a model hit can change ProjectImports' spelling. Avoid filesystem
   // resolution for source/DCU-only names; their result is discarded below.
   for lCandidate in TDelphiSemanticUnitResolver.CandidateNames(aProject, Trim(aUnitName)) do
-    for lModel in aModels do
-      if SameText(lModel.UnitName, lCandidate.TargetName) then
+    for i := 0 to High(aModels) do
+      if SameText(aModels[i].UnitName, lCandidate.TargetName) then
       begin
         lResolved := TDelphiSemanticUnitResolver.Resolve(aProject, aUnitName, aModels);
         if lResolved.Found and SameText(lResolved.SourceKind, 'project') then

@@ -137,13 +137,15 @@ implementation
 uses
   System.Diagnostics, System.SysUtils,
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder;
+  DelphiSemantics.ProjectSession, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.WithBinding.Budget;
 
 function ProjectOptionsFromRemoveWithRequest(
   const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticOptions;
 begin
   Result := ProjectOptionsFromApiOptions(aRequest.Options);
   Result.SkipWithBindingSemanticGraph := aRequest.RemoveWithOptions.SkipSemanticGraph;
+  Result.WithInventoryRecordLimit := aRequest.RemoveWithOptions.RecordLimit;
 end;
 
 function OpenProjectSession(const aRequest: TDelphiSemanticRemoveWithRequest):
@@ -296,7 +298,11 @@ begin
       lBuildMetrics :=
         aSession.Session.LastRemoveWithFactsAndPlanBuildMetrics;
       aPlannerMetrics := aSession.Session.LastRemoveWithPlannerMetrics;
-      lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION',
+      if E is EDelphiSemanticWithInventoryBudget then
+        lFailure := CombinedFailure(cWithInventoryBudgetExceeded, E.Message,
+          aRequest.Options.ProjectFileName)
+      else
+        lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION',
         E.Message, aRequest.Options.ProjectFileName);
       lFailure.Metrics := Result.Metrics;
       ApplyCombinedBuildMetrics(lFailure.Metrics, lBuildMetrics,
@@ -397,8 +403,12 @@ begin
     end;
   except
     on E: Exception do
-      Result := FactBuildFailure('REMOVE_WITH_FACT_BUILD_EXCEPTION', E.Message,
-        aRequest.Options.ProjectFileName);
+      if E is EDelphiSemanticWithInventoryBudget then
+        Result := FactBuildFailure(cWithInventoryBudgetExceeded, E.Message,
+          aRequest.Options.ProjectFileName)
+      else
+        Result := FactBuildFailure('REMOVE_WITH_FACT_BUILD_EXCEPTION', E.Message,
+          aRequest.Options.ProjectFileName);
   end;
 end;
 
@@ -469,7 +479,11 @@ begin
   except
     on E: Exception do
     begin
-      lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION', E.Message,
+      if E is EDelphiSemanticWithInventoryBudget then
+        lFailure := CombinedFailure(cWithInventoryBudgetExceeded, E.Message,
+          aRequest.Options.ProjectFileName)
+      else
+        lFailure := CombinedFailure('REMOVE_WITH_COMBINED_BUILD_EXCEPTION', E.Message,
         aRequest.Options.ProjectFileName);
       lFailure.Metrics.SemanticSessionOpenCount := lSessionOpenCount;
       lFailure.Metrics.SemanticProjectFactsMilliseconds :=

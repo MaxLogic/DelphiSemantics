@@ -7,12 +7,31 @@ uses
   DelphiSemantics.Model, DelphiSemantics.WithBinding;
 
 type
+  // Notify is virtual in the native TList: every append, including helper
+  // additions through the base type, is admitted. At most one extra record is
+  // resident before refusal; removals during exception cleanup never raise.
+  TDelphiSemanticBudgetedInventoryList = class(TList<TDelphiSemanticInventorySymbol>)
+  private
+    fBaseCount: Int64;
+    fRecordLimit: Integer;
+  protected
+    procedure Notify(const aItem: TDelphiSemanticInventorySymbol;
+      aAction: TCollectionNotification); override;
+  public
+    constructor Create(const aRecordLimit: Integer; const aBaseCount: Int64 = 0);
+  end;
+
   TDelphiSemanticWithBindingInventory = record
   public
     class function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
-      TArray<TDelphiSemanticInventorySymbol>; static;
+      TArray<TDelphiSemanticInventorySymbol>; overload; static;
+    class function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel;
+      const aRecordLimit: Integer; const aBaseCount: Int64):
+      TArray<TDelphiSemanticInventorySymbol>; overload; static;
     class function ExpandInventorySymbols(const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
-      TArray<TDelphiSemanticInventorySymbol>; static;
+      TArray<TDelphiSemanticInventorySymbol>; overload; static;
+    class function ExpandInventorySymbols(const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+      const aRecordLimit: Integer): TArray<TDelphiSemanticInventorySymbol>; overload; static;
     class procedure AddCompilerProfileCompatibilitySymbols(
       const aSymbols: TList<TDelphiSemanticInventorySymbol>); static;
     class procedure AddProjectExternalUnitSymbols(const aModels: TArray<TDelphiSemanticUnitModel>;
@@ -23,10 +42,36 @@ implementation
 
 uses
   System.Character, System.Classes, System.RegularExpressions, System.StrUtils, System.SysUtils,
-  MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  AutoFree, MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Source,
+  DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Budget;
 
 type
+  TInventoryRoutineLineFacts = record
+    Known: Boolean;
+    LowerLine: string;
+    IsBoundary: Boolean;
+    IsRoutineStart: Boolean;
+    BeginCount: Integer;
+    AsmCount: Integer;
+    OpenCount: Integer;
+    EndCount: Integer;
+  end;
+
+  // Derived facts belong to one immutable line array and one parser pass.
+  // Reuse nested end results, including zero, without changing its scanner.
+  TInventoryRoutineScan = class
+  private
+    fLines: TArray<string>;
+    fFacts: TArray<TInventoryRoutineLineFacts>;
+    fEndLines: TArray<Integer>;
+    procedure PrepareLine(const aIndex: Integer);
+    function ComputeEndLine(const aStartIndex: Integer): Integer;
+  public
+    constructor Create(const aLines: TArray<string>);
+    function FindEndLine(const aStartIndex: Integer): Integer;
+  end;
+
   TRelatedInventoryMemberRelation = record
     SourceOwnerType: string;
     TargetOwnerType: string;
@@ -37,6 +82,23 @@ type
     TargetOwnerColumn: Integer;
     IsHelper: Boolean;
   end;
+
+constructor TDelphiSemanticBudgetedInventoryList.Create(const aRecordLimit: Integer;
+  const aBaseCount: Int64);
+begin
+  inherited Create;
+  fRecordLimit := WithInventoryRecordLimit(aRecordLimit);
+  fBaseCount := aBaseCount;
+  RequireWithInventoryBudget(aBaseCount, fRecordLimit, 'inventory construction');
+end;
+
+procedure TDelphiSemanticBudgetedInventoryList.Notify(
+  const aItem: TDelphiSemanticInventorySymbol; aAction: TCollectionNotification);
+begin
+  if aAction = cnAdded then
+    RequireWithInventoryBudget(fBaseCount + Count, fRecordLimit, 'inventory construction/expansion');
+  inherited;
+end;
 
 procedure AddInventorySymbol(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aSymbol: TDelphiSemanticInventorySymbol);
@@ -766,12 +828,50 @@ begin
     InventoryTokenCount(aText, 'try') + InventoryTokenCount(aText, 'asm');
 end;
 
-function InventoryFindRoutineEndLine(const aLines: TArray<string>; const aStartIndex: Integer):
-  Integer;
+constructor TInventoryRoutineScan.Create(const aLines: TArray<string>);
+begin
+  inherited Create;
+  fLines := aLines;
+end;
+
+procedure TInventoryRoutineScan.PrepareLine(const aIndex: Integer);
+begin
+  if fFacts[aIndex].Known then
+    Exit;
+  fFacts[aIndex].LowerLine := LowerCase(InventoryCleanLine(fLines[aIndex]));
+  fFacts[aIndex].IsRoutineStart := InventoryIsRoutineStart(fFacts[aIndex].LowerLine);
+  fFacts[aIndex].IsBoundary := InventoryIsTopLevelLine(fLines[aIndex]) and
+    (fFacts[aIndex].IsRoutineStart or SameText(fFacts[aIndex].LowerLine, 'implementation') or
+    SameText(fFacts[aIndex].LowerLine, 'interface'));
+  fFacts[aIndex].BeginCount := InventoryTokenCount(fFacts[aIndex].LowerLine, 'begin');
+  fFacts[aIndex].AsmCount := InventoryTokenCount(fFacts[aIndex].LowerLine, 'asm');
+  fFacts[aIndex].OpenCount := InventoryEndTerminatedBlockOpenCount(fFacts[aIndex].LowerLine);
+  fFacts[aIndex].EndCount := InventoryTokenCount(fFacts[aIndex].LowerLine, 'end');
+  fFacts[aIndex].Known := True;
+end;
+
+function TInventoryRoutineScan.FindEndLine(const aStartIndex: Integer): Integer;
+var
+  i: Integer;
+begin
+  // Most local-declaration passes have no nested routine. Allocate the
+  // per-file arrays only when an end lookup is actually needed.
+  if Length(fEndLines) = 0 then
+  begin
+    SetLength(fFacts, Length(fLines));
+    SetLength(fEndLines, Length(fLines));
+    for i := 0 to High(fEndLines) do
+      fEndLines[i] := -1;
+  end;
+  if fEndLines[aStartIndex] < 0 then
+    fEndLines[aStartIndex] := ComputeEndLine(aStartIndex);
+  Result := fEndLines[aStartIndex];
+end;
+
+function TInventoryRoutineScan.ComputeEndLine(const aStartIndex: Integer): Integer;
 var
   i: Integer;
   lDepth: Integer;
-  lLine: string;
   lNestedEndLine: Integer;
   lStarted: Boolean;
 begin
@@ -779,37 +879,36 @@ begin
   lDepth := 0;
   lStarted := False;
   i := aStartIndex + 1;
-  while i <= High(aLines) do
+  while i <= High(fLines) do
   begin
-    lLine := LowerCase(InventoryCleanLine(aLines[i]));
-    if lLine = '' then
+    PrepareLine(i);
+    if fFacts[i].LowerLine = '' then
     begin
       Inc(i);
       Continue;
     end;
     if not lStarted then
     begin
-      if InventoryIsTopLevelLine(aLines[i]) and (InventoryIsRoutineStart(lLine) or
-        SameText(lLine, 'implementation') or SameText(lLine, 'interface')) then
+      if fFacts[i].IsBoundary then
         Exit(0);
-      if InventoryIsRoutineStart(lLine) then
+      if fFacts[i].IsRoutineStart then
       begin
-        lNestedEndLine := InventoryFindRoutineEndLine(aLines, i);
+        lNestedEndLine := FindEndLine(i);
         if lNestedEndLine > 0 then
         begin
           i := lNestedEndLine;
           Continue;
         end;
       end;
-      if (InventoryTokenCount(lLine, 'begin') = 0) and (InventoryTokenCount(lLine, 'asm') = 0) then
+      if (fFacts[i].BeginCount = 0) and (fFacts[i].AsmCount = 0) then
       begin
         Inc(i);
         Continue;
       end;
       lStarted := True;
     end;
-    Inc(lDepth, InventoryEndTerminatedBlockOpenCount(lLine));
-    Dec(lDepth, InventoryTokenCount(lLine, 'end'));
+    Inc(lDepth, fFacts[i].OpenCount);
+    Dec(lDepth, fFacts[i].EndCount);
     if lStarted and (lDepth <= 0) then
       Exit(i + 1);
     Inc(i);
@@ -1416,6 +1515,8 @@ procedure ParseDakInventoryLocals(const aSymbols: TList<TDelphiSemanticInventory
   const aLines: TArray<string>; const aStartLine: Integer; const aRoutineName, aUnitName,
   aFileName: string);
 var
+  g: TGarbos;
+  lRoutineScan: TInventoryRoutineScan;
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
@@ -1447,6 +1548,7 @@ var
   lTypeTextEndLine: Integer;
   lTypeName: string;
 begin
+  GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
   lCurrentType := '';
   lDeclaration := '';
   lDeclarationLine := 0;
@@ -1490,7 +1592,7 @@ begin
       Exit;
     if InventoryIsRoutineStart(lLine) then
     begin
-      lSkipUntilLine := InventoryFindRoutineEndLine(aLines, i);
+      lSkipUntilLine := lRoutineScan.FindEndLine(i);
       if lSkipUntilLine = 0 then
         Exit;
       Continue;
@@ -1957,6 +2059,8 @@ end;
 procedure ParseDakInventoryUnitGlobals(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
+  g: TGarbos;
+  lRoutineScan: TInventoryRoutineScan;
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
@@ -1976,6 +2080,7 @@ var
   lTypeCategory: string;
   lTypeName: string;
 begin
+  GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
   lDeclaration := '';
   lDeclarationLine := 0;
   lInConst := False;
@@ -2038,7 +2143,7 @@ begin
       begin
         lInVar := False;
         lInConst := False;
-        lRoutineEndLine := InventoryFindRoutineEndLine(aLines, i);
+        lRoutineEndLine := lRoutineScan.FindEndLine(i);
         if lRoutineEndLine > 0 then
           i := lRoutineEndLine - 1;
         Continue;
@@ -2098,6 +2203,8 @@ end;
 procedure ParseDakInventoryRoutines(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aLines, aActiveLines: TArray<string>; const aUnitName, aFileName: string);
 var
+  g: TGarbos;
+  lRoutineScan: TInventoryRoutineScan;
   i: Integer;
   lEndLine: Integer;
   lInImplementation: Boolean;
@@ -2114,6 +2221,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
   lTopLevelLine: Boolean;
 begin
+  GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
   lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lInImplementation := False;
@@ -2174,7 +2282,7 @@ begin
       lSymbol.UnitName := aUnitName;
       lSymbol.FileName := aFileName;
       lSymbol.Line := i + 1;
-      lSymbol.EndLine := InventoryFindRoutineEndLine(aLines, i);
+      lSymbol.EndLine := lRoutineScan.FindEndLine(i);
       if lSymbol.EndLine = 0 then
         Continue;
       lSymbol.Column := InventoryFindColumn(aLines[i], lRoutineName);
@@ -2264,10 +2372,8 @@ end;
 procedure AddModelSourceCompatibilitySymbols(
   const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
-  i, lFirst: Integer;
+  i, j, k, lFirst: Integer;
   lActiveLines, lLines, lRawLines: TArray<string>;
-  lMember: TDelphiSemanticMember;
-  lRoutine: TDelphiSemanticRoutine;
   lDuplicate: Boolean;
   lSource: string;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -2295,13 +2401,13 @@ begin
     lSymbol := aSymbols[i];
     lDuplicate := False;
     if SameText(lSymbol.SymbolClass, 'field') then
-      for lMember in aModel.Members do
-        if (lMember.OwnerScopeId <> '') and (lMember.OwnerSymbolId <> '') and
-          (lMember.FileName = '') and (lMember.Line = lSymbol.Line) and
-          (lMember.Column = lSymbol.Column) and SameText(lMember.Name, lSymbol.Name) then
+      for j := 0 to High(aModel.Members) do
+        if (aModel.Members[j].OwnerScopeId <> '') and (aModel.Members[j].OwnerSymbolId <> '') and
+          (aModel.Members[j].FileName = '') and (aModel.Members[j].Line = lSymbol.Line) and
+          (aModel.Members[j].Column = lSymbol.Column) and SameText(aModel.Members[j].Name, lSymbol.Name) then
         begin
-          for lRoutine in aModel.Routines do
-            if SameText(lRoutine.ScopeId, lMember.OwnerScopeId) then
+          for k := 0 to High(aModel.Routines) do
+            if SameText(aModel.Routines[k].ScopeId, aModel.Members[j].OwnerScopeId) then
             begin
               lDuplicate := True;
               Break;
@@ -2892,13 +2998,21 @@ end;
 
 class function TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(
   const aSymbols: TArray<TDelphiSemanticInventorySymbol>): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := ExpandInventorySymbols(aSymbols, 0);
+end;
+
+class function TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  const aRecordLimit: Integer): TArray<TDelphiSemanticInventorySymbol>;
 var
   lKeys: TDictionary<string, Byte>;
   lSymbol: TDelphiSemanticInventorySymbol;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
+  RequireWithInventoryBudget(Length(aSymbols), aRecordLimit, 'inventory expansion input');
+  lSymbols := TDelphiSemanticBudgetedInventoryList.Create(aRecordLimit);
   lKeys := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   try
     for lSymbol in aSymbols do
       AddExpandedInventorySymbolWithKeys(lSymbols, lKeys, lSymbol);
@@ -2915,7 +3029,7 @@ end;
 function IsVerifiedLexicalRoutineBody(const aModel: TDelphiSemanticUnitModel;
   const aRoutine: TDelphiSemanticRoutine): Boolean;
 var
-  lCandidate: TDelphiSemanticRoutine;
+  i: Integer;
   lMatchingCount: Integer;
   lOther: TDelphiSemanticRoutine;
   lSourceFileName: string;
@@ -2933,14 +3047,14 @@ begin
     Exit;
   lMatchingCount := 0;
   lOther := Default(TDelphiSemanticRoutine);
-  for lCandidate in aModel.Routines do
-    if SameText(lCandidate.ScopeId, aRoutine.ScopeId) then
+  for i := 0 to High(aModel.Routines) do
+    if SameText(aModel.Routines[i].ScopeId, aRoutine.ScopeId) then
     begin
       Inc(lMatchingCount);
-      if (lCandidate.Line <> aRoutine.Line) or
-        (lCandidate.Column <> aRoutine.Column) or
-        (not SameText(lCandidate.AstScopeKind, aRoutine.AstScopeKind)) then
-        lOther := lCandidate;
+      if (aModel.Routines[i].Line <> aRoutine.Line) or
+        (aModel.Routines[i].Column <> aRoutine.Column) or
+        (not SameText(aModel.Routines[i].AstScopeKind, aRoutine.AstScopeKind)) then
+        lOther := aModel.Routines[i];
     end;
   if lMatchingCount = 1 then
     Exit(True);
@@ -3109,9 +3223,41 @@ procedure AddMissingAliasInventorySymbols(const aModel: TDelphiSemanticUnitModel
   const aSymbols: TList<TDelphiSemanticInventorySymbol>);
 var
   lDeclaration: TDelphiSemanticDeclaration;
-  lExisting, lSymbol: TDelphiSemanticInventorySymbol;
+  i: Integer;
+  g: TGarbos;
+  lName: string;
+  lNames: TList<string>;
+  lNamesByPosition: TDictionary<Int64, TList<string>>;
+  lPositionKey: Int64;
+  lSymbol: TDelphiSemanticInventorySymbol;
   lFound: Boolean;
+
+  function PositionKey(const aLine, aColumn: Integer): Int64;
+  begin
+    Result := (Int64(aLine) shl 32) or Cardinal(aColumn);
+  end;
+
+  procedure AddName(const aName: string; const aLine, aColumn: Integer);
+  var
+    lKey: Int64;
+    lPositionNames: TList<string>;
+  begin
+    lKey := PositionKey(aLine, aColumn);
+    if not lNamesByPosition.TryGetValue(lKey, lPositionNames) then
+    begin
+      GC(lPositionNames, TList<string>.Create, g);
+      lNamesByPosition.Add(lKey, lPositionNames);
+    end;
+    lPositionNames.Add(aName);
+  end;
+
 begin
+  // Restrict alias membership to the original exact source position, then
+  // retain SameText for names. The index includes aliases added in this pass.
+  GC(lNamesByPosition, TDictionary<Int64, TList<string>>.Create, g);
+  for i := 0 to aSymbols.Count - 1 do
+    if SameText(aSymbols.List[i].SymbolClass, 'type-member') then
+      AddName(aSymbols.List[i].Name, aSymbols.List[i].Line, aSymbols.List[i].Column);
   for lDeclaration in aModel.Declarations do
   begin
     if not SameText(lDeclaration.Kind, 'type-alias') or
@@ -3120,12 +3266,11 @@ begin
       not TRegEx.IsMatch(lDeclaration.TypeName, '^[A-Za-z_][A-Za-z0-9_.]*$') then
       Continue;
     lFound := False;
-    for lExisting in aSymbols do
-      if SameText(lExisting.SymbolClass, 'type-member') and
-        SameText(lExisting.Name, lDeclaration.Name) and
-        (lExisting.Line = lDeclaration.Line) and
-        (lExisting.Column = lDeclaration.Column) then
-        lFound := True;
+    lPositionKey := PositionKey(lDeclaration.Line, lDeclaration.Column);
+    if lNamesByPosition.TryGetValue(lPositionKey, lNames) then
+      for lName in lNames do
+        if SameText(lName, lDeclaration.Name) then
+          lFound := True;
     if lFound then
       Continue;
     lSymbol := Default(TDelphiSemanticInventorySymbol);
@@ -3145,11 +3290,20 @@ begin
     lSymbol.EndLine := lDeclaration.Line;
     lSymbol.EndColumn := lDeclaration.Column + Length(lDeclaration.Name);
     AddInventorySymbol(aSymbols, lSymbol);
+    if lSymbol.Name <> '' then
+      AddName(lSymbol.Name, lSymbol.Line, lSymbol.Column);
   end;
 end;
 
 class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
   TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := BuildInventorySymbols(aModel, 0, 0);
+end;
+
+class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+  const aModel: TDelphiSemanticUnitModel; const aRecordLimit: Integer;
+  const aBaseCount: Int64): TArray<TDelphiSemanticInventorySymbol>;
 var
   lDeclaration: TDelphiSemanticDeclaration;
   lFirstTextIndex: NativeInt;
@@ -3159,15 +3313,17 @@ var
   lParameter: TDelphiSemanticParameter;
   lRoutine: TDelphiSemanticRoutine;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lSymbolCapacity: Integer;
+  lSymbolCapacity: Int64;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
 begin
-  lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+  lSymbols := TDelphiSemanticBudgetedInventoryList.Create(aRecordLimit, aBaseCount);
   try
     lSymbolCapacity := 1 + Length(aModel.Declarations) + Length(aModel.Members) +
       Length(aModel.Routines) + Length(aModel.Locals);
     for lRoutine in aModel.Routines do
       Inc(lSymbolCapacity, Length(lRoutine.Parameters));
+    if lSymbolCapacity > WithInventoryRecordLimit(aRecordLimit) - aBaseCount then
+      lSymbolCapacity := WithInventoryRecordLimit(aRecordLimit) - aBaseCount;
     lSymbols.Capacity := lSymbolCapacity;
 
     lSymbol := Default(TDelphiSemanticInventorySymbol);

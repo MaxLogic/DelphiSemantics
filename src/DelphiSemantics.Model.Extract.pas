@@ -33,6 +33,7 @@ type
   private
     fDeclarations: TList<TDelphiSemanticDeclaration>;
     fByToken: TObjectDictionary<string, TList<Integer>>;
+    fByLine: TObjectDictionary<Integer, TList<Integer>>;
     fEnumsByType: TObjectDictionary<string, TList<Integer>>;
     fRemoved: TDictionary<Integer, Boolean>;
     fIndexedCount: Integer;
@@ -41,8 +42,14 @@ type
     constructor Create(const aDeclarations: TList<TDelphiSemanticDeclaration>);
     destructor Destroy; override;
     function Contains(const aOffset: Integer; const aName: string): Boolean;
+    function OnLine(const aLine: Integer): TList<Integer>;
     procedure RemoveEnumValues(const aLine: Integer; const aTypeName: string);
     procedure Compact;
+  end;
+
+  TDeclarationNameCandidate = record
+    Name: string;
+    DeclarationIndex: Integer;
   end;
 
   TPendingUnindexedHelper = record
@@ -137,6 +144,23 @@ type
     Body: TOffsetRange;
   end;
 
+  // Numeric intervals avoid copying managed AST scope records for every occurrence.
+  TAstScopeInterval = record
+    StartPosition, EndPosition, MaximumEnd: Int64;
+    ScopeIndex, Depth: Integer;
+  end;
+
+  TAstRoutineScopeIndex = class
+  private
+    fIntervals: TArray<TAstScopeInterval>;
+    function BuildRange(const aFirst, aLast: Integer): Int64;
+    procedure FindRange(const aFirst, aLast: Integer; const aPosition: Int64;
+      var aScopeIndex, aDepth: Integer);
+  public
+    constructor Create(const aScopes: TList<TAstRoutineScope>);
+    function Find(const aLine, aColumn: Integer): Integer;
+  end;
+
   TTypeMemberActivityRange = record
     Range: TOffsetRange;
     StartLine: Integer;
@@ -203,10 +227,12 @@ begin
   fByToken := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
   fEnumsByType := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues]);
   fRemoved := TDictionary<Integer, Boolean>.Create;
+  fByLine := TObjectDictionary<Integer, TList<Integer>>.Create([doOwnsValues]);
 end;
 
 destructor TDeclarationCandidateIndex.Destroy;
 begin
+  fByLine.Free;
   fRemoved.Free;
   fEnumsByType.Free;
   fByToken.Free;
@@ -222,6 +248,12 @@ begin
   while fIndexedCount < fDeclarations.Count do
   begin
     lDeclaration := fDeclarations[fIndexedCount];
+    if not fByLine.TryGetValue(lDeclaration.Line, lCandidates) then
+    begin
+      lCandidates := TList<Integer>.Create;
+      fByLine.Add(lDeclaration.Line, lCandidates);
+    end;
+    lCandidates.Add(fIndexedCount);
     lKey := DeclarationCandidateKey(lDeclaration.Offset, lDeclaration.Name);
     if not fByToken.TryGetValue(lKey, lCandidates) then
     begin
@@ -241,6 +273,13 @@ begin
     end;
     Inc(fIndexedCount);
   end;
+end;
+
+function TDeclarationCandidateIndex.OnLine(const aLine: Integer): TList<Integer>;
+begin
+  Synchronize;
+  if not fByLine.TryGetValue(aLine, Result) then
+    Result := nil;
 end;
 
 function TDeclarationCandidateIndex.Contains(const aOffset: Integer;
@@ -799,34 +838,126 @@ begin
     AstMethodSignature(aNode) + ')';
 end;
 
+// Pack signed line/column order without converting back through source offsets.
+function ScopePosition(const aLine, aColumn: Integer): Int64;
+begin
+  Result := (Int64(aLine) shl 32) or (Int64(aColumn) - Low(Integer));
+end;
+
+constructor TAstRoutineScopeIndex.Create(const aScopes: TList<TAstRoutineScope>);
+var
+  i: Integer;
+  lScope: TAstRoutineScope;
+begin
+  inherited Create;
+  SetLength(fIntervals, aScopes.Count);
+  for i := 0 to aScopes.Count - 1 do
+  begin
+    lScope := aScopes[i];
+    fIntervals[i].StartPosition := ScopePosition(lScope.StartLine, lScope.StartColumn);
+    fIntervals[i].EndPosition := ScopePosition(lScope.EndLine, lScope.EndColumn);
+    fIntervals[i].ScopeIndex := i;
+    fIntervals[i].Depth := lScope.Depth;
+  end;
+  TArray.Sort<TAstScopeInterval>(fIntervals, TComparer<TAstScopeInterval>.Construct(
+    function(const aLeft, aRight: TAstScopeInterval): Integer
+    begin
+      if aLeft.StartPosition < aRight.StartPosition then
+        Result := -1
+      else if aLeft.StartPosition > aRight.StartPosition then
+        Result := 1
+      else
+        Result := aLeft.ScopeIndex - aRight.ScopeIndex;
+    end));
+  BuildRange(0, High(fIntervals));
+end;
+
+function TAstRoutineScopeIndex.BuildRange(const aFirst, aLast: Integer): Int64;
+var
+  lChildEnd: Int64;
+  lMiddle: Integer;
+begin
+  Result := Low(Int64);
+  if aFirst > aLast then
+    Exit;
+  lMiddle := aFirst + (aLast - aFirst) div 2;
+  Result := fIntervals[lMiddle].EndPosition;
+  lChildEnd := BuildRange(aFirst, lMiddle - 1);
+  if lChildEnd > Result then
+    Result := lChildEnd;
+  lChildEnd := BuildRange(lMiddle + 1, aLast);
+  if lChildEnd > Result then
+    Result := lChildEnd;
+  fIntervals[lMiddle].MaximumEnd := Result;
+end;
+
+procedure TAstRoutineScopeIndex.FindRange(const aFirst, aLast: Integer;
+  const aPosition: Int64; var aScopeIndex, aDepth: Integer);
+var
+  lInterval: TAstScopeInterval;
+  lMiddle: Integer;
+begin
+  if aFirst > aLast then
+    Exit;
+  lMiddle := aFirst + (aLast - aFirst) div 2;
+  lInterval := fIntervals[lMiddle];
+  if lInterval.MaximumEnd <= aPosition then
+    Exit;
+  FindRange(aFirst, lMiddle - 1, aPosition, aScopeIndex, aDepth);
+  if lInterval.StartPosition > aPosition then
+    Exit;
+  // Preserve start-inclusive/end-exclusive containment and the first-scope tie break,
+  // including overlapping ranges that are not a well-nested routine tree.
+  if (aPosition < lInterval.EndPosition) and ((aScopeIndex < 0) or
+    (lInterval.Depth > aDepth) or ((lInterval.Depth = aDepth) and
+    (lInterval.ScopeIndex < aScopeIndex))) then
+  begin
+    aScopeIndex := lInterval.ScopeIndex;
+    aDepth := lInterval.Depth;
+  end;
+  FindRange(lMiddle + 1, aLast, aPosition, aScopeIndex, aDepth);
+end;
+
+function TAstRoutineScopeIndex.Find(const aLine, aColumn: Integer): Integer;
+var
+  lDepth: Integer;
+begin
+  Result := -1;
+  lDepth := -1;
+  FindRange(0, High(fIntervals), ScopePosition(aLine, aColumn), Result, lDepth);
+end;
+
 function TryReadRoutineHeader(const aText: string; const aLexer: TmwBasePasLex;
   var aNextMatch: TMatch; out aHeader: TRoutineHeader): Boolean; forward;
 
 // Read the source again at the lexical name matched to exactly one AST method.
-function TryReadMatchedSourceHeader(const aText: string;
+function TryReadMatchedSourceHeader(const aText: string; const aSourceLexer: TmwBasePasLex;
   const aRoutine: TDelphiSemanticRoutine; out aHeader: TRoutineHeader): Boolean;
 var
   lLexer: TmwBasePasLex;
   lNextMatch: TMatch;
+  g: TGarbos;
 begin
   Result := False;
   aHeader := Default(TRoutineHeader);
   if (aRoutine.Offset < 1) or (aRoutine.Offset > Length(aText)) then
     Exit;
   lLexer := TmwBasePasLex.Create;
-  try
-    lLexer.UseDefines := False;
-    lLexer.Origin := aText;
-    lLexer.RunPos := aRoutine.Offset - 1;
-    if (lLexer.TokenPos + 1 <> aRoutine.Offset) or
-      not SameText(lLexer.Token, aRoutine.Name) then
-      Exit;
-    lLexer.NextNoJunk;
-    lNextMatch := Default(TMatch);
-    Result := TryReadRoutineHeader(aText, lLexer, lNextMatch, aHeader);
-  finally
-    lLexer.Free;
-  end;
+  GC(lLexer, g);
+  lLexer.UseDefines := False;
+  // InitFrom reads a token before cloning state; initialize the fresh reader first
+  // so its default enum value cannot scan the whole file as an open ANSI comment.
+  lLexer.Init;
+  // The extraction-owned source lexer outlives this fresh reader. InitFrom shares
+  // only its immutable buffer, so each header still starts with fresh lexer state.
+  lLexer.InitFrom(aSourceLexer);
+  lLexer.RunPos := aRoutine.Offset - 1;
+  if (lLexer.TokenPos + 1 <> aRoutine.Offset) or
+    not SameText(lLexer.Token, aRoutine.Name) then
+    Exit;
+  lLexer.NextNoJunk;
+  lNextMatch := Default(TMatch);
+  Result := TryReadRoutineHeader(aText, lLexer, lNextMatch, aHeader);
 end;
 
 function CollectWritableConstantSwitches(const aText: string;
@@ -2239,16 +2370,22 @@ begin
 end;
 function NestedRoutineDeclarationFact(const aNode: TSyntaxNode;
   const aDeclarations: TList<TDelphiSemanticDeclaration>;
+  const aCandidates: TList<Integer>;
   const aParentScopeIndex: Integer): TAstDeclarationScopeFact;
 var
   lDeclaration: TDelphiSemanticDeclaration;
+  lIndex: Integer;
   lName: string;
 begin
   Result := Default(TAstDeclarationScopeFact);
   lName := AstNodeName(aNode);
   // DelphiAST folds the routine name into an attribute and removes its name node.
   // Require a unique matching source declaration on the AST header line.
-  for lDeclaration in aDeclarations do
+  if aCandidates = nil then
+    Exit;
+  for lIndex in aCandidates do
+  begin
+    lDeclaration := aDeclarations[lIndex];
     if SameText(lDeclaration.Kind, 'routine') and SameText(lDeclaration.Name, lName) and
       (lDeclaration.Line = aNode.Line) then
     begin
@@ -2261,6 +2398,7 @@ begin
       Result.ScopeIndex := aParentScopeIndex;
       Result.ProcedureSignature := AstProcedureSignature(aNode);
     end;
+  end;
 end;
 
 procedure ExtractAnonymousRecordMembers(const aText, aFileName, aOwnerName: string;
@@ -2306,6 +2444,47 @@ begin
   end;
 end;
 
+function BuildDeclarationNameCandidates(const aDeclarations: TList<TDelphiSemanticDeclaration>):
+  TArray<TDeclarationNameCandidate>;
+var
+  i: Integer;
+begin
+  SetLength(Result, aDeclarations.Count);
+  for i := 0 to aDeclarations.Count - 1 do
+  begin
+    Result[i].Name := aDeclarations[i].Name;
+    Result[i].DeclarationIndex := i;
+  end;
+  TArray.Sort<TDeclarationNameCandidate>(Result,
+    TComparer<TDeclarationNameCandidate>.Construct(
+      function(const aLeft, aRight: TDeclarationNameCandidate): Integer
+      begin
+        // SameText uses CompareText. Sorting with that exact comparison preserves
+        // its case semantics without imposing a different dictionary comparer.
+        Result := CompareText(aLeft.Name, aRight.Name);
+        if Result = 0 then
+          Result := aLeft.DeclarationIndex - aRight.DeclarationIndex;
+      end));
+end;
+
+function FirstDeclarationNameCandidate(const aCandidates: TArray<TDeclarationNameCandidate>;
+  const aName: string): Integer;
+var
+  lHigh, lLow, lMiddle: Integer;
+begin
+  lLow := 0;
+  lHigh := Length(aCandidates);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(aCandidates[lMiddle].Name, aName) < 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  Result := lLow;
+end;
+
 procedure EnrichLexicalScopeFacts(const aText, aUnitName: string;
   const aWritableSwitches: TArray<TWritableConstantSwitch>;
   const aOptions: TDelphiSemanticModelOptions;
@@ -2328,6 +2507,7 @@ var
   lDeclarationCount: Integer;
   lDeclarationFacts: TList<TAstDeclarationScopeFact>;
   lDeclarationCandidates: TDeclarationCandidateIndex;
+  lDeclarationNames: TArray<TDeclarationNameCandidate>;
   lFactCandidates: TObjectDictionary<string, TList<Integer>>;
   lCandidateIndices: TList<Integer>;
   lCandidateKey: string;
@@ -2353,25 +2533,16 @@ var
   lRoutine: TDelphiSemanticRoutine;
   lScopeIndex: Integer;
   lScopes: TList<TAstRoutineScope>;
+  lScopePositions: TAstRoutineScopeIndex;
+  lScopeNames: TArray<string>;
+  lNextScopeOnLine: TArray<Integer>;
+  lFirstScopeOnLine: TDictionary<Integer, Integer>;
+  lQualifiedName: string;
+  lSourceLexer: TmwBasePasLex;
   lSyntaxTree: TSyntaxNode;
   lTypeCount: Integer;
   lUnownedBlocks: TList<TOffsetRange>;
-
-  function FindScopeForPosition(const aLine, aColumn: Integer): Integer;
-  var
-    lIndex: Integer;
-  begin
-    Result := -1;
-    for lIndex := 0 to Pred(lScopes.Count) do
-      if ((aLine > lScopes[lIndex].StartLine) or
-        ((aLine = lScopes[lIndex].StartLine) and
-        (aColumn >= lScopes[lIndex].StartColumn))) and
-        ((aLine < lScopes[lIndex].EndLine) or
-        ((aLine = lScopes[lIndex].EndLine) and
-        (aColumn < lScopes[lIndex].EndColumn))) and
-        ((Result < 0) or (lScopes[lIndex].Depth > lScopes[Result].Depth)) then
-        Result := lIndex;
-  end;
+  g: TGarbos;
 
   procedure CollectFacts(const aNode, aParentNode: TSyntaxNode; const aParentScopeIndex: Integer;
     const aTypeOwnerPath: string);
@@ -2405,7 +2576,8 @@ var
     begin
       // The nested routine declaration belongs to its enclosing scope.
       if aParentScopeIndex >= 0 then
-        lDeclarationFacts.Add(NestedRoutineDeclarationFact(aNode, aDeclarations, aParentScopeIndex));
+        lDeclarationFacts.Add(NestedRoutineDeclarationFact(aNode, aDeclarations,
+          lDeclarationCandidates.OnLine(aNode.Line), aParentScopeIndex));
       lScope := Default(TAstRoutineScope);
       lScope.Name := AstNodeName(aNode);
       lHeading := AstRoutineHeading(aNode);
@@ -2785,24 +2957,33 @@ var
     lMatchedDeclCount: Integer;
     lMember: TDelphiSemanticMember;
     lOwnerScopeIndex: Integer;
+    lCandidateIndex: Integer;
+    lOwnerScopeId: string;
   begin
     for i := 0 to Pred(aTargetMembers.Count) do
     begin
       lMember := aTargetMembers[i];
-      lOwnerScopeIndex := FindScopeForPosition(lMember.Line, lMember.Column);
+      lOwnerScopeIndex := lScopePositions.Find(lMember.Line, lMember.Column);
       if lOwnerScopeIndex < 0 then
         Continue;
       lMatchedDeclCount := 0;
-      for lDeclaration in aDeclarations do
+      lOwnerScopeId := lScopes[lOwnerScopeIndex].ScopeId;
+      lCandidateIndex := FirstDeclarationNameCandidate(lDeclarationNames, lMember.OwnerName);
+      while (lCandidateIndex < Length(lDeclarationNames)) and
+        SameText(lDeclarationNames[lCandidateIndex].Name, lMember.OwnerName) do
+      begin
+        lDeclaration := aDeclarations[lDeclarationNames[lCandidateIndex].DeclarationIndex];
         if SameText(lDeclaration.Name, lMember.OwnerName) and
           SameText(lDeclaration.ScopeKind, 'routine') and
-          SameText(lDeclaration.OwnerScopeId, lScopes[lOwnerScopeIndex].ScopeId) and
+          SameText(lDeclaration.OwnerScopeId, lOwnerScopeId) and
           (lDeclaration.Offset < lMember.Offset) then
         begin
           Inc(lMatchedDeclCount);
           lMember.OwnerScopeId := lDeclaration.OwnerScopeId;
           lMember.OwnerSymbolId := lDeclaration.SymbolId;
         end;
+        Inc(lCandidateIndex);
+      end;
       if lMatchedDeclCount <> 1 then
       begin
         lMember.OwnerScopeId := '';
@@ -2920,6 +3101,23 @@ begin
       end;
     end;
 
+    lScopePositions := TAstRoutineScopeIndex.Create(lScopes);
+    GC(lScopePositions, g);
+    lFirstScopeOnLine := TDictionary<Integer, Integer>.Create;
+    GC(lFirstScopeOnLine, g);
+    SetLength(lScopeNames, lScopes.Count);
+    SetLength(lNextScopeOnLine, lScopes.Count);
+    // Reverse insertion preserves the original candidate order within each line.
+    for i := lScopes.Count - 1 downto 0 do
+    begin
+      lScopeNames[i] := lScopes[i].Name.Replace('&', '');
+      if not lFirstScopeOnLine.TryGetValue(lScopes[i].StartLine, lScopeIndex) then
+        lScopeIndex := -1;
+      lNextScopeOnLine[i] := lScopeIndex;
+      lFirstScopeOnLine.AddOrSetValue(lScopes[i].StartLine, i);
+    end;
+    lSourceLexer := nil;
+
     // Index candidates once; retain the original predicate and uniqueness refusal below.
     for i := 0 to lDeclarationFacts.Count - 1 do
     begin
@@ -3028,14 +3226,18 @@ begin
       lRoutine := aRoutines[i];
       lMatchedScopeCount := 0;
       lMatchedScopeIndex := -1;
-      for lScopeIndex := 0 to Pred(lScopes.Count) do
-        if SameText(lScopes[lScopeIndex].Name.Replace('&', ''),
-          QualifiedRoutineName(lRoutine.OwnerName, lRoutine.Name)) and
-          (lScopes[lScopeIndex].StartLine = lRoutine.Line) then
+      lQualifiedName := QualifiedRoutineName(lRoutine.OwnerName, lRoutine.Name);
+      if not lFirstScopeOnLine.TryGetValue(lRoutine.Line, lScopeIndex) then
+        lScopeIndex := -1;
+      while lScopeIndex >= 0 do
+      begin
+        if SameText(lScopeNames[lScopeIndex], lQualifiedName) then
         begin
           Inc(lMatchedScopeCount);
           lMatchedScopeIndex := lScopeIndex;
         end;
+        lScopeIndex := lNextScopeOnLine[lScopeIndex];
+      end;
       if lMatchedScopeCount = 1 then
       begin
         lRoutine.ScopeId := lScopes[lMatchedScopeIndex].ScopeId;
@@ -3053,7 +3255,14 @@ begin
         else
           lRoutine.AstScopeKind := 'header';
         lRoutine.AstSemanticSignature := lScopes[lMatchedScopeIndex].SemanticSignature;
-        if TryReadMatchedSourceHeader(aText, lRoutine, lHeader) and
+        if lSourceLexer = nil then
+        begin
+          lSourceLexer := TmwBasePasLex.Create;
+          GC(lSourceLexer, g);
+          lSourceLexer.UseDefines := False;
+          lSourceLexer.Origin := aText;
+        end;
+        if TryReadMatchedSourceHeader(aText, lSourceLexer, lRoutine, lHeader) and
           SameText(lHeader.Signature, lRoutine.Signature) and
           SameText(lHeader.ReturnType, lRoutine.ReturnType) then
         begin
@@ -3064,13 +3273,14 @@ begin
       aRoutines[i] := lRoutine;
     end;
 
+    lDeclarationNames := BuildDeclarationNameCandidates(aDeclarations);
     AttributeRoutineMemberOwners(aMembers);
     AttributeRoutineMemberOwners(ActiveExtractionContext.TypeValueMembers);
 
     for i := 0 to Pred(aLocals.Count) do
     begin
       lLocal := aLocals[i];
-      lFact.ScopeIndex := FindScopeForPosition(lLocal.Line, lLocal.Column);
+      lFact.ScopeIndex := lScopePositions.Find(lLocal.Line, lLocal.Column);
       if lFact.ScopeIndex >= 0 then
       begin
         lLocal.RoutineName := lScopes[lFact.ScopeIndex].Name;
@@ -3085,7 +3295,7 @@ begin
       if StartsText('local-label-', lReference.Role) or
         (lReference.Role = 'local-goto-keyword') then
         Continue;
-      lFact.ScopeIndex := FindScopeForPosition(lReference.Line, lReference.Column);
+      lFact.ScopeIndex := lScopePositions.Find(lReference.Line, lReference.Column);
       if lFact.ScopeIndex >= 0 then
       begin
         lReference.RoutineName := lScopes[lFact.ScopeIndex].Name;

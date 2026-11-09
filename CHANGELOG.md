@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- WITH binding/planning refuses incomplete project inventories above the native one-million-record default, including cache replay; an explicit record-limit override is available with proportionally higher memory use (DAK-491).
+
+- Unit extraction indexes lexical scope and declaration candidates and shares the immutable source buffer between routine-header readers, reducing repeated work on large units while preserving model contents (DAK-491).
+- Snapshot header-type checks reuse line-start positions, and reference lookups index unit and visibility candidates and avoid repeated managed-record copies while preserving source-coordinate checks, lookup order and ambiguity refusals (DAK-491).
+- Symbol-index construction reuses a routine lookup, and model-cache serialization shares one JSON object between model and evidence fields, preserving ambiguity refusals and serialized contents (DAK-491).
+- Global analysis rejects names without global candidates before local-shadow scans. Legacy indexing memoizes visible-unit and routine resolutions; dependency/import lookups avoid copying nonmatching models. Dead-code checks reuse source positions and exports blocks; WITH inventory construction reuses routine-line facts, nested ends and exact alias-position buckets while preserving name comparisons and conservative blockers (DAK-491).
+
 - WITH planning excludes certified inactive anonymous-record fields, refuses unknown field activity, and preserves separate anonymous-record members and multi-variable declarations through SQLite reloads.
 - Anonymous-record completeness uses the compiler include classifier for `INCLUDE+name` and `INCLUDE-name`.
 - Unit models retain physical declaration, member, routine, parameter and local origins from captured include expansions. Model JSON and unit caches preserve verified spans and enumeration availability (DS-696).

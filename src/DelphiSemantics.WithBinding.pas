@@ -291,6 +291,13 @@ type
       const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
       const aUnitNameWitness: IDelphiSemanticUnitNameWitness):
       TDelphiSemanticProjectWithBindingFacts; overload; static;
+    class function BindProject(const aContextFingerprint: string;
+      const aGraph: TDelphiSemanticSemanticGraph;
+      const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+      const aUnitNameWitness: IDelphiSemanticUnitNameWitness;
+      const aInventoryRecordLimit: Integer):
+      TDelphiSemanticProjectWithBindingFacts; overload; static;
     class function BuildInventory(const aModel: TDelphiSemanticUnitModel):
       TDelphiSemanticRemoveWithInventory; static;
     class function ExpandInventorySymbols(const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
@@ -314,7 +321,8 @@ uses
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Text, DelphiSemantics.ProjectContext,
   DelphiSemantics.RemoveWith.TempInsertion, DelphiSemantics.Resolve.MemberResolver,
   DelphiSemantics.Resolve.NameSites, DelphiSemantics.Resolve.SelectorTypes,
-  DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Inventory,
+  DelphiSemantics.Source, DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Budget,
+  DelphiSemantics.WithBinding.Inventory,
   MaxLogic.StrUtils;
 
 function BinderDenialCode(const aCode: string): Boolean;
@@ -8255,6 +8263,17 @@ class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: 
   const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
   const aUnitNameWitness: IDelphiSemanticUnitNameWitness):
   TDelphiSemanticProjectWithBindingFacts;
+begin
+  Result := BindProject(aContextFingerprint, aGraph, aModels, aRootMemberAbsence,
+    aUnitNameWitness, 0);
+end;
+
+class function TDelphiSemanticWithBinder.BindProject(const aContextFingerprint: string;
+  const aGraph: TDelphiSemanticSemanticGraph;
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
+  const aUnitNameWitness: IDelphiSemanticUnitNameWitness;
+  const aInventoryRecordLimit: Integer): TDelphiSemanticProjectWithBindingFacts;
 var
   i: Integer;
   j: Integer;
@@ -8296,15 +8315,17 @@ var
   lStopwatch: TStopwatch;
   lSubphaseStopwatch: TStopwatch;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lSymbolCapacity: Integer;
+  lSymbolCapacity: Int64;
+  lRecordLimit: Integer;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
   lWithStatementLines: TArray<Integer>;
   lActivityLineStarts: TArray<Integer>;
 begin
   Result := Default(TDelphiSemanticProjectWithBindingFacts);
   Result.ContextFingerprint := aContextFingerprint;
+  lRecordLimit := WithInventoryRecordLimit(aInventoryRecordLimit);
   lBindings := TList<TDelphiSemanticWithBinding>.Create;
-  lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
+  lSymbols := TDelphiSemanticBudgetedInventoryList.Create(aInventoryRecordLimit);
   lBindingCapacity := 0;
   lSymbolCapacity := Length(aModels) * 16;
   for lModel in aModels do
@@ -8315,8 +8336,8 @@ begin
     for lRoutine in lModel.Routines do
       Inc(lSymbolCapacity, Length(lRoutine.Parameters));
   end;
-  lBindings.Capacity := lBindingCapacity;
-  lSymbols.Capacity := lSymbolCapacity;
+  if lSymbolCapacity > lRecordLimit then
+    lSymbolCapacity := lRecordLimit;
   lBindingBuildMs := 0;
   lInventoryExpansionMs := 0;
   lInventoryBuildMs := 0;
@@ -8336,10 +8357,13 @@ begin
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lProjectMemberIndex := nil;
   try
+    lBindings.Capacity := lBindingCapacity;
+    lSymbols.Capacity := lSymbolCapacity;
     for lModel in aModels do
     begin
       lStopwatch := TStopwatch.StartNew;
-      for lSymbol in TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel) do
+      for lSymbol in TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+        lModel, aInventoryRecordLimit, lSymbols.Count) do
         lSymbols.Add(lSymbol);
       lStopwatch.Stop;
       Inc(lInventoryBuildMs, lStopwatch.ElapsedMilliseconds);
@@ -8347,7 +8371,8 @@ begin
     TDelphiSemanticWithBindingInventory.AddCompilerProfileCompatibilitySymbols(lSymbols);
     TDelphiSemanticWithBindingInventory.AddProjectExternalUnitSymbols(aModels, lSymbols);
     lStopwatch := TStopwatch.StartNew;
-    Result.Symbols := TDelphiSemanticWithBinder.ExpandInventorySymbols(lSymbols.ToArray);
+    Result.Symbols := TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(
+      lSymbols.ToArray, aInventoryRecordLimit);
     lStopwatch.Stop;
     lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
     Result.UnitModels := Copy(aModels);

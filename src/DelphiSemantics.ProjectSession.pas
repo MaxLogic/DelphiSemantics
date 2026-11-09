@@ -225,7 +225,7 @@ uses
   DelphiSemantics.Snapshot.Cache.Sqlite,
   {$ENDIF}
   DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith,
-  DelphiSemantics.Source, DelphiSemantics.Version,
+  DelphiSemantics.Source, DelphiSemantics.Version, DelphiSemantics.WithBinding.Budget,
   MaxLogic.StrUtils;
 
 const
@@ -1023,7 +1023,10 @@ begin
     lReadMilliseconds := lStopwatch.ElapsedMilliseconds;
     lStopwatch := TStopwatch.StartNew;
     try
+      RequireCombinedInventoryBudget(lPayloadText, aOptions.WithInventoryRecordLimit);
       lPayload := lSerializer.Deserialize<TCombinedPlanningFactsPayload>(lPayloadText);
+      RequireWithInventoryBudget(Length(lPayload.Symbols), aOptions.WithInventoryRecordLimit,
+        'cached combined inventory');
       // Reject incomplete, unknown or noncanonical fields, not just malformed JSON.
       aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v1') or
         (lPayload.ContextFingerprint <> aContextFingerprint) or
@@ -1031,6 +1034,8 @@ begin
     except
       on E: Exception do
       begin
+        if E is EDelphiSemanticWithInventoryBudget then
+          raise;
         aInvalid := True;
         OutputDebugString(PChar('DAK-477 combined facts decode miss: ' + E.Message));
       end;
@@ -1222,7 +1227,7 @@ begin
     begin
       lFacts := TDelphiSemanticWithBinder.BindProject(
         aProject.ContextFingerprint, lGraph, lExtraction.Models,
-        aOptions.ImplicitRootMemberAbsence, lWitness);
+        aOptions.ImplicitRootMemberAbsence, lWitness, aOptions.WithInventoryRecordLimit);
       if Result.CacheIdentity <> '' then
       begin
         lFacts.Metrics.ProjectFactsCacheMisses := 1;
@@ -1531,7 +1536,7 @@ begin
 end;
 
 function TryLoadProjectRemoveWithFactsFromCache(const aCacheFileName: string;
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aRecordLimit: Integer;
   out aSnapshot: TDelphiProjectSnapshot;
   out aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics): Boolean;
 var
@@ -1545,7 +1550,7 @@ begin
 
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
   try
-    Result := lCache.TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot);
+    Result := lCache.TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot, aRecordLimit);
     aCacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
@@ -2383,7 +2388,7 @@ begin
       lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities, lWitness.IdentityText);
     lCacheSnapshot := nil;
     if TryLoadProjectRemoveWithFactsFromCache(fOptions.SqliteCacheFileName,
-      lProjectFactsIdentity, lCacheSnapshot, lCacheSnapshotMetrics) then
+      lProjectFactsIdentity, fOptions.WithInventoryRecordLimit, lCacheSnapshot, lCacheSnapshotMetrics) then
     begin
       try
         AccumulateProjectFactsCacheMetrics(Result.SnapshotMetrics,
@@ -2414,7 +2419,8 @@ begin
           else
             Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
           lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
-            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
+            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness,
+            fOptions.WithInventoryRecordLimit);
           lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
             fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
           try
@@ -2458,7 +2464,8 @@ begin
       Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
 
     lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
+      lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness,
+      fOptions.WithInventoryRecordLimit);
     RequireCurrentRequestModels(fOptions, lExtraction.Models);
     lFacts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
     lFacts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;

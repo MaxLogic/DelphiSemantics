@@ -1145,7 +1145,7 @@ begin
   SetLength(Result, lCount);
 end;
 
-function ModelToJson(const aModel: TDelphiSemanticUnitModel): string;
+function ModelToJsonObject(const aModel: TDelphiSemanticUnitModel): TJSONObject;
 var
   lObject: TJSONObject;
 begin
@@ -1188,96 +1188,115 @@ begin
     lObject.AddPair('ScopeModelVersion', aModel.ScopeModelVersion);
     lObject.AddPair('RejectedDeclarationCount',
       TJSONNumber.Create(aModel.RejectedDeclarationCount));
+    Result := lObject;
+    lObject := nil;
+  finally
+    lObject.Free;
+  end;
+end;
+
+function ModelToJson(const aModel: TDelphiSemanticUnitModel): string;
+var
+  lObject: TJSONObject;
+begin
+  lObject := ModelToJsonObject(aModel);
+  try
     Result := lObject.ToJSON;
   finally
     lObject.Free;
   end;
 end;
 
-function JsonToModel(const aJson: string): TDelphiSemanticUnitModel;
+function JsonObjectToModel(const aObject: TJSONObject): TDelphiSemanticUnitModel;
 var
   lInvalidOccurrenceCount: Integer;
   lOccurrencesValid: Boolean;
   lOccurrencesValue: TJSONValue;
-  lObject: TJSONObject;
+begin
+  Result := Default(TDelphiSemanticUnitModel);
+  if aObject = nil then
+    Exit;
+  Result.Success := JsonBool(aObject, 'Success');
+  Result.FileName := JsonString(aObject, 'FileName');
+  Result.UnitName := JsonString(aObject, 'UnitName');
+  Result.EncodingName := JsonString(aObject, 'EncodingName');
+  Result.LineEndingName := JsonString(aObject, 'LineEndingName');
+  Result.LineBreak := JsonString(aObject, 'LineBreak');
+  Result.SourceText := JsonString(aObject, 'SourceText');
+  Result.VerifiedActiveSourceText := JsonString(aObject, 'VerifiedActiveSourceText');
+  Result.DefineEvidenceComplete := JsonBool(aObject, 'DefineEvidenceComplete');
+  Result.ReferenceScanSourceText := JsonString(aObject, 'ReferenceScanSourceText');
+  Result.SourceSections := JsonToSourceSections(aObject.GetValue('SourceSections') as TJSONObject);
+  Result.DependencyFacts := JsonToDependencyFacts(aObject.GetValue('DependencyFacts'));
+  Result.DirectiveFacts := JsonToDirectiveFacts(aObject.GetValue('DirectiveFacts'));
+  Result.InterfaceUses := JsonToStringArray(aObject.GetValue('InterfaceUses') as TJSONArray);
+  Result.ImplementationUses := JsonToStringArray(aObject.GetValue('ImplementationUses') as TJSONArray);
+  Result.Declarations := JsonToDeclarations(aObject.GetValue('Declarations') as TJSONArray);
+  Result.Members := JsonToMembers(aObject.GetValue('Members') as TJSONArray);
+  Result.Routines := JsonToRoutines(aObject.GetValue('Routines') as TJSONArray);
+  Result.Locals := JsonToLocals(aObject.GetValue('Locals') as TJSONArray);
+  Result.References := JsonToReferences(aObject.GetValue('References') as TJSONArray);
+  lOccurrencesValue := aObject.GetValue('PhysicalReferenceOccurrences');
+  if lOccurrencesValue is TJSONArray then
+    Result.PhysicalReferenceOccurrences := JsonToPhysicalOccurrences(
+      lOccurrencesValue as TJSONArray, lOccurrencesValid, lInvalidOccurrenceCount)
+  else begin
+    lOccurrencesValid := False;
+    lInvalidOccurrenceCount := Ord(Assigned(lOccurrencesValue));
+  end;
+  Result.PhysicalReferenceOccurrencesAvailable := lOccurrencesValid and
+    (aObject.GetValue('PhysicalReferenceOccurrencesAvailable') is TJSONBool) and
+    JsonBool(aObject, 'PhysicalReferenceOccurrencesAvailable');
+  Result.LocalLabelReferences := JsonToReferences(aObject.GetValue('LocalLabelReferences') as TJSONArray);
+  Result.WithStatements := JsonToWithStatements(aObject.GetValue('WithStatements') as TJSONArray);
+  Result.Diagnostics := JsonToDiagnostics(aObject.GetValue('Diagnostics') as TJSONArray);
+  if lInvalidOccurrenceCount > 0 then
+  begin
+    SetLength(Result.Diagnostics, Length(Result.Diagnostics) + 1);
+    Result.Diagnostics[High(Result.Diagnostics)].Code :=
+      'PHYSICAL_REFERENCE_JSON_UNVERIFIED';
+    Result.Diagnostics[High(Result.Diagnostics)].Message :=
+      IntToStr(lInvalidOccurrenceCount) + ' malformed physical occurrence(s) stayed unverified.';
+    Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
+  end;
+  Result.UnindexedHelpers := JsonToUnindexedHelpers(aObject.GetValue('UnindexedHelpers'));
+  Result.TypeValueMembers := JsonToMembers(aObject.GetValue('TypeValueMembers') as TJSONArray);
+  lOccurrencesValue := aObject.GetValue('PhysicalSymbolOccurrences');
+  if lOccurrencesValue is TJSONArray then
+    Result.PhysicalSymbolOccurrences := JsonToPhysicalSymbols(
+      lOccurrencesValue as TJSONArray, Result,
+      (aObject.GetValue('PhysicalSymbolOccurrencesAvailable') is TJSONBool) and
+        JsonBool(aObject, 'PhysicalSymbolOccurrencesAvailable'),
+      lOccurrencesValid, lInvalidOccurrenceCount)
+  else begin
+    lOccurrencesValid := False;
+    lInvalidOccurrenceCount := Ord(Assigned(lOccurrencesValue));
+  end;
+  Result.PhysicalSymbolOccurrencesAvailable := lOccurrencesValid and
+    (aObject.GetValue('PhysicalSymbolOccurrencesAvailable') is TJSONBool) and
+    JsonBool(aObject, 'PhysicalSymbolOccurrencesAvailable');
+  if lInvalidOccurrenceCount > 0 then
+  begin
+    SetLength(Result.Diagnostics, Length(Result.Diagnostics) + 1);
+    Result.Diagnostics[High(Result.Diagnostics)].Code := 'PHYSICAL_SYMBOL_JSON_UNVERIFIED';
+    Result.Diagnostics[High(Result.Diagnostics)].Message :=
+      IntToStr(lInvalidOccurrenceCount) + ' malformed physical symbol occurrence(s) stayed unverified.';
+    Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
+  end;
+  Result.ScopeModelStatus := JsonString(aObject, 'ScopeModelStatus');
+  Result.ScopeModelVersion := JsonString(aObject, 'ScopeModelVersion');
+  Result.RejectedDeclarationCount := JsonInt(aObject, 'RejectedDeclarationCount');
+end;
+
+function JsonToModel(const aJson: string): TDelphiSemanticUnitModel;
+var
   lValue: TJSONValue;
 begin
   Result := Default(TDelphiSemanticUnitModel);
   lValue := TJSONObject.ParseJSONValue(aJson);
   try
-    if not (lValue is TJSONObject) then
-      Exit;
-    lObject := lValue as TJSONObject;
-    Result.Success := JsonBool(lObject, 'Success');
-    Result.FileName := JsonString(lObject, 'FileName');
-    Result.UnitName := JsonString(lObject, 'UnitName');
-    Result.EncodingName := JsonString(lObject, 'EncodingName');
-    Result.LineEndingName := JsonString(lObject, 'LineEndingName');
-    Result.LineBreak := JsonString(lObject, 'LineBreak');
-    Result.SourceText := JsonString(lObject, 'SourceText');
-    Result.VerifiedActiveSourceText := JsonString(lObject, 'VerifiedActiveSourceText');
-    Result.DefineEvidenceComplete := JsonBool(lObject, 'DefineEvidenceComplete');
-    Result.ReferenceScanSourceText := JsonString(lObject, 'ReferenceScanSourceText');
-    Result.SourceSections := JsonToSourceSections(lObject.GetValue('SourceSections') as TJSONObject);
-    Result.DependencyFacts := JsonToDependencyFacts(lObject.GetValue('DependencyFacts'));
-    Result.DirectiveFacts := JsonToDirectiveFacts(lObject.GetValue('DirectiveFacts'));
-    Result.InterfaceUses := JsonToStringArray(lObject.GetValue('InterfaceUses') as TJSONArray);
-    Result.ImplementationUses := JsonToStringArray(lObject.GetValue('ImplementationUses') as TJSONArray);
-    Result.Declarations := JsonToDeclarations(lObject.GetValue('Declarations') as TJSONArray);
-    Result.Members := JsonToMembers(lObject.GetValue('Members') as TJSONArray);
-    Result.Routines := JsonToRoutines(lObject.GetValue('Routines') as TJSONArray);
-    Result.Locals := JsonToLocals(lObject.GetValue('Locals') as TJSONArray);
-    Result.References := JsonToReferences(lObject.GetValue('References') as TJSONArray);
-    lOccurrencesValue := lObject.GetValue('PhysicalReferenceOccurrences');
-    if lOccurrencesValue is TJSONArray then
-      Result.PhysicalReferenceOccurrences := JsonToPhysicalOccurrences(
-        lOccurrencesValue as TJSONArray, lOccurrencesValid, lInvalidOccurrenceCount)
-    else begin
-      lOccurrencesValid := False;
-      lInvalidOccurrenceCount := Ord(Assigned(lOccurrencesValue));
-    end;
-    Result.PhysicalReferenceOccurrencesAvailable := lOccurrencesValid and
-      (lObject.GetValue('PhysicalReferenceOccurrencesAvailable') is TJSONBool) and
-      JsonBool(lObject, 'PhysicalReferenceOccurrencesAvailable');
-    Result.LocalLabelReferences := JsonToReferences(lObject.GetValue('LocalLabelReferences') as TJSONArray);
-    Result.WithStatements := JsonToWithStatements(lObject.GetValue('WithStatements') as TJSONArray);
-    Result.Diagnostics := JsonToDiagnostics(lObject.GetValue('Diagnostics') as TJSONArray);
-    if lInvalidOccurrenceCount > 0 then
-    begin
-      SetLength(Result.Diagnostics, Length(Result.Diagnostics) + 1);
-      Result.Diagnostics[High(Result.Diagnostics)].Code :=
-        'PHYSICAL_REFERENCE_JSON_UNVERIFIED';
-      Result.Diagnostics[High(Result.Diagnostics)].Message :=
-        IntToStr(lInvalidOccurrenceCount) + ' malformed physical occurrence(s) stayed unverified.';
-      Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
-    end;
-    Result.UnindexedHelpers := JsonToUnindexedHelpers(lObject.GetValue('UnindexedHelpers'));
-    Result.TypeValueMembers := JsonToMembers(lObject.GetValue('TypeValueMembers') as TJSONArray);
-    lOccurrencesValue := lObject.GetValue('PhysicalSymbolOccurrences');
-    if lOccurrencesValue is TJSONArray then
-      Result.PhysicalSymbolOccurrences := JsonToPhysicalSymbols(
-        lOccurrencesValue as TJSONArray, Result,
-        (lObject.GetValue('PhysicalSymbolOccurrencesAvailable') is TJSONBool) and
-          JsonBool(lObject, 'PhysicalSymbolOccurrencesAvailable'),
-        lOccurrencesValid, lInvalidOccurrenceCount)
-    else begin
-      lOccurrencesValid := False;
-      lInvalidOccurrenceCount := Ord(Assigned(lOccurrencesValue));
-    end;
-    Result.PhysicalSymbolOccurrencesAvailable := lOccurrencesValid and
-      (lObject.GetValue('PhysicalSymbolOccurrencesAvailable') is TJSONBool) and
-      JsonBool(lObject, 'PhysicalSymbolOccurrencesAvailable');
-    if lInvalidOccurrenceCount > 0 then
-    begin
-      SetLength(Result.Diagnostics, Length(Result.Diagnostics) + 1);
-      Result.Diagnostics[High(Result.Diagnostics)].Code := 'PHYSICAL_SYMBOL_JSON_UNVERIFIED';
-      Result.Diagnostics[High(Result.Diagnostics)].Message :=
-        IntToStr(lInvalidOccurrenceCount) + ' malformed physical symbol occurrence(s) stayed unverified.';
-      Result.Diagnostics[High(Result.Diagnostics)].FileName := Result.FileName;
-    end;
-    Result.ScopeModelStatus := JsonString(lObject, 'ScopeModelStatus');
-    Result.ScopeModelVersion := JsonString(lObject, 'ScopeModelVersion');
-    Result.RejectedDeclarationCount := JsonInt(lObject, 'RejectedDeclarationCount');
+    if lValue is TJSONObject then
+      Result := JsonObjectToModel(lValue as TJSONObject);
   finally
     lValue.Free;
   end;
@@ -1292,7 +1311,7 @@ var
   lObject: TJSONObject;
   lSerializer: TJsonSerializer;
 begin
-  lObject := TJSONObject.ParseJSONValue(ModelToJson(aModel)) as TJSONObject;
+  lObject := ModelToJsonObject(aModel);
   try
     lSerializer := TJsonSerializer.Create;
     try
@@ -1324,9 +1343,10 @@ var
   lSerializer: TJsonSerializer;
   lValue: TJSONValue;
 begin
-  Result := JsonToModel(aJson);
   lObject := TJSONObject.ParseJSONValue(aJson) as TJSONObject;
   try
+    // One parse supplies the unchanged model and cache evidence readers.
+    Result := JsonObjectToModel(lObject);
     lValue := lObject.GetValue('SourceObservations');
     // Legacy or incomplete payloads retain nil evidence and become cache misses.
     if not (lValue is TJSONArray) then

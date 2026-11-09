@@ -29,6 +29,16 @@ type
     [TestCase('Unicode constant', 'constant')]
     procedure InventoryPreservesUnicodeDeclarations(const aShape: string);
     [Category('Fast')]
+    [TestCase('Aggregate project', 'False')]
+    [TestCase('Expansion adds inherited member', 'True')]
+    procedure InventoryBudgetCoversAggregateAndExpansion(const aExpansion: Boolean);
+    [Category('Fast')]
+    [TestCase('Lowercase deserializer property', 'lower')]
+    [TestCase('Duplicate deserializer property', 'duplicate')]
+    [TestCase('Cumulative duplicate arrays', 'cumulative')]
+    [TestCase('Malformed scalar slots', 'scalar')]
+    procedure CombinedInventoryBudgetPreflightsNoncanonicalArrays(const aShape: string);
+    [Category('Fast')]
     [TestCase('Operator parameters on one line', 'operator')]
     [TestCase('Operator parameters across lines', 'operator-multiline')]
     [TestCase('Method parameters across lines', 'method-multiline')]
@@ -163,8 +173,9 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  maxLogic.IOUtils,
   DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model, DelphiSemantics.Model.Json,
-  DelphiSemantics.ProjectContext, DelphiSemantics.WithBinding.Inventory, maxLogic.IOUtils,
+  DelphiSemantics.ProjectContext, DelphiSemantics.WithBinding.Budget, DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
 
@@ -1801,6 +1812,98 @@ begin
           lFound := True;
       Assert.IsTrue(lFound, 'Real member must survive: ' + lName);
     end;
+end;
+
+procedure TProjectWithBindingTests.InventoryBudgetCoversAggregateAndExpansion(const aExpansion: Boolean);
+var
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOther: TDelphiSemanticUnitModel;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lRefused: Boolean;
+begin
+  lRefused := False;
+  if aExpansion then
+  begin
+    SetLength(lSymbols, 2);
+    lSymbols[0].Name := 'Value';
+    lSymbols[0].SymbolClass := 'field';
+    lSymbols[0].OwnerType := 'TBase';
+    lSymbols[0].Kind := 'field';
+    lSymbols[1].Name := 'TDerived';
+    lSymbols[1].SymbolClass := 'type-member';
+    lSymbols[1].RelatedTypeName := 'TBase';
+    try
+      TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(lSymbols, 2);
+    except
+      on E: EDelphiSemanticWithInventoryBudget do
+      begin
+        lRefused := True;
+        Assert.IsTrue(ContainsText(E.Message, 'count=3'), E.Message);
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'Expansion must admit newly inherited symbols');
+    lSymbols := TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(lSymbols, 100);
+    Assert.IsTrue(Length(lSymbols) >= 3);
+    Assert.AreEqual('Value', lSymbols[2].Name);
+    Assert.AreEqual('TDerived', lSymbols[2].OwnerType);
+  end else begin
+    lModel := Default(TDelphiSemanticUnitModel);
+    lModel.UnitName := 'FirstUnit';
+    SetLength(lModel.Declarations, 2);
+    for i := 0 to 1 do
+    begin
+      lModel.Declarations[i].Name := 'Value' + IntToStr(i);
+      lModel.Declarations[i].Kind := 'variable';
+    end;
+    lOther := lModel;
+    lOther.UnitName := 'SecondUnit';
+    Assert.AreEqual(4, Integer(Length(TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel))));
+    Assert.AreEqual(4, Integer(Length(TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lOther))));
+    try
+      TDelphiSemanticWithBinder.BindProject('aggregate-budget', nil,
+        [lModel, lOther], nil, nil, 7);
+    except
+      on E: EDelphiSemanticWithInventoryBudget do
+      begin
+        lRefused := True;
+        Assert.IsTrue(ContainsText(E.Message, 'limit=7'), E.Message);
+        Assert.IsTrue(ContainsText(E.Message, 'count=8'), E.Message);
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'Per-unit admission must include prior project inventory');
+  end;
+end;
+
+procedure TProjectWithBindingTests.CombinedInventoryBudgetPreflightsNoncanonicalArrays(
+  const aShape: string);
+var
+  lPayload: string;
+  lRefused: Boolean;
+begin
+  // Nested/unrelated arrays consume no root inventory records. Equality is admitted.
+  RequireCombinedInventoryBudget('{"Symbols":[{"Nested":[{},{},{}]},{}],"Other":[{},{},{}]}', 2);
+  if aShape = 'lower' then
+    lPayload := '{"symbols":[{},{},{}]}'
+  else if aShape = 'duplicate' then
+    lPayload := '{"Symbols":[],"Symbols":[{},{},{}]}'
+  else if aShape = 'cumulative' then
+    lPayload := '{"Symbols":[{}],"symbols":[{},{}]}'
+  else
+    lPayload := '{"Symbols":[null,1,"invalid"]}';
+  lRefused := False;
+  try
+    RequireCombinedInventoryBudget(lPayload, 2);
+  except
+    on E: EDelphiSemanticWithInventoryBudget do
+    begin
+      lRefused := True;
+      Assert.IsTrue(ContainsText(E.Message, 'limit=2 records'), E.Message);
+      Assert.IsTrue(ContainsText(E.Message, 'count=3 records'), E.Message);
+      Assert.IsTrue(ContainsText(E.Message, 'cached combined inventory'), E.Message);
+    end;
+  end;
+  Assert.IsTrue(lRefused, 'Admission must precede deserializer allocation for ' + aShape);
 end;
 
 initialization

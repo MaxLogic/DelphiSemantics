@@ -1098,6 +1098,13 @@ begin
     begin
       lReference := aUnit.ReferenceById(lReferenceId);
       lName := SnapshotText(aSnapshot, lReference.NameId);
+      // Candidate discovery is pure. Reject names that cannot denote a global
+      // before scanning routine and local-shadow facts (DAK-491).
+      lCandidates.Clear;
+      FindSnapshotCandidates(aDeclarations, aDeclarationBySymbolRef,
+        aDeclarationByUnitName, lUnitName, lName, lReference, lCandidates);
+      if lCandidates.Count = 0 then
+        Continue;
       lRoutineName := SnapshotText(aSnapshot, lReference.RoutineId);
       if lRoutineName = '' then
         lRoutineName := SnapshotRoutineNameForLine(aSnapshot, aUnit, lReference.Line);
@@ -1113,12 +1120,6 @@ begin
 
       lKey := UsageKey(lUnitName, lRoutineName, lName, lReference.Line);
       if aSeenUsages.ContainsKey(lKey) then
-        Continue;
-
-      lCandidates.Clear;
-      FindSnapshotCandidates(aDeclarations, aDeclarationBySymbolRef,
-        aDeclarationByUnitName, lUnitName, lName, lReference, lCandidates);
-      if lCandidates.Count = 0 then
         Continue;
 
       lLine := ReadModelSourceLine(lSourceLines, lReference.Line);

@@ -57,6 +57,7 @@ type
     SnapshotBuildWorkerCount: Integer;
     UseLspEnrichment: Boolean;
     SkipWithBindingSemanticGraph: Boolean;
+    WithInventoryRecordLimit: Integer;
     ImplicitRootMemberAbsence: IDelphiSemanticImplicitRootMemberAbsence;
     ForceFullIdentifierAnalysis: Boolean;
   end;

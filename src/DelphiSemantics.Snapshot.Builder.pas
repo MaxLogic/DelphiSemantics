@@ -72,7 +72,7 @@ function CompareSnapshotImportBindings(const aSnapshot: TDelphiProjectSnapshot;
 implementation
 
 uses
-  System.Diagnostics, System.Generics.Collections, System.IOUtils,
+  System.Diagnostics, System.Generics.Collections, System.Generics.Defaults, System.IOUtils,
   System.StrUtils, System.SysUtils,
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
@@ -127,8 +127,35 @@ type
   // smlAbsent is returned only when the complete member set of the type chain is known.
   TSnapshotMemberLookup = (smlFound, smlAbsent, smlUnknown);
 
-  TSnapshotTargetSymbolList = TList<TSnapshotTargetSymbol>;
+  TSnapshotTargetUnitIndex = record
+    UnitName: string;
+    OriginalIndex: Integer;
+  end;
+
+  TSnapshotTargetSymbolList = class(TList<TSnapshotTargetSymbol>)
+  private
+    fUnitOrder: TArray<TSnapshotTargetUnitIndex>;
+    fOwnedOrder: TArray<Integer>;
+    fTopLevelOrder: TArray<Integer>;
+  public
+    procedure PrepareLookup;
+    function TryUnitRange(const aUnitName: string; out aFirst, aAfter: Integer): Boolean;
+    property UnitOrder: TArray<TSnapshotTargetUnitIndex> read fUnitOrder;
+    property OwnedOrder: TArray<Integer> read fOwnedOrder;
+    property TopLevelOrder: TArray<Integer> read fTopLevelOrder;
+  end;
   TSnapshotTargetSymbolsByName = class(TObjectDictionary<string, TSnapshotTargetSymbolList>)
+  private
+    fLineStarts: TArray<TArray<Integer>>;
+    fModelOrder: TArray<Integer>;
+    fModelOrderReady: Boolean;
+    fHeaderReferenceOrder: TArray<TArray<Integer>>;
+    fHeaderReferenceOrderReady: TArray<Boolean>;
+    function ModelIndexForUnit(const aUnitName: string): Integer;
+    function TryHeaderReferenceRange(const aModelIndex: Integer; const aName: string;
+      out aFirst, aAfter: Integer): Boolean;
+    function HeaderReferenceIndex(const aModelIndex, aIndex: Integer): Integer;
+    function TextOffset(const aModelIndex, aLine, aColumn: Integer): Integer;
   public
     Models: TArray<TDelphiSemanticUnitModel>;
     ModelUnitIds: TArray<TSemanticUnitId>;
@@ -137,6 +164,188 @@ type
     Snapshot: TDelphiProjectSnapshot;
     UnitSnapshot: TUnitSnapshot;
   end;
+
+// Built once after the list is complete. Keep original order within a unit and
+// within each visibility category: resolver tie breaks and ambiguity depend on it.
+procedure TSnapshotTargetSymbolList.PrepareLookup;
+var
+  i: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
+  lOwnedCount: Integer;
+  lTopLevelCount: Integer;
+begin
+  lItems := List;
+  SetLength(fUnitOrder, Count);
+  SetLength(fOwnedOrder, Count);
+  SetLength(fTopLevelOrder, Count);
+  lOwnedCount := 0;
+  lTopLevelCount := 0;
+  for i := 0 to Count - 1 do
+  begin
+    fUnitOrder[i].UnitName := lItems[i].UnitName;
+    fUnitOrder[i].OriginalIndex := i;
+    if lItems[i].OwnerName = '' then
+    begin
+      fTopLevelOrder[lTopLevelCount] := i;
+      Inc(lTopLevelCount);
+    end else if MatchText(lItems[i].Kind, ['field', 'class-var', 'property', 'method']) then
+    begin
+      fOwnedOrder[lOwnedCount] := i;
+      Inc(lOwnedCount);
+    end;
+  end;
+  SetLength(fOwnedOrder, lOwnedCount);
+  SetLength(fTopLevelOrder, lTopLevelCount);
+  TArray.Sort<TSnapshotTargetUnitIndex>(fUnitOrder,
+    TComparer<TSnapshotTargetUnitIndex>.Construct(
+      function(const aLeft, aRight: TSnapshotTargetUnitIndex): Integer
+      begin
+        Result := CompareText(aLeft.UnitName, aRight.UnitName);
+        if Result = 0 then
+          Result := aLeft.OriginalIndex - aRight.OriginalIndex;
+      end));
+end;
+
+function TSnapshotTargetSymbolList.TryUnitRange(const aUnitName: string;
+  out aFirst, aAfter: Integer): Boolean;
+var
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
+begin
+  lLow := 0;
+  lHigh := Length(fUnitOrder);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(fUnitOrder[lMiddle].UnitName, aUnitName) < 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  aFirst := lLow;
+  lHigh := Length(fUnitOrder);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(fUnitOrder[lMiddle].UnitName, aUnitName) <= 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  aAfter := lLow;
+  Result := aFirst < aAfter;
+end;
+
+// These indexes live only with the immutable models for this binding pass.
+// CompareText and original positions preserve the previous first-model and
+// reference-order rules, including case variants and duplicate unit names.
+function TSnapshotTargetSymbolsByName.ModelIndexForUnit(const aUnitName: string): Integer;
+var
+  i: Integer;
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
+begin
+  if not fModelOrderReady then
+  begin
+    SetLength(fModelOrder, Length(Models));
+    for i := 0 to High(fModelOrder) do
+      fModelOrder[i] := i;
+    TArray.Sort<Integer>(fModelOrder, TComparer<Integer>.Construct(
+      function(const aLeft, aRight: Integer): Integer
+      begin
+        Result := CompareText(Models[aLeft].UnitName, Models[aRight].UnitName);
+        if Result = 0 then
+          Result := aLeft - aRight;
+      end));
+    fModelOrderReady := True;
+  end;
+  lLow := 0;
+  lHigh := Length(fModelOrder);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(Models[fModelOrder[lMiddle]].UnitName, aUnitName) < 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  Result := -1;
+  if (lLow < Length(fModelOrder)) and
+    SameText(Models[fModelOrder[lLow]].UnitName, aUnitName) then
+    Result := fModelOrder[lLow];
+end;
+
+function TSnapshotTargetSymbolsByName.TryHeaderReferenceRange(const aModelIndex: Integer;
+  const aName: string; out aFirst, aAfter: Integer): Boolean;
+var
+  i: Integer;
+  lCount: Integer;
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
+  lOrder: TArray<Integer>;
+begin
+  if Length(fHeaderReferenceOrder) = 0 then
+  begin
+    SetLength(fHeaderReferenceOrder, Length(Models));
+    SetLength(fHeaderReferenceOrderReady, Length(Models));
+  end;
+  if not fHeaderReferenceOrderReady[aModelIndex] then
+  begin
+    SetLength(lOrder, Length(Models[aModelIndex].References));
+    lCount := 0;
+    for i := 0 to High(Models[aModelIndex].References) do
+      if (Models[aModelIndex].References[i].FileName = '') and
+        (Models[aModelIndex].References[i].RoutineName <> '') and
+        (Models[aModelIndex].References[i].Role = 'type-reference') then
+      begin
+        lOrder[lCount] := i;
+        Inc(lCount);
+      end;
+    SetLength(lOrder, lCount);
+    TArray.Sort<Integer>(lOrder, TComparer<Integer>.Construct(
+      function(const aLeft, aRight: Integer): Integer
+      begin
+        Result := CompareText(Models[aModelIndex].References[aLeft].Name,
+          Models[aModelIndex].References[aRight].Name);
+        if Result = 0 then
+          Result := aLeft - aRight;
+      end));
+    fHeaderReferenceOrder[aModelIndex] := lOrder;
+    fHeaderReferenceOrderReady[aModelIndex] := True;
+  end;
+  lOrder := fHeaderReferenceOrder[aModelIndex];
+  lLow := 0;
+  lHigh := Length(lOrder);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(Models[aModelIndex].References[lOrder[lMiddle]].Name, aName) < 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  aFirst := lLow;
+  lHigh := Length(lOrder);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    if CompareText(Models[aModelIndex].References[lOrder[lMiddle]].Name, aName) <= 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  aAfter := lLow;
+  Result := aFirst < aAfter;
+end;
+
+function TSnapshotTargetSymbolsByName.HeaderReferenceIndex(const aModelIndex,
+  aIndex: Integer): Integer;
+begin
+  Result := fHeaderReferenceOrder[aModelIndex][aIndex];
+end;
 
 function SnapshotDeclarationKind(const aKind: string): string;
 begin
@@ -182,25 +391,28 @@ end;
 function SnapshotRoutineNameForLine(const aModel: TDelphiSemanticUnitModel;
   const aLine: Integer): string;
 var
+  i: Integer;
   lBestLine: Integer;
-  lRoutine: TDelphiSemanticRoutine;
 begin
   Result := '';
   lBestLine := 0;
   if aLine <= 0 then
     Exit;
 
-  for lRoutine in aModel.Routines do
+  // Read immutable array fields directly; copying every managed routine record
+  // for every reference dominates large-unit snapshot construction (DAK-491).
+  for i := 0 to High(aModel.Routines) do
   begin
     // DS-659: an include routine's lines belong to its include file.
-    if (lRoutine.FileName <> '') or (lRoutine.Line <= 0) or (lRoutine.Line > aLine) or
-      ((lRoutine.EndLine > 0) and (aLine > lRoutine.EndLine)) then
+    if (aModel.Routines[i].FileName <> '') or (aModel.Routines[i].Line <= 0) or
+      (aModel.Routines[i].Line > aLine) or ((aModel.Routines[i].EndLine > 0) and
+      (aLine > aModel.Routines[i].EndLine)) then
       Continue;
-    if lRoutine.Line < lBestLine then
+    if aModel.Routines[i].Line < lBestLine then
       Continue;
 
-    lBestLine := lRoutine.Line;
-    Result := SnapshotRoutineName(lRoutine);
+    lBestLine := aModel.Routines[i].Line;
+    Result := SnapshotRoutineName(aModel.Routines[i]);
   end;
 end;
 
@@ -362,6 +574,45 @@ begin
   end;
   if (lLine = aLine) and (i + aColumn - 1 <= Length(aText)) then
     Result := i + aColumn - 1;
+end;
+
+// Models remain immutable for this lookup's lifetime. Index each used model once;
+// preserve SnapshotTextOffset's LF counting and its whole-source column bound.
+function TSnapshotTargetSymbolsByName.TextOffset(const aModelIndex, aLine,
+  aColumn: Integer): Integer;
+var
+  i: Integer;
+  lCount: Integer;
+  lOffset: Integer;
+  lSource: string;
+begin
+  Result := 0;
+  if (aLine <= 0) or (aColumn <= 0) then
+    Exit;
+  if Length(fLineStarts) <> Length(Models) then
+    SetLength(fLineStarts, Length(Models));
+  lSource := Models[aModelIndex].SourceText;
+  if Length(fLineStarts[aModelIndex]) = 0 then
+  begin
+    lCount := 1;
+    for i := 1 to Length(lSource) do
+      if lSource[i] = #10 then
+        Inc(lCount);
+    SetLength(fLineStarts[aModelIndex], lCount);
+    fLineStarts[aModelIndex][0] := 1;
+    lCount := 1;
+    for i := 1 to Length(lSource) do
+      if lSource[i] = #10 then
+      begin
+        fLineStarts[aModelIndex][lCount] := i + 1;
+        Inc(lCount);
+      end;
+  end;
+  if aLine > Length(fLineStarts[aModelIndex]) then
+    Exit;
+  lOffset := fLineStarts[aModelIndex][aLine - 1] + aColumn - 1;
+  if lOffset <= Length(lSource) then
+    Result := lOffset;
 end;
 
 function SnapshotNextWord(const aText: string; aIndex: Integer): string;
@@ -698,6 +949,7 @@ function BuildSnapshotTargetSymbolsByName(
   out aSymbols: TSnapshotTargetSymbolList): TSnapshotTargetSymbolsByName; overload;
 var
   i: Integer;
+  lSymbols: TSnapshotTargetSymbolList;
 begin
   Result := nil;
   aSymbols := TSnapshotTargetSymbolList.Create;
@@ -712,6 +964,8 @@ begin
           ModelUnitIdAt(aModelUnitIds, i));
       for i := 0 to High(aReferenceSnapshots) do
         AddSnapshotTargetSymbolsFromSnapshot(aSymbols, Result, aReferenceSnapshots[i]);
+      for lSymbols in Result.Values do
+        lSymbols.PrepareLookup;
     except
       Result.Free;
       Result := nil;
@@ -783,13 +1037,16 @@ function SnapshotLocalSymbolMatchesReference(const aModel: TDelphiSemanticUnitMo
   const aReference: TDelphiSemanticReference; const aRoutineSignature: string;
   const aSymbol: TSnapshotTargetSymbol): Boolean;
 begin
-  Result := SameText(aSymbol.UnitName, aModel.UnitName) and
+  Result := SameText(aSymbol.UnitName, aModel.UnitName);
+  if not Result then
+    Exit;
+  // Reject unrelated scopes before the kind predicate. The scope-id branch
+  // deliberately retains its earlier return before signature comparison.
+  if (aReference.RoutineScopeId <> '') and (aSymbol.RoutineScopeId <> '') then
+    Exit(SameText(aSymbol.RoutineScopeId, aReference.RoutineScopeId) and
+      SnapshotLocalSymbolKind(aSymbol.Kind));
+  Result := SameText(aSymbol.OwnerName, aReference.RoutineName) and
     SnapshotLocalSymbolKind(aSymbol.Kind);
-  if Result and (aReference.RoutineScopeId <> '') and
-    (aSymbol.RoutineScopeId <> '') then
-    Exit(SameText(aSymbol.RoutineScopeId, aReference.RoutineScopeId))
-  else if Result then
-    Result := SameText(aSymbol.OwnerName, aReference.RoutineName);
   if Result and (aRoutineSignature <> '') and (aSymbol.Signature <> '') then
     Result := (NormalizeSnapshotSignature(aSymbol.Signature) = aRoutineSignature);
 end;
@@ -868,10 +1125,14 @@ function TryResolveUniqueSnapshotRoutineRef(
   out aRoutineRef: TSemanticSymbolRef; out aRoutineSignature: string;
   out aAmbiguous: Boolean): Boolean;
 var
+  lAfter: Integer;
+  lFirst: Integer;
   lCount: Integer;
   lScopeId: string;
   lSignature: string;
-  lSymbol: TSnapshotTargetSymbol;
+  i: Integer;
+  lIndex: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
   lSymbols: TSnapshotTargetSymbolList;
 begin
   aRoutineRef := Default(TSemanticSymbolRef);
@@ -884,34 +1145,40 @@ begin
     lSymbols) then
     Exit(False);
 
-  for lSymbol in lSymbols do
-    if SameText(lSymbol.UnitName, aModel.UnitName)
-      and SameText(lSymbol.Kind, cSnapshotSymbolKindRoutine)
-      and lSymbol.IsRoutineFact
-      and SameText(SnapshotQualifiedRoutineName(lSymbol), aRoutineName)
-      and ((aRoutineScopeId = '') or (lSymbol.RoutineScopeId = '') or
-      SameText(lSymbol.RoutineScopeId, aRoutineScopeId)) then
+  if not lSymbols.TryUnitRange(aModel.UnitName, lFirst, lAfter) then
+    Exit(False);
+  lItems := lSymbols.List;
+  for i := lFirst to lAfter - 1 do
+  begin
+    lIndex := lSymbols.UnitOrder[i].OriginalIndex;
+    if SameText(lItems[lIndex].UnitName, aModel.UnitName)
+      and SameText(lItems[lIndex].Kind, cSnapshotSymbolKindRoutine)
+      and lItems[lIndex].IsRoutineFact
+      and SameText(SnapshotQualifiedRoutineName(lItems[lIndex]), aRoutineName)
+      and ((aRoutineScopeId = '') or (lItems[lIndex].RoutineScopeId = '') or
+      SameText(lItems[lIndex].RoutineScopeId, aRoutineScopeId)) then
     begin
       if lCount = 0 then
       begin
         Inc(lCount);
-        aRoutineRef := lSymbol.Ref;
-        lScopeId := lSymbol.RoutineScopeId;
-        lSignature := NormalizeSnapshotSignature(lSymbol.Signature);
+        aRoutineRef := lItems[lIndex].Ref;
+        lScopeId := lItems[lIndex].RoutineScopeId;
+        lSignature := NormalizeSnapshotSignature(lItems[lIndex].Signature);
         aRoutineSignature := lSignature;
-      end else if (lSignature <> NormalizeSnapshotSignature(lSymbol.Signature)) and
+      end else if (lSignature <> NormalizeSnapshotSignature(lItems[lIndex].Signature)) and
         not ((aRoutineScopeId <> '') and (lScopeId <> '') and
-        (lSymbol.RoutineScopeId <> '') and
-        SameText(lScopeId, lSymbol.RoutineScopeId)) then
+        (lItems[lIndex].RoutineScopeId <> '') and
+        SameText(lScopeId, lItems[lIndex].RoutineScopeId)) then
       begin
         Inc(lCount);
         aRoutineRef := Default(TSemanticSymbolRef);
         aAmbiguous := True;
         Exit(False);
       end;
-      if lSymbol.RoutineScopeId = '' then
+      if lItems[lIndex].RoutineScopeId = '' then
         lScopeId := '';
     end;
+  end;
 
   Result := lCount = 1;
 end;
@@ -920,13 +1187,17 @@ function AddLocalReferenceCandidates(const aSymbolsByName: TSnapshotTargetSymbol
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
   const aCandidateRefs: TList<TSemanticSymbolRef>): Boolean;
 var
+  lAfter: Integer;
+  lFirst: Integer;
   lAmbiguousRoutine: Boolean;
   lBestCount: Integer;
   lBestSymbol: TSnapshotTargetSymbol;
   lHasBest: Boolean;
   lRoutineRef: TSemanticSymbolRef;
   lRoutineSignature: string;
-  lSymbol: TSnapshotTargetSymbol;
+  i: Integer;
+  lIndex: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
   lSymbols: TSnapshotTargetSymbolList;
 begin
   Result := False;
@@ -947,21 +1218,25 @@ begin
   lBestSymbol := Default(TSnapshotTargetSymbol);
   lBestCount := 0;
   lHasBest := False;
-  for lSymbol in lSymbols do
+  if not lSymbols.TryUnitRange(aModel.UnitName, lFirst, lAfter) then
+    Exit(aCandidateRefs.Count > 0);
+  lItems := lSymbols.List;
+  for i := lFirst to lAfter - 1 do
   begin
+    lIndex := lSymbols.UnitOrder[i].OriginalIndex;
     if not SnapshotLocalSymbolMatchesReference(aModel, aReference,
-      lRoutineSignature, lSymbol) then
+      lRoutineSignature, lItems[lIndex]) then
       Continue;
-    if not SnapshotLocalSymbolPrecedesReference(aReference, lSymbol) then
+    if not SnapshotLocalSymbolPrecedesReference(aReference, lItems[lIndex]) then
       Continue;
 
     if not lHasBest or SnapshotLocalSymbolIsBetterForReference(aReference,
-      lSymbol, lBestSymbol) then
+      lItems[lIndex], lBestSymbol) then
     begin
-      lBestSymbol := lSymbol;
+      lBestSymbol := lItems[lIndex];
       lBestCount := 1;
       lHasBest := True;
-    end else if SnapshotLocalSymbolsHaveSameLocation(lSymbol, lBestSymbol) then
+    end else if SnapshotLocalSymbolsHaveSameLocation(lItems[lIndex], lBestSymbol) then
       Inc(lBestCount);
   end;
 
@@ -1077,7 +1352,9 @@ var
   lMethodCandidate: TSnapshotTargetSymbol;
   lMethodCount: Integer;
   lMethodOwnerName: string;
-  lSymbol: TSnapshotTargetSymbol;
+  i: Integer;
+  lIndex: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
   lSymbols: TSnapshotTargetSymbolList;
 begin
   lOriginalCount := aCandidateRefs.Count;
@@ -1087,16 +1364,18 @@ begin
   lMethodCandidate := Default(TSnapshotTargetSymbol);
   lMethodCount := 0;
   lMethodOwnerName := '';
-  for lSymbol in lSymbols do
+  lItems := lSymbols.List;
+  for i := 0 to High(lSymbols.OwnedOrder) do
   begin
-    if OwnedSymbolIsVisibleFromReference(aModel, aReference, lSymbol) then
-      AddCandidateRef(aCandidateRefs, lSymbol);
-    if IsOwnedMethodCandidate(aModel, lSymbol) and not SameText(lSymbol.OwnerName,
+    lIndex := lSymbols.OwnedOrder[i];
+    if OwnedSymbolIsVisibleFromReference(aModel, aReference, lItems[lIndex]) then
+      AddCandidateRef(aCandidateRefs, lItems[lIndex]);
+    if IsOwnedMethodCandidate(aModel, lItems[lIndex]) and not SameText(lItems[lIndex].OwnerName,
       lMethodOwnerName) then
     begin
       Inc(lMethodCount);
-      lMethodOwnerName := lSymbol.OwnerName;
-      lMethodCandidate := lSymbol;
+      lMethodOwnerName := lItems[lIndex].OwnerName;
+      lMethodCandidate := lItems[lIndex];
     end;
   end;
 
@@ -1161,7 +1440,9 @@ procedure AddTopLevelReferenceCandidates(const aSymbolsByName: TSnapshotTargetSy
 var
   lSectionKind: string;
   lSelectedSymbols: TSnapshotTargetSymbolList;
-  lSymbol: TSnapshotTargetSymbol;
+  i: Integer;
+  lIndex: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
   lSymbols: TSnapshotTargetSymbolList;
 begin
   if not aSymbolsByName.TryGetValue(aReference.Name, lSymbols) then
@@ -1173,14 +1454,18 @@ begin
 
   lSelectedSymbols := TSnapshotTargetSymbolList.Create;
   try
-    for lSymbol in lSymbols do
-      if ModelUsesUnitInSection(aModel, lSectionKind, lSymbol.UnitName)
-        and TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lSymbol) and
-        not TargetSymbolInList(lSelectedSymbols, lSymbol) then
+    lItems := lSymbols.List;
+    for i := 0 to High(lSymbols.TopLevelOrder) do
+    begin
+      lIndex := lSymbols.TopLevelOrder[i];
+      if ModelUsesUnitInSection(aModel, lSectionKind, lItems[lIndex].UnitName)
+        and TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lItems[lIndex]) and
+        not TargetSymbolInList(lSelectedSymbols, lItems[lIndex]) then
       begin
-        lSelectedSymbols.Add(lSymbol);
-        AddCandidateRef(aCandidateRefs, lSymbol);
+        lSelectedSymbols.Add(lItems[lIndex]);
+        AddCandidateRef(aCandidateRefs, lItems[lIndex]);
       end;
+    end;
   finally
     lSelectedSymbols.Free;
   end;
@@ -1345,7 +1630,11 @@ var
   lCurrent: TSnapshotTargetSymbol;
   lDepth: Integer;
   lFound: TSnapshotTargetSymbol;
-  lSymbol: TSnapshotTargetSymbol;
+  lAfter: Integer;
+  lFirst: Integer;
+  lIndex: Integer;
+  lItems: TArray<TSnapshotTargetSymbol>;
+  lOriginalIndex: Integer;
   lSymbols: TSnapshotTargetSymbolList;
 begin
   aTarget := Default(TSemanticSymbolRef);
@@ -1360,15 +1649,23 @@ begin
       Exit(smlUnknown);
 
     lCount := 0;
-    if lSymbols <> nil then
-      for lSymbol in lSymbols do
-        if IsSnapshotMemberKind(lSymbol.Kind) and SameText(lSymbol.OwnerName, lCurrent.Name) and
-          SameText(lSymbol.UnitName, lCurrent.UnitName) and
-          ((lCount = 0) or not SnapshotSameDeclaration(lFound, lSymbol)) then
+    if (lSymbols <> nil) and
+      lSymbols.TryUnitRange(lCurrent.UnitName, lFirst, lAfter) then
+    begin
+      lItems := lSymbols.List;
+      for lIndex := lFirst to lAfter - 1 do
+      begin
+        lOriginalIndex := lSymbols.UnitOrder[lIndex].OriginalIndex;
+        if SameText(lItems[lOriginalIndex].OwnerName, lCurrent.Name) and
+          SameText(lItems[lOriginalIndex].UnitName, lCurrent.UnitName) and
+          IsSnapshotMemberKind(lItems[lOriginalIndex].Kind) and
+          ((lCount = 0) or not SnapshotSameDeclaration(lFound, lItems[lOriginalIndex])) then
         begin
           Inc(lCount);
-          lFound := lSymbol;
+          lFound := lItems[lOriginalIndex];
         end;
+      end;
+    end;
     if lCount = 1 then
     begin
       aTarget := lFound.Ref;
@@ -1752,20 +2049,23 @@ end;
 function SnapshotMethodOwnerName(const aModel: TDelphiSemanticUnitModel;
   const aReference: TDelphiSemanticReference): string;
 var
+  i: Integer;
   lBestLine: Integer;
-  lRoutine: TDelphiSemanticRoutine;
 begin
   Result := SnapshotRoutineOwnerName(aReference.RoutineName);
   if (Result <> '') or (aReference.Line <= 0) then
     Exit;
   lBestLine := 0;
-  for lRoutine in aModel.Routines do
-    if (lRoutine.OwnerName <> '') and (lRoutine.FileName = '') and
-      (lRoutine.Line > lBestLine) and (lRoutine.Line <= aReference.Line) and
-      (lRoutine.EndLine >= aReference.Line) then
+  // Preserve the original order and strict best-line tie break without copying
+  // the routine's managed fields for each nonmatching candidate (DAK-491).
+  for i := 0 to High(aModel.Routines) do
+    if (aModel.Routines[i].OwnerName <> '') and (aModel.Routines[i].FileName = '') and
+      (aModel.Routines[i].Line > lBestLine) and
+      (aModel.Routines[i].Line <= aReference.Line) and
+      (aModel.Routines[i].EndLine >= aReference.Line) then
     begin
-      lBestLine := lRoutine.Line;
-      Result := lRoutine.OwnerName;
+      lBestLine := aModel.Routines[i].Line;
+      Result := aModel.Routines[i].OwnerName;
     end;
 end;
 
@@ -1948,9 +2248,13 @@ var
   lDepth: Integer;
   lIndex: Integer;
   lModel: TDelphiSemanticUnitModel;
-  lModelFound: Boolean;
+  lModelIndex: Integer;
+  lAfter: Integer;
+  lFirst: Integer;
+  lMatchIndex: Integer;
   lOffset: Integer;
   lReference: TDelphiSemanticReference;
+  lReferenceIndex: Integer;
   lText: string;
 begin
   Result := False;
@@ -1964,28 +2268,35 @@ begin
       aSymbolsByName.ContainsKey(cSnapshotHelperKeyPrefix + lCurrent.Name) then
       Exit;
     lText := lCurrent.DeclarationText;
-    lModelFound := False;
-    for lModel in aSymbolsByName.Models do
-      if SameText(lModel.UnitName, lCurrent.UnitName) then
-      begin
-        lModelFound := True;
-        lDeclarationOffset := SnapshotTextOffset(lModel.SourceText, lCurrent.Line,
-          lCurrent.Column);
-        for lReference in lModel.References do
-          if (lReference.FileName = '') and (lReference.RoutineName <> '') and
-            (lReference.Role = 'type-reference') and
-            SameText(lReference.Name, aReference.Name) then
+    lModelIndex := aSymbolsByName.ModelIndexForUnit(lCurrent.UnitName);
+    if lModelIndex >= 0 then
+    begin
+      lModel := aSymbolsByName.Models[lModelIndex];
+      lDeclarationOffset := aSymbolsByName.TextOffset(lModelIndex, lCurrent.Line,
+        lCurrent.Column);
+      // Copy only matching references; all original source/role/name checks
+      // and their order remain in force (DAK-491).
+      if aSymbolsByName.TryHeaderReferenceRange(lModelIndex, aReference.Name,
+        lFirst, lAfter) then
+        for lMatchIndex := lFirst to lAfter - 1 do
+        begin
+          lReferenceIndex := aSymbolsByName.HeaderReferenceIndex(lModelIndex, lMatchIndex);
+          if (lModel.References[lReferenceIndex].FileName = '') and
+            (lModel.References[lReferenceIndex].RoutineName <> '') and
+            (lModel.References[lReferenceIndex].Role = 'type-reference') and
+            SameText(lModel.References[lReferenceIndex].Name, aReference.Name) then
           begin
-            lOffset := SnapshotTextOffset(lModel.SourceText, lReference.Line,
+            lReference := lModel.References[lReferenceIndex];
+            lOffset := aSymbolsByName.TextOffset(lModelIndex, lReference.Line,
               lReference.Column) - lDeclarationOffset + 1;
             if (lOffset > 0) and (lOffset + Length(lReference.Name) - 1 <= Length(lText)) and
               SameText(Copy(lText, lOffset, Length(lReference.Name)), lReference.Name) then
               for lIndex := lOffset to lOffset + Length(lReference.Name) - 1 do
                 lText[lIndex] := ' ';
           end;
-        Break;
-      end;
-    if not lModelFound or TextContainsIdentifier(lText, aReference.Name) or
+        end;
+    end;
+    if (lModelIndex < 0) or TextContainsIdentifier(lText, aReference.Name) or
       not lCurrent.BaseKnown then
       Exit;
     if (lCurrent.BaseTypeName = '') or MatchText(lCurrent.BaseTypeName, ['TObject',

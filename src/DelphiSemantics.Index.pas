@@ -133,6 +133,17 @@ type
     function GetHashCode(const aValue: TDelphiSemanticSymbolOriginKey): Integer; reintroduce;
   end;
 
+  // Private construction-only lookup. The original position preserves the first
+  // declaration identity when matching routine signatures are duplicated.
+  TRoutineSymbolLookupEntry = record
+    UnitName: string;
+    RoutineName: string;
+    Signature: string;
+    Id: TDelphiSemanticSymbolId;
+    OriginalIndex: Integer;
+  end;
+  TRoutineSymbolLookup = TArray<TRoutineSymbolLookupEntry>;
+
   TDelphiSemanticSymbolOriginSet = TDictionary<TDelphiSemanticSymbolOriginKey, Boolean>;
 
   TDelphiSemanticProjectSymbolIndexData = class(TInterfacedObject,
@@ -651,7 +662,10 @@ begin
   AddUsedVisibleScopes(aModel.UnitName, 'implementation', aModel.ImplementationUses);
 end;
 
-function TryFindUniqueRoutineSymbolId(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+function BuildRoutineSymbolLookup(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>):
+  TRoutineSymbolLookup; forward;
+
+function TryFindUniqueRoutineSymbolId(const aRoutines: TRoutineSymbolLookup;
   const aUnitName, aRoutineName: string; out aRoutineId: TDelphiSemanticSymbolId): Boolean;
   forward;
 
@@ -693,8 +707,10 @@ procedure TDelphiSemanticProjectSymbolIndexData.AddSnapshotSymbolMaps(
 var
   lModel: TDelphiSemanticUnitModel;
   lRoutineId: TDelphiSemanticSymbolId;
+  lRoutines: TRoutineSymbolLookup;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
+  lRoutines := BuildRoutineSymbolLookup(aSymbols);
   for lSymbol in aSymbols do
   begin
     fSymbolsById.AddOrSetValue(lSymbol.Id.Value, lSymbol);
@@ -716,7 +732,7 @@ begin
     begin
       AddSymbolToCompositeMap(fLocalSymbolsByRoutineAndName, lSymbol.OwnerName, lSymbol.Name,
         lSymbol);
-      if TryFindUniqueRoutineSymbolId(aSymbols, lSymbol.UnitName, lSymbol.OwnerName,
+      if TryFindUniqueRoutineSymbolId(lRoutines, lSymbol.UnitName, lSymbol.OwnerName,
         lRoutineId) then
         AddSymbolToCompositeMap(fLocalSymbolsByRoutineIdAndName, lRoutineId.Value, lSymbol.Name,
           lSymbol);
@@ -739,6 +755,7 @@ var
   lOriginComparer: IEqualityComparer<TDelphiSemanticSymbolOriginKey>;
   lOriginKey: TDelphiSemanticSymbolOriginKey;
   lRoutineId: TDelphiSemanticSymbolId;
+  lRoutines: TRoutineSymbolLookup;
   lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   inherited Create;
@@ -770,6 +787,7 @@ begin
       AddMemberOriginKeys(lMemberOriginKeys, aContext.IndexedUnitModels[i]);
     end;
 
+    lRoutines := BuildRoutineSymbolLookup(aSymbols);
     for lSymbol in aSymbols do
     begin
       fSymbolsById.AddOrSetValue(lSymbol.Id.Value, lSymbol);
@@ -784,7 +802,7 @@ begin
       begin
         AddSymbolToCompositeMap(fLocalSymbolsByRoutineAndName, lSymbol.OwnerName, lSymbol.Name,
           lSymbol);
-        if TryFindUniqueRoutineSymbolId(aSymbols, lSymbol.UnitName, lSymbol.OwnerName,
+        if TryFindUniqueRoutineSymbolId(lRoutines, lSymbol.UnitName, lSymbol.OwnerName,
           lRoutineId) then
           AddSymbolToCompositeMap(fLocalSymbolsByRoutineIdAndName, lRoutineId.Value, lSymbol.Name,
             lSymbol);
@@ -995,34 +1013,76 @@ begin
     Result := aSymbol.Name;
 end;
 
-function TryFindUniqueRoutineSymbolId(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>;
+function BuildRoutineSymbolLookup(const aSymbols: TArray<TDelphiSemanticIndexedSymbol>):
+  TRoutineSymbolLookup;
+var
+  i: Integer;
+  lCount: Integer;
+begin
+  SetLength(Result, Length(aSymbols));
+  lCount := 0;
+  for i := 0 to High(aSymbols) do
+    if SameText(aSymbols[i].Kind, 'routine') then
+    begin
+      Result[lCount].UnitName := aSymbols[i].UnitName;
+      Result[lCount].RoutineName := QualifiedSymbolRoutineName(aSymbols[i]);
+      Result[lCount].Signature := NormalizeSignatureForSymbolId(aSymbols[i].Signature);
+      Result[lCount].Id := aSymbols[i].Id;
+      Result[lCount].OriginalIndex := i;
+      Inc(lCount);
+    end;
+  SetLength(Result, lCount);
+  TArray.Sort<TRoutineSymbolLookupEntry>(Result,
+    TComparer<TRoutineSymbolLookupEntry>.Construct(
+      function(const aLeft, aRight: TRoutineSymbolLookupEntry): Integer
+      begin
+        Result := CompareText(aLeft.UnitName, aRight.UnitName);
+        if Result = 0 then
+          Result := CompareText(aLeft.RoutineName, aRight.RoutineName);
+        if Result = 0 then
+          Result := aLeft.OriginalIndex - aRight.OriginalIndex;
+      end));
+end;
+
+function TryFindUniqueRoutineSymbolId(const aRoutines: TRoutineSymbolLookup;
   const aUnitName, aRoutineName: string; out aRoutineId: TDelphiSemanticSymbolId): Boolean;
 var
-  lCount: Integer;
+  i: Integer;
+  lCompare: Integer;
+  lHigh: Integer;
+  lLow: Integer;
+  lMiddle: Integer;
   lSignature: string;
-  lSymbol: TDelphiSemanticIndexedSymbol;
 begin
   aRoutineId := Default(TDelphiSemanticSymbolId);
-  lCount := 0;
-  lSignature := '';
-  for lSymbol in aSymbols do
-    if SameText(lSymbol.UnitName, aUnitName) and SameText(lSymbol.Kind, 'routine') and
-      SameText(QualifiedSymbolRoutineName(lSymbol), aRoutineName) then
-    begin
-      if lCount = 0 then
-      begin
-        Inc(lCount);
-        aRoutineId := lSymbol.Id;
-        lSignature := NormalizeSignatureForSymbolId(lSymbol.Signature);
-      end else if not SameText(lSignature, NormalizeSignatureForSymbolId(lSymbol.Signature)) then
-      begin
-        Inc(lCount);
-        aRoutineId := Default(TDelphiSemanticSymbolId);
-        Exit(False);
-      end;
-    end;
-
-  Result := lCount = 1;
+  lLow := 0;
+  lHigh := Length(aRoutines);
+  while lLow < lHigh do
+  begin
+    lMiddle := lLow + (lHigh - lLow) div 2;
+    lCompare := CompareText(aRoutines[lMiddle].UnitName, aUnitName);
+    if lCompare = 0 then
+      lCompare := CompareText(aRoutines[lMiddle].RoutineName, aRoutineName);
+    if lCompare < 0 then
+      lLow := lMiddle + 1
+    else
+      lHigh := lMiddle;
+  end;
+  Result := (lLow < Length(aRoutines)) and
+    SameText(aRoutines[lLow].UnitName, aUnitName) and
+    SameText(aRoutines[lLow].RoutineName, aRoutineName);
+  if not Result then
+    Exit;
+  lSignature := aRoutines[lLow].Signature;
+  i := lLow + 1;
+  while (i < Length(aRoutines)) and SameText(aRoutines[i].UnitName, aUnitName) and
+    SameText(aRoutines[i].RoutineName, aRoutineName) do
+  begin
+    if not SameText(lSignature, aRoutines[i].Signature) then
+      Exit(False);
+    Inc(i);
+  end;
+  aRoutineId := aRoutines[lLow].Id;
 end;
 
 procedure AddSnapshotUnitSymbol(const aSymbols: TDelphiSemanticSymbolList;
