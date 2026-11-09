@@ -295,6 +295,7 @@ type
     [TestCase('Corrupt target slot rebuilds source', 'bad-slot')]
     [TestCase('Old storage format rebuilds units', 'old-format')]
     [TestCase('Removed target rebuilds source', 'removed-target')]
+    [TestCase('Omitted target remains analysis input', 'omitted-target')]
     procedure CachedUnitIdentitySurvivesTopology(const aCheck: string);
     [Category('Fast')]
     [Test]
@@ -5654,7 +5655,10 @@ begin
   finally
     lResult.Session.Free;
   end;
-  SnapshotProjectSourceFileNamesForTest := [lOther, lFirst, lSecond];
+  // Other cases isolate snapshot topology while keeping semantic roots fixed.
+  // This case follows the real project-root change and must retain its import.
+  if aCheck <> 'omitted-target' then
+    SnapshotProjectSourceFileNamesForTest := [lOther, lFirst, lSecond];
   lProject.MainSourceFileName := '';
   lBuild := Build([lFirst, lSecond]);
   try
@@ -5684,13 +5688,17 @@ begin
   else if aCheck = 'bad-slot' then
     ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
       'update snapshot_references set target_symbol_id = 999999 where target_unit_id <> 0')
+  else if aCheck = 'removed-target' then
+    // An omitted but readable active import is retained by DS-798. This
+    // negative control removes the physical source, not just an edit root.
+    TFile.Delete(lFirst)
   else if aCheck = 'old-format' then
     ExecProjectSessionCacheSql(lOptions.SqliteCacheFileName,
       'update meta set value_text = ''35'' where key_name = ''snapshot_schema_version''');
 
   if aCheck = 'removal' then
     lBuild := Build([lFirst])
-  else if aCheck = 'removed-target' then
+  else if (aCheck = 'removed-target') or (aCheck = 'omitted-target') then
     lBuild := Build([lSecond])
   else if aCheck = 'collision' then
     lBuild := Build([lSecond, lFirst, lOther])
@@ -5741,6 +5749,9 @@ begin
           Assert.AreEqual(lFirst, lBuild.Snapshot.TextOf(lTarget.FileNameId));
           Assert.AreEqual('CommonGlobal', lBuild.Snapshot.TextOf(
             lTarget.SymbolById(lReference.TargetSymbolId).NameId));
+          if aCheck = 'omitted-target' then
+            Assert.AreEqual('analysis-source', lBuild.Snapshot.TextOf(
+              lTarget.SymbolById(lReference.TargetSymbolId).SourceKindId));
         end;
       end;
       Assert.AreEqual(1, lTargetCount);
@@ -5752,7 +5763,10 @@ begin
   // Every build above closes its cache. Reopen it again to verify repaired rows.
   lBuild := Build(lProject.SourceFileNames);
   try
-    Assert.AreEqual(Integer(Length(lProject.SourceFileNames)), lBuild.Metrics.SnapshotCacheHits);
+    if aCheck = 'omitted-target' then
+      Assert.AreEqual(2, lBuild.Metrics.SnapshotCacheHits)
+    else
+      Assert.AreEqual(Integer(Length(lProject.SourceFileNames)), lBuild.Metrics.SnapshotCacheHits);
     Assert.AreEqual(0, lBuild.Metrics.SnapshotCacheMisses);
     Assert.AreEqual(1, lBuild.Metrics.SnapshotCacheFullHitCount);
   finally
