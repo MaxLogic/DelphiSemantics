@@ -24,6 +24,8 @@ type
     [Test] procedure NativeCatalogArtifactRoundTripPreservesEffects;
     [Test] procedure ArtifactRejectsCorruptionKeysPinsCountsAndOversize;
     [Test] procedure SourceCapSkipsExtractionAndCachedGapStaysOpaque;
+    [Test] procedure InitialPinMismatchRetainsActualInputCurrentness;
+    [Test] procedure InitialCompilerMismatchDoesNotRebaselineActualInputs;
   end;
 
 implementation
@@ -421,6 +423,56 @@ begin
   Assert.IsTrue(lEffect.Observes(TNameEffectTargetKind.ClassType));
   Assert.IsFalse(lEffect.Observes(TNameEffectTargetKind.OtherType));
   Assert.IsFalse(lEffect.Observes(TNameEffectTargetKind.Routine));
+end;
+
+procedure TSdkEffectsTests.InitialPinMismatchRetainsActualInputCurrentness;
+var
+  lRequest: TNameSdkGenerationRequest;
+  lCatalog: TNameSdkCatalog;
+  lArtifact, lFileName: string;
+begin
+  lRequest := ArtifactRequest(lArtifact);
+  lRequest.ExpectedSourceIdentity := StringOfChar('0', 64);
+  lCatalog := TNameSdkCatalog.Create(lRequest);
+  try
+    lCatalog.Generate;
+    Assert.IsFalse(lCatalog.Validated);
+    Assert.IsTrue(lCatalog.InputsUnchangedSinceAnalysis,
+      'Reviewed-pin mismatch does not imply actual inputs changed during this query');
+    lFileName := TPath.Combine(lRequest.SdkRoot, 'new-input.txt');
+    TFile.WriteAllText(lFileName, 'changed');
+    Assert.IsFalse(lCatalog.InputsUnchangedSinceAnalysis);
+    lCatalog.Generate;
+    Assert.IsFalse(lCatalog.InputsUnchangedSinceAnalysis,
+      'Regeneration must never replace the original actual-input baseline');
+  finally
+    lCatalog.Free;
+  end;
+end;
+
+procedure TSdkEffectsTests.InitialCompilerMismatchDoesNotRebaselineActualInputs;
+var
+  lRequest: TNameSdkGenerationRequest;
+  lCatalog: TNameSdkCatalog;
+  lArtifact: string;
+begin
+  lRequest := ArtifactRequest(lArtifact);
+  lRequest.CompilerFileName := TPath.Combine(TPath.GetDirectoryName(lArtifact), 'compiler-input.bin');
+  TFile.WriteAllText(lRequest.CompilerFileName, 'initial compiler');
+  lRequest.ExpectedCompilerHash := StringOfChar('0', 64);
+  lCatalog := TNameSdkCatalog.Create(lRequest);
+  try
+    lCatalog.Generate;
+    Assert.IsFalse(lCatalog.Validated);
+    Assert.IsTrue(lCatalog.InputsUnchangedSinceAnalysis);
+    TFile.WriteAllText(lRequest.CompilerFileName, 'changed compiler');
+    Assert.IsFalse(lCatalog.InputsUnchangedSinceAnalysis);
+    lCatalog.TryLoad(lArtifact);
+    Assert.IsFalse(lCatalog.InputsUnchangedSinceAnalysis,
+      'A failed artifact load must never replace the original actual-input baseline');
+  finally
+    lCatalog.Free;
+  end;
 end;
 
 initialization

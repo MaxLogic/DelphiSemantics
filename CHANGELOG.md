@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename plans support explicit acceptance of unproven runtime-name effects while preserving exact string matches, known consumer demands, collision checks and warning provenance (DS-803).
+
 - Rename refuses plans with incomplete runtime-name call effects or relevant class-name diagnostics. SDK effects are tied to installed source/compiler hashes; existing string barriers remain (DS-803).
 
 - Rename checks retained string constants, variable initializers and concatenations in code, including class constants and namespace-qualified imports. It refuses relevant unknown string operands while excluding proved numeric values and independently scanned structured values. Declaration sections follow token positions (DS-797).

@@ -12,7 +12,7 @@ type
     [Test] procedure PreservesOrderedOperandsAndImmutableChildren;
     [Test] procedure RejectsMissingAndCorruptPersistence;
     [Test] procedure ModelAndSnapshotRoundTripRetainFacts;
-    [Test] procedure SkippedBodiesRemainExplicitlyIncomplete;
+    [Test] procedure LeanSymbolModelsRetainFullRuntimeFacts;
     [Test] procedure BudgetStopsBeforePartialGraphPublication;
     [Test] procedure MapsExclusiveEndAtNextCopiedLine;
     [Test] procedure GenuineUnknownSyntaxRemainsIncomplete;
@@ -160,23 +160,27 @@ begin
   end;
 end;
 
-procedure TNameFlowFactsTests.SkippedBodiesRemainExplicitlyIncomplete;
+procedure TNameFlowFactsTests.LeanSymbolModelsRetainFullRuntimeFacts;
 var
   lFileName: string;
   lOptions: TDelphiSemanticModelOptions;
-  lModel: TDelphiSemanticUnitModel;
+  lModel, lFull: TDelphiSemanticUnitModel;
 begin
   lFileName := TPath.Combine(CreateTestTempRoot('nameflow-skip-temp'), 'SkipFacts.pas');
-  TFile.WriteAllText(lFileName, 'unit SkipFacts; interface implementation procedure Work; begin end; end.', TEncoding.ASCII);
+  TFile.WriteAllText(lFileName, 'unit SkipFacts; interface implementation procedure Work; begin Work; end; end.', TEncoding.ASCII);
   lOptions := Default(TDelphiSemanticModelOptions);
   lOptions.SourceFileName := lFileName;
   lOptions.SkipBodyAnalysis := True;
   lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
   Assert.IsNotNull(lModel.NameFlowFacts);
-  Assert.IsFalse(lModel.NameFlowFacts.Complete);
-  Assert.AreEqual(0, lModel.NameFlowFacts.NodeCount,
-    'Skipped bodies must not allocate an unusable partial call graph');
-  Assert.IsTrue(lModel.NameFlowFacts.CoverageReason <> '');
+  Assert.IsTrue(lModel.NameFlowFacts.Complete, lModel.NameFlowFacts.CoverageReason);
+  Assert.IsTrue(lModel.NameFlowFacts.NodeCount > 0,
+    'Runtime effects require the full parser tree even when symbol bodies are lean');
+  lOptions.SkipBodyAnalysis := False;
+  lFull := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lFull.NameFlowFacts.Complete, lFull.NameFlowFacts.CoverageReason);
+  Assert.AreEqual(NameFlowFactsToJson(lFull.NameFlowFacts), NameFlowFactsToJson(lModel.NameFlowFacts),
+    'Identifier scoping must preserve every ordered runtime-effect fact');
 end;
 
 procedure TNameFlowFactsTests.BudgetStopsBeforePartialGraphPublication;

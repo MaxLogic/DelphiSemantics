@@ -82,11 +82,15 @@ type
     fIdentity: string;
     fReason: string;
     fValidated: Boolean;
+    fInitialInputsCaptured: Boolean;
+    fInitialActualInputs: string;
     fIndex: TDictionary<string, Integer>;
     fStatistics: TNameSdkStatistics;
     fCacheReason: string;
     fCoverage: TArray<TNameSdkSourceCoverage>;
     function ComputeIdentity: string;
+    function ActualInputIdentity: string;
+    procedure CaptureInitialActualInputs;
     procedure AddModel(const aModel: TDelphiSemanticUnitModel);
     procedure Propagate;
     procedure CountEffects;
@@ -96,11 +100,13 @@ type
     destructor Destroy; override;
     procedure Generate;
     function ValidateCurrentIdentity: Boolean;
+    function InputsUnchangedSinceAnalysis: Boolean;
     function Lookup(const aDeclarationId: string): TNameSdkEffect;
     function JoinCandidates(const aDeclarationIds: TArray<string>;
       const aCandidatesComplete: Boolean): TNameSdkEffect;
     function Entries: TArray<TNameSdkEffectEntry>;
     function SourceCoverage: TArray<TNameSdkSourceCoverage>;
+    function RequestedSourceFileNames: TArray<string>;
     function ArtifactKey: string;
     function Save(const aFileName: string): Boolean;
     function TryLoad(const aFileName: string): Boolean;
@@ -110,6 +116,10 @@ type
     property CacheReason: string read fCacheReason;
     property Validated: Boolean read fValidated;
   end;
+
+// Positive consumer descriptions only; this does not certify passivity or binding.
+function PositivePrimitiveNameConsumer(const aQualifiedName: string;
+  out aEffect: TNameSdkEffect): Boolean;
 
 // Bootstrap/review helper only. Production requests require a previously retained pin.
 function CaptureSdkSourceIdentity(const aSdkRoot: string): string;
@@ -254,6 +264,72 @@ begin
     aEffect.Reason := 'sdk-name-metadata-primitive';
 end;
 
+function PositivePrimitiveNameConsumer(const aQualifiedName: string;
+  out aEffect: TNameSdkEffect): Boolean;
+begin
+  // Reviewed Delphi 23.0 declarations. These descriptions identify possible
+  // name-taking overloads only; callers must establish the visible SDK group.
+  aEffect := TNameSdkEffect.PassiveEffect;
+  aEffect.Precision.Grammar := TNameConsumerGrammar.Identifier;
+  if MatchText(aQualifiedName, ['System.Classes.GetClass', 'System.Classes.FindClass',
+    'System.Classes.TComponent.FindComponent']) then
+  begin
+    aEffect.Channels := [TNameEffectChannel.NameFormal];
+    aEffect.Precision.FormalOrdinal := 1;
+    if SameText(aQualifiedName, 'System.Classes.TComponent.FindComponent') then
+      aEffect.Targets := [TNameEffectTargetKind.Member]
+    else
+      aEffect.Targets := [TNameEffectTargetKind.ClassType];
+    Exit(True);
+  end;
+  if MatchText(aQualifiedName, ['System.TypInfo.PropType', 'System.TypInfo.PropIsType',
+    'System.TypInfo.IsStoredProp', 'System.TypInfo.IsPublishedProp',
+    'System.TypInfo.GetPropInfo', 'System.TypInfo.GetPropValue', 'System.TypInfo.SetPropValue',
+    'System.TypInfo.GetOrdProp', 'System.TypInfo.SetOrdProp',
+    'System.TypInfo.GetEnumProp', 'System.TypInfo.SetEnumProp',
+    'System.TypInfo.GetSetProp', 'System.TypInfo.SetSetProp',
+    'System.TypInfo.GetObjectProp', 'System.TypInfo.SetObjectProp', 'System.TypInfo.GetObjectPropClass',
+    'System.TypInfo.GetStrProp', 'System.TypInfo.SetStrProp',
+    'System.TypInfo.GetAnsiStrProp', 'System.TypInfo.SetAnsiStrProp',
+    'System.TypInfo.GetWideStrProp', 'System.TypInfo.SetWideStrProp',
+    'System.TypInfo.GetUnicodeStrProp', 'System.TypInfo.SetUnicodeStrProp',
+    'System.TypInfo.GetRawByteStrProp', 'System.TypInfo.SetRawByteStrProp',
+    'System.TypInfo.GetFloatProp', 'System.TypInfo.SetFloatProp',
+    'System.TypInfo.GetVariantProp', 'System.TypInfo.SetVariantProp',
+    'System.TypInfo.GetMethodProp', 'System.TypInfo.SetMethodProp',
+    'System.TypInfo.GetInt64Prop', 'System.TypInfo.SetInt64Prop',
+    'System.TypInfo.GetInterfaceProp', 'System.TypInfo.SetInterfaceProp',
+    'System.TypInfo.GetDynArrayProp', 'System.TypInfo.SetDynArrayProp']) then
+  begin
+    aEffect.Channels := [TNameEffectChannel.ArgumentMetadata, TNameEffectChannel.NameFormal];
+    aEffect.MetadataFormalOrdinal := 1;
+    aEffect.Precision.FormalOrdinal := 2;
+    aEffect.Targets := [TNameEffectTargetKind.Member];
+    Exit(True);
+  end;
+  if SameText(aQualifiedName, 'Winapi.Windows.GetProcAddress') then
+  begin
+    aEffect.Channels := [TNameEffectChannel.NameFormal];
+    aEffect.Precision.FormalOrdinal := 2;
+    aEffect.Precision.Grammar := TNameConsumerGrammar.ExportName;
+    aEffect.Targets := [TNameEffectTargetKind.Routine];
+    Exit(True);
+  end;
+  Result := PrimitiveEffect(aQualifiedName, aEffect) and
+    (TNameEffectChannel.NameFormal in aEffect.Channels);
+  if not Result then
+    Exit;
+  // A broad metadata producer target set is not the name formal's domain.
+  if MatchText(aQualifiedName, ['System.Rtti.TRttiType.GetField',
+    'System.Rtti.TRttiType.GetMethod', 'System.Rtti.TRttiType.GetProperty',
+    'System.TObject.MethodAddress', 'System.TObject.FieldAddress']) then
+    aEffect.Targets := [TNameEffectTargetKind.Member]
+  else if SameText(aQualifiedName, 'System.Rtti.TRttiContext.FindType') then
+    aEffect.Targets := [TNameEffectTargetKind.ClassType, TNameEffectTargetKind.OtherType,
+      TNameEffectTargetKind.EnumType, TNameEffectTargetKind.UnitName];
+end;
+
+
 function RoutineQualifiedName(const aUnitName: string; const aRoutine: TDelphiSemanticRoutine): string;
 begin
   if (aRoutine.OwnerName <> '') and not StartsText(aRoutine.OwnerName + '.', aRoutine.Name) then
@@ -314,6 +390,41 @@ destructor TNameSdkCatalog.Destroy;
 begin
   fIndex.Free;
   inherited;
+end;
+
+function TNameSdkCatalog.ActualInputIdentity: string;
+begin
+  Result := THashSHA2.GetHashString(CaptureSdkSourceIdentity(fRequest.SdkRoot) + #10 +
+    THashSHA2.GetHashStringFromFile(fRequest.CompilerFileName));
+end;
+
+procedure TNameSdkCatalog.CaptureInitialActualInputs;
+begin
+  if fInitialInputsCaptured then
+    Exit;
+  fInitialInputsCaptured := True;
+  try
+    fInitialActualInputs := ActualInputIdentity;
+  except
+    on e: Exception do
+      // An unreadable initial input permanently denies the relaxed currentness
+      // check. It never becomes reviewed-pin authority or a new baseline.
+      fInitialActualInputs := '';
+  end;
+end;
+
+function TNameSdkCatalog.InputsUnchangedSinceAnalysis: Boolean;
+begin
+  Result := False;
+  if not fInitialInputsCaptured or (fInitialActualInputs = '') then
+    Exit;
+  try
+    Result := SameText(fInitialActualInputs, ActualInputIdentity);
+  except
+    on e: Exception do
+      // Current unreadable inputs cannot establish an unchanged query input.
+      Result := False;
+  end;
 end;
 
 function TNameSdkCatalog.ComputeIdentity: string;
@@ -621,6 +732,7 @@ var
   lInclude: string;
   lTimer: TStopwatch;
 begin
+  CaptureInitialActualInputs;
   fValidated := False;
   fReason := '';
   fIdentity := '';
@@ -786,6 +898,16 @@ begin
   end;
 end;
 
+function TNameSdkCatalog.RequestedSourceFileNames: TArray<string>;
+var
+  i: Integer;
+begin
+  // Request inventory only: it carries no extraction, body or passivity claim.
+  SetLength(Result, Length(fRequest.UnitOptions));
+  for i := 0 to High(fRequest.UnitOptions) do
+    Result[i] := fRequest.UnitOptions[i].SourceFileName;
+end;
+
 function TNameSdkCatalog.SourceCoverage: TArray<TNameSdkSourceCoverage>;
 begin
   Result := Copy(fCoverage);
@@ -880,6 +1002,7 @@ var
   lCurrentStats: TNameSdkStatistics;
   lIdentity: string;
 begin
+  CaptureInitialActualInputs;
   Result := False;
   fValidated := False;
   fEntries := nil;

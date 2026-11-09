@@ -2903,20 +2903,13 @@ begin
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
       CollectFacts(lSyntaxTree, nil, -1, '');
       lFlowReason := '';
-      if aOptions.SkipBodyAnalysis then
-        lFlowReason := 'name-flow-body-extraction-skipped';
-      if aOptions.SkipReferenceExtraction then
-        lFlowReason := 'name-flow-reference-extraction-skipped';
       if not lComplete then
         lFlowReason := 'name-flow-parser-recovered';
-      if aOptions.SkipBodyAnalysis or aOptions.SkipReferenceExtraction then
-        // A projected declaration tree cannot certify calls in omitted bodies.
-        // Keep the explicit gap without allocating an unusable partial graph.
-        aModel.NameFlowFacts := CreateNameFlowFacts(nil, False,
-          aModel.DefineEvidenceComplete, lFlowReason)
-      else
-        aModel.NameFlowFacts := ExtractNameFlowFacts(lSyntaxTree, aModel.FileName, aText,
-          lComplete, aModel.DefineEvidenceComplete, lFlowReason, aOptions.NameFlowFactLimit);
+      // Identifier-scoped symbol extraction still owns the full parser tree.
+      // Keep runtime effects independent of omitted reference/body models;
+      // a recovered projected tree retains its explicit coverage gap.
+      aModel.NameFlowFacts := ExtractNameFlowFacts(lSyntaxTree, aModel.FileName, aText,
+        lComplete, aModel.DefineEvidenceComplete, lFlowReason, aOptions.NameFlowFactLimit);
       lFlowScopes := TDictionary<Int64, string>.Create;
       try
         for lFlowScopeIndex := 0 to lScopes.Count - 1 do
