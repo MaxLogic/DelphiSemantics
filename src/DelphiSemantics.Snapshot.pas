@@ -124,6 +124,7 @@ type
     fScopeModelStatusId: TSemanticStringId;
     fScopeModelVersionId: TSemanticStringId;
     fSourceTextId: TSemanticStringId;
+    fModelEvidenceJson: string;
     fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fUnitId: TSemanticUnitId;
@@ -154,6 +155,8 @@ type
     function ReferenceById(const aId: TSemanticReferenceId): TSemanticReferenceFact;
     function ReferenceIdByWithIndex(const aIndex: Integer): TSemanticReferenceId;
     function SymbolById(const aId: TSemanticSymbolId): TSemanticSymbolFact;
+    procedure SetModelEvidenceJson(const aPayload: string);
+    property ModelEvidenceJson: string read fModelEvidenceJson;
     procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
@@ -511,6 +514,12 @@ procedure TUnitSnapshot.CheckMutable;
 begin
   if fFrozen then
     raise Exception.Create('Cannot mutate a frozen unit snapshot.');
+end;
+
+procedure TUnitSnapshot.SetModelEvidenceJson(const aPayload: string);
+begin
+  CheckMutable;
+  fModelEvidenceJson := aPayload;
 end;
 
 procedure TUnitSnapshot.SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);

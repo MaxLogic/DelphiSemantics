@@ -372,7 +372,10 @@ begin
   begin
     aError := 'caller-pair-excluded: resolved caller ' + aInventory.Caller.DisplayName +
       '; --configs="' + aSelection.Configurations + '" --platforms="' + aSelection.Platforms +
-      '". Include that pair or set --config <included configuration> --platform <included platform>';
+      '". Include that pair with --configs="' + String.Join(',', lSelectedConfigs +
+      [aInventory.Caller.Configuration]) + '" --platforms="' + String.Join(',', lSelectedPlatforms +
+      [aInventory.Caller.Platform]) + '" or set --config="' + lSelectedConfigs[0] +
+      '" --platform="' + lSelectedPlatforms[0] + '"';
       Exit(False);
   end;
   if Length(fRequired) = 0 then

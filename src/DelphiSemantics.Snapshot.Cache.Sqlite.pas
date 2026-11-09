@@ -173,7 +173,7 @@ const
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
-  cSnapshotCacheSchemaVersion = '38';
+  cSnapshotCacheSchemaVersion = '1000';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -764,7 +764,8 @@ begin
       'scope_diagnostic_id integer not null, rejected_declaration_count integer not null, ' +
       'string_count integer not null, ' +
       'symbol_count integer not null, with_statement_count integer not null, ' +
-      'reference_count integer not null, parse_avoided_estimate_ms integer not null)');
+      'reference_count integer not null, parse_avoided_estimate_ms integer not null, ' +
+      'model_evidence_json text not null)');
     lConnection.ExecSQL('create index if not exists idx_snapshot_units_identity on ' +
       'snapshot_units(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_strings (' +
@@ -2307,7 +2308,7 @@ begin
   lQuery := NewQuery(aConnection as TFDConnection, 'select unit_id, file_name_id, unit_name_id, ' +
     'source_text_id, scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, string_count, symbol_count, with_statement_count, ' +
-    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id ' +
+    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id, model_evidence_json ' +
     'from snapshot_units where cache_key = ? ' +
     'and identity_key = ?');
   try
@@ -2338,6 +2339,7 @@ begin
         TSemanticStringId(lFileNameIdField.AsInteger),
         TSemanticStringId(lUnitNameIdField.AsInteger),
         TSemanticStringId(lSourceTextIdField.AsInteger));
+      aUnit.SetModelEvidenceJson(lQuery.Fields[14].AsWideString);
       aUnit.SetVerifiedActiveSourceTextId(TSemanticStringId(lQuery.Fields[13].AsInteger));
       aUnit.SetScopeModelMetadata(
         TSemanticStringId(lScopeModelStatusIdField.AsInteger),
@@ -3146,6 +3148,7 @@ begin
     aTargetStrings, aUnit.FileNameId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.UnitNameId), RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.SourceTextId));
+  Result.SetModelEvidenceJson(aUnit.ModelEvidenceJson);
   Result.SetVerifiedActiveSourceTextId(RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
   Result.SetScopeModelMetadata(RemapSnapshotStringId(aSnapshot,
@@ -3507,9 +3510,9 @@ begin
     'stored_at_utc, unit_id, file_name_id, unit_name_id, source_text_id, string_count, ' +
     'scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, symbol_count, with_statement_count, reference_count, ' +
-    'parse_avoided_estimate_ms, verified_active_source_text_id) ' +
+    'parse_avoided_estimate_ms, verified_active_source_text_id, model_evidence_json) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
-    '?, ?, ?, ?, ?, ?)');
+    '?, ?, ?, ?, ?, ?, ?)');
   try
     SetWideParam(lQuery, 0, aIdentity.CacheKey);
     SetWideParam(lQuery, 1, aIdentity.IdentityKey);
@@ -3547,6 +3550,7 @@ begin
     lQuery.Params[20].AsLargeInt := aIdentity.ParseAvoidedEstimateMilliseconds;
     lQuery.Params[21].DataType := ftInteger;
     lQuery.Params[21].AsInteger := Integer(aUnit.VerifiedActiveSourceTextId);
+    SetWideParam(lQuery, 22, aUnit.ModelEvidenceJson);
     lQuery.Prepare;
     lQuery.ExecSQL;
   finally

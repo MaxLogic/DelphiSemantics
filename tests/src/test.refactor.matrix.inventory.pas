@@ -86,6 +86,8 @@ begin
   Assert.IsTrue(lError.Contains('Release/Linux64'));
   Assert.IsTrue(lError.Contains('--config'));
   Assert.IsTrue(lError.Contains('--platform'));
+  Assert.IsTrue(lError.Contains('--platforms="Win32,Linux64"'), lError);
+  Assert.IsTrue(lError.Contains('--config="Debug" --platform="Win32"'), lError);
 end;
 
 procedure TMatrixInventoryTests.ExplicitCallerCanExcludeNativeDefault;

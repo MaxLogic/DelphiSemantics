@@ -173,7 +173,7 @@ type
       TDelphiProjectSnapshot; overload;
     function BuildSnapshotResult: TDelphiSemanticProjectSnapshotBuildResult; overload;
     // Caller owns aOwnedEvidence. Cached snapshots remain immutable; matrix S
-    // reloads full per-pair models to recover their source/context witnesses.
+    // restores co-produced witnesses from the exact cached unit snapshots.
     function BuildMatrixSourceSnapshotResult(out aOwnedEvidence: TObject):
       TDelphiSemanticProjectSnapshotBuildResult;
     function BuildSnapshotResult(const aScopedSourceFileNames: TArray<string>):
@@ -235,7 +235,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v76';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v1000-ds797-matrix-evidence';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v98';
 
@@ -1403,6 +1403,44 @@ begin
   Result := False;
 end;
 
+function CreateContextEvidenceExtension(
+  const aProject: TDelphiSemanticProjectInfo;
+  const aProjectDiagnostics: TArray<TDelphiSemanticDiagnostic>;
+  const aExpectedRootFileNames: TArray<string>;
+  const aProjectObservations: IDelphiSemanticProjectContextObservations;
+  const aModelEvidence: TArray<TDelphiSemanticContextModelEvidence>;
+  const aScopedSourceFileNames: TArray<string>; const aSessionOpen: Boolean): TObject;
+var
+  i: Integer;
+  lContext: TDelphiSemanticContextEvidenceContext;
+  lEvidence: TDelphiSemanticContextEvidenceExtension;
+begin
+  lContext := Default(TDelphiSemanticContextEvidenceContext);
+  lContext.SessionOpen := aSessionOpen;
+  lContext.ProjectFileName := aProject.ProjectFileName;
+  lContext.MainSourceFileName := aProject.MainSourceFileName;
+  SetLength(lContext.CompilerLinkProperties, Length(cDelphiSemanticCompilerLinkPropertyNames));
+  for i := 0 to High(cDelphiSemanticCompilerLinkPropertyNames) do
+  begin
+    lContext.CompilerLinkProperties[i].Name := cDelphiSemanticCompilerLinkPropertyNames[i];
+    lContext.CompilerLinkProperties[i].Value :=
+      aProject.PropertyValue(cDelphiSemanticCompilerLinkPropertyNames[i]);
+  end;
+  lContext.CompilerIdentity := aProject.CompilerProfileName;
+  lContext.ModelVersion := DelphiSemanticsVersionText;
+  lContext.ProjectContextFingerprint := aProject.ContextFingerprint;
+  lContext.ExpectedRootFileNames := Copy(aExpectedRootFileNames);
+  lContext.RequestedAnalysisFileNames := Copy(aScopedSourceFileNames);
+  lContext.ProjectDiagnostics := Copy(aProjectDiagnostics);
+  Result := nil;
+  lEvidence := TDelphiSemanticContextEvidenceExtension.Create(lContext,
+    aProjectObservations, aModelEvidence);
+  if lEvidence.HasCoProducedEvidence then
+    Result := lEvidence
+  else
+    lEvidence.Free;
+end;
+
 function TryCreateContextEvidenceExtension(
   const aProject: TDelphiSemanticProjectInfo;
   const aProjectDiagnostics: TArray<TDelphiSemanticDiagnostic>;
@@ -1412,8 +1450,6 @@ function TryCreateContextEvidenceExtension(
   const aScopedSourceFileNames: TArray<string>; const aSessionOpen: Boolean): TObject;
 var
   i: Integer;
-  lContext: TDelphiSemanticContextEvidenceContext;
-  lEvidence: TDelphiSemanticContextEvidenceExtension;
   lModelEvidence: TArray<TDelphiSemanticContextModelEvidence>;
 begin
   Result := nil;
@@ -1440,29 +1476,9 @@ begin
       TDelphiSemanticContextEvidenceExtension.FingerprintModel(aModels[i]);
   end;
 
-  lContext := Default(TDelphiSemanticContextEvidenceContext);
-  lContext.SessionOpen := aSessionOpen;
-  lContext.ProjectFileName := aProject.ProjectFileName;
-  lContext.MainSourceFileName := aProject.MainSourceFileName;
-  SetLength(lContext.CompilerLinkProperties, Length(cDelphiSemanticCompilerLinkPropertyNames));
-  for i := 0 to High(cDelphiSemanticCompilerLinkPropertyNames) do
-  begin
-    lContext.CompilerLinkProperties[i].Name := cDelphiSemanticCompilerLinkPropertyNames[i];
-    lContext.CompilerLinkProperties[i].Value :=
-      aProject.PropertyValue(cDelphiSemanticCompilerLinkPropertyNames[i]);
-  end;
-  lContext.CompilerIdentity := aProject.CompilerProfileName;
-  lContext.ModelVersion := DelphiSemanticsVersionText;
-  lContext.ProjectContextFingerprint := aProject.ContextFingerprint;
-  lContext.ExpectedRootFileNames := Copy(aExpectedRootFileNames);
-  lContext.RequestedAnalysisFileNames := Copy(aScopedSourceFileNames);
-  lContext.ProjectDiagnostics := Copy(aProjectDiagnostics);
-  lEvidence := TDelphiSemanticContextEvidenceExtension.Create(lContext,
-    aProjectObservations, lModelEvidence);
-  if lEvidence.HasCoProducedEvidence then
-    Result := lEvidence
-  else
-    lEvidence.Free;
+  Result := CreateContextEvidenceExtension(aProject, aProjectDiagnostics,
+    aExpectedRootFileNames, aProjectObservations, lModelEvidence,
+    aScopedSourceFileNames, aSessionOpen);
 end;
 
 function BuildSnapshotFromModels(const aModels: TArray<TDelphiSemanticUnitModel>;
@@ -2032,9 +2048,9 @@ function TDelphiSemanticProjectSession.BuildMatrixSourceSnapshotResult(
   out aOwnedEvidence: TObject): TDelphiSemanticProjectSnapshotBuildResult;
 var
   lExtension: TObject;
-  lExtraction: TProjectModelExtractionResult;
-  lSourceFileNames: TArray<string>;
-  lPersistenceAvailable: Boolean;
+  lModels: TArray<TDelphiSemanticContextModelEvidence>;
+  lUnit: TUnitSnapshot;
+  i: Integer;
 begin
   aOwnedEvidence := nil;
   Result := BuildSnapshotResult;
@@ -2042,12 +2058,17 @@ begin
     if (Result.Snapshot = nil) or
       Result.Snapshot.TryGetExtension(cDelphiSemanticContextEvidenceExtensionName, lExtension) then
       Exit;
-    lSourceFileNames := ProjectModelFileNames(fProject);
-    lExtraction := ExtractProjectModels(fProject, fOptions, lSourceFileNames, [], False,
-      lPersistenceAvailable, True);
-    Result.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
-    aOwnedEvidence := TryCreateContextEvidenceExtension(fProject, fDiagnostics,
-      lSourceFileNames, fProject.ContextObservations, lExtraction.Models, [],
+    SetLength(lModels, Result.Snapshot.UnitCount);
+    for i := 0 to High(lModels) do
+    begin
+      lUnit := Result.Snapshot.UnitByIndex(i);
+      lModels[i] := TDelphiSemanticContextEvidenceExtension.DeserializeModel(
+        lUnit.ModelEvidenceJson, Result.Snapshot.ExactTextOf(lUnit.SourceTextId));
+      if not SameText(lModels[i].SourceFileName, Result.Snapshot.TextOf(lUnit.FileNameId)) then
+        raise EInvalidOpException.Create('matrix-snapshot-evidence-unit-mismatch');
+    end;
+    aOwnedEvidence := CreateContextEvidenceExtension(fProject, fDiagnostics,
+      ProjectModelFileNames(fProject), fProject.ContextObservations, lModels, [],
       fStatus = TDelphiSemanticProjectSessionStatus.psOpen);
     TDelphiSemanticCompilerDefines.RequireCurrentAtCheckpoint(fOptions.CompilerDefineEvidence);
   except
