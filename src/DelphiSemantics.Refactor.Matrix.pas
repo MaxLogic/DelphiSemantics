@@ -290,6 +290,7 @@ function TSemanticMatrixDomain.Initialize(const aInventory: TSemanticMatrixInven
 var
   lConfig, lPlatform: string;
   lConfigs, lPlatforms, lSelectedConfigs, lSelectedPlatforms: TArray<string>;
+  lCorrectionConfigs, lCorrectionPlatforms: TArray<string>;
   lPlatformInfo: TSemanticMatrixPlatform;
   lPair: TSemanticMatrixPair;
   lIdentity: string;
@@ -372,11 +373,28 @@ begin
   begin
     aError := 'caller-pair-excluded: resolved caller ' + aInventory.Caller.DisplayName +
       '; --configs="' + aSelection.Configurations + '" --platforms="' + aSelection.Platforms +
-      '". Include that pair with --configs="' + String.Join(',', lSelectedConfigs +
-      [aInventory.Caller.Configuration]) + '" --platforms="' + String.Join(',', lSelectedPlatforms +
-      [aInventory.Caller.Platform]) + '" or set --config="' + lSelectedConfigs[0] +
+      '".';
+    // A selector can include the caller only when both names are declared.
+    if ContainsName(lConfigs, aInventory.Caller.Configuration) and
+      ContainsName(lPlatforms, aInventory.Caller.Platform) then
+    begin
+      lCorrectionConfigs := Copy(lSelectedConfigs);
+      lCorrectionPlatforms := Copy(lSelectedPlatforms);
+      for lConfig in lConfigs do
+        if SameText(lConfig, aInventory.Caller.Configuration) and
+          not ContainsName(lCorrectionConfigs, lConfig) then
+          lCorrectionConfigs := lCorrectionConfigs + [lConfig];
+      for lPlatform in lPlatforms do
+        if SameText(lPlatform, aInventory.Caller.Platform) and
+          not ContainsName(lCorrectionPlatforms, lPlatform) then
+          lCorrectionPlatforms := lCorrectionPlatforms + [lPlatform];
+      aError := aError + ' Include that pair with --configs="' + String.Join(',', lCorrectionConfigs) +
+        '" --platforms="' + String.Join(',', lCorrectionPlatforms) + '" or set';
+    end else
+      aError := aError + ' Set caller with';
+    aError := aError + ' --config="' + lSelectedConfigs[0] +
       '" --platform="' + lSelectedPlatforms[0] + '"';
-      Exit(False);
+    Exit(False);
   end;
   if Length(fRequired) = 0 then
   begin

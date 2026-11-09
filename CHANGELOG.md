@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Configuration-matrix caller-exclusion diagnostics suggest runnable corrections with declared, unique selector names (DS-797).
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
 
 - Compiler define evidence admits the pinned Delphi 12 Linux64 compiler only with its independently probed complete predefined-symbol table (DAK-488).
