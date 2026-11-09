@@ -65,6 +65,8 @@ type
     function GetProjectDiagnostics: TArray<TDelphiSemanticDiagnostic>;
     function GetRequestedAnalysisFileNames: TArray<string>;
   public
+    class function SerializeModel(const aModel: TDelphiSemanticUnitModel): string; static;
+    class function DeserializeModel(const aPayload, aSourceText: string): TDelphiSemanticContextModelEvidence; static;
     class function FingerprintModel(const aModel: TDelphiSemanticUnitModel): string; static;
     function MatchesModel(const aModel: TDelphiSemanticUnitModel): Boolean;
     constructor Create(const aProjectObservations:
@@ -98,8 +100,82 @@ type
 implementation
 
 uses
-  System.Hash, System.SysUtils,
+  System.Hash, System.JSON.Serializers, System.SysUtils,
+  AutoFree,
   DelphiSemantics.Model.Json;
+
+type
+  // The interface itself is transient. Persist its exact source witnesses in
+  // the same transaction and cache row as the snapshot facts that consumed them.
+  TModelEvidencePayload = record
+    Version: Integer;
+    SourceFileName, SemanticModelFingerprint: string;
+    Sources: TArray<TDelphiSemanticSourceText>;
+    Succeeded, FullAnalysis: Boolean;
+    Includes: TArray<string>;
+    Diagnostics: TArray<TDelphiSemanticModelDiagnostic>;
+    Dependencies: TDelphiSemanticUnitDependencyFacts;
+    References: TArray<TDelphiSemanticReference>;
+  end;
+
+class function TDelphiSemanticContextEvidenceExtension.SerializeModel(
+  const aModel: TDelphiSemanticUnitModel): string;
+var
+  g: TGarbos;
+  lPayload: TModelEvidencePayload;
+  lSerializer: TJsonSerializer;
+  i: Integer;
+begin
+  Result := '';
+  if aModel.SourceObservations = nil then
+    Exit;
+  lPayload := Default(TModelEvidencePayload);
+  lPayload.Version := 1;
+  lPayload.SourceFileName := aModel.FileName;
+  lPayload.SemanticModelFingerprint := FingerprintModel(aModel);
+  lPayload.Succeeded := aModel.Success;
+  lPayload.FullAnalysis := SameText(aModel.ScopeModelStatus, 'ast');
+  SetLength(lPayload.Sources, aModel.SourceObservations.Count);
+  for i := 0 to High(lPayload.Sources) do
+    lPayload.Sources[i] := aModel.SourceObservations.Items[i];
+  lPayload.Includes := aModel.IncludeFileNames;
+  lPayload.Diagnostics := aModel.Diagnostics;
+  lPayload.Dependencies := aModel.DependencyFacts;
+  lPayload.References := aModel.References;
+  GC(lSerializer, TJsonSerializer.Create, g);
+  Result := lSerializer.Serialize<TModelEvidencePayload>(lPayload);
+end;
+
+class function TDelphiSemanticContextEvidenceExtension.DeserializeModel(
+  const aPayload, aSourceText: string): TDelphiSemanticContextModelEvidence;
+var
+  g: TGarbos;
+  lPayload: TModelEvidencePayload;
+  lSerializer: TJsonSerializer;
+  lSource: TDelphiSemanticSourceText;
+begin
+  Result := Default(TDelphiSemanticContextModelEvidence);
+  if aPayload = '' then
+    raise EInvalidOpException.Create('matrix-snapshot-evidence-missing');
+  GC(lSerializer, TJsonSerializer.Create, g);
+  lPayload := lSerializer.Deserialize<TModelEvidencePayload>(aPayload);
+  if (lPayload.Version <> 1) or (lPayload.SemanticModelFingerprint = '') then
+    raise EInvalidOpException.Create('matrix-snapshot-evidence-version');
+  Result.SourceObservations := TDelphiSemanticSourceEvidence.FromItems(lPayload.Sources);
+  if (Result.SourceObservations = nil) or
+    not Result.SourceObservations.TryFind(lPayload.SourceFileName, lSource) or
+    (lSource.Text <> aSourceText) then
+    raise EInvalidOpException.Create('matrix-snapshot-evidence-mismatch: ' + lPayload.SourceFileName);
+  Result.SourceFileName := lPayload.SourceFileName;
+  Result.SemanticModelFingerprint := lPayload.SemanticModelFingerprint;
+  Result.ModelSucceeded := lPayload.Succeeded;
+  Result.BodyAnalysisIncluded := lPayload.FullAnalysis;
+  Result.ReferenceExtractionIncluded := lPayload.FullAnalysis;
+  Result.IncludeFileNames := lPayload.Includes;
+  Result.ModelDiagnostics := lPayload.Diagnostics;
+  Result.DependencyFacts := lPayload.Dependencies;
+  Result.References := lPayload.References;
+end;
 
 constructor TDelphiSemanticContextEvidenceExtension.Create(
   const aProjectObservations: IDelphiSemanticProjectContextObservations;

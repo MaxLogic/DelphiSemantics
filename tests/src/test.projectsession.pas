@@ -266,6 +266,9 @@ type
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
     [Category('Fast')]
     [Test]
+    procedure MatrixEvidenceRejectsDifferentSnapshotText;
+    [Category('Fast')]
+    [Test]
     procedure ProjectSessionPartialSnapshotCacheFullyAnalyzesOnlyMissedUnits;
     [Category('Fast')]
     [Test]
@@ -346,7 +349,8 @@ uses
   DelphiSemantics.GlobalVars, DelphiSemantics.IdentifierScope, DelphiSemantics.Index,
   DelphiSemantics.Model, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession,
   DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Resolve.UnitNameWitness,
-  DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.Snapshot.RemoveWith,
+  DelphiSemantics.RootMemberAbsence, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Source,
   DelphiSemantics.WithBinding,
   Test.SnapshotEvidence.Support, Test.Support;
 
@@ -556,6 +560,8 @@ begin
       lSnapshotBuild := lOpened.Session.BuildSnapshotResult;
       try
         Assert.AreEqual(4, lSnapshotBuild.Snapshot.UnitCount, 'The analysis index retains the complete library closure.');
+        Assert.AreEqual(Int64(0), lSnapshotBuild.Metrics.SnapshotCacheUnitStaleEntries,
+          'Unchanged discovered libraries retain a current capture identity.');
         if i = 1 then
           Assert.AreEqual(Int64(4), lSnapshotBuild.Metrics.SnapshotCacheUnitHits, 'Stable library snapshots are reusable.');
         lFound := False;
@@ -4937,6 +4943,35 @@ begin
   finally
     lResult.Session.Free;
   end;
+end;
+
+procedure TProjectSessionTests.MatrixEvidenceRejectsDifferentSnapshotText;
+var
+  lModel: TDelphiSemanticUnitModel;
+  lLoaded: TDelphiSemanticSourceLoadResult;
+  lPayload, lPath: string;
+  lEvidence: TDelphiSemanticContextModelEvidence;
+begin
+  lPath := ProjectSessionTempPath('matrix-model-evidence.pas');
+  ForceDirectories(TPath.GetDirectoryName(lPath));
+  TFile.WriteAllText(lPath, 'unit Evidence; interface implementation end.', TEncoding.ASCII);
+  lLoaded := TDelphiSemanticSourceLoader.LoadFile(lPath);
+  Assert.IsTrue(lLoaded.Success);
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.FileName := lPath;
+  lModel.SourceText := lLoaded.Source.Text;
+  lModel.SourceObservations := lLoaded.SourceObservations;
+  lModel.Success := True;
+  lModel.ScopeModelStatus := 'ast';
+  lPayload := TDelphiSemanticContextEvidenceExtension.SerializeModel(lModel);
+  lEvidence := TDelphiSemanticContextEvidenceExtension.DeserializeModel(lPayload, lModel.SourceText);
+  Assert.AreEqual(TDelphiSemanticContextEvidenceExtension.FingerprintModel(lModel),
+    lEvidence.SemanticModelFingerprint);
+  Assert.WillRaise(
+    procedure
+    begin
+      lEvidence := TDelphiSemanticContextEvidenceExtension.DeserializeModel(lPayload, lModel.SourceText + ' ');
+    end, EInvalidOpException, 'Cached evidence must be bound to the queried snapshot text exactly');
 end;
 
 procedure TProjectSessionTests.ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;

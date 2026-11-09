@@ -217,7 +217,7 @@ const
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
   // Integrated import provenance and all unit constants on each physical line.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.201';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.2000';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

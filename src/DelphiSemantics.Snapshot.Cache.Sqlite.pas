@@ -207,8 +207,8 @@ const
   // 32: DS-762 refuses package-dependent unit-name absence evidence.
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
-  // Integrated DS-791 import provenance uses DS-793 integer ownership and batch transactions.
-  cSnapshotCacheSchemaVersion = '201';
+  // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
+  cSnapshotCacheSchemaVersion = '2000';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -855,7 +855,7 @@ begin
     't.identity_key,t.source_file_name,t.file_hash,t.context_hash,t.include_graph_hash,t.schema_version,' +
     't.physical_reference_available,t.physical_symbol_available,t.captured_sources_available,' +
     't.visible_unit_names_available,t.has_includes,t.physical_reference_count,' +
-    't.physical_symbol_count,t.captured_source_count,t.visible_unit_count,t.exact_string_count,t.unit_key', '', '');
+    't.physical_symbol_count,t.captured_source_count,t.visible_unit_count,t.exact_string_count,t.unit_key,t.model_evidence_json', '', '');
   AddQuery(aConnection, 'snapshot_exact_strings',
     't.string_id,t.text_value,t.source_content_hash,s.text', 'string_id',
     ' left join snapshot_source_texts s on s.content_hash=t.source_content_hash');
@@ -1133,7 +1133,7 @@ begin
       'captured_sources_available integer not null, visible_unit_names_available integer not null, ' +
       'has_includes integer not null, physical_reference_count integer not null, ' +
       'physical_symbol_count integer not null, captured_source_count integer not null, ' +
-      'visible_unit_count integer not null, exact_string_count integer not null)');
+      'visible_unit_count integer not null, exact_string_count integer not null, model_evidence_json text not null)');
     lConnection.ExecSQL('create index if not exists idx_snapshot_units_identity on ' +
       'snapshot_units(identity_key)');
     lConnection.ExecSQL('create table if not exists snapshot_strings (' +
@@ -2729,6 +2729,7 @@ function TDelphiSemanticSnapshotSqliteCache.LoadUnitHeader(
   aReferenceCount: Integer; out aParseAvoidedEstimateMilliseconds: Int64): Boolean;
 var
   lFileNameIdField: TField;
+  lModelEvidenceJsonField: TField;
   lParseAvoidedEstimateMillisecondsField: TField;
   lQuery: TFDDataSet;
   lRejectedDeclarationCountField: TField;
@@ -2753,7 +2754,7 @@ begin
   lQuery := NewUnitReadQuery(aConnection, aIdentity.CacheKey, 'snapshot_units', 'select unit_id, file_name_id, unit_name_id, ' +
     'source_text_id, scope_model_status_id, scope_model_version_id, scope_diagnostic_id, ' +
     'rejected_declaration_count, string_count, symbol_count, with_statement_count, ' +
-    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id ' +
+    'reference_count, parse_avoided_estimate_ms, verified_active_source_text_id, model_evidence_json ' +
     'from snapshot_units where cache_key = ? ' +
     'and identity_key = ?') as TFDDataSet;
   try
@@ -2784,11 +2785,16 @@ begin
       lWithStatementCountField := lQuery.Fields[10];
       lReferenceCountField := lQuery.Fields[11];
       lParseAvoidedEstimateMillisecondsField := lQuery.Fields[12];
+      if fUnitLoadBatch <> nil then
+        lModelEvidenceJsonField := lQuery.Fields[31]
+      else
+        lModelEvidenceJsonField := lQuery.Fields[14];
       aUnit := TUnitSnapshot.Create(TSemanticUnitId(CheckedCacheInteger(lUnitIdField, 0, High(Cardinal))),
         TSemanticStringId(CheckedCacheInteger(lFileNameIdField, 0, High(Cardinal))),
         TSemanticStringId(CheckedCacheInteger(lUnitNameIdField, 0, High(Cardinal))),
         TSemanticStringId(CheckedCacheInteger(lSourceTextIdField, 0, High(Cardinal))));
       aUnit.SetVerifiedActiveSourceTextId(TSemanticStringId(CheckedCacheInteger(lQuery.Fields[13], 0, High(Cardinal))));
+      aUnit.SetModelEvidenceJson(lModelEvidenceJsonField.AsWideString);
       aUnit.SetScopeModelMetadata(
         TSemanticStringId(CheckedCacheInteger(lScopeModelStatusIdField, 0, High(Cardinal))),
         TSemanticStringId(CheckedCacheInteger(lScopeModelVersionIdField, 0, High(Cardinal))),
@@ -3657,6 +3663,7 @@ begin
     aTargetStrings, aUnit.FileNameId), RemapSnapshotStringId(aSnapshot,
     aTargetStrings, aUnit.UnitNameId), RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.SourceTextId));
+  Result.SetModelEvidenceJson(aUnit.ModelEvidenceJson);
   Result.SetVerifiedActiveSourceTextId(RemapSnapshotExactStringId(aSnapshot,
     aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
   Result.SetScopeModelMetadata(RemapSnapshotStringId(aSnapshot,
@@ -4274,9 +4281,9 @@ begin
     'rejected_declaration_count, symbol_count, with_statement_count, reference_count, ' +
     'parse_avoided_estimate_ms, verified_active_source_text_id, physical_reference_available, ' +
     'physical_symbol_available, captured_sources_available, visible_unit_names_available, has_includes, ' +
-    'physical_reference_count, physical_symbol_count, captured_source_count, visible_unit_count, exact_string_count) ' +
+    'physical_reference_count, physical_symbol_count, captured_source_count, visible_unit_count, exact_string_count, model_evidence_json) ' +
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' +
-    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   try
     SetWideParam(lQuery, 0, aIdentity.CacheKey);
     SetWideParam(lQuery, 1, aIdentity.IdentityKey);
@@ -4324,6 +4331,7 @@ begin
     lQuery.Params[29].AsLargeInt := aUnit.CapturedSourceCount;
     lQuery.Params[30].AsLargeInt := aUnit.VisibleUnitNameCount;
     lQuery.Params[31].AsLargeInt := aExactStringCount;
+    SetWideParam(lQuery, 32, aUnit.ModelEvidenceJson);
     lQuery.Prepare;
     lQuery.ExecSQL;
     Result := (aConnection as TFDConnection).ExecSQLScalar('select last_insert_rowid()');

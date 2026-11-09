@@ -77,7 +77,8 @@ uses
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Text, DelphiSemantics.RemoveWith.Visibility, DelphiSemantics.Resolve,
   DelphiSemantics.Resolve.SelectorTypes, DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.Source;
+  DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.Evidence,
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.Snapshot.TargetIdentity, DelphiSemantics.Source;
 
 const
   cSnapshotDeclarationKindAlias = 'alias';
@@ -2780,6 +2781,7 @@ begin
   Result := TUnitSnapshot.Create(aUnitId, aStrings.Intern(SnapshotFullPath(aModel.FileName)),
     aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
+    Result.SetModelEvidenceJson(TDelphiSemanticContextEvidenceExtension.SerializeModel(aModel));
     Result.SetVerifiedActiveSourceTextId(aExactStrings.Intern(aModel.VerifiedActiveSourceText));
     lScopeDiagnostic := '';
     for lDiagnostic in aModel.Diagnostics do
@@ -3230,6 +3232,7 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetModelEvidenceJson(aUnit.ModelEvidenceJson);
     Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
       aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,
@@ -3274,6 +3277,7 @@ begin
     aTargetStrings, aUnit.UnitNameId), RemapStringId(aSourceExactStrings,
     aTargetExactStrings, aUnit.SourceTextId));
   try
+    Result.SetModelEvidenceJson(aUnit.ModelEvidenceJson);
     Result.SetVerifiedActiveSourceTextId(RemapStringId(aSourceExactStrings,
       aTargetExactStrings, aUnit.VerifiedActiveSourceTextId));
     Result.SetScopeModelMetadata(RemapStringId(aSourceStrings, aTargetStrings,

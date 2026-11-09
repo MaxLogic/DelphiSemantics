@@ -22,6 +22,7 @@
 - Unknown include references use indexed physical-position replacement and cached line coordinates, preserving reference contents and order while reducing RTL indexing time (DAK-484).
 - Remove-with native proof type-checks generated pointer initializations for subjects without nested code-level `@`, without changing the published plain assignments. Nested addresses refuse as unverified; incomplete compiler-proof metadata fails closed (DS-787).
 
+- Configuration-matrix caller-exclusion diagnostics suggest runnable corrections with declared, unique selector names (DS-797).
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
 - Rename checks retained string constants, variable initializers and concatenations in code, including class constants and namespace-qualified imports. It refuses relevant unknown string operands while excluding proved numeric values and independently scanned structured values. Declaration sections follow token positions (DS-797).
 
