@@ -75,6 +75,8 @@
     <DCCReference Include="src\test.externalsymbols.pas"/>
     <DCCReference Include="src\test.globalvars.pas"/>
     <DCCReference Include="src\test.lspboundary.pas"/>
+    <DCCReference Include="src\test.memberindexparity.pas"/>
+    <DCCReference Include="src\test.memberresolver.legacy809.pas"/>
     <DCCReference Include="src\test.memberresolver.pas"/>
     <DCCReference Include="src\test.memberresolveraccessoverloads.pas"/>
     <DCCReference Include="src\test.memberresolverinheritedhelpers.pas"/>

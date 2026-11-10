@@ -93,6 +93,8 @@ uses
   Test.ExternalSymbols in 'src\test.externalsymbols.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
+  Test.MemberIndexParity in 'src\test.memberindexparity.pas',
+  Test.MemberResolver.Legacy809 in 'src\test.memberresolver.legacy809.pas',
   Test.MemberResolver in 'src\test.memberresolver.pas',
   Test.MemberResolverAccessOverloads in 'src\test.memberresolveraccessoverloads.pas',
   Test.MemberResolverInheritedHelpers in 'src\test.memberresolverinheritedhelpers.pas',
