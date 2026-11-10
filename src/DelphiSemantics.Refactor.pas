@@ -36,6 +36,8 @@ type
     UnresolvedReferences: TArray<TDelphiSemanticUsage>;
     AcceptRuntimeNameRisk: Boolean;
     RuntimeNameWarnings: TArray<TDelphiSemanticUsage>;
+    RuntimeNameWarningsFileName: string;
+    RuntimeNameWarningsSha256: string;
     HasUnverifiedConditionalOccurrences: Boolean;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
@@ -73,13 +75,14 @@ type
   end;
 
 function RuntimeNameRiskCategory(const aReason: string): string;
+function RuntimeNameWarningsJsonl(const aWarnings: TArray<TDelphiSemanticUsage>): string;
 procedure ApplyRenameRuntimeNameRiskPolicy(const aContext: TDelphiSemanticSymbolQueryContext;
   const aAccepted: Boolean; var aPlan: TDelphiSemanticRenamePlan);
 
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils,
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.JSON, System.RegularExpressions, System.StrUtils,
   System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceContext, DelphiSemantics.Version,
@@ -285,20 +288,14 @@ var
   lBuilder: TStringBuilder;
   lEdit: TDelphiSemanticTextEdit;
   lVerification: TDelphiSemanticRenameVerification;
-  lWarning: TDelphiSemanticUsage;
 begin
   lBuilder := TStringBuilder.Create;
   try
     lBuilder.AppendLine('operation=rename');
     lBuilder.AppendLine('model=' + aPlan.BaselineSemanticModelVersion);
     lBuilder.AppendLine('acceptRuntimeNameRisk=' + BoolToStr(aPlan.AcceptRuntimeNameRisk, True));
-    for lWarning in aPlan.RuntimeNameWarnings do
-      lBuilder.AppendLine('runtimeWarning=' + lWarning.FileName + '|' +
-        lWarning.Line.ToString + ':' + lWarning.Column.ToString + '|' +
-        lWarning.EndLine.ToString + ':' + lWarning.EndColumn.ToString + '|' +
-        lWarning.Name + '|' + lWarning.Role + '|' + lWarning.RoutineName + '|' +
-        lWarning.SectionKind + '|' + lWarning.SourceKind + '|' + lWarning.UnitName + '|' +
-        lWarning.Reason);
+    lBuilder.AppendLine('runtimeWarningsSha256=' + aPlan.RuntimeNameWarningsSha256);
+    lBuilder.AppendLine('runtimeWarningsCount=' + Length(aPlan.RuntimeNameWarnings).ToString);
     for lVerification in aPlan.RequiredVerification do
       lBuilder.AppendLine('verification=' + lVerification.Kind + '|' +
         lVerification.Description);
@@ -331,10 +328,77 @@ begin
   aPlan.ContextFingerprint := RenamePlanFingerprint(aPlan);
 end;
 
+function RuntimeNameWarningsJsonl(const aWarnings: TArray<TDelphiSemanticUsage>): string;
+var
+  lSorted: TArray<TDelphiSemanticUsage>;
+  lWarning: TDelphiSemanticUsage;
+  lJson: TJSONObject;
+  lBuilder: TStringBuilder;
+begin
+  lSorted := Copy(aWarnings);
+  TArray.Sort<TDelphiSemanticUsage>(lSorted, TComparer<TDelphiSemanticUsage>.Construct(
+    function(const aLeft, aRight: TDelphiSemanticUsage): Integer
+    begin
+      Result := CompareStr(aLeft.FileName, aRight.FileName);
+      if Result = 0 then
+        Result := aLeft.Line - aRight.Line;
+      if Result = 0 then
+        Result := aLeft.Column - aRight.Column;
+      if Result = 0 then
+        Result := CompareStr(aLeft.Reason, aRight.Reason);
+      if Result = 0 then
+        Result := CompareStr(aLeft.Name, aRight.Name);
+      if Result = 0 then
+        Result := CompareStr(aLeft.RoutineName, aRight.RoutineName);
+      if Result = 0 then
+        Result := CompareStr(aLeft.Role, aRight.Role);
+      if Result = 0 then
+        Result := CompareStr(aLeft.SectionKind, aRight.SectionKind);
+      if Result = 0 then
+        Result := CompareStr(aLeft.SourceKind, aRight.SourceKind);
+      if Result = 0 then
+        Result := CompareStr(aLeft.UnitName, aRight.UnitName);
+      if Result = 0 then
+        Result := aLeft.EndLine - aRight.EndLine;
+      if Result = 0 then
+        Result := aLeft.EndColumn - aRight.EndColumn;
+    end));
+  lBuilder := TStringBuilder.Create;
+  try
+    for lWarning in lSorted do
+    begin
+      lJson := TJSONObject.Create;
+      try
+        lJson.AddPair('category', RuntimeNameRiskCategory(lWarning.Reason));
+        lJson.AddPair('name', lWarning.Name);
+        lJson.AddPair('role', lWarning.Role);
+        lJson.AddPair('routine', lWarning.RoutineName);
+        lJson.AddPair('section', lWarning.SectionKind);
+        lJson.AddPair('sourceKind', lWarning.SourceKind);
+        lJson.AddPair('file', lWarning.FileName);
+        lJson.AddPair('unit', lWarning.UnitName);
+        lJson.AddPair('line', TJSONNumber.Create(lWarning.Line));
+        lJson.AddPair('column', TJSONNumber.Create(lWarning.Column));
+        lJson.AddPair('endLine', TJSONNumber.Create(lWarning.EndLine));
+        lJson.AddPair('endColumn', TJSONNumber.Create(lWarning.EndColumn));
+        lJson.AddPair('reason', lWarning.Reason);
+        lBuilder.Append(lJson.ToJSON).Append(#10);
+      finally
+        lJson.Free;
+      end;
+    end;
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
 function RuntimeNameRiskCategory(const aReason: string): string;
 begin
   Result := '';
-  if aReason = 'runtime-name-metadata-consumer' then
+  if aReason = 'runtime-name-observed' then
+    Result := 'runtime-name-observed'
+  else if aReason = 'runtime-name-metadata-consumer' then
     Result := 'metadata'
   else if aReason = 'runtime-name-value-unproved' then
     Result := 'name-value'
@@ -370,6 +434,8 @@ begin
         lHard.Add(lUsage);
     aPlan.UnresolvedReferences := lHard.ToArray;
     aPlan.RuntimeNameWarnings := lWarnings.ToArray;
+    aPlan.RuntimeNameWarningsSha256 := THashSHA2.GetHashString(
+      RuntimeNameWarningsJsonl(aPlan.RuntimeNameWarnings));
     // Report accepted uncertainty even on failed plans. Classification grants
     // no authority to repair failed binding, invalid inputs or a blocked edit.
     if not MatchText(aPlan.Status, ['planned', 'incomplete']) then

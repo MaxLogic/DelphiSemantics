@@ -1430,14 +1430,14 @@ var
   type
     TConstant = record
       Item: TDelphiSemanticStringConstant;
-      Owner, FileName: string;
+      Owner, FileName, Kind: string;
       UnitIndex: Integer;
     end;
   var
     lConstants: TArray<TConstant>;
     lValues: TArray<string>;
     lStates: TArray<Integer>;
-    lVisiting: TArray<Boolean>;
+    lVisiting, lIntegerValues: TArray<Boolean>;
     lByName: TDictionary<string, TArray<Integer>>;
     lAliases: TDictionary<string, string>;
     lConstant: TConstant;
@@ -1479,13 +1479,14 @@ var
     function Evaluate(const aIndex, aDepth: Integer): Boolean; forward;
 
     function EvaluateName(const aIndex: Integer; const aName: string;
-      const aDepth: Integer; out aValue: string): Boolean;
+      const aDepth: Integer; out aValue: string; out aIsInteger: Boolean): Boolean;
     var
       lIndices: TArray<Integer>;
       lFirst: Boolean;
     begin
       Result := False;
       aValue := '';
+      aIsInteger := False;
       lIndices := FindConstants(aIndex, aName);
       if Length(lIndices) = 0 then
         Exit;
@@ -1494,9 +1495,10 @@ var
       begin
         if not Evaluate(lIndex, aDepth) then
           Exit;
-        if not lFirst and (aValue <> lValues[lIndex]) then
+        if not lFirst and ((aValue <> lValues[lIndex]) or (aIsInteger <> lIntegerValues[lIndex])) then
           Exit;
         aValue := lValues[lIndex];
+        aIsInteger := lIntegerValues[lIndex];
         lFirst := False;
       end;
       Result := True;
@@ -1534,24 +1536,30 @@ var
         end;
       end;
 
-      function Expression(out aValue: string; const aLevel: Integer): Boolean;
+      function Expression(out aValue: string; out aIsInteger: Boolean;
+        const aLevel: Integer): Boolean;
       var
         lPart: string;
+        lPartInteger: Boolean;
 
-        function Operand(out aPart: string): Boolean;
+        function Operand(out aPart: string; out aPartInteger: Boolean): Boolean;
         var
-          lStart, lLiteralStart: Integer;
-          lIdentifier: string;
+          lStart, lLiteralStart, lNumber, lStartIndex, lCount: Integer;
+          lIdentifier, lArgument: string;
+          lArguments: TArray<string>;
+          lArgumentInteger: Boolean;
+          lIntegerArguments: TArray<Boolean>;
         begin
           Result := False;
           aPart := '';
+          aPartInteger := False;
           SkipTrivia;
           if (lOffset > Length(lText)) or (aLevel >= 64) then
             Exit;
           if lText[lOffset] = '(' then
           begin
             Inc(lOffset);
-            if not Expression(aPart, aLevel + 1) then
+            if not Expression(aPart, aPartInteger, aLevel + 1) then
               Exit;
             SkipTrivia;
             if (lOffset > Length(lText)) or (lText[lOffset] <> ')') then
@@ -1575,6 +1583,20 @@ var
             end;
             Exit(True);
           end;
+          if CharInSet(lText[lOffset], ['0'..'9', '$']) then
+          begin
+            lStart := lOffset;
+            Inc(lOffset);
+            while (lOffset <= Length(lText)) and CharInSet(lText[lOffset], ['0'..'9', 'A'..'F', 'a'..'f']) do
+              Inc(lOffset);
+            Result := TryStrToInt(Copy(lText, lStart, lOffset - lStart), lNumber);
+            if Result then
+            begin
+              aPart := IntToStr(lNumber);
+              aPartInteger := True;
+            end;
+            Exit;
+          end;
           if not IsIdentifierStart(lText[lOffset]) then
             Exit;
           lStart := lOffset;
@@ -1582,11 +1604,88 @@ var
             (IsIdentifierChar(lText[lOffset]) or (lText[lOffset] = '.')) do
             Inc(lOffset);
           lIdentifier := Copy(lText, lStart, lOffset - lStart);
-          Result := EvaluateName(aIndex, lIdentifier, aDepth + 1, aPart);
+          SkipTrivia;
+          // These pure operations use only literal/immutable operands. A
+          // project declaration with the same spelling keeps the call opaque.
+          if (lOffset <= Length(lText)) and (lText[lOffset] = '(') and
+            MatchText(lIdentifier, ['Chr', 'Ord', 'Copy', 'UpperCase', 'LowerCase', 'Concat',
+              'System.Chr', 'System.Ord', 'System.Copy', 'System.Concat',
+              'System.SysUtils.UpperCase', 'System.SysUtils.LowerCase']) and
+            not lByName.ContainsKey(lIdentifier) and not lByName.ContainsKey('System') then
+          begin
+            Inc(lOffset);
+            repeat
+              if not Expression(lArgument, lArgumentInteger, aLevel + 1) then
+                Exit;
+              lArguments := lArguments + [lArgument];
+              lIntegerArguments := lIntegerArguments + [lArgumentInteger];
+              SkipTrivia;
+              if (lOffset > Length(lText)) or (lText[lOffset] <> ',') then
+                Break;
+              Inc(lOffset);
+            until Length(lArguments) > 256;
+            if (lOffset > Length(lText)) or (lText[lOffset] <> ')') then
+              Exit;
+            Inc(lOffset);
+            lIdentifier := lIdentifier.Split(['.'])[High(lIdentifier.Split(['.']))];
+            if SameText(lIdentifier, 'Concat') then
+            begin
+              for lStartIndex := 0 to High(lArguments) do
+              begin
+                if lIntegerArguments[lStartIndex] then
+                  Exit;
+                aPart := aPart + lArguments[lStartIndex];
+              end;
+              Exit(True);
+            end;
+            if (Length(lArguments) = 3) and SameText(lIdentifier, 'Copy') then
+            begin
+              if lIntegerArguments[0] or not lIntegerArguments[1] or not lIntegerArguments[2] or
+                not TryStrToInt(lArguments[1], lStartIndex) or
+                not TryStrToInt(lArguments[2], lCount) then
+                Exit;
+              aPart := Copy(lArguments[0], lStartIndex, lCount);
+              Exit(True);
+            end;
+            if Length(lArguments) <> 1 then
+              Exit;
+            lArgument := lArguments[0];
+            if SameText(lIdentifier, 'Chr') then
+            begin
+              if not lIntegerArguments[0] or not TryStrToInt(lArgument, lNumber) or
+                (lNumber < 0) or (lNumber > 65535) then
+                Exit;
+              aPart := Char(lNumber);
+            end else if SameText(lIdentifier, 'Ord') then
+            begin
+              if lIntegerArguments[0] then
+                aPart := lArgument
+              else if Length(lArgument) = 1 then
+                aPart := IntToStr(Ord(lArgument[1]))
+              else
+                Exit;
+              aPartInteger := True;
+            end else if MatchText(lIdentifier, ['UpperCase', 'LowerCase']) then
+            begin
+              // Avoid claiming locale-dependent Unicode casing as a constant.
+              if lIntegerArguments[0] then
+                Exit;
+              for var ch in lArgument do
+                if Ord(ch) > 127 then
+                  Exit;
+              if SameText(lIdentifier, 'UpperCase') then
+                aPart := UpperCase(lArgument)
+              else
+                aPart := LowerCase(lArgument);
+            end else
+              Exit;
+            Exit(True);
+          end;
+          Result := EvaluateName(aIndex, lIdentifier, aDepth + 1, aPart, aPartInteger);
         end;
 
       begin
-        Result := Operand(aValue);
+        Result := Operand(aValue, aIsInteger);
         if not Result then
           Exit;
         while True do
@@ -1595,8 +1694,8 @@ var
           if (lOffset > Length(lText)) or (lText[lOffset] <> '+') then
             Break;
           Inc(lOffset);
-          if not Operand(lPart) then
-            Exit(False);
+          if not Operand(lPart, lPartInteger) or aIsInteger or lPartInteger then
+            Exit(False); // Numeric operators require a separately typed evaluator.
           aValue := aValue + lPart;
         end;
       end;
@@ -1614,13 +1713,115 @@ var
         Exit(False);
       end;
       lOffset := 1;
-      Result := Expression(lValues[aIndex], 0);
+      Result := Expression(lValues[aIndex], lIntegerValues[aIndex], 0);
       SkipTrivia;
       Result := Result and (lOffset > Length(lText));
       if Result then
         lStates[aIndex] := 2
       else
         lStates[aIndex] := 3;
+    end;
+
+    function ConstantOperation(const aIndex: Integer; const aName: string;
+      const aDepth: Integer): Boolean;
+    var
+      lIndices: TArray<Integer>;
+      lSource, lName: string;
+    begin
+      Result := False;
+      if (aDepth >= 64) or (aName = '') then
+        Exit;
+      lIndices := FindConstants(aIndex, aName);
+      if Length(lIndices) > 0 then
+      begin
+        // Project declarations take precedence over intrinsic spelling. Only
+        // aliases to scalar types prove a cast; routines may read runtime state.
+        for var lIndex in lIndices do
+        begin
+          if not MatchText(lConstants[lIndex].Kind, ['type', 'alias']) then
+            Exit;
+          lSource := aSnapshot.ExactTextOf(
+            aSnapshot.UnitByIndex(lConstants[lIndex].UnitIndex).SourceTextId);
+          if ContainsText(lSource, '{$IF') or ContainsText(lSource, '(*$IF') or
+            ContainsText(lSource, '{$I ') or ContainsText(lSource, '{$INCLUDE') or
+            not ConstantOperation(lIndex, lConstants[lIndex].Item.TypeName, aDepth + 1) then
+            Exit;
+        end;
+        Exit(True);
+      end;
+      lName := aName;
+      if StartsText('System.SysUtils.', lName) then
+        lName := Copy(lName, Length('System.SysUtils.') + 1, MaxInt)
+      else if StartsText('System.', lName) then
+        lName := Copy(lName, Length('System.') + 1, MaxInt);
+      Result := MatchText(lName, ['Chr', 'Ord', 'Copy', 'UpperCase', 'LowerCase', 'Concat',
+        'Succ', 'Pred', 'Low', 'High', 'Length', 'SizeOf', 'Abs', 'Sqr', 'Trunc', 'Round',
+        'Char', 'WideChar', 'AnsiChar', 'String', 'WideString', 'AnsiString', 'ShortString',
+        'UnicodeString', 'Integer', 'Byte', 'ShortInt', 'SmallInt', 'Word', 'LongInt', 'LongWord',
+        'Cardinal', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64',
+        'NativeInt', 'NativeUInt', 'Boolean', 'ByteBool', 'WordBool', 'LongBool', 'Single',
+        'Double', 'Extended', 'Real', 'Currency', 'Comp']);
+    end;
+
+    function ConstantOperands(const aIndex, aDepth: Integer): Boolean;
+    var
+      lCode, lIdentifier, lSource: string;
+      lMatch: TMatch;
+      lIndices: TArray<Integer>;
+      lAfterIdentifier: Integer;
+    begin
+      Result := False;
+      if (aDepth >= 64) or lVisiting[aIndex] or (lConstants[aIndex].Item.TypeName <> '') then
+        Exit;
+      lSource := aSnapshot.ExactTextOf(aSnapshot.UnitByIndex(lConstants[aIndex].UnitIndex).SourceTextId);
+      if lConstants[aIndex].Item.Expression = '' then
+        // The AST can retain an immutable declaration whose initializer the
+        // lexical inventory cannot read. Its value is constant, not mutable.
+        Exit(SameText(lConstants[aIndex].Kind, 'const') and
+          not ContainsText(lSource, '{$IF') and not ContainsText(lSource, '(*$IF') and
+          not ContainsText(lSource, '{$I ') and not ContainsText(lSource, '{$INCLUDE'));
+      lCode := SanitizeCodeText(lConstants[aIndex].Item.Expression);
+      lCode := TRegEx.Replace(lCode,
+        '(?<![\p{L}\p{N}\p{M}_])(?:\$[0-9A-Fa-f]+|[0-9]+(?:\.[0-9]+)?(?:[Ee][+-]?[0-9]+)?)(?![\p{L}\p{N}\p{M}_])', ' ');
+      lVisiting[aIndex] := True;
+      try
+        for lMatch in TRegEx.Matches(lCode,
+          '[\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)*') do
+        begin
+          lIdentifier := lMatch.Value;
+          // Prove the operation as well as its operands. A runtime call can
+          // have constant arguments without returning a constant value.
+          lAfterIdentifier := lMatch.Index + lMatch.Length;
+          while (lAfterIdentifier <= Length(lCode)) and
+            CharInSet(lCode[lAfterIdentifier], [#9, #10, #13, ' ']) do
+            Inc(lAfterIdentifier);
+          if (lAfterIdentifier <= Length(lCode)) and (lCode[lAfterIdentifier] = '(') then
+          begin
+            if not ConstantOperation(aIndex, lIdentifier, 0) then
+              Exit;
+            Continue;
+          end;
+          lIndices := FindConstants(aIndex, lIdentifier);
+          if Length(lIndices) = 0 then
+          begin
+            if MatchText(lIdentifier,
+              ['div', 'mod', 'shl', 'shr', 'and', 'or', 'xor', 'not', 'true', 'false']) then
+              Continue;
+            Exit;
+          end;
+          // Direct literal operands cannot depend on an unrelated directive.
+          // Named operands still need configuration-stable declaration evidence.
+          if ContainsText(lSource, '{$IF') or ContainsText(lSource, '(*$IF') or
+            ContainsText(lSource, '{$I ') or ContainsText(lSource, '{$INCLUDE') then
+            Exit;
+          for var lIndex in lIndices do
+            if not ConstantOperands(lIndex, aDepth + 1) then
+              Exit;
+        end;
+        Result := True;
+      finally
+        lVisiting[aIndex] := False;
+      end;
     end;
 
     function NonStringType(const aType: string; const aDepth: Integer): Boolean;
@@ -1842,7 +2043,7 @@ var
       lMatch: TMatch;
       lLiteral: TDelphiSemanticStringLiteral;
       lDependencies: TArray<Integer>;
-      lHasString, lUnknownString, lIncompatible, lKnownNonString, lRelevant, lStructured: Boolean;
+      lHasString, lUnknownString, lIncompatible, lKnownNonString, lRelevant, lStructured, lIsInteger: Boolean;
 
       procedure AddFragment(const aValue: string);
       var
@@ -1898,9 +2099,12 @@ var
             lKnownNonString := True;
             Continue;
           end;
-          if EvaluateName(aIndex, lIdentifier, aDepth + 1, lValue) then
+          if EvaluateName(aIndex, lIdentifier, aDepth + 1, lValue, lIsInteger) then
           begin
-            AddFragment(lValue);
+            if lIsInteger then
+              lKnownNonString := True
+            else
+              AddFragment(lValue);
             Continue;
           end;
           if OperandHasNonStringType(aIndex, lMatch.Index - 1, lIdentifier) then
@@ -1957,6 +2161,8 @@ var
         begin
           lConstant.Item := lItem;
           lConstants := lConstants + [lConstant];
+          if lConstant.Item.Name <> '' then
+            IndexName(lConstant.Owner + '.' + lConstant.Item.Name, High(lConstants));
         end;
         for j := 1 to lUnit.ReferenceCount do
         begin
@@ -1969,6 +2175,8 @@ var
           lConstant.Item.Expression := SnapshotText(aSnapshot, lFact.LookupSourceId);
           lConstant.FileName := SnapshotText(aSnapshot, lFact.FileId);
           lConstants := lConstants + [lConstant];
+          if lConstant.Item.Name <> '' then
+            IndexName(lConstant.Owner + '.' + lConstant.Item.Name, High(lConstants));
         end;
         // Mutable and unresolved symbols participate only as unknown operands,
         // preventing a same-spelled constant from proving a shadowed value.
@@ -1976,8 +2184,9 @@ var
         begin
           lSymbol := lUnit.SymbolById(TSemanticSymbolId(j));
           if not MatchText(SnapshotText(aSnapshot, lSymbol.KindId),
-            ['var', 'threadvar', 'field', 'class-var', 'property', 'parameter', 'local', 'type', 'alias', 'enum-value', 'routine']) then
+            ['const', 'var', 'threadvar', 'field', 'class-var', 'property', 'parameter', 'local', 'type', 'alias', 'enum-value', 'routine']) then
             Continue;
+          lConstant.Kind := SnapshotText(aSnapshot, lSymbol.KindId);
           lConstant.Item := Default(TDelphiSemanticStringConstant);
           lConstant.Item.Name := SnapshotText(aSnapshot, lSymbol.NameId);
           lConstant.Item.TypeName := SnapshotText(aSnapshot, lSymbol.TypeId);
@@ -1986,6 +2195,12 @@ var
           lOwnerType := SnapshotText(aSnapshot, lSymbol.OwnerTypeId);
           if lOwnerType <> '' then
             lConstant.Item.Name := lOwnerType + '.' + lConstant.Item.Name;
+          // Preserve existing initializer values instead of adding an empty
+          // duplicate. Missing AST-proved immutable declarations still guard
+          // unsupported constant operations, including Unicode identifiers.
+          if SameText(lConstant.Kind, 'const') and
+            lByName.ContainsKey(lConstant.Owner + '.' + lConstant.Item.Name) then
+            Continue;
           lConstants := lConstants + [lConstant];
         end;
         for lImport in lUnit.ImportFacts do
@@ -2006,6 +2221,7 @@ var
       SetLength(lValues, Length(lConstants));
       SetLength(lStates, Length(lConstants));
       SetLength(lVisiting, Length(lConstants));
+      SetLength(lIntegerValues, Length(lConstants));
       for i := 0 to High(lConstants) do
         if lConstants[i].Item.Name <> '' then
         begin
@@ -2028,7 +2244,10 @@ var
           lName := lConstants[i].Item.Name;
           if lName = '' then
             lName := lConstants[i].Item.Expression.Trim;
-          Report(lConstants[i].FileName, 'string-constant-value-unproved', lName, 0, 0);
+          if ConstantOperands(i, 0) then
+            Report(lConstants[i].FileName, 'string-constant-evaluator-unsupported', lName, 0, 0)
+          else
+            Report(lConstants[i].FileName, 'string-constant-value-unproved', lName, 0, 0);
         end;
       end;
     finally

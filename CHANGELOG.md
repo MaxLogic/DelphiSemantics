@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename retains hard known-consumer refusals across call shapes, SDK hash changes and incomplete scopes. Constant intrinsics are folded where supported; unsupported evaluation of true constants stays hard. Accepted observed and unproven effects have distinct categories and a deterministic warning-inventory digest (DS-803).
+
 - Rename plans support explicit acceptance of unproven runtime-name effects while preserving exact string matches, known consumer demands, collision checks and warning provenance (DS-803).
 
 - Rename refuses plans with incomplete runtime-name call effects or relevant class-name diagnostics. SDK effects are tied to installed source/compiler hashes; existing string barriers remain (DS-803).
