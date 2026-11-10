@@ -1,4 +1,4 @@
-﻿unit DelphiSemantics.Model.Extract;
+unit DelphiSemantics.Model.Extract;
 
 interface
 

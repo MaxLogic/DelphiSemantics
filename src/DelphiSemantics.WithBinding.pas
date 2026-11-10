@@ -242,12 +242,17 @@ type
       TDelphiSemanticRemoveWithLookupIndex; static;
     class function BuildCompact(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aSymbols: TArray<TDelphiSemanticInventorySymbol>):
-      TDelphiSemanticRemoveWithLookupIndex; static;
+      TDelphiSemanticRemoveWithLookupIndex; overload; static;
+    class function BuildCompact(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aSymbols: TArray<TDelphiSemanticInventorySymbol>; const aRecordLimit: Integer):
+      TDelphiSemanticRemoveWithLookupIndex; overload; static;
     function FindCurrentClassMembers(const aRoutineName, aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function FindCurrentClassMembersByName(const aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
-    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>);
+    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>) overload;
+    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aRecordLimit: Integer); overload;
     function IsAvailable: Boolean;
     function FindMembersByOwnerAndName(const aOwnerName, aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
@@ -382,12 +387,19 @@ type
     function ExportValueMemberEvidence: TDelphiSemanticValueMemberEvidence;
   end;
 
+  // Private additive capability: preserve the existing public interface vtable.
+  IDelphiSemanticBudgetedCurrentClassMemberLookupData = interface
+    ['{6E79C7F3-651D-416A-89E1-7C36F80B1BE8}']
+    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aRecordLimit: Integer);
+  end;
+
   TWithBindingProjectMemberIndex = class;
 
   TDelphiSemanticRemoveWithLookupIndexData = class(TInterfacedObject,
     IDelphiSemanticRemoveWithLookupIndexData, IDelphiSemanticCurrentClassMemberLookupData,
     IDelphiSemanticRemoveWithLookupActivityData, IDelphiSemanticRemoveWithValueEvidence,
-    IDelphiSemanticRemoveWithModelEvidence)
+    IDelphiSemanticRemoveWithModelEvidence, IDelphiSemanticBudgetedCurrentClassMemberLookupData)
   private
     fCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex;
     fCurrentClassSymbols: TArray<TDelphiSemanticInventorySymbol>;
@@ -445,7 +457,9 @@ type
       TArray<TDelphiSemanticInventorySymbol>;
     function FindCurrentClassMembersByName(const aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
-    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>);
+    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>) overload;
+    procedure RebuildCurrentClassMembers(const aModels: TArray<TDelphiSemanticUnitModel>;
+      const aRecordLimit: Integer); overload;
     function FindMembersByOwnerAndName(const aOwnerName, aName: string):
       TArray<TDelphiSemanticInventorySymbol>;
     function FindRoutineSymbol(const aRoutineName, aName: string;
@@ -1215,6 +1229,12 @@ end;
 
 procedure TDelphiSemanticRemoveWithLookupIndexData.RebuildCurrentClassMembers(
   const aModels: TArray<TDelphiSemanticUnitModel>);
+begin
+  RebuildCurrentClassMembers(aModels, 0);
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndexData.RebuildCurrentClassMembers(
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aRecordLimit: Integer);
 var
   lIndex: TDelphiSemanticCurrentClassMemberIndex;
   lModel: TDelphiSemanticUnitModel;
@@ -1222,7 +1242,7 @@ begin
   lIndex := TDelphiSemanticCurrentClassMemberIndex.Create;
   try
     for lModel in aModels do
-      TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel, 0, 0, lIndex);
+      TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel, aRecordLimit, 0, lIndex);
     lIndex.Complete(fCurrentClassSymbols);
     fCurrentClassMembers.Free;
     fCurrentClassMembers := lIndex;
@@ -1251,6 +1271,14 @@ end;
 class function TDelphiSemanticRemoveWithLookupIndex.BuildCompact(
   const aModels: TArray<TDelphiSemanticUnitModel>;
   const aSymbols: TArray<TDelphiSemanticInventorySymbol>): TDelphiSemanticRemoveWithLookupIndex;
+begin
+  Result := BuildCompact(aModels, aSymbols, 0);
+end;
+
+class function TDelphiSemanticRemoveWithLookupIndex.BuildCompact(
+  const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>; const aRecordLimit: Integer):
+  TDelphiSemanticRemoveWithLookupIndex;
 var
   lIndex: TDelphiSemanticCurrentClassMemberIndex;
   lModel: TDelphiSemanticUnitModel;
@@ -1258,13 +1286,26 @@ begin
   lIndex := TDelphiSemanticCurrentClassMemberIndex.Create;
   try
     for lModel in aModels do
-      TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel, 0, 0, lIndex);
+      TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel, aRecordLimit, 0, lIndex);
     lIndex.Complete(aSymbols);
     Result := BuildLookupWithCurrentClassMembers(aModels, aSymbols, lIndex);
     lIndex := nil;
   finally
     lIndex.Free;
   end;
+end;
+
+procedure TDelphiSemanticRemoveWithLookupIndex.RebuildCurrentClassMembers(
+  const aModels: TArray<TDelphiSemanticUnitModel>; const aRecordLimit: Integer);
+var
+  lData: IDelphiSemanticBudgetedCurrentClassMemberLookupData;
+begin
+  if Supports(fData, IDelphiSemanticBudgetedCurrentClassMemberLookupData, lData) then
+    lData.RebuildCurrentClassMembers(aModels, aRecordLimit)
+  else if aRecordLimit = 0 then
+    RebuildCurrentClassMembers(aModels)
+  else
+    raise EInvalidOpException.Create('CURRENT_CLASS_CONTEXT_UNAVAILABLE: lookup cannot honor the explicit record limit.');
 end;
 
 function TDelphiSemanticRemoveWithLookupIndex.FindCurrentClassMembers(

@@ -1049,11 +1049,14 @@ begin
       aFacts.Symbols := lPayload.Symbols;
       aFacts.Bindings := lPayload.Bindings;
       aFacts.UnitModels := Copy(aModels);
-      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact(aModels, aFacts.Symbols);
+      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact(aModels,
+        aFacts.Symbols, aOptions.WithInventoryRecordLimit);
       aFacts.LookupIndex.AttachValueMemberEvidence(lPayload.ValueEvidence);
     except
       on E: Exception do
       begin
+        if E is EDelphiSemanticWithInventoryBudget then
+          raise;
         aInvalid := True;
         aFacts := Default(TDelphiSemanticProjectWithBindingFacts);
         OutputDebugString(PChar('DAK-477 combined facts reconstruction miss: ' + E.Message));
@@ -1450,7 +1453,8 @@ begin
 end;
 
 function BuildCachedRemoveWithSnapshotWithLookup(const aCachedSnapshot:
-  TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRecordLimit: Integer):
   TDelphiProjectSnapshot;
 var
   i: Cardinal;
@@ -1471,7 +1475,7 @@ begin
     lFacts := aCachedSnapshot.RemoveWithPlanningFacts;
     // DS-805: persisted members omit projections. Restore the exact scanner
     // contexts from these already validated models before exposing lookups.
-    lFacts.LookupIndex.RebuildCurrentClassMembers(aModels);
+    lFacts.LookupIndex.RebuildCurrentClassMembers(aModels, aRecordLimit);
     // Keep the loaded inventory and value evidence in the original project identity
     // domain. The cache loader already validated their source and activity witnesses.
     lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
@@ -2398,7 +2402,7 @@ begin
           lCacheSnapshotMetrics);
         Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
         lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot,
-          lExtraction.Models);
+          lExtraction.Models, fOptions.WithInventoryRecordLimit);
         try
           lCachedPlan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
           if not CachedRemoveWithPlanNeedsModelRebuild(lCachedPlan) then

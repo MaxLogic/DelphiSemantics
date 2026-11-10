@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Cached WITH context reconstruction honors the request record-limit override on combined-payload and SQLite replay (DS-805 follow-up).
+
 - Capture proofs index physical routine candidates and tokenize each source projection once, preserving ordered proof contents and refusals (DS-807).
 
 - WITH inventories omit eager current-class projections and reconstruct exact ordered routine views on demand; older semantic caches rebuild and the stored-record budget remains enforced (DS-805).

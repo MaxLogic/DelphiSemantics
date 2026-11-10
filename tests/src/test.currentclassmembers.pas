@@ -15,7 +15,7 @@ function CompactInventoryAdmissionPeak(const aModels: TArray<TDelphiSemanticUnit
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils, System.SysUtils,
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.IOUtils, System.StrUtils, System.SysUtils,
   DUnitX.TestFramework,
   MaxLogic.StrUtils,
   DelphiSemantics.Model.Json, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
@@ -31,6 +31,9 @@ type
     [Category('Fast')]
     procedure GeneratedRulesMatchIndependentOracle;
     [Test]
+    [Category('Fast')]
+    procedure NonAsciiRoutineCasesUseIndependentAsciiPredicate;
+    [Test]
     procedure GeneratedCartesianStressMatchesIndependentOracle;
     [Test]
     procedure GeneratedDeepInheritanceMatchesIndependentOracle;
@@ -44,6 +47,9 @@ type
     [Test]
     [Category('Fast')]
     procedure CompactSnapshotFallbackRehydratesVirtualLookup;
+    [TestCase('Combined rebuild', 'False')]
+    [TestCase('SQLite rebuild', 'True')]
+    procedure CompactReplayHonorsExplicitRecordLimit(const aRebuild: Boolean);
   end;
 
 function EqualInventorySymbol(const aLeft, aRight: TDelphiSemanticInventorySymbol): Boolean;
@@ -153,6 +159,18 @@ begin
         aActual[i].RoutineName, aActual[i].Name, aActual[i].Line]));
 end;
 
+function AsciiCaseKey(const aValue: string): string;
+var
+  i: Integer;
+begin
+  // Independent legacy SameText key. Do not reuse the production Unicode comparer.
+  Result := aValue;
+  for i := 1 to Length(Result) do
+    if CharInSet(Result[i], ['a'..'z']) then
+      Result[i] := Char(Ord(Result[i]) - Ord('a') + Ord('A'));
+end;
+
+
 procedure AssertCurrentClassInventoryEqual(const aModels: TArray<TDelphiSemanticUnitModel>;
   const aRecordLimit: Integer; out aQueryCount, aProjectionCount: Int64;
   const aOracleProvider: Integer);
@@ -192,6 +210,24 @@ var
     end;
   end;
 
+  function RoutineProviderRecords(const aRecords: TArray<TDelphiSemanticInventorySymbol>;
+    const aRoutineName: string): TArray<TDelphiSemanticInventorySymbol>;
+  var
+    lItems: TList<TDelphiSemanticInventorySymbol>;
+    lRecord: TDelphiSemanticInventorySymbol;
+  begin
+    lItems := TList<TDelphiSemanticInventorySymbol>.Create;
+    try
+      // DAK consumers retain this legacy post-filter over the broader DS buckets.
+      for lRecord in ProviderRecords(aRecords) do
+        if SameText(lRecord.RoutineName, aRoutineName) then
+          lItems.Add(lRecord);
+      Result := lItems.ToArray;
+    finally
+      lItems.Free;
+    end;
+  end;
+
   procedure AddOrdinal(const aMap: TObjectDictionary<string, TList<Integer>>;
     const aKey: string; const aOrdinal: Integer);
   var
@@ -221,7 +257,7 @@ begin
   lCompactList := TList<TDelphiSemanticInventorySymbol>.Create;
   lExpectedList := TList<TDelphiSemanticInventorySymbol>.Create;
   lByName := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
-  lByRoutineAndName := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  lByRoutineAndName := TObjectDictionary<string, TList<Integer>>.Create([doOwnsValues], TStringComparer.Ordinal);
   lIndex := TDelphiSemanticCurrentClassMemberIndex.Create;
   try
     for lModelOrdinal := 0 to High(aModels) do
@@ -274,7 +310,7 @@ begin
       for lOrdinal in lPair.Value do
       begin
         lSymbol := lLegacy[lOrdinal];
-        AddOrdinal(lByRoutineAndName, lSymbol.RoutineName + #31 + lSymbol.Name, lOrdinal);
+        AddOrdinal(lByRoutineAndName, AsciiCaseKey(lSymbol.RoutineName + #31 + lSymbol.Name), lOrdinal);
       end;
       for lRoutinePair in lByRoutineAndName do
       begin
@@ -282,9 +318,9 @@ begin
         lRoutineName := Copy(lRoutinePair.Key, 1, lCursor - 1);
         lName := Copy(lRoutinePair.Key, lCursor + 1, MaxInt);
         lExpected := RecordsAt(lRoutinePair.Value);
-        AssertSymbolsEqual(lExpected, ProviderRecords(lIndex.FindCurrentClassMembers(lRoutineName, lName)), lRoutinePair.Key);
-        AssertSymbolsEqual(lExpected, ProviderRecords(lLookup.FindCurrentClassMembers(lRoutineName, lName)), 'rehydrated ' + lRoutinePair.Key);
-        AssertSymbolsEqual(lExpected, ProviderRecords(lIndex.FindCurrentClassMembers(LowerCase(lRoutineName), UpperCase(lName))), 'case ' + lRoutinePair.Key);
+        AssertSymbolsEqual(lExpected, RoutineProviderRecords(lIndex.FindCurrentClassMembers(lRoutineName, lName), lRoutineName), lRoutinePair.Key);
+        AssertSymbolsEqual(lExpected, RoutineProviderRecords(lLookup.FindCurrentClassMembers(lRoutineName, lName), lRoutineName), 'rehydrated ' + lRoutinePair.Key);
+        AssertSymbolsEqual(lExpected, RoutineProviderRecords(lIndex.FindCurrentClassMembers(LowerCase(lRoutineName), UpperCase(lName)), LowerCase(lRoutineName)), 'case ' + lRoutinePair.Key);
         lOldFound := lLegacyLookup.FindRoutineSymbol(lRoutineName, lName, lOldSymbol);
         lNewFound := lLookup.FindRoutineSymbol(lRoutineName, lName, lNewSymbol);
         Assert.AreEqual(lOldFound, lNewFound, 'routine lookup found');
@@ -367,6 +403,33 @@ begin
   Result.UnitName := aUnitName;
   Result.FileName := aUnitName + '.pas';
   Result.SourceText := aSource;
+end;
+
+procedure TCurrentClassMemberTests.NonAsciiRoutineCasesUseIndependentAsciiPredicate;
+var
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lRoutine: string;
+  lQueries, lRecords: Int64;
+  i: Integer;
+begin
+  SetLength(lModels, 2);
+  for i := 0 to 1 do
+  begin
+    if i = 0 then
+      lRoutine := #$00C4 + 'ndern'
+    else
+      lRoutine := #$00E4 + 'ndern';
+    lModels[i] := ScannerModel('Unicode' + IntToStr(i), string.Join(sLineBreak,
+      ['unit Unicode' + IntToStr(i) + ';', 'interface', 'type', '  TForm1 = class',
+      '    lWithFoo: Integer;', '    procedure ' + lRoutine + ';', '  end;',
+      'implementation', 'procedure TForm1.' + lRoutine + ';', 'begin', 'end;', 'end.']));
+  end;
+  Assert.IsFalse(SameText(#$00C4, #$00E4));
+  AssertCurrentClassInventoryEqual(lModels, 1000000, lQueries, lRecords);
+  Assert.IsTrue(AsciiCaseKey('TForm1.' + #$00C4 + 'ndern') <>
+    AsciiCaseKey('TForm1.' + #$00E4 + 'ndern'), 'The oracle must not merge non-ASCII case variants.');
+  Assert.IsTrue(lRecords >= 2);
+  Assert.IsTrue(lQueries >= 11, 'Both non-ASCII routine variants must be queried independently.');
 end;
 
 procedure TCurrentClassMemberTests.GeneratedRulesMatchIndependentOracle;
@@ -647,6 +710,43 @@ begin
   finally
     lSnapshot.Free;
   end;
+end;
+
+procedure TCurrentClassMemberTests.CompactReplayHonorsExplicitRecordLimit(const aRebuild: Boolean);
+var
+  lLookup: TDelphiSemanticRemoveWithLookupIndex;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lLimit: Integer;
+  lRefused: Boolean;
+begin
+  lModel := ScannerModel('ReplayBudget', string.Join(sLineBreak, ['unit ReplayBudget;',
+    'interface', 'type', '  TExample = class', '    Value: Integer;', '  end;',
+    'implementation', 'procedure TExample.Run;', 'begin', 'end;', 'end.']));
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel);
+  lLimit := Length(lSymbols) - 1;
+  Assert.IsTrue(lLimit > 0);
+  lLookup := TDelphiSemanticRemoveWithLookupIndex.BuildCompact([], lSymbols);
+  lRefused := False;
+  try
+    if aRebuild then
+      lLookup.RebuildCurrentClassMembers([lModel], lLimit)
+    else
+      lLookup := TDelphiSemanticRemoveWithLookupIndex.BuildCompact([lModel], lSymbols, lLimit);
+  except
+    on E: EDelphiSemanticWithInventoryBudget do
+    begin
+      lRefused := True;
+      Assert.IsTrue(Pos('limit=' + IntToStr(lLimit) + ' records', E.Message) > 0, E.Message);
+    end;
+  end;
+  Assert.IsTrue(lRefused, 'Replay must use the explicit per-unit limit instead of the default.');
+  if aRebuild then
+    lLookup.RebuildCurrentClassMembers([lModel], Length(lSymbols))
+  else
+    lLookup := TDelphiSemanticRemoveWithLookupIndex.BuildCompact([lModel], lSymbols, Length(lSymbols));
+  Assert.AreEqual<Integer>(1, Length(lLookup.FindCurrentClassMembers('TExample.Run', 'Value')),
+    'The exact explicit boundary remains admitted.');
 end;
 
 initialization
