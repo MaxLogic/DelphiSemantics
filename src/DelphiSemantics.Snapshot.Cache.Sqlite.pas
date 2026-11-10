@@ -2195,7 +2195,7 @@ begin
 
   lEvidence := LoadValueMemberEvidence(aCacheKey, aConnection);
   if not lFacts.LookupIndex.IsAvailable then
-    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
+    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact([],
       LoadedInventorySymbols(aBuilder.ExactStrings, lFacts.Symbols));
   lFacts.LookupIndex.AttachValueMemberEvidence(lEvidence);
   lUnitId := 0;

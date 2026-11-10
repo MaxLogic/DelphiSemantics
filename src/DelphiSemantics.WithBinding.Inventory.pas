@@ -21,8 +21,70 @@ type
     constructor Create(const aRecordLimit: Integer; const aBaseCount: Int64 = 0);
   end;
 
+  TDelphiSemanticCurrentClassMemberMetrics = record
+    StoredMemberCount: Int64;
+    RoutineContextCount: Int64;
+    VisitedContextCount: Int64;
+  end;
+
+  TDelphiSemanticCurrentClassContext = record
+    OwnerKey: string;
+    RoutineName: string;
+  end;
+
+  // DS-805: one backing member per owner/name, plus O(routines) contexts.
+  // Query results are temporary copies, never an eager routine/member product.
+  TDelphiSemanticCurrentClassMemberIndex = class
+  private
+    fModelOrdinal: Integer;
+    fMetrics: TDelphiSemanticCurrentClassMemberMetrics;
+    fModelKey: string;
+    fLegacy: Boolean;
+    fLegacyMembers: TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fOwnMembers: TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fExpandedMembers: TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fOwnOwnersByName: TObjectDictionary<string, TList<string>>;
+    fExpandedOwnersByName: TObjectDictionary<string, TList<string>>;
+    fSeedsByOwner: TObjectDictionary<string, TList<string>>;
+    fSeedKeys: THashSet<string>;
+    fRelatedContextKeys: THashSet<string>;
+    fOwnContexts: TList<TDelphiSemanticCurrentClassContext>;
+    fRelatedContexts: TList<TDelphiSemanticCurrentClassContext>;
+    fOwnContextsByOwner: TObjectDictionary<string, TList<Integer>>;
+    fRelatedContextsByOwner: TObjectDictionary<string, TList<Integer>>;
+    fOwnContextsByRoutine: TObjectDictionary<string, TList<Integer>>;
+    fRelatedContextsByRoutine: TObjectDictionary<string, TList<Integer>>;
+    class procedure AddMember(const aMap: TObjectDictionary<string,
+      TList<TDelphiSemanticInventorySymbol>>; const aOwners: TObjectDictionary<string,
+      TList<string>>; const aOwnerKey: string; const aSymbol: TDelphiSemanticInventorySymbol); static;
+    class procedure AddContextIndex(const aMap: TObjectDictionary<string, TList<Integer>>;
+      const aKey: string; const aIndex: Integer); static;
+    function ContextIndexes(const aRoutineName, aName: string; const aByName,
+      aOwn: Boolean): TArray<Integer>;
+    function Find(const aRoutineName, aName: string; const aByName: Boolean):
+      TArray<TDelphiSemanticInventorySymbol>;
+  public
+    constructor Create;
+    constructor CreateLegacy(const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+    destructor Destroy; override;
+    function Metrics: TDelphiSemanticCurrentClassMemberMetrics;
+    procedure CaptureOwnMembers(const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+    procedure CaptureRoutine(const aRoutineName: string);
+    procedure Complete(const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+    function FindCurrentClassMembers(const aRoutineName, aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+    function FindCurrentClassMembersByName(const aName: string):
+      TArray<TDelphiSemanticInventorySymbol>;
+  end;
+
   TDelphiSemanticWithBindingInventory = record
   public
+    class function BuildCompactInventorySymbols(const aModel: TDelphiSemanticUnitModel;
+      const aRecordLimit: Integer = 0; const aBaseCount: Int64 = 0;
+      const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex = nil):
+      TArray<TDelphiSemanticInventorySymbol>; static;
+    class function ExpandCompactInventorySymbols(const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+      const aRecordLimit: Integer = 0): TArray<TDelphiSemanticInventorySymbol>; static;
     class function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel):
       TArray<TDelphiSemanticInventorySymbol>; overload; static;
     class function BuildInventorySymbols(const aModel: TDelphiSemanticUnitModel;
@@ -2201,7 +2263,9 @@ begin
 end;
 
 procedure ParseDakInventoryRoutines(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
-  const aLines, aActiveLines: TArray<string>; const aUnitName, aFileName: string);
+  const aLines, aActiveLines: TArray<string>; const aUnitName, aFileName: string;
+  const aStoreProjections: Boolean;
+  const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex);
 var
   g: TGarbos;
   lRoutineScan: TInventoryRoutineScan;
@@ -2222,13 +2286,16 @@ var
   lTopLevelLine: Boolean;
 begin
   GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
+  if aCurrentClassMembers <> nil then
+    aCurrentClassMembers.CaptureOwnMembers(aSymbols);
   lMembersByOwner := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   lInImplementation := False;
   lInType := False;
   try
     for lMember in aSymbols do
-      if (lMember.RoutineName = '') and InventoryIsDirectMemberKind(lMember.SymbolClass) then
+      if aStoreProjections and (lMember.RoutineName = '') and
+        InventoryIsDirectMemberKind(lMember.SymbolClass) then
       begin
         if not lMembersByOwner.TryGetValue(lMember.OwnerType, lMembers) then
         begin
@@ -2292,7 +2359,9 @@ begin
         aFileName);
       ParseDakInventoryLocals(aSymbols, aLines, i + 1, lRoutineName, aUnitName, aFileName);
 
-      if InventoryTryRoutineOwner(lRoutineName, lOwnerType) and
+      if aCurrentClassMembers <> nil then
+        aCurrentClassMembers.CaptureRoutine(lRoutineName);
+      if aStoreProjections and InventoryTryRoutineOwner(lRoutineName, lOwnerType) and
         lMembersByOwner.TryGetValue(lOwnerType, lMembers) then
       begin
         for lMember in lMembers do
@@ -2370,7 +2439,9 @@ begin
 end;
 
 procedure AddModelSourceCompatibilitySymbols(
-  const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+  const aModel: TDelphiSemanticUnitModel; const aSymbols: TList<TDelphiSemanticInventorySymbol>;
+  const aStoreProjections: Boolean;
+  const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex);
 var
   i, j, k, lFirst: Integer;
   lActiveLines, lLines, lRawLines: TArray<string>;
@@ -2391,7 +2462,8 @@ begin
   // checked; these symbols do not claim active declaration authority.
   ParseDakInventoryRoutines(aSymbols, InventorySourceTextLines(aModel.SourceText),
     InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
-      aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName);
+      aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName,
+    aStoreProjections, aCurrentClassMembers);
   lActiveLines := InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
     aModel.SourceText, aModel.VerifiedActiveSourceText));
   // Preserve the scanner's source-layout refusals. Remove only member tokens
@@ -2434,11 +2506,12 @@ begin
 end;
 
 procedure AddDakCompatibleInventorySymbols(const aModel: TDelphiSemanticUnitModel;
-  const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>; const aStoreProjections: Boolean;
+  const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex);
 begin
   AddDakInventorySymbol(aSymbols, aModel.UnitName, '', '', '', aModel.UnitName, aModel.FileName,
     1, aModel.UnitName, 'unit');
-  AddModelSourceCompatibilitySymbols(aModel, aSymbols);
+  AddModelSourceCompatibilitySymbols(aModel, aSymbols, aStoreProjections, aCurrentClassMembers);
 end;
 
 function InventorySameSymbol(const aLeft, aRight: TDelphiSemanticInventorySymbol): Boolean;
@@ -3002,9 +3075,8 @@ begin
   Result := ExpandInventorySymbols(aSymbols, 0);
 end;
 
-class function TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(
-  const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
-  const aRecordLimit: Integer): TArray<TDelphiSemanticInventorySymbol>;
+function ExpandInventorySymbolsCore(const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  const aRecordLimit: Integer; const aStoreProjections: Boolean): TArray<TDelphiSemanticInventorySymbol>;
 var
   lKeys: TDictionary<string, Byte>;
   lSymbol: TDelphiSemanticInventorySymbol;
@@ -3017,13 +3089,28 @@ begin
     for lSymbol in aSymbols do
       AddExpandedInventorySymbolWithKeys(lSymbols, lKeys, lSymbol);
     AddRelatedInventoryMemberSymbols(lSymbols, lKeys);
-    AddRelatedInventoryCurrentClassSymbols(lSymbols, lKeys);
+    if aStoreProjections then
+      AddRelatedInventoryCurrentClassSymbols(lSymbols, lKeys);
     AddExpandedExternalTypeSymbols(lSymbols, lKeys);
     Result := lSymbols.ToArray;
   finally
     lSymbols.Free;
     lKeys.Free;
   end;
+end;
+
+class function TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  const aRecordLimit: Integer): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := ExpandInventorySymbolsCore(aSymbols, aRecordLimit, True);
+end;
+
+class function TDelphiSemanticWithBindingInventory.ExpandCompactInventorySymbols(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  const aRecordLimit: Integer): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := ExpandInventorySymbolsCore(aSymbols, aRecordLimit, False);
 end;
 
 function IsVerifiedLexicalRoutineBody(const aModel: TDelphiSemanticUnitModel;
@@ -3301,9 +3388,10 @@ begin
   Result := BuildInventorySymbols(aModel, 0, 0);
 end;
 
-class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
-  const aModel: TDelphiSemanticUnitModel; const aRecordLimit: Integer;
-  const aBaseCount: Int64): TArray<TDelphiSemanticInventorySymbol>;
+function BuildInventorySymbolsCore(const aModel: TDelphiSemanticUnitModel;
+  const aRecordLimit: Integer; const aBaseCount: Int64; const aStoreProjections: Boolean;
+  const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex):
+  TArray<TDelphiSemanticInventorySymbol>;
 var
   lDeclaration: TDelphiSemanticDeclaration;
   lFirstTextIndex: NativeInt;
@@ -3538,13 +3626,328 @@ begin
     end;
 
     lFirstTextIndex := lSymbols.Count;
-    AddDakCompatibleInventorySymbols(aModel, lSymbols);
+    AddDakCompatibleInventorySymbols(aModel, lSymbols, aStoreProjections, aCurrentClassMembers);
     AddMissingAliasInventorySymbols(aModel, lSymbols);
     AssignTextInventoryRoutineScopes(aModel, lSymbols, lFirstTextIndex);
     Result := lSymbols.ToArray;
   finally
     lSymbols.Free;
   end;
+end;
+
+
+class function TDelphiSemanticWithBindingInventory.BuildInventorySymbols(
+  const aModel: TDelphiSemanticUnitModel; const aRecordLimit: Integer;
+  const aBaseCount: Int64): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := BuildInventorySymbolsCore(aModel, aRecordLimit, aBaseCount, True, nil);
+end;
+
+class function TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(
+  const aModel: TDelphiSemanticUnitModel; const aRecordLimit: Integer;
+  const aBaseCount: Int64; const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex):
+  TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := BuildInventorySymbolsCore(aModel, aRecordLimit, aBaseCount, False, aCurrentClassMembers);
+end;
+
+constructor TDelphiSemanticCurrentClassMemberIndex.Create;
+begin
+  inherited Create;
+  fLegacyMembers := TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fOwnMembers := TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fExpandedMembers := TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fOwnOwnersByName := TObjectDictionary<string, TList<string>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fExpandedOwnersByName := TObjectDictionary<string, TList<string>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSeedsByOwner := TObjectDictionary<string, TList<string>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSeedKeys := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRelatedContextKeys := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fOwnContexts := TList<TDelphiSemanticCurrentClassContext>.Create;
+  fRelatedContexts := TList<TDelphiSemanticCurrentClassContext>.Create;
+  fOwnContextsByOwner := TObjectDictionary<string, TList<Integer>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRelatedContextsByOwner := TObjectDictionary<string, TList<Integer>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fOwnContextsByRoutine := TObjectDictionary<string, TList<Integer>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fRelatedContextsByRoutine := TObjectDictionary<string, TList<Integer>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.OrdinalIgnoreCase);
+end;
+
+constructor TDelphiSemanticCurrentClassMemberIndex.CreateLegacy(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+var
+  lMembers: TList<TDelphiSemanticInventorySymbol>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Create;
+  fLegacy := True;
+  for lSymbol in aSymbols do
+    if SameText(lSymbol.SymbolClass, 'current-class-member') then
+    begin
+      if not fLegacyMembers.TryGetValue(lSymbol.Name, lMembers) then
+      begin
+        lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
+        fLegacyMembers.Add(lSymbol.Name, lMembers);
+      end;
+      lMembers.Add(lSymbol);
+    end;
+end;
+
+destructor TDelphiSemanticCurrentClassMemberIndex.Destroy;
+begin
+  fRelatedContextsByRoutine.Free;
+  fOwnContextsByRoutine.Free;
+  fRelatedContextsByOwner.Free;
+  fOwnContextsByOwner.Free;
+  fRelatedContexts.Free;
+  fOwnContexts.Free;
+  fRelatedContextKeys.Free;
+  fSeedKeys.Free;
+  fSeedsByOwner.Free;
+  fExpandedOwnersByName.Free;
+  fOwnOwnersByName.Free;
+  fExpandedMembers.Free;
+  fOwnMembers.Free;
+  fLegacyMembers.Free;
+  inherited;
+end;
+
+class procedure TDelphiSemanticCurrentClassMemberIndex.AddMember(
+  const aMap: TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  const aOwners: TObjectDictionary<string, TList<string>>;
+  const aOwnerKey: string; const aSymbol: TDelphiSemanticInventorySymbol);
+var
+  lKey: string;
+  lMembers: TList<TDelphiSemanticInventorySymbol>;
+  lOwners: TList<string>;
+begin
+  lKey := aOwnerKey + #31 + aSymbol.Name;
+  if not aMap.TryGetValue(lKey, lMembers) then
+  begin
+    lMembers := TList<TDelphiSemanticInventorySymbol>.Create;
+    aMap.Add(lKey, lMembers);
+    if not aOwners.TryGetValue(aSymbol.Name, lOwners) then
+    begin
+      lOwners := TList<string>.Create;
+      aOwners.Add(aSymbol.Name, lOwners);
+    end;
+    lOwners.Add(aOwnerKey);
+  end;
+  lMembers.Add(aSymbol);
+end;
+
+class procedure TDelphiSemanticCurrentClassMemberIndex.AddContextIndex(
+  const aMap: TObjectDictionary<string, TList<Integer>>; const aKey: string;
+  const aIndex: Integer);
+var
+  lIndexes: TList<Integer>;
+begin
+  if not aMap.TryGetValue(aKey, lIndexes) then
+  begin
+    lIndexes := TList<Integer>.Create;
+    aMap.Add(aKey, lIndexes);
+  end;
+  lIndexes.Add(aIndex);
+end;
+
+function TDelphiSemanticCurrentClassMemberIndex.Metrics: TDelphiSemanticCurrentClassMemberMetrics;
+begin
+  Result := fMetrics;
+end;
+
+procedure TDelphiSemanticCurrentClassMemberIndex.CaptureOwnMembers(
+  const aSymbols: TList<TDelphiSemanticInventorySymbol>);
+var
+  lOwnerKey, lSeedKey: string;
+  lSeeds: TList<string>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  Inc(fModelOrdinal);
+  fModelKey := IntToStr(fModelOrdinal);
+  // This is exactly the old ParseDakInventoryRoutines member universe, before
+  // scanner locals, activity cleanup and project inheritance expansion.
+  for lSymbol in aSymbols do
+    if (lSymbol.RoutineName = '') and InventoryIsDirectMemberKind(lSymbol.SymbolClass) then
+    begin
+      lOwnerKey := fModelKey + #31 + lSymbol.OwnerType;
+      AddMember(fOwnMembers, fOwnOwnersByName, lOwnerKey, lSymbol);
+      Inc(fMetrics.StoredMemberCount);
+      lSeedKey := lSymbol.UnitName + #31 + lSymbol.FileName + #31 + lSymbol.OwnerType;
+      if not fSeedKeys.Add(lOwnerKey + #31 + lSeedKey) then
+        Continue;
+      if not fSeedsByOwner.TryGetValue(lOwnerKey, lSeeds) then
+      begin
+        lSeeds := TList<string>.Create;
+        fSeedsByOwner.Add(lOwnerKey, lSeeds);
+      end;
+      lSeeds.Add(lSeedKey);
+    end;
+end;
+
+procedure TDelphiSemanticCurrentClassMemberIndex.CaptureRoutine(const aRoutineName: string);
+var
+  lContext: TDelphiSemanticCurrentClassContext;
+  lOwnerType, lSeed: string;
+  lSeeds: TList<string>;
+begin
+  if not InventoryTryRoutineOwner(aRoutineName, lOwnerType) then
+    Exit;
+  lContext.OwnerKey := fModelKey + #31 + lOwnerType;
+  if not fSeedsByOwner.TryGetValue(lContext.OwnerKey, lSeeds) then
+    Exit; // The old related pass is seeded only by a real pass-1 projection.
+  lContext.RoutineName := aRoutineName;
+  AddContextIndex(fOwnContextsByOwner, lContext.OwnerKey, fOwnContexts.Count);
+  AddContextIndex(fOwnContextsByRoutine, aRoutineName, fOwnContexts.Count);
+  fOwnContexts.Add(lContext);
+  Inc(fMetrics.RoutineContextCount);
+  for lSeed in lSeeds do
+  begin
+    if not fRelatedContextKeys.Add(lSeed + #31 + aRoutineName) then
+      Continue;
+    lContext.OwnerKey := lSeed;
+    AddContextIndex(fRelatedContextsByOwner, lSeed, fRelatedContexts.Count);
+    AddContextIndex(fRelatedContextsByRoutine, aRoutineName, fRelatedContexts.Count);
+    fRelatedContexts.Add(lContext);
+    Inc(fMetrics.RoutineContextCount);
+  end;
+end;
+
+procedure TDelphiSemanticCurrentClassMemberIndex.Complete(
+  const aSymbols: TArray<TDelphiSemanticInventorySymbol>);
+var
+  lOwnerKey: string;
+  lSource, lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  for lSource in aSymbols do
+  begin
+    lSymbol := lSource;
+    if (lSymbol.OwnerType = '') or (lSymbol.RoutineName <> '') or
+      (lSymbol.OwnerScopeId <> '') or not InventoryIsDirectMemberKind(lSymbol.SymbolClass) then
+      Continue;
+    lOwnerKey := lSymbol.UnitName + #31 + lSymbol.FileName + #31 + lSymbol.OwnerType;
+    // The old enrichment predicate excludes current-class-member. A loaded
+    // direct member may be enriched, but its old projection was not.
+    lSymbol.OwnerIdentity := Default(TDelphiSemanticTypeIdentity);
+    lSymbol.AccessOwnerIdentity := Default(TDelphiSemanticTypeIdentity);
+    AddMember(fExpandedMembers, fExpandedOwnersByName, lOwnerKey, lSymbol);
+    Inc(fMetrics.StoredMemberCount);
+  end;
+end;
+
+function TDelphiSemanticCurrentClassMemberIndex.ContextIndexes(
+  const aRoutineName, aName: string; const aByName, aOwn: Boolean): TArray<Integer>;
+var
+  lByOwner, lByRoutine: TObjectDictionary<string, TList<Integer>>;
+  lIndexes, lMatches: TList<Integer>;
+  lOwner: string;
+  lOwners: TList<string>;
+  lOwnersByName: TObjectDictionary<string, TList<string>>;
+begin
+  Result := nil;
+  if aOwn then
+  begin
+    lByOwner := fOwnContextsByOwner;
+    lByRoutine := fOwnContextsByRoutine;
+    lOwnersByName := fOwnOwnersByName;
+  end else begin
+    lByOwner := fRelatedContextsByOwner;
+    lByRoutine := fRelatedContextsByRoutine;
+    lOwnersByName := fExpandedOwnersByName;
+  end;
+  if not aByName then
+  begin
+    if lByRoutine.TryGetValue(aRoutineName, lIndexes) then
+      Result := lIndexes.ToArray;
+    Exit;
+  end;
+  if not lOwnersByName.TryGetValue(aName, lOwners) then
+    Exit;
+  lMatches := TList<Integer>.Create;
+  try
+    for lOwner in lOwners do
+      if lByOwner.TryGetValue(lOwner, lIndexes) then
+        lMatches.AddRange(lIndexes);
+    // Match the old physical stream, not owner/name dictionary iteration.
+    lMatches.Sort;
+    Result := lMatches.ToArray;
+  finally
+    lMatches.Free;
+  end;
+end;
+
+function TDelphiSemanticCurrentClassMemberIndex.Find(const aRoutineName, aName: string;
+  const aByName: Boolean): TArray<TDelphiSemanticInventorySymbol>;
+var
+  lKeys: THashSet<string>;
+  lMatches, lMembers: TList<TDelphiSemanticInventorySymbol>;
+  lSymbol: TDelphiSemanticInventorySymbol;
+
+  procedure AppendPass(const aContexts: TList<TDelphiSemanticCurrentClassContext>;
+    const aMembers: TObjectDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    const aOwn: Boolean);
+  var
+    lContext: TDelphiSemanticCurrentClassContext;
+    lIndex: Integer;
+    lOriginal, lProjected: TDelphiSemanticInventorySymbol;
+    lSource: TList<TDelphiSemanticInventorySymbol>;
+  begin
+    for lIndex in ContextIndexes(aRoutineName, aName, aByName, aOwn) do
+    begin
+      Inc(fMetrics.VisitedContextCount);
+      lContext := aContexts[lIndex];
+      if not aMembers.TryGetValue(lContext.OwnerKey + #31 + aName, lSource) then
+        Continue;
+      for lOriginal in lSource do
+      begin
+        lProjected := lOriginal;
+        lProjected.SymbolClass := 'current-class-member';
+        lProjected.Kind := 'current-class-member';
+        lProjected.RoutineName := lContext.RoutineName;
+        if lKeys.Add(InventorySymbolKey(lProjected)) then
+          lMatches.Add(lProjected);
+      end;
+    end;
+  end;
+
+begin
+  Result := nil;
+  lMatches := TList<TDelphiSemanticInventorySymbol>.Create;
+  lKeys := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    if fLegacy then
+    begin
+      if fLegacyMembers.TryGetValue(aName, lMembers) then
+        for lSymbol in lMembers do
+          if aByName or SameText(lSymbol.RoutineName, aRoutineName) then
+            lMatches.Add(lSymbol);
+    end else begin
+      AppendPass(fOwnContexts, fOwnMembers, True);
+      AppendPass(fRelatedContexts, fExpandedMembers, False);
+    end;
+    Result := lMatches.ToArray;
+  finally
+    lKeys.Free;
+    lMatches.Free;
+  end;
+end;
+
+function TDelphiSemanticCurrentClassMemberIndex.FindCurrentClassMembers(
+  const aRoutineName, aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := Find(aRoutineName, aName, False);
+end;
+
+function TDelphiSemanticCurrentClassMemberIndex.FindCurrentClassMembersByName(
+  const aName: string): TArray<TDelphiSemanticInventorySymbol>;
+begin
+  Result := Find('', aName, True);
 end;
 
 end.

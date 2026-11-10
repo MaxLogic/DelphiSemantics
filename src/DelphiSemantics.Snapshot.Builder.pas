@@ -3167,6 +3167,7 @@ function CreateRemoveWithPlanningFacts(const aExactStrings: TSemanticStringPool;
   const aFacts: TDelphiSemanticProjectWithBindingFacts): TSemanticRemoveWithPlanningFacts;
 var
   i: Integer;
+  lLegacyProjections: Boolean;
   lRoutineOwners: TList<TSemanticRemoveWithInventorySymbolFact>;
   lSymbol: TDelphiSemanticInventorySymbol;
 begin
@@ -3174,9 +3175,24 @@ begin
   Result.ContextFingerprintId := aExactStrings.Intern(aFacts.ContextFingerprint);
   if aFacts.LookupIndex.IsAvailable then
     Result.LookupIndex := aFacts.LookupIndex
-  else
-    Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(
-      aFacts.UnitModels, aFacts.Symbols);
+  else begin
+    lLegacyProjections := False;
+    for lSymbol in aFacts.Symbols do
+      if SameText(lSymbol.SymbolClass, 'current-class-member') then
+      begin
+        lLegacyProjections := True;
+        Break;
+      end;
+    // Explicit legacy inventories keep their supplied projection contract.
+    // Compact facts must rebuild scanner contexts, never infer their absence
+    // from a deliberately missing derived lookup.
+    if lLegacyProjections then
+      Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(
+        aFacts.UnitModels, aFacts.Symbols)
+    else
+      Result.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact(
+        aFacts.UnitModels, aFacts.Symbols);
+  end;
   lRoutineOwners := TList<TSemanticRemoveWithInventorySymbolFact>.Create;
   try
     for lSymbol in aFacts.Symbols do

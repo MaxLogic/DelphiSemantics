@@ -128,9 +128,31 @@ Memory grows with the override. The default uses a 4 KiB per-record planning
 estimate (3.81 GiB): a measured 576-byte Win64 record plus resident copies, list
 capacity, strings, keys and indexes. This is not a hard byte cap; long strings
 and the rest of the project require additional memory. DAK exposes the override
-as `--with-inventory-record-limit <positive N>`. MaxTdb's admitted peak is
-54,876 records (5.49% of the default), including compatibility additions and
-expansion; the per-unit projection is smaller than the budgeted inventory.
+as `--with-inventory-record-limit <positive N>`.
+
+Production inventories store class members once per provider rather than
+projecting `current-class-member` copies for every routine. The virtual lookup
+reconstructs the same ordered records on request, including the existing
+project-wide routine-name matches and same-unit/file inheritance and helper
+rules. Locals, parameters and routine entries remain eager; zero-WITH units
+remain providers. The explicit full-inventory builder remains a budgeted legacy
+API and test oracle.
+
+The budget counts stored records, including compatibility additions and
+expansion, and remains a safety net. On the prepared 60-model MaxTdb Win32
+capture, the compact admission peak is 28,130 records (2.813% of the default);
+28,129 refuses. The earlier eager DAK-491 capture peaked at 54,876 records.
+These are admission peaks for their recorded inputs, not final-array counts
+or universal project totals. The KFZ 1,135-model capture admits 658,868 before
+expansion and stores 590,078 afterwards; full-command capture proofs still
+require separate time and memory measurement.
+
+Compact payloads use `combined-remove-with-facts-v2`,
+`project-session-remove-with-facts-v107` and `project-session-snapshot-v202`.
+Older semantic caches rebuild. No physical SQLite schema migration is needed.
+Virtual lookups are rebuilt from validated models on load; missing model
+context refuses a virtual query with `CURRENT_CLASS_CONTEXT_UNAVAILABLE`
+instead of claiming member absence.
 
 For streamed WITH planning-symbol rows, `SnapshotSqlReadMilliseconds` now times
 query `Open` only. Subsequent row fetches run in the iteration/decoding loop

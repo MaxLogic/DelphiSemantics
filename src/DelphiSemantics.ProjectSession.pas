@@ -229,9 +229,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v70';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v202';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v101';
+    'project-session-remove-with-facts-v107';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -958,7 +958,7 @@ begin
     Exit;
   lIdentity := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions,
     aSourceFileNames, aScopedSourceFileNames, aUnitCacheIdentities, aWitness.IdentityText);
-  lText := 'combined-remove-with-facts-v1|' + lIdentity.CacheKey + '|' +
+  lText := 'combined-remove-with-facts-v2|' + lIdentity.CacheKey + '|' +
     aProject.ContextObservations.EvidenceFingerprint + '|' +
     aProject.ContextObservations.ConfigurationIdentity + '|' +
     BoolToStr(aOptions.ForceFullIdentifierAnalysis, True) + '|' +
@@ -1028,7 +1028,7 @@ begin
       RequireWithInventoryBudget(Length(lPayload.Symbols), aOptions.WithInventoryRecordLimit,
         'cached combined inventory');
       // Reject incomplete, unknown or noncanonical fields, not just malformed JSON.
-      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v1') or
+      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v2') or
         (lPayload.ContextFingerprint <> aContextFingerprint) or
         (lSerializer.Serialize<TCombinedPlanningFactsPayload>(lPayload) <> lPayloadText);
     except
@@ -1049,7 +1049,7 @@ begin
       aFacts.Symbols := lPayload.Symbols;
       aFacts.Bindings := lPayload.Bindings;
       aFacts.UnitModels := Copy(aModels);
-      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aModels, aFacts.Symbols);
+      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact(aModels, aFacts.Symbols);
       aFacts.LookupIndex.AttachValueMemberEvidence(lPayload.ValueEvidence);
     except
       on E: Exception do
@@ -1103,7 +1103,7 @@ var
   lSerializer: TJsonSerializer;
 begin
   lPayload := Default(TCombinedPlanningFactsPayload);
-  lPayload.Schema := 'combined-remove-with-facts-v1';
+  lPayload.Schema := 'combined-remove-with-facts-v2';
   lPayload.ContextFingerprint := aFacts.ContextFingerprint;
   lPayload.Symbols := aFacts.Symbols;
   lPayload.Bindings := aFacts.Bindings;
@@ -1469,6 +1469,9 @@ begin
     for i := 1 to aCachedSnapshot.ExactStringCount do
       lBuilder.ExactStrings.Intern(aCachedSnapshot.ExactTextOf(TSemanticStringId(i)));
     lFacts := aCachedSnapshot.RemoveWithPlanningFacts;
+    // DS-805: persisted members omit projections. Restore the exact scanner
+    // contexts from these already validated models before exposing lookups.
+    lFacts.LookupIndex.RebuildCurrentClassMembers(aModels);
     // Keep the loaded inventory and value evidence in the original project identity
     // domain. The cache loader already validated their source and activity witnesses.
     lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);

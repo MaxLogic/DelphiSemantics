@@ -23,6 +23,9 @@ type
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
+    [Test]
+    [Category('Fast')]
+    procedure ProjectInventoryDoesNotStoreCurrentClassProjections;
     [Category('Fast')]
     [TestCase('Unicode field', 'field')]
     [TestCase('Unicode class var', 'class-var')]
@@ -1675,6 +1678,30 @@ begin
   Assert.AreEqual(Length(lExpected), Length(lBindings[0].Selectors));
   for i := 0 to High(lExpected) do
     Assert.AreEqual(lExpected[i], lBindings[0].Selectors[i].SelectorText);
+end;
+
+procedure TProjectWithBindingTests.ProjectInventoryDoesNotStoreCurrentClassProjections;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.UnitName := 'CompactInventory';
+  lModel.FileName := 'CompactInventory.pas';
+  lModel.SourceText := string.Join(sLineBreak, ['unit CompactInventory;', 'interface',
+    'type', '  TExample = class', '    Value: Integer;', '    procedure Run;',
+    '  end;', 'implementation', 'procedure TExample.Run;', 'var',
+    '  LocalValue: Integer;', 'begin', '  LocalValue := Value;', 'end;', 'end.']);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds805-compact', nil, [lModel]);
+  Assert.IsTrue(Length(lFacts.Symbols) > 0, 'The non-projection inventory remains eager.');
+  for lSymbol in lFacts.Symbols do
+    Assert.IsFalse(SameText(lSymbol.SymbolClass, 'current-class-member'),
+      'DS-805: production Symbols must not store current-class-member projections.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'Value', 'field'), 'Own scanned fields stay eager.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'TExample.Run', 'routine'), 'Scanner routine entries stay eager.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'LocalValue', 'local'), 'Scanner locals stay eager.');
 end;
 
 procedure TProjectWithBindingTests.InventoryPreservesUnicodeDeclarations(const aShape: string);
