@@ -30,6 +30,12 @@ type
     [Category('Fast')]
     [Test]
     procedure CaptureProofReuseKeepsRawImportsAndInvalidatesChangedEvidence;
+    [Category('Fast')]
+    [Test]
+    procedure CaptureRoutineCandidatesKeepFiltersOrderAndEveryReparentCheck;
+    [Category('Fast')]
+    [Test]
+    procedure CaptureTypeHeadersKeepLexerStateAndConditionalUncertainty;
   end;
 
 implementation
@@ -264,6 +270,135 @@ begin
   GC(lRelated, TDelphiSemanticSemanticGraphBuilder.Build(lProject, [lModel], lOriginal), g);
   Assert.IsFalse(lRelated.Units[0].CaptureScopeProof.Known, 'routine refusal: ' + lRelated.Units[0].CaptureScopeProof.Cause);
   Assert.AreEqual('capture-scope-reparented', lRelated.Units[0].CaptureScopeProof.Cause);
+end;
+
+procedure TSemanticGraphTests.CaptureRoutineCandidatesKeepFiltersOrderAndEveryReparentCheck;
+const
+  cSource = 'unit CaptureRoutineIndex;' + #13#10 + 'interface' + #13#10 +
+    'implementation' + #13#10 + 'procedure Work;' + #13#10 +
+    'var lValue: Integer;' + #13#10 + 'begin end;' + #13#10 + 'end.';
+var
+  lFact: TDelphiSemanticCaptureNameFact;
+  lFound: Boolean;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lProof: TDelphiSemanticCaptureScopeProof;
+  lRoutine: TDelphiSemanticRoutine;
+  i: Integer;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(CreateTestTempRoot('capture-routine-index-temp'), 'CaptureRoutineIndex.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.DefineEvidenceComplete := True;
+  TFile.WriteAllText(lOptions.SourceFileName, cSource);
+  lModel := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, 'extraction');
+  Assert.AreEqual<Integer>(1, Length(lModel.Routines));
+  lProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(lModel, False);
+  Assert.IsTrue(lProof.Known, lProof.Cause);
+  lRoutine := lModel.Routines[0];
+  lFound := False;
+  for lFact in lProof.Names do
+    if SameText(lFact.Name, 'Work') and (lFact.Kind = 'method') then
+    begin
+      lRoutine.Line := lFact.Line;
+      lRoutine.Column := lFact.Column;
+      lRoutine.FileName := lFact.FileName;
+      lRoutine.SectionKind := lFact.SectionKind;
+      lFound := True;
+    end;
+  Assert.IsTrue(lFound, 'physical routine declaration');
+  SetLength(lModel.Routines, 6);
+  for i := 0 to High(lModel.Routines) do
+    lModel.Routines[i] := lRoutine;
+  lModel.Routines[0].FileName := ''; // The root-file compatibility match remains valid.
+  lModel.Routines[1].FileName := 'OtherFile.pas';
+  lModel.Routines[1].ScopeId := 'wrong-file';
+  Inc(lModel.Routines[2].Column);
+  lModel.Routines[2].ScopeId := 'wrong-column';
+  lModel.Routines[3].SectionKind := 'interface';
+  lModel.Routines[3].ScopeId := 'wrong-section';
+  lModel.Routines[4].ScopeId := 'last-valid-scope';
+  lModel.Routines[5].FileName := 'OtherFile.pas';
+  lModel.Routines[5].ScopeId := 'wrong-final-file';
+  lProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(lModel, False);
+  Assert.IsTrue(lProof.Known, lProof.Cause);
+  lFound := False;
+  for lFact in lProof.Names do
+    if SameText(lFact.Name, 'lValue') then
+    begin
+      Assert.AreEqual('last-valid-scope', lFact.OwnerScopeId, 'Last valid candidate wins in physical array order.');
+      lFound := True;
+    end;
+  Assert.IsTrue(lFound, 'local declaration uses the selected routine scope');
+  // A later valid match cannot hide an earlier matching reparenting refusal.
+  lModel.Routines[0].ParentScopeId := 'unexpected-parent';
+  lProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(lModel, False);
+  Assert.IsFalse(lProof.Known);
+  Assert.AreEqual('capture-scope-reparented', lProof.Cause);
+end;
+
+procedure TSemanticGraphTests.CaptureTypeHeadersKeepLexerStateAndConditionalUncertainty;
+const
+  cSource = 'unit CaptureHeaderIndex;' + #13#10 + 'interface' + #13#10 +
+    'type TBase = class end;' + #13#10 + '  TAlternative = class end;' + #13#10 +
+    '  (* TNoise = class(IncorrectBase); *)' + #13#10 +
+    '  THeader = class sealed (' + #13#10 + '{$IFDEF FEATURE}' + #13#10 +
+    '    TBase' + #13#10 + '{$ELSE}' + #13#10 + '    TAlternative' + #13#10 +
+    '{$ENDIF}' + #13#10 + '  ) end;' + #13#10 +
+    '  TRow = record case Kind: Boolean of' + #13#10 +
+    '    False: (Ref: TBase); True: (Value: Integer); end;' + #13#10 +
+    'implementation' + #13#10 + 'end.';
+var
+  lFact: TDelphiSemanticCaptureNameFact;
+  lHeaderSeen, lRecordSeen: Boolean;
+  lModel: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lProof: TDelphiSemanticCaptureScopeProof;
+begin
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(CreateTestTempRoot('capture-header-index-temp'), 'CaptureHeaderIndex.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.DefineEvidenceComplete := True;
+  TFile.WriteAllText(lOptions.SourceFileName, cSource);
+  lModel := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, 'extraction');
+  lProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(lModel, False);
+  Assert.IsTrue(lProof.Known, lProof.Cause);
+  lHeaderSeen := False;
+  lRecordSeen := False;
+  for lFact in lProof.Names do
+  begin
+    if SameText(lFact.Name, 'THeader') then
+    begin
+      Assert.IsTrue(lFact.IdentityTextKnown, 'Known conditional ancestor header.');
+      Assert.AreEqual<Integer>(1, Length(lFact.IdentityDependencies));
+      Assert.AreEqual('TAlternative', lFact.IdentityDependencies[0]);
+      lHeaderSeen := True;
+    end;
+    if SameText(lFact.Name, 'TRow') then
+    begin
+      Assert.IsTrue(lFact.IdentityTextKnown);
+      Assert.AreEqual('record', lFact.IdentitySignature);
+      Assert.AreEqual<Integer>(0, Length(lFact.IdentityDependencies), 'Variant fields do not establish nominal identity.');
+      lRecordSeen := True;
+    end;
+  end;
+  Assert.IsTrue(lHeaderSeen and lRecordSeen, 'Both nominal type declarations are present.');
+  lOptions.DefineEvidenceComplete := False;
+  lModel := TDelphiSemanticUnitModelExtractorImpl.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, 'unknown-activity extraction');
+  lProof := TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(lModel, False);
+  Assert.IsTrue(lProof.Known, lProof.Cause);
+  Assert.AreEqual<Integer>(2, lProof.VariantCount);
+  lHeaderSeen := False;
+  for lFact in lProof.Names do
+    if SameText(lFact.Name, 'THeader') then
+    begin
+      Assert.IsFalse(lFact.IdentityTextKnown, 'An unknown ancestor conditional cannot publish nominal identity.');
+      lHeaderSeen := True;
+    end;
+  Assert.IsTrue(lHeaderSeen);
 end;
 
 initialization

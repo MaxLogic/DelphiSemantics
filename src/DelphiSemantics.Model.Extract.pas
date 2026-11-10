@@ -1,4 +1,4 @@
-unit DelphiSemantics.Model.Extract;
+﻿unit DelphiSemantics.Model.Extract;
 
 interface
 
@@ -1315,6 +1315,11 @@ class function TDelphiSemanticUnitModelExtractorImpl.CaptureScopeProof(
 const
   cMaximumConditionalChoices = 8;
 type
+  TProofToken = record
+    TokenID: TptTokenKind;
+    TokenPos: Integer;
+    TokenLen: Integer;
+  end;
   TBranch = record
     Parent: Boolean;
     Taken: Boolean;
@@ -1330,6 +1335,9 @@ type
     Lines: TArray<Integer>;
   end;
 var
+  lLexicalTokens, lProjectionTokens: TArray<TProofToken>;
+  lRoutineIndexes: TObjectDictionary<Integer, TList<Integer>>;
+  lRoutineList: TList<Integer>;
   lSources: TArray<TProofSource>;
   lOrigins: TArray<TProofOrigin>;
   lOriginList: TList<TProofOrigin>;
@@ -1350,6 +1358,57 @@ var
   lChoices, lVariant, lChoice, lOffset, lConditionalDepth: Integer;
   lUnknown, lActive, lInactive: Boolean;
   lBranch: TBranch;
+
+  function CaptureTokens(const aText: string): TArray<TProofToken>;
+  var
+    lInput: TmwBasePasLex;
+    lTokens: TList<TProofToken>;
+    lToken: TProofToken;
+  begin
+    lInput := TmwBasePasLex.Create;
+    lTokens := TList<TProofToken>.Create;
+    try
+      lInput.UseDefines := False;
+      lInput.Origin := aText;
+      repeat
+        lToken.TokenID := lInput.TokenID;
+        lToken.TokenPos := lInput.TokenPos;
+        lToken.TokenLen := lInput.TokenLen;
+        lTokens.Add(lToken);
+        if lInput.TokenID = ptNull then
+          Break;
+        lInput.Next;
+      until False;
+      Result := lTokens.ToArray;
+    finally
+      lTokens.Free;
+      lInput.Free;
+    end;
+  end;
+
+  function FirstTokenAt(const aTokens: TArray<TProofToken>; const aOffset: Integer): Integer;
+  var
+    lLow, lHigh, lMiddle: Integer;
+  begin
+    lLow := 0;
+    lHigh := High(aTokens);
+    while lLow < lHigh do
+    begin
+      lMiddle := (lLow + lHigh) div 2;
+      if aTokens[lMiddle].TokenPos < aOffset then
+        lLow := lMiddle + 1
+      else
+        lHigh := lMiddle;
+    end;
+    Result := lLow;
+  end;
+
+  procedure NextProofToken(const aTokens: TArray<TProofToken>; var aIndex: Integer);
+  begin
+    repeat
+      Inc(aIndex);
+    until not IsTokenIDJunk(aTokens[aIndex].TokenID);
+  end;
 
   function LexicalText(const aText: string): string;
   begin
@@ -1573,7 +1632,7 @@ var
     var aFact: TDelphiSemanticCaptureNameFact);
   var
     lType: TSyntaxNode;
-    lInput, lHeader: TmwBasePasLex;
+    lInput, lHeader: Integer;
     lOffset, lDepth, lHeaderStart, lHeaderEnd, lChildOffset: Integer;
     lNominal: Boolean;
     lKind: string;
@@ -1594,81 +1653,72 @@ var
           aFact.IdentityDependencies := aFact.IdentityDependencies + [lChild.GetAttribute(anName)];
     end;
     lOffset := lExpandedLines[aNode.Line - 1] + aNode.Col - 1;
-    lInput := TmwBasePasLex.Create;
-    lHeader := TmwBasePasLex.Create;
-    try
-      lInput.UseDefines := False;
-      lInput.Origin := lLexical;
-      while (lInput.TokenID <> ptNull) and (lInput.TokenPos + 1 < lOffset) do
-        lInput.Next;
-      while lInput.TokenID <> ptNull do
+    // Tokens come from a complete lexer pass, preserving comments/directives
+    // and lexer state. Binary search replaces only the repeated prefix walk.
+    lInput := FirstTokenAt(lLexicalTokens, lOffset - 1);
+    while lLexicalTokens[lInput].TokenID <> ptNull do
+    begin
+      if lLexicalTokens[lInput].TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
+        ptIfOptDirect, ptElseIfDirect] then
+        if IsUnknown(lLexicalTokens[lInput].TokenPos + 1) then
+          Exit;
+      if lLexicalTokens[lInput].TokenID = ptSemiColon then
       begin
-        if lInput.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
-          ptIfOptDirect, ptElseIfDirect] then
-          if IsUnknown(lInput.TokenPos + 1) then
-            Exit;
-        if lInput.TokenID = ptSemiColon then
-        begin
-          aFact.IdentityTextKnown := not lNominal;
-          Exit;
-        end;
-        if lNominal and SameText(lInput.Token, lKind) then
-        begin
-          // Only the declared kind and ancestor header establish nominal identity.
-          // DelphiAST also puts variant tag/field ntType nodes directly here;
-          // their AST parent alone cannot distinguish identity from member proof.
-          aFact.IdentitySignature := lKind;
-          lHeaderStart := lInput.TokenPos + lInput.TokenLen;
-          lHeaderEnd := lHeaderStart;
-          lHeader.UseDefines := False;
-          lHeader.Origin := lProjection;
-          while (lHeader.TokenID <> ptNull) and (lHeader.TokenPos < lHeaderStart) do
-            lHeader.Next;
-          while lHeader.IsJunk do
-            lHeader.Next;
-          while MatchText(lHeader.Token, ['abstract', 'sealed']) do
-            lHeader.NextNoJunk;
-          if lHeader.TokenID = ptRoundOpen then
-          begin
-            lDepth := 1;
-            repeat
-              lHeader.NextNoJunk;
-              if lHeader.TokenID = ptNull then
-                Exit;
-              if lHeader.TokenID = ptRoundOpen then
-                Inc(lDepth)
-              else if lHeader.TokenID = ptRoundClose then
-                Dec(lDepth);
-            until lDepth = 0;
-            lHeaderEnd := lHeader.TokenPos + lHeader.TokenLen;
-          end;
-          // Header membership is determined by source position in the parsed
-          // projection. Unknown activity in that actual header is still denied.
-          for var lChild in lType.ChildNodes do
-            if (lChild.Typ = ntType) and (lChild.GetAttribute(anName) <> '') then
-            begin
-              lChildOffset := lExpandedLines[lChild.Line - 1] + lChild.Col - 1;
-              if (lChildOffset > lHeaderStart) and (lChildOffset <= lHeaderEnd) then
-              begin
-                aFact.IdentityDependencies := aFact.IdentityDependencies + [lChild.GetAttribute(anName)];
-                aFact.IdentitySignature := aFact.IdentitySignature + ' of ' + AstTypeText(lChild);
-              end;
-            end;
-          while lInput.TokenPos < lHeaderEnd do
-          begin
-            if (lInput.TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
-              ptIfOptDirect, ptElseIfDirect]) and IsUnknown(lInput.TokenPos + 1) then
-              Exit;
-            lInput.Next;
-          end;
-          aFact.IdentityTextKnown := True;
-          Exit;
-        end;
-        lInput.Next;
+        aFact.IdentityTextKnown := not lNominal;
+        Exit;
       end;
-    finally
-      lHeader.Free;
-      lInput.Free;
+      if lNominal and SameText(Copy(lLexical, lLexicalTokens[lInput].TokenPos + 1,
+        lLexicalTokens[lInput].TokenLen), lKind) then
+      begin
+        // Only the declared kind and ancestor header establish nominal identity.
+        // DelphiAST also puts variant tag/field ntType nodes directly here;
+        // their AST parent alone cannot distinguish identity from member proof.
+        aFact.IdentitySignature := lKind;
+        lHeaderStart := lLexicalTokens[lInput].TokenPos + lLexicalTokens[lInput].TokenLen;
+        lHeaderEnd := lHeaderStart;
+        lHeader := FirstTokenAt(lProjectionTokens, lHeaderStart);
+        while IsTokenIDJunk(lProjectionTokens[lHeader].TokenID) do
+          Inc(lHeader);
+        while MatchText(Copy(lProjection, lProjectionTokens[lHeader].TokenPos + 1,
+          lProjectionTokens[lHeader].TokenLen), ['abstract', 'sealed']) do
+          NextProofToken(lProjectionTokens, lHeader);
+        if lProjectionTokens[lHeader].TokenID = ptRoundOpen then
+        begin
+          lDepth := 1;
+          repeat
+            NextProofToken(lProjectionTokens, lHeader);
+            if lProjectionTokens[lHeader].TokenID = ptNull then
+              Exit;
+            if lProjectionTokens[lHeader].TokenID = ptRoundOpen then
+              Inc(lDepth)
+            else if lProjectionTokens[lHeader].TokenID = ptRoundClose then
+              Dec(lDepth);
+          until lDepth = 0;
+          lHeaderEnd := lProjectionTokens[lHeader].TokenPos + lProjectionTokens[lHeader].TokenLen;
+        end;
+        // Header membership is determined by source position in the parsed
+        // projection. Unknown activity in that actual header is still denied.
+        for var lChild in lType.ChildNodes do
+          if (lChild.Typ = ntType) and (lChild.GetAttribute(anName) <> '') then
+          begin
+            lChildOffset := lExpandedLines[lChild.Line - 1] + lChild.Col - 1;
+            if (lChildOffset > lHeaderStart) and (lChildOffset <= lHeaderEnd) then
+            begin
+              aFact.IdentityDependencies := aFact.IdentityDependencies + [lChild.GetAttribute(anName)];
+              aFact.IdentitySignature := aFact.IdentitySignature + ' of ' + AstTypeText(lChild);
+            end;
+          end;
+        while lLexicalTokens[lInput].TokenPos < lHeaderEnd do
+        begin
+          if (lLexicalTokens[lInput].TokenID in [ptIfDirect, ptIfDefDirect, ptIfNDefDirect,
+            ptIfOptDirect, ptElseIfDirect]) and IsUnknown(lLexicalTokens[lInput].TokenPos + 1) then
+            Exit;
+          Inc(lInput);
+        end;
+        aFact.IdentityTextKnown := True;
+        Exit;
+      end;
+      Inc(lInput);
     end;
   end;
 
@@ -1718,7 +1768,9 @@ var
   var
     lSection, lScope, lOwner, lName: string;
     lEnum: Boolean;
-    lSource, lLine, lColumn: Integer;
+    lSource, lLine, lColumn, lRoutineIndex: Integer;
+    lRoutine: TDelphiSemanticRoutine;
+    lIndexes: TList<Integer>;
   begin
     lSection := aSection;
     lScope := aScope;
@@ -1743,19 +1795,23 @@ var
         Exit;
       end;
       lScope := 'unindexed:' + IntToStr(lLine) + ':' + IntToStr(lColumn);
-      for var lRoutine in aModel.Routines do
-        if (lRoutine.Line = lLine) and (lRoutine.Column = lColumn) and
-          SameText(lRoutine.SectionKind, lSection) and
-          (((lRoutine.FileName = '') and (lSource = 0)) or
-          SameText(lRoutine.FileName, lSources[lSource].Source.FileName)) then
+      if lRoutineIndexes.TryGetValue(lLine, lIndexes) then
+        for lRoutineIndex in lIndexes do
         begin
-          // Reparenting a physical routine changes the capture site itself.
-          if not SameText(lRoutine.ParentScopeId, aScope) then
+          lRoutine := aModel.Routines[lRoutineIndex];
+          if (lRoutine.Line = lLine) and (lRoutine.Column = lColumn) and
+            SameText(lRoutine.SectionKind, lSection) and
+            (((lRoutine.FileName = '') and (lSource = 0)) or
+            SameText(lRoutine.FileName, lSources[lSource].Source.FileName)) then
           begin
-            lProof.Cause := 'capture-scope-reparented';
-            Exit;
+            // Reparenting a physical routine changes the capture site itself.
+            if not SameText(lRoutine.ParentScopeId, aScope) then
+            begin
+              lProof.Cause := 'capture-scope-reparented';
+              Exit;
+            end;
+            lScope := lRoutine.ScopeId;
           end;
-          lScope := lRoutine.ScopeId;
         end;
     end;
     if aNode.Typ = ntTypeDecl then
@@ -1837,6 +1893,7 @@ begin
   lBranches := TList<TBranch>.Create;
   lFacts := TDictionary<string, Integer>.Create;
   lSeen := THashSet<string>.Create;
+  lRoutineIndexes := TObjectDictionary<Integer, TList<Integer>>.Create([doOwnsValues]);
   try
     lLexer.UseDefines := False;
     lLexer.Origin := lLexical;
@@ -1881,6 +1938,18 @@ begin
       Result.Cause := 'capture-grammar-capacity';
       Exit;
     end;
+    // Index candidates only. Keep every original predicate, all reparent
+    // checks and last-match order inside Collect. The index is per proof.
+    for var i := 0 to High(aModel.Routines) do
+    begin
+      if not lRoutineIndexes.TryGetValue(aModel.Routines[i].Line, lRoutineList) then
+      begin
+        lRoutineList := TList<Integer>.Create;
+        lRoutineIndexes.Add(aModel.Routines[i].Line, lRoutineList);
+      end;
+      lRoutineList.Add(i);
+    end;
+    lLexicalTokens := CaptureTokens(lLexical);
     lProof.VariantCount := 1 shl lChoices;
     for lVariant := 0 to lProof.VariantCount - 1 do
     begin
@@ -1987,6 +2056,7 @@ begin
           Result.Cause := 'capture-import-grammar-unproved';
           Exit;
         end;
+        lProjectionTokens := CaptureTokens(lProjection);
         Collect(lTree, 'implementation', '', '', False);
         if lProof.Cause <> '' then
         begin
@@ -2002,6 +2072,7 @@ begin
     lProof.Known := True;
     Result := lProof;
   finally
+    lRoutineIndexes.Free;
     lSeen.Free;
     lFacts.Free;
     lBranches.Free;

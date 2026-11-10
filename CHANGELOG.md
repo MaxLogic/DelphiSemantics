@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Capture proofs index physical routine candidates and tokenize each source projection once, preserving ordered proof contents and refusals (DS-807).
+
 - WITH inventories omit eager current-class projections and reconstruct exact ordered routine views on demand; older semantic caches rebuild and the stored-record budget remains enforced (DS-805).
 
 - WITH inventory refusals identify the threshold crossing without claiming a measured project total; compatibility planning returns a blocked result, and native-evidence renewal stops on budget refusal (DAK-491).
