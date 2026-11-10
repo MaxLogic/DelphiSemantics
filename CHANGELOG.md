@@ -4,6 +4,8 @@
 
 - Semantic member-index construction snapshots graph arrays once and avoids managed-record copies during candidate scans, preserving lookup results and order (DS-809).
 
+- WITH binding shares immutable context members and indexes one symbol snapshot by ordered ordinals, releasing construction buffers before later indexes (DS-809).
+
 - Cached WITH context reconstruction honors the request record-limit override on combined-payload and SQLite replay (DS-805 follow-up).
 
 - Capture proofs index physical routine candidates and tokenize each source projection once, preserving ordered proof contents and refusals (DS-807).

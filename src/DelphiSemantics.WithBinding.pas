@@ -401,6 +401,8 @@ type
     IDelphiSemanticRemoveWithLookupActivityData, IDelphiSemanticRemoveWithValueEvidence,
     IDelphiSemanticRemoveWithModelEvidence, IDelphiSemanticBudgetedCurrentClassMemberLookupData)
   private
+    fIndexedSymbols: TArray<TDelphiSemanticInventorySymbol>;
+    fModelMemberSymbols: TList<TDelphiSemanticInventorySymbol>;
     fCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex;
     fCurrentClassSymbols: TArray<TDelphiSemanticInventorySymbol>;
     fCurrentClassModelsAvailable: Boolean;
@@ -413,18 +415,18 @@ type
     fValueOwnerNames: THashSet<string>;
     fValueMemberNames: THashSet<string>;
     fActivityMetrics: TDelphiSemanticRemoveWithLookupActivityMetrics;
-    fDeclarationsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
-    fMembersByOwnerName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fDeclarationsByName: TDictionary<string, TList<NativeInt>>;
+    fMembersByOwnerName: TDictionary<string, TList<NativeInt>>;
     fMemberMisses: TDictionary<string, Byte>;
     fMetrics: TDelphiSemanticRemoveWithLookupMetrics;
     fPointerTargetByType: TDictionary<string, string>;
     fPointerTargetMisses: TDictionary<string, Byte>;
     fRoutineMisses: TDictionary<string, Byte>;
     fRoutineSymbolsByName: TDictionary<string, TDelphiSemanticInventorySymbol>;
-    fSymbolsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
-    fSymbolsByOwnerType: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
-    fUnitsAndGlobalsByName: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
-    fUnitsAndGlobalsByPrefix: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+    fSymbolsByName: TDictionary<string, TList<NativeInt>>;
+    fSymbolsByOwnerType: TDictionary<string, TList<NativeInt>>;
+    fUnitsAndGlobalsByName: TDictionary<string, TList<NativeInt>>;
+    fUnitsAndGlobalsByPrefix: TDictionary<string, TList<NativeInt>>;
     procedure EnsureValueMemberEvidence;
     function UnverifiedMemberMayApply(const aOwnerType, aName: string;
       const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aValueMembersOnly,
@@ -432,8 +434,8 @@ type
     class function OwnerNameKey(const aOwnerName, aName: string): string; static;
     class function IsDirectMemberSymbolClass(const aSymbolClass: string): Boolean; static;
     class procedure AddSymbolToMap(const aMap: TDictionary<string,
-      TList<TDelphiSemanticInventorySymbol>>; const aKey: string;
-      const aSymbol: TDelphiSemanticInventorySymbol); static;
+      TList<NativeInt>>; const aKey: string;
+      const aSymbolIndex: NativeInt); static;
     class function MemberSymbol(const aModel: TDelphiSemanticUnitModel;
       const aMember: TDelphiSemanticMember): TDelphiSemanticInventorySymbol; static;
     class function RoutineNameForModelRoutine(const aRoutine: TDelphiSemanticRoutine): string; static;
@@ -444,9 +446,10 @@ type
       const aLocal: TDelphiSemanticLocal): TDelphiSemanticInventorySymbol; static;
     procedure AddRoutineSymbol(const aRoutineName: string;
       const aSymbol: TDelphiSemanticInventorySymbol);
+    function IndexedSymbol(const aIndex: NativeInt): TDelphiSemanticInventorySymbol;
     procedure CountLookup(const aHit: Boolean);
     function SymbolsFromMap(const aMap: TDictionary<string,
-      TList<TDelphiSemanticInventorySymbol>>; const aKey: string;
+      TList<NativeInt>>; const aKey: string;
       const aMisses: TDictionary<string, Byte>): TArray<TDelphiSemanticInventorySymbol>;
   public
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
@@ -549,6 +552,12 @@ type
     function AsBound(const aName: string; const aReceiverIndex: Integer): TBoundMemberResolution;
   end;
 
+  TContextMemberKey = record
+    SourceKey: string;
+    ContextKey: string;
+    OwnerMatchesSourceUnit: Boolean;
+  end;
+
   TWithBindingProjectMemberIndex = class
   private
     fCaptureProofGraph: TDelphiSemanticSemanticGraph;
@@ -564,8 +573,10 @@ type
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
     fByUnitOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
     fInventoryByOwnerId: TDictionary<string, TList<TBoundMemberResolution>>;
-    fDirectMembersByContextOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
-    fMemberKeysByUnit: TDictionary<string, TList<string>>;
+    // Context dictionaries borrow immutable lists owned by fByUnitOwnerName.
+    fDirectMembersByContextOwnerName: TObjectDictionary<string,
+      TDictionary<string, TList<TBoundMemberResolution>>>;
+    fMemberKeysByUnit: TDictionary<string, TList<TContextMemberKey>>;
     fSemanticMemberIndex: TDelphiSemanticMemberIdentityIndex;
     fSemanticMemberIndexAvailable: Boolean;
     fSemanticMemberResultsByOwnerName: TDictionary<string, TMemberVerdict>;
@@ -698,7 +709,7 @@ type
     class function KeyUnitName(const aKey: string): string; static;
     class function MemberResult(const aMember: TDelphiSemanticMember):
       TDelphiSemanticResolveResult; static;
-    procedure AddContextMemberKey(const aContextUnitName, aMemberKey: string;
+    procedure AddContextMemberKey(const aContextUnitName: string; const aMemberKey: TContextMemberKey;
       const aOnlyOwnerMatchingSourceUnit: Boolean);
     procedure AddContextUnitMembers(const aContextUnitName, aSourceUnitName: string;
       const aOnlyOwnerMatchingSourceUnit: Boolean);
@@ -781,17 +792,33 @@ begin
 end;
 
 class procedure TDelphiSemanticRemoveWithLookupIndexData.AddSymbolToMap(
-  const aMap: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
-  const aKey: string; const aSymbol: TDelphiSemanticInventorySymbol);
+  const aMap: TDictionary<string, TList<NativeInt>>;
+  const aKey: string; const aSymbolIndex: NativeInt);
 var
-  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lSymbols: TList<NativeInt>;
 begin
   if not aMap.TryGetValue(aKey, lSymbols) then
   begin
-    lSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
-    aMap.Add(aKey, lSymbols);
+    lSymbols := TList<NativeInt>.Create;
+    try
+      aMap.Add(aKey, lSymbols);
+    except
+      lSymbols.Free;
+      raise;
+    end;
   end;
-  lSymbols.Add(aSymbol);
+  lSymbols.Add(aSymbolIndex);
+end;
+
+function TDelphiSemanticRemoveWithLookupIndexData.IndexedSymbol(
+  const aIndex: NativeInt): TDelphiSemanticInventorySymbol;
+begin
+  // Negative ordinals address the generated-member pool; nonnegative ones
+  // address our immutable input snapshot. They never become semantic IDs.
+  if aIndex < 0 then
+    Result := fModelMemberSymbols[-aIndex - 1]
+  else
+    Result := fIndexedSymbols[aIndex];
 end;
 
 class function TDelphiSemanticRemoveWithLookupIndexData.MemberSymbol(
@@ -887,6 +914,7 @@ constructor TDelphiSemanticRemoveWithLookupIndexData.Create(
   const aSymbols: TArray<TDelphiSemanticInventorySymbol>;
   const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex);
 var
+  lSymbolIndex: NativeInt;
   lDeclaration: TDelphiSemanticDeclaration;
   lLocal: TDelphiSemanticLocal;
   lMember: TDelphiSemanticMember;
@@ -902,15 +930,18 @@ var
   lTypeName: string;
 begin
   inherited Create;
+  // Keep the caller-mutation isolation of the old per-map record copies.
+  fIndexedSymbols := Copy(aSymbols);
+  fModelMemberSymbols := TList<TDelphiSemanticInventorySymbol>.Create;
   fRootMemberAbsences := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueOwners := TDictionary<string, Integer>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueQueries := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueOwnerNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fValueMemberNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   AttachValueMemberModels(aModels);
-  fDeclarationsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fDeclarationsByName := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  fMembersByOwnerName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fMembersByOwnerName := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
   fMemberMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fPointerTargetByType := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -918,20 +949,23 @@ begin
   fRoutineMisses := TDictionary<string, Byte>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fRoutineSymbolsByName := TDictionary<string, TDelphiSemanticInventorySymbol>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  fSymbolsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fSymbolsByName := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  fSymbolsByOwnerType := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fSymbolsByOwnerType := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  fUnitsAndGlobalsByName := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fUnitsAndGlobalsByName := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  fUnitsAndGlobalsByPrefix := TDictionary<string, TList<TDelphiSemanticInventorySymbol>>.Create(
+  fUnitsAndGlobalsByPrefix := TDictionary<string, TList<NativeInt>>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
 
   for lModel in aModels do
   begin
     for lMember in lModel.Members do
+    begin
+      fModelMemberSymbols.Add(MemberSymbol(lModel, lMember));
       AddSymbolToMap(fMembersByOwnerName, OwnerNameKey(lMember.OwnerName, lMember.Name),
-        MemberSymbol(lModel, lMember));
+        -fModelMemberSymbols.Count);
+    end;
 
     for lRoutine in lModel.Routines do
     begin
@@ -966,13 +1000,14 @@ begin
     end;
   end;
 
-  for lSymbol in aSymbols do
+  for lSymbolIndex := 0 to High(fIndexedSymbols) do
   begin
+    lSymbol := fIndexedSymbols[lSymbolIndex];
     lTypeName := Trim(lSymbol.TypeName);
     if Trim(lSymbol.Name) <> '' then
-      AddSymbolToMap(fSymbolsByName, lSymbol.Name, lSymbol);
+      AddSymbolToMap(fSymbolsByName, lSymbol.Name, lSymbolIndex);
     if Trim(lSymbol.OwnerType) <> '' then
-      AddSymbolToMap(fSymbolsByOwnerType, lSymbol.OwnerType, lSymbol);
+      AddSymbolToMap(fSymbolsByOwnerType, lSymbol.OwnerType, lSymbolIndex);
     if StartsText('^', lTypeName) and
       (SameText(lSymbol.SymbolClass, 'declaration') or
       SameText(lSymbol.SymbolClass, 'type-member') or SameText(lSymbol.Kind, 'type') or
@@ -997,19 +1032,18 @@ begin
       if lOwnerName = '' then
         lOwnerName := Trim(lSymbol.OwnerName);
       if lOwnerName <> '' then
-        AddSymbolToMap(fMembersByOwnerName, OwnerNameKey(lOwnerName, lSymbol.Name),
-          lSymbol);
+        AddSymbolToMap(fMembersByOwnerName, OwnerNameKey(lOwnerName, lSymbol.Name), lSymbolIndex);
     end;
     if SameText(lSymbol.SymbolClass, 'declaration') or
       SameText(lSymbol.SymbolClass, 'type-member') or
       (SameText(lSymbol.SymbolClass, 'external') and (Trim(lSymbol.TypeName) <> '')) or
       SameText(lSymbol.Kind, 'type') or SameText(lSymbol.Kind, 'type-alias') then
-      AddSymbolToMap(fDeclarationsByName, lSymbol.Name, lSymbol);
+      AddSymbolToMap(fDeclarationsByName, lSymbol.Name, lSymbolIndex);
     if SameText(lSymbol.SymbolClass, 'unit') or SameText(lSymbol.SymbolClass, 'unit-global') or
       (SameText(lSymbol.SymbolClass, 'external') and (Trim(lSymbol.TypeName) = '') and
       (Trim(lSymbol.UnitName) <> '')) then
     begin
-      AddSymbolToMap(fUnitsAndGlobalsByName, lSymbol.Name, lSymbol);
+      AddSymbolToMap(fUnitsAndGlobalsByName, lSymbol.Name, lSymbolIndex);
       if (SameText(lSymbol.SymbolClass, 'unit') or
         SameText(lSymbol.SymbolClass, 'external')) and (Pos('.', lSymbol.Name) > 0) then
       begin
@@ -1017,7 +1051,7 @@ begin
         while lPrefixLength > 0 do
         begin
           AddSymbolToMap(fUnitsAndGlobalsByPrefix, Copy(lSymbol.Name, 1,
-            lPrefixLength - 1), lSymbol);
+            lPrefixLength - 1), lSymbolIndex);
           lNextDot := Pos('.', Copy(lSymbol.Name, lPrefixLength + 1, MaxInt));
           if lNextDot = 0 then
             Break;
@@ -1041,9 +1075,10 @@ end;
 
 destructor TDelphiSemanticRemoveWithLookupIndexData.Destroy;
 var
-  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lSymbols: TList<NativeInt>;
 begin
   fCurrentClassMembers.Free;
+  fModelMemberSymbols.Free;
   fRootMemberAbsences.Free;
   for lSymbols in fDeclarationsByName.Values do
     lSymbols.Free;
@@ -1084,18 +1119,22 @@ begin
 end;
 
 function TDelphiSemanticRemoveWithLookupIndexData.SymbolsFromMap(
-  const aMap: TDictionary<string, TList<TDelphiSemanticInventorySymbol>>;
+  const aMap: TDictionary<string, TList<NativeInt>>;
   const aKey: string; const aMisses: TDictionary<string, Byte>):
   TArray<TDelphiSemanticInventorySymbol>;
 var
-  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  i: NativeInt;
+  lSymbols: TList<NativeInt>;
 begin
   if aMap.TryGetValue(aKey, lSymbols) then
   begin
     CountLookup(True);
     Inc(fActivityMetrics.ResultMaterializationCount);
     Inc(fActivityMetrics.MaterializedSymbolCount, lSymbols.Count);
-    Exit(lSymbols.ToArray);
+    SetLength(Result, lSymbols.Count);
+    for i := 0 to lSymbols.Count - 1 do
+      Result[i] := IndexedSymbol(lSymbols[i]);
+    Exit;
   end;
   if (aMisses <> nil) and aMisses.ContainsKey(aKey) then
   begin
@@ -1724,11 +1763,12 @@ function TDelphiSemanticRemoveWithLookupIndexData.ReceiverLineageDeclaresMember(
   const aOwnerIdentity: TDelphiSemanticTypeIdentity; const aOwnerName, aName: string): Boolean;
 var
   i: Integer;
+  lSymbolIndex: NativeInt;
   lDeclaredId: string;
   lOwner: TDelphiSemanticValueEvidenceOwner;
   lRemaining: Integer;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lSymbols: TList<NativeInt>;
 begin
   Result := False;
   EnsureValueMemberEvidence;
@@ -1742,9 +1782,12 @@ begin
     lOwner := fValueEvidence.Owners[i];
     if SameText(lOwner.Name, aOwnerName) and
       fMembersByOwnerName.TryGetValue(OwnerNameKey(lOwner.Name, aName), lSymbols) then
-      for lSymbol in lSymbols do
+      for lSymbolIndex in lSymbols do
+      begin
+        lSymbol := IndexedSymbol(lSymbolIndex);
         if SameText(lSymbol.OwnerIdentity.DeclaredId.Value, lDeclaredId) then
           Exit(True);
+      end;
     lDeclaredId := lOwner.NextDeclaredId;
   end;
 end;
@@ -1764,11 +1807,12 @@ function TDelphiSemanticRemoveWithLookupIndexData.UnverifiedMemberMayApply(
   const aValueMembersOnly, aRootProvesAbsence: Boolean; const aSiteUnitName: string): Boolean;
 var
   i: Integer;
+  lSymbolIndex: NativeInt;
   lDeclaredId: string;
   lOwner: TDelphiSemanticValueEvidenceOwner;
   lRemaining: Integer;
   lSymbol: TDelphiSemanticInventorySymbol;
-  lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lSymbols: TList<NativeInt>;
 begin
   // An inventory without an explicit evidence witness cannot prove absence.
   if ((not fValueEvidenceLoaded) and (Length(fValueMemberModels) = 0)) or
@@ -1805,8 +1849,9 @@ begin
       Exit(True);
     if (not aValueMembersOnly) and
       fMembersByOwnerName.TryGetValue(OwnerNameKey(lOwner.Name, aName), lSymbols) then
-      for lSymbol in lSymbols do
+      for lSymbolIndex in lSymbols do
       begin
+        lSymbol := IndexedSymbol(lSymbolIndex);
         // Inventory may add a name the binder could not verify. It can require
         // refusal, never authorize qualification or prove member absence.
         if (lSymbol.OwnerIdentity.DeclaredId.Value = lDeclaredId) or
@@ -2203,9 +2248,10 @@ begin
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fByUnitOwnerName := TDictionary<string, TList<TBoundMemberResolution>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fDirectMembersByContextOwnerName := TDictionary<string,
-      TList<TBoundMemberResolution>>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fMemberKeysByUnit := TDictionary<string, TList<string>>.Create(
+    fDirectMembersByContextOwnerName := TObjectDictionary<string,
+      TDictionary<string, TList<TBoundMemberResolution>>>.Create([doOwnsValues],
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    fMemberKeysByUnit := TDictionary<string, TList<TContextMemberKey>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fSemanticMemberResultsByOwnerName := TDictionary<string,
       TMemberVerdict>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -2260,7 +2306,7 @@ end;
 procedure TWithBindingProjectMemberIndex.ClearOwnedState;
 var
   lList: TList<TBoundMemberResolution>;
-  lStringList: TList<string>;
+  lKeyList: TList<TContextMemberKey>;
 begin
   FreeAndNil(fOwnerIdentities);
   if fInventoryByOwnerId <> nil then
@@ -2283,13 +2329,11 @@ begin
   fModels := nil;
   FreeAndNil(fVisibleUnitsByUnit);
   if fMemberKeysByUnit <> nil then
-    for lStringList in fMemberKeysByUnit.Values do
-      lStringList.Free;
+    for lKeyList in fMemberKeysByUnit.Values do
+      lKeyList.Free;
   FreeAndNil(fMemberKeysByUnit);
   FreeAndNil(fSemanticMemberResultsByOwnerName);
-  if fDirectMembersByContextOwnerName <> nil then
-    for lList in fDirectMembersByContextOwnerName.Values do
-      lList.Free;
+  // Inner dictionaries own no lists. Drop their borrowed references first.
   FreeAndNil(fDirectMembersByContextOwnerName);
   if fByUnitOwnerName <> nil then
     for lList in fByUnitOwnerName.Values do
@@ -2304,49 +2348,39 @@ begin
 end;
 
 procedure TWithBindingProjectMemberIndex.AddContextMemberKey(
-  const aContextUnitName, aMemberKey: string; const aOnlyOwnerMatchingSourceUnit: Boolean);
+  const aContextUnitName: string; const aMemberKey: TContextMemberKey;
+  const aOnlyOwnerMatchingSourceUnit: Boolean);
 var
-  lContextKey: string;
-  lMemberName: string;
-  lOwnerName: string;
+  lContext: TDictionary<string, TList<TBoundMemberResolution>>;
   lSourceList: TList<TBoundMemberResolution>;
-  lSourceResult: TBoundMemberResolution;
-  lSourceUnitName: string;
-  lTargetList: TList<TBoundMemberResolution>;
 begin
-  lSourceUnitName := KeyUnitName(aMemberKey);
-  lOwnerName := KeyOwnerName(aMemberKey);
-  lMemberName := KeyMemberName(aMemberKey);
-  if aOnlyOwnerMatchingSourceUnit and not SameText(lOwnerName, lSourceUnitName) then
+  if aOnlyOwnerMatchingSourceUnit and not aMemberKey.OwnerMatchesSourceUnit then
     Exit;
-
-  lContextKey := Key(aContextUnitName, lOwnerName, lMemberName);
-  if fDirectMembersByContextOwnerName.ContainsKey(lContextKey) then
-    Exit;
-
-  if not fByUnitOwnerName.TryGetValue(aMemberKey, lSourceList) then
-    Exit;
-
-  lTargetList := TList<TBoundMemberResolution>.Create;
-  try
-    for lSourceResult in lSourceList do
-      lTargetList.Add(lSourceResult);
-    fDirectMembersByContextOwnerName.Add(lContextKey, lTargetList);
-  except
-    lTargetList.Free;
-    raise;
+  if not fDirectMembersByContextOwnerName.TryGetValue(aContextUnitName, lContext) then
+  begin
+    lContext := TDictionary<string, TList<TBoundMemberResolution>>.Create(
+      TFastCaseAwareComparer.OrdinalIgnoreCase);
+    try
+      fDirectMembersByContextOwnerName.Add(aContextUnitName, lContext);
+    except
+      lContext.Free;
+      raise;
+    end;
   end;
+  if lContext.ContainsKey(aMemberKey.ContextKey) then
+    Exit;
+  if fByUnitOwnerName.TryGetValue(aMemberKey.SourceKey, lSourceList) then
+    lContext.Add(aMemberKey.ContextKey, lSourceList);
 end;
 
 procedure TWithBindingProjectMemberIndex.AddContextUnitMembers(
   const aContextUnitName, aSourceUnitName: string; const aOnlyOwnerMatchingSourceUnit: Boolean);
 var
-  lMemberKey: string;
-  lMemberKeys: TList<string>;
+  lMemberKey: TContextMemberKey;
+  lMemberKeys: TList<TContextMemberKey>;
 begin
   if not fMemberKeysByUnit.TryGetValue(aSourceUnitName, lMemberKeys) then
     Exit;
-
   for lMemberKey in lMemberKeys do
     AddContextMemberKey(aContextUnitName, lMemberKey, aOnlyOwnerMatchingSourceUnit);
 end;
@@ -2411,11 +2445,12 @@ end;
 
 procedure TWithBindingProjectMemberIndex.AddMemberKey(const aUnitName, aKey: string);
 var
-  lKeys: TList<string>;
+  lKey: TContextMemberKey;
+  lKeys: TList<TContextMemberKey>;
 begin
   if not fMemberKeysByUnit.TryGetValue(aUnitName, lKeys) then
   begin
-    lKeys := TList<string>.Create;
+    lKeys := TList<TContextMemberKey>.Create;
     try
       fMemberKeysByUnit.Add(aUnitName, lKeys);
     except
@@ -2423,7 +2458,10 @@ begin
       raise;
     end;
   end;
-  lKeys.Add(aKey);
+  lKey.SourceKey := aKey;
+  lKey.ContextKey := KeyOwnerName(aKey) + #31 + KeyMemberName(aKey);
+  lKey.OwnerMatchesSourceUnit := SameText(KeyOwnerName(aKey), KeyUnitName(aKey));
+  lKeys.Add(lKey);
 end;
 
 class procedure TWithBindingProjectMemberIndex.AddResultToMap(
@@ -2488,10 +2526,11 @@ function TWithBindingProjectMemberIndex.TryResolveContextMember(
   const aContextUnitName, aOwnerName, aName: string;
   out aResult: TBoundMemberResolution): Boolean;
 var
+  lContext: TDictionary<string, TList<TBoundMemberResolution>>;
   lList: TList<TBoundMemberResolution>;
 begin
-  if not fDirectMembersByContextOwnerName.TryGetValue(Key(aContextUnitName, aOwnerName,
-    aName), lList) then
+  if (not fDirectMembersByContextOwnerName.TryGetValue(aContextUnitName, lContext)) or
+    (not lContext.TryGetValue(aOwnerName + #31 + aName, lList)) then
   begin
     aResult := Default(TBoundMemberResolution);
     Exit(False);
@@ -5753,10 +5792,10 @@ function BuildParentStatementIndexes(
 var
   i: Integer;
   lParentIndex: Integer;
-  lStack: TList<Integer>;
+  lStack: TList<NativeInt>;
 begin
   SetLength(Result, Length(aStatements));
-  lStack := TList<Integer>.Create;
+  lStack := TList<NativeInt>.Create;
   try
     for i := 0 to High(aStatements) do
     begin
@@ -8505,6 +8544,7 @@ var
   lSymbolCapacity: Int64;
   lRecordLimit: Integer;
   lSymbols: TList<TDelphiSemanticInventorySymbol>;
+  lUnexpandedSymbols: TArray<TDelphiSemanticInventorySymbol>;
   lWithStatementLines: TArray<Integer>;
   lActivityLineStarts: TArray<Integer>;
 begin
@@ -8559,8 +8599,13 @@ begin
     TDelphiSemanticWithBindingInventory.AddCompilerProfileCompatibilitySymbols(lSymbols);
     TDelphiSemanticWithBindingInventory.AddProjectExternalUnitSymbols(aModels, lSymbols);
     lStopwatch := TStopwatch.StartNew;
+    // The aggregate list and its snapshot are construction-only. Explicit
+    // lifetimes avoid retaining both across graph/index construction.
+    lUnexpandedSymbols := lSymbols.ToArray;
+    FreeAndNil(lSymbols);
     Result.Symbols := TDelphiSemanticWithBindingInventory.ExpandCompactInventorySymbols(
-      lSymbols.ToArray, aInventoryRecordLimit);
+      lUnexpandedSymbols, aInventoryRecordLimit);
+    lUnexpandedSymbols := nil;
     lStopwatch.Stop;
     lInventoryExpansionMs := lStopwatch.ElapsedMilliseconds;
     lCurrentClassMembers.Complete(Result.Symbols);

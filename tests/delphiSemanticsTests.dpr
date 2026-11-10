@@ -137,6 +137,7 @@ uses
   Test.WithBinder in 'src\test.withbinder.pas',
   Test.CurrentClassMembers in 'src\test.currentclassmembers.pas',
   Test.WithBinding in 'src\test.withbinding.pas',
+  Test.WithBindingIndexStorage in 'src\test.withbindingindexstorage.pas',
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
   Test.WithScan in 'src\test.withscan.pas';
 

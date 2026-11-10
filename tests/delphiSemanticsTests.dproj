@@ -118,6 +118,7 @@
     <DCCReference Include="src\test.withdiscovery.pas"/>
     <DCCReference Include="src\test.currentclassmembers.pas"/>
     <DCCReference Include="src\test.withbinding.pas"/>
+    <DCCReference Include="src\test.withbindingindexstorage.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas"/>
