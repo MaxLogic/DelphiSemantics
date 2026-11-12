@@ -5618,10 +5618,10 @@ function BuildParentStatementIndexes(
 var
   i: Integer;
   lParentIndex: Integer;
-  lStack: TList<NativeInt>;
+  lStack: TList<Integer>;
 begin
   SetLength(Result, Length(aStatements));
-  lStack := TList<NativeInt>.Create;
+  lStack := TList<Integer>.Create;
   try
     for i := 0 to High(aStatements) do
     begin
