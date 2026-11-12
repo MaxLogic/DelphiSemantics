@@ -38,6 +38,17 @@ type
     [Category('Fast')]
     [Test]
     procedure LocalNominalTypesKeepDistinctIdsAcrossAndWithinRoutines;
+    [Category('Fast')]
+    [TestCase('ordered duplicate forwards', '0')]
+    [TestCase('owner scope isolation', '1')]
+    [TestCase('section isolation', '2')]
+    [TestCase('physical include isolation', '3')]
+    [TestCase('unknown forward coordinates', '4')]
+    [TestCase('missing semantic identity', '5')]
+    [TestCase('body must be strictly later', '6')]
+    [TestCase('unnamed forward still sets visibility', '7')]
+    [TestCase('non ASCII declaration names', '8')]
+    procedure ForwardClassVisibilityPreservesOrderAndScope(const aShape: Integer);
   end;
 
 implementation
@@ -332,6 +343,100 @@ begin
     Assert.AreEqual(aColumn, lRange.Column);
     if aKind = 'unknown' then
       Assert.AreEqual(0, lRange.EndColumn, 'Unknown positions cannot acquire a made-up endpoint.');
+  finally
+    lGraph.Free;
+  end;
+end;
+
+procedure TSemanticGraphDeclarationTests.ForwardClassVisibilityPreservesOrderAndScope(
+  const aShape: Integer);
+var
+  i, lBodyIndex, lExpectedSymbols, lExpectedTypes, lExpectedVisibility: Integer;
+  lGraph: TDelphiSemanticSemanticGraph;
+  lModel: TDelphiSemanticUnitModel;
+  lTypes: TArray<TDelphiSemanticGraphType>;
+begin
+  // DS-810 S1 characterization: forward suppression and visibility use different
+  // predicates. In particular an unnamed forward can still supply visibility.
+  lModel := UnitModel;
+  lModel.Members := nil;
+  lModel.Routines := nil;
+  lModel.Locals := nil;
+  SetLength(lModel.Declarations, 6);
+  for i := 0 to High(lModel.Declarations) do
+    lModel.Declarations[i] := Default(TDelphiSemanticDeclaration);
+  for i := 0 to 3 do
+  begin
+    lModel.Declarations[i].Name := 'TItem';
+    lModel.Declarations[i].Kind := 'type';
+    lModel.Declarations[i].TypeName := 'class';
+    lModel.Declarations[i].SectionKind := 'interface';
+    lModel.Declarations[i].ScopeKind := 'unit';
+    lModel.Declarations[i].SymbolId := 'type:item';
+    lModel.Declarations[i].Line := 30;
+    lModel.Declarations[i].Column := 2;
+  end;
+  lModel.Declarations[1].Line := 10;
+  lModel.Declarations[1].Column := 3;
+  lModel.Declarations[2].Line := 10;
+  lModel.Declarations[2].Column := 9;
+  lModel.Declarations[3].Line := 60;
+  lModel.Declarations[3].TypeBodyEndLine := 80;
+  lModel.Declarations[4].Name := 'TAlias';
+  lModel.Declarations[4].Kind := 'type-alias';
+  lModel.Declarations[4].TypeName := 'TItem';
+  lModel.Declarations[4].Line := 90;
+  lModel.Declarations[4].Column := 1;
+  lModel.Declarations[5].Name := 'Flag';
+  lModel.Declarations[5].Kind := 'const';
+  lModel.Declarations[5].TypeName := 'Integer';
+  lModel.Declarations[5].Line := 100;
+  lModel.Declarations[5].Column := 1;
+  lExpectedSymbols := 6;
+  lExpectedTypes := 2;
+  lExpectedVisibility := 10;
+  case aShape of
+    1, 2, 5, 6:
+      begin
+        lExpectedTypes := 5;
+        lExpectedVisibility := 60;
+      end;
+    3, 4:
+      lExpectedVisibility := 60;
+    7:
+      begin
+        lExpectedSymbols := 5;
+        lExpectedVisibility := 5;
+        lModel.Declarations[1].Name := '';
+        lModel.Declarations[1].Line := 5;
+      end;
+  end;
+  for i := 0 to 2 do
+    case aShape of
+      1: lModel.Declarations[i].OwnerScopeId := 'another-routine';
+      2: lModel.Declarations[i].SectionKind := 'implementation';
+      3: lModel.Declarations[i].FileName := 'other-forward810.inc';
+      4: lModel.Declarations[i].Column := 0;
+      5: lModel.Declarations[i].SymbolId := '';
+      6: lModel.Declarations[i].Line := 60;
+    end;
+  if aShape = 8 then
+    for i := 0 to 3 do
+      lModel.Declarations[i].Name := 'T' + Char($00C4) + 'rtikel';
+  lGraph := TDelphiSemanticSemanticGraphBuilder.Build(ProjectInfo, [lModel]);
+  try
+    lTypes := lGraph.Types;
+    Assert.AreEqual<Integer>(lExpectedSymbols, Length(lGraph.Symbols));
+    Assert.AreEqual<Integer>(lExpectedSymbols, Length(lGraph.Declarations));
+    Assert.AreEqual<Integer>(lExpectedTypes, Length(lTypes));
+    lBodyIndex := lExpectedTypes - 2;
+    Assert.AreEqual(lModel.Declarations[3].Name, lTypes[lBodyIndex].Name);
+    Assert.AreEqual(60, lTypes[lBodyIndex].SourceRange.Line);
+    Assert.AreEqual(lExpectedVisibility, lTypes[lBodyIndex].VisibilityRange.Line);
+    if lExpectedVisibility <> 60 then
+      Assert.AreEqual(3, lTypes[lBodyIndex].VisibilityRange.Column,
+        'Equal-line forwards retain the first matching declaration in array order.');
+    Assert.AreEqual('TAlias', lTypes[High(lTypes)].Name);
   finally
     lGraph.Free;
   end;

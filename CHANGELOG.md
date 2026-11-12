@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Semantic graph construction evaluates forward-class visibility candidates once per unit, preserving declaration identities and array order (DS-810 S1).
+
 - WITH binding also omits the unused unit/member map and its dead lookup helpers, preserving live lookup order and results (DS-809 follow-up A-SF-1).
 
 - WITH binding no longer builds an unused context-member index, and refusal identities have deterministic scalar fields before cache storage (DS-809 follow-ups).
