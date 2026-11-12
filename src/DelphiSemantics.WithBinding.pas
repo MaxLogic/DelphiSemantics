@@ -552,12 +552,6 @@ type
     function AsBound(const aName: string; const aReceiverIndex: Integer): TBoundMemberResolution;
   end;
 
-  TContextMemberKey = record
-    SourceKey: string;
-    ContextKey: string;
-    OwnerMatchesSourceUnit: Boolean;
-  end;
-
   TWithBindingProjectMemberIndex = class
   private
     fCaptureProofGraph: TDelphiSemanticSemanticGraph;
@@ -573,15 +567,9 @@ type
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
     fByUnitOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
     fInventoryByOwnerId: TDictionary<string, TList<TBoundMemberResolution>>;
-    // Context dictionaries borrow immutable lists owned by fByUnitOwnerName.
-    fDirectMembersByContextOwnerName: TObjectDictionary<string,
-      TDictionary<string, TList<TBoundMemberResolution>>>;
-    fMemberKeysByUnit: TDictionary<string, TList<TContextMemberKey>>;
     fSemanticMemberIndex: TDelphiSemanticMemberIdentityIndex;
     fSemanticMemberIndexAvailable: Boolean;
     fSemanticMemberResultsByOwnerName: TDictionary<string, TMemberVerdict>;
-    fUnitNames: TArray<string>;
-    fVisibleUnitsByUnit: TDictionary<string, TArray<string>>;
     fMemberSafetyDiagnostics: TArray<TMemberSafetyDiagnostic>;
     fActivityMemberFacts: TArray<TMemberSafetyDiagnostic>;
     fSafetyDeclarationsByName: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
@@ -704,29 +692,18 @@ type
     procedure BuildCompilerIntrinsicIndex;
     function DeclarationModelsForName(const aName: string): TArray<TDelphiSemanticUnitModel>;
     class function Key(const aUnitName, aOwnerName, aName: string): string; static;
-    class function KeyMemberName(const aKey: string): string; static;
-    class function KeyOwnerName(const aKey: string): string; static;
-    class function KeyUnitName(const aKey: string): string; static;
     class function MemberResult(const aMember: TDelphiSemanticMember):
       TDelphiSemanticResolveResult; static;
-    procedure AddContextMemberKey(const aContextUnitName: string; const aMemberKey: TContextMemberKey;
-      const aOnlyOwnerMatchingSourceUnit: Boolean);
-    procedure AddContextUnitMembers(const aContextUnitName, aSourceUnitName: string;
-      const aOnlyOwnerMatchingSourceUnit: Boolean);
     procedure AddMember(const aUnitName: string; const aMember: TDelphiSemanticMember);
-    procedure AddMemberKey(const aUnitName, aKey: string);
     class procedure AddResultToMap(const aMap: TDictionary<string,
       TList<TBoundMemberResolution>>; const aKey: string;
       const aResult: TBoundMemberResolution); static;
-    procedure BuildContextMemberIndex;
     class function ResolveMemberList(const aOwnerName, aName: string;
       const aList: TList<TBoundMemberResolution>;
       out aResult: TBoundMemberResolution): Boolean; static;
     class function ResolveResultIsUsable(
       const aResult: TDelphiSemanticResolveResult): Boolean; static;
     procedure ClearOwnedState;
-    function TryResolveContextMember(const aContextUnitName, aOwnerName, aName: string;
-      out aResult: TBoundMemberResolution): Boolean;
     function TryResolveUnitMember(const aUnitName, aOwnerName, aName: string;
       out aResult: TBoundMemberResolution): Boolean;
   public
@@ -1886,44 +1863,6 @@ begin
   Result := aUnitName + #31 + aOwnerName + #31 + aName;
 end;
 
-class function TWithBindingProjectMemberIndex.KeyMemberName(const aKey: string): string;
-var
-  lFirstDelimiter: Integer;
-  lSecondDelimiter: Integer;
-begin
-  lFirstDelimiter := Pos(#31, aKey);
-  if lFirstDelimiter = 0 then
-    Exit('');
-  lSecondDelimiter := PosEx(#31, aKey, lFirstDelimiter + 1);
-  if lSecondDelimiter = 0 then
-    Exit('');
-  Result := Copy(aKey, lSecondDelimiter + 1, MaxInt);
-end;
-
-class function TWithBindingProjectMemberIndex.KeyOwnerName(const aKey: string): string;
-var
-  lFirstDelimiter: Integer;
-  lSecondDelimiter: Integer;
-begin
-  lFirstDelimiter := Pos(#31, aKey);
-  if lFirstDelimiter = 0 then
-    Exit('');
-  lSecondDelimiter := PosEx(#31, aKey, lFirstDelimiter + 1);
-  if lSecondDelimiter = 0 then
-    Exit('');
-  Result := Copy(aKey, lFirstDelimiter + 1, lSecondDelimiter - lFirstDelimiter - 1);
-end;
-
-class function TWithBindingProjectMemberIndex.KeyUnitName(const aKey: string): string;
-var
-  lDelimiter: Integer;
-begin
-  lDelimiter := Pos(#31, aKey);
-  if lDelimiter = 0 then
-    Exit('');
-  Result := Copy(aKey, 1, lDelimiter - 1);
-end;
-
 class function TWithBindingProjectMemberIndex.MemberResult(
   const aMember: TDelphiSemanticMember): TDelphiSemanticResolveResult;
 begin
@@ -2248,15 +2187,8 @@ begin
       TFastCaseAwareComparer.OrdinalIgnoreCase);
     fByUnitOwnerName := TDictionary<string, TList<TBoundMemberResolution>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fDirectMembersByContextOwnerName := TObjectDictionary<string,
-      TDictionary<string, TList<TBoundMemberResolution>>>.Create([doOwnsValues],
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fMemberKeysByUnit := TDictionary<string, TList<TContextMemberKey>>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
     fSemanticMemberResultsByOwnerName := TDictionary<string,
       TMemberVerdict>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fVisibleUnitsByUnit := TDictionary<string, TArray<string>>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
     lGraph := aGraph;
     lOwnGraph := False;
     if lGraph = nil then
@@ -2282,19 +2214,12 @@ begin
       if lOwnGraph then
         lGraph.Free;
     end;
-    SetLength(fUnitNames, Length(aModels));
-    lIndex := 0;
     for lModel in aModels do
     begin
-      fUnitNames[lIndex] := lModel.UnitName;
-      Inc(lIndex);
       for lMember in lModel.Members do
         AddMember(lModel.UnitName, lMember);
-      fVisibleUnitsByUnit.AddOrSetValue(lModel.UnitName,
-        CombineUnitUses(lModel.InterfaceUses, lModel.ImplementationUses));
     end;
     BuildMemberSafetyDiagnostics;
-    BuildContextMemberIndex;
     BuildValueMemberIndex;
     BuildHelperTargetIndex;
   except
@@ -2306,7 +2231,6 @@ end;
 procedure TWithBindingProjectMemberIndex.ClearOwnedState;
 var
   lList: TList<TBoundMemberResolution>;
-  lKeyList: TList<TContextMemberKey>;
 begin
   FreeAndNil(fOwnerIdentities);
   if fInventoryByOwnerId <> nil then
@@ -2327,14 +2251,7 @@ begin
   FreeAndNil(fDeclarationModels);
   FreeAndNil(fDeclarationCandidates);
   fModels := nil;
-  FreeAndNil(fVisibleUnitsByUnit);
-  if fMemberKeysByUnit <> nil then
-    for lKeyList in fMemberKeysByUnit.Values do
-      lKeyList.Free;
-  FreeAndNil(fMemberKeysByUnit);
   FreeAndNil(fSemanticMemberResultsByOwnerName);
-  // Inner dictionaries own no lists. Drop their borrowed references first.
-  FreeAndNil(fDirectMembersByContextOwnerName);
   if fByUnitOwnerName <> nil then
     for lList in fByUnitOwnerName.Values do
       lList.Free;
@@ -2346,45 +2263,6 @@ begin
   ClearOwnedState;
   inherited;
 end;
-
-procedure TWithBindingProjectMemberIndex.AddContextMemberKey(
-  const aContextUnitName: string; const aMemberKey: TContextMemberKey;
-  const aOnlyOwnerMatchingSourceUnit: Boolean);
-var
-  lContext: TDictionary<string, TList<TBoundMemberResolution>>;
-  lSourceList: TList<TBoundMemberResolution>;
-begin
-  if aOnlyOwnerMatchingSourceUnit and not aMemberKey.OwnerMatchesSourceUnit then
-    Exit;
-  if not fDirectMembersByContextOwnerName.TryGetValue(aContextUnitName, lContext) then
-  begin
-    lContext := TDictionary<string, TList<TBoundMemberResolution>>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
-    try
-      fDirectMembersByContextOwnerName.Add(aContextUnitName, lContext);
-    except
-      lContext.Free;
-      raise;
-    end;
-  end;
-  if lContext.ContainsKey(aMemberKey.ContextKey) then
-    Exit;
-  if fByUnitOwnerName.TryGetValue(aMemberKey.SourceKey, lSourceList) then
-    lContext.Add(aMemberKey.ContextKey, lSourceList);
-end;
-
-procedure TWithBindingProjectMemberIndex.AddContextUnitMembers(
-  const aContextUnitName, aSourceUnitName: string; const aOnlyOwnerMatchingSourceUnit: Boolean);
-var
-  lMemberKey: TContextMemberKey;
-  lMemberKeys: TList<TContextMemberKey>;
-begin
-  if not fMemberKeysByUnit.TryGetValue(aSourceUnitName, lMemberKeys) then
-    Exit;
-  for lMemberKey in lMemberKeys do
-    AddContextMemberKey(aContextUnitName, lMemberKey, aOnlyOwnerMatchingSourceUnit);
-end;
-
 
 procedure TWithBindingProjectMemberIndex.BuildOwnerIdentityIndex;
 var
@@ -2440,28 +2318,6 @@ begin
   AddResultToMap(fByUnitOwnerName, lKey, lBound);
   if lBound.OwnerDeclaredId.Value <> '' then
     AddResultToMap(fInventoryByOwnerId, lBound.OwnerDeclaredId.Value + #31 + aMember.Name, lBound);
-  AddMemberKey(aUnitName, lKey);
-end;
-
-procedure TWithBindingProjectMemberIndex.AddMemberKey(const aUnitName, aKey: string);
-var
-  lKey: TContextMemberKey;
-  lKeys: TList<TContextMemberKey>;
-begin
-  if not fMemberKeysByUnit.TryGetValue(aUnitName, lKeys) then
-  begin
-    lKeys := TList<TContextMemberKey>.Create;
-    try
-      fMemberKeysByUnit.Add(aUnitName, lKeys);
-    except
-      lKeys.Free;
-      raise;
-    end;
-  end;
-  lKey.SourceKey := aKey;
-  lKey.ContextKey := KeyOwnerName(aKey) + #31 + KeyMemberName(aKey);
-  lKey.OwnerMatchesSourceUnit := SameText(KeyOwnerName(aKey), KeyUnitName(aKey));
-  lKeys.Add(lKey);
 end;
 
 class procedure TWithBindingProjectMemberIndex.AddResultToMap(
@@ -2484,25 +2340,6 @@ begin
   lList.Add(aResult);
 end;
 
-procedure TWithBindingProjectMemberIndex.BuildContextMemberIndex;
-var
-  lContextUnitName: string;
-  lSourceUnitName: string;
-  lVisibleUnitName: string;
-  lVisibleUnits: TArray<string>;
-begin
-  for lContextUnitName in fUnitNames do
-  begin
-    AddContextUnitMembers(lContextUnitName, lContextUnitName, False);
-    if fVisibleUnitsByUnit.TryGetValue(lContextUnitName, lVisibleUnits) then
-      for lVisibleUnitName in lVisibleUnits do
-        if not SameText(lVisibleUnitName, lContextUnitName) then
-          AddContextUnitMembers(lContextUnitName, lVisibleUnitName, False);
-    for lSourceUnitName in fUnitNames do
-      AddContextUnitMembers(lContextUnitName, lSourceUnitName, True);
-  end;
-end;
-
 class function TWithBindingProjectMemberIndex.ResolveMemberList(const aOwnerName, aName: string;
   const aList: TList<TBoundMemberResolution>;
   out aResult: TBoundMemberResolution): Boolean;
@@ -2520,23 +2357,6 @@ begin
 
   aResult := aList[0];
   Result := True;
-end;
-
-function TWithBindingProjectMemberIndex.TryResolveContextMember(
-  const aContextUnitName, aOwnerName, aName: string;
-  out aResult: TBoundMemberResolution): Boolean;
-var
-  lContext: TDictionary<string, TList<TBoundMemberResolution>>;
-  lList: TList<TBoundMemberResolution>;
-begin
-  if (not fDirectMembersByContextOwnerName.TryGetValue(aContextUnitName, lContext)) or
-    (not lContext.TryGetValue(aOwnerName + #31 + aName, lList)) then
-  begin
-    aResult := Default(TBoundMemberResolution);
-    Exit(False);
-  end;
-
-  Result := ResolveMemberList(aOwnerName, aName, lList, aResult);
 end;
 
 class function TWithBindingProjectMemberIndex.ResolveResultIsUsable(

@@ -164,6 +164,9 @@ type
     [Category('Fast')]
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
+    [Test]
+    [Category('Fast')]
+    procedure ContextMemberResolutionPreservesDeclaringUnit;
     [Category('Fast')]
     [Test]
     procedure WithBindingUsesSingleResolverAuthorityAdapter;
@@ -1447,14 +1450,61 @@ begin
     'Expected receiver-member index lookup source section.');
   lIndexText := Copy(lSourceText, lIndexStart, lIndexEnd - lIndexStart);
 
-  Assert.IsTrue(ContainsText(lSourceText, 'fDirectMembersByContextOwnerName'),
-    'Receiver/member binding must precompute current/visible-unit owner-name lookup keys.');
   Assert.IsTrue(ContainsText(lSourceText, 'fSemanticMemberResultsByOwnerName'),
     'Receiver/member binding must cache semantic member-index results by owner and member name.');
   Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in lVisibleUnits do'),
     'Receiver/member lookup must not walk visible units for each lookup.');
   Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in fUnitNames do'),
     'Receiver/member lookup must not walk all project units for each lookup.');
+end;
+
+procedure TProjectWithBindingTests.ContextMemberResolutionPreservesDeclaringUnit;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lRoot: string;
+  lSources: TArray<string>;
+  lUnits: TArray<string>;
+  i: Integer;
+begin
+  // DS-809 SF-1: the removed source assertion only pinned an unread index.
+  // Protect the live identity-based path with homonymous owners instead.
+  lRoot := CreateTestTempRoot('context-members-809-temp');
+  TDirectory.CreateDirectory(lRoot);
+  lUnits := ['Left809', 'Right809', 'Consumer809'];
+  lSources := [
+    'unit Left809;'#13#10 + 'interface'#13#10 + 'type'#13#10 +
+    '  TShared = record'#13#10 + '    Value: Integer;'#13#10 + '  end;'#13#10 +
+    'implementation'#13#10 + 'end.',
+    'unit Right809;'#13#10 + 'interface'#13#10 + 'type'#13#10 +
+    '  TShared = record'#13#10 + '    Value: string;'#13#10 + '  end;'#13#10 +
+    'implementation'#13#10 + 'end.',
+    'unit Consumer809;'#13#10 + 'interface uses Left809, Right809;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TouchLeft(var aValue: Left809.TShared);'#13#10 +
+    'begin with aValue do Value := 1; end;'#13#10 +
+    'procedure TouchRight(var aValue: Right809.TShared);'#13#10 +
+    'begin with aValue do Value := ''x''; end;'#13#10 + 'end.'];
+  SetLength(lModels, Length(lUnits));
+  for i := 0 to High(lUnits) do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := TPath.Combine(lRoot, lUnits[i] + '.pas');
+    lOptions.ProjectContextApplied := True;
+    TFile.WriteAllText(lOptions.SourceFileName, lSources[i], TEncoding.UTF8);
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lUnits[i]);
+  end;
+  lFacts := TDelphiSemanticWithBinder.BindProject('context-members-809', nil, lModels);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  lReference := BindingReferenceByName(lFacts, 'TouchLeft', 'Value');
+  Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
+  Assert.AreEqual('Integer', lReference.TypeName);
+  lReference := BindingReferenceByName(lFacts, 'TouchRight', 'Value');
+  Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
+  Assert.AreEqual('string', lReference.TypeName);
 end;
 
 procedure TProjectWithBindingTests.WithBindingUsesSingleResolverAuthorityAdapter;
