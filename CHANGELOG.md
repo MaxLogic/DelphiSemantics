@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- WITH binding also omits the unused unit/member map and its dead lookup helpers, preserving live lookup order and results (DS-809 follow-up A-SF-1).
+
 - WITH binding no longer builds an unused context-member index, and refusal identities have deterministic scalar fields before cache storage (DS-809 follow-ups).
 
 - Semantic member-index construction snapshots graph arrays once and avoids managed-record copies during candidate scans, preserving lookup results and order (DS-809).

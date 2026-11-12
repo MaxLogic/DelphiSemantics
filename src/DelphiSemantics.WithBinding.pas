@@ -565,7 +565,6 @@ type
     fOwnerIdentities: TDictionary<string, TDelphiSemanticTypeIdentity>;
     fDeclarationCandidates: TObjectDictionary<string, TList<TIndexedDeclarationCandidate>>;
     fDeclarationModels: TDictionary<string, TArray<TDelphiSemanticUnitModel>>;
-    fByUnitOwnerName: TDictionary<string, TList<TBoundMemberResolution>>;
     fInventoryByOwnerId: TDictionary<string, TList<TBoundMemberResolution>>;
     fSemanticMemberIndex: TDelphiSemanticMemberIdentityIndex;
     fSemanticMemberIndexAvailable: Boolean;
@@ -701,11 +700,7 @@ type
     class function ResolveMemberList(const aOwnerName, aName: string;
       const aList: TList<TBoundMemberResolution>;
       out aResult: TBoundMemberResolution): Boolean; static;
-    class function ResolveResultIsUsable(
-      const aResult: TDelphiSemanticResolveResult): Boolean; static;
     procedure ClearOwnedState;
-    function TryResolveUnitMember(const aUnitName, aOwnerName, aName: string;
-      out aResult: TBoundMemberResolution): Boolean;
   public
     constructor Create(const aModels: TArray<TDelphiSemanticUnitModel>;
       const aGraph: TDelphiSemanticSemanticGraph;
@@ -1884,26 +1879,6 @@ begin
   Result.Column := aMember.Column;
 end;
 
-function CombineUnitUses(const aInterfaceUses, aImplementationUses: TArray<string>):
-  TArray<string>;
-var
-  i: Integer;
-  lIndex: Integer;
-begin
-  SetLength(Result, Length(aInterfaceUses) + Length(aImplementationUses));
-  lIndex := 0;
-  for i := 0 to High(aInterfaceUses) do
-  begin
-    Result[lIndex] := aInterfaceUses[i];
-    Inc(lIndex);
-  end;
-  for i := 0 to High(aImplementationUses) do
-  begin
-    Result[lIndex] := aImplementationUses[i];
-    Inc(lIndex);
-  end;
-end;
-
 function BuildSyntheticWithBindingProjectInfo: TDelphiSemanticProjectInfo;
 begin
   Result := Default(TDelphiSemanticProjectInfo);
@@ -2191,8 +2166,6 @@ begin
     BuildDeclarationIndex;
     fInventoryByOwnerId := TDictionary<string, TList<TBoundMemberResolution>>.Create(
       TFastCaseAwareComparer.OrdinalIgnoreCase);
-    fByUnitOwnerName := TDictionary<string, TList<TBoundMemberResolution>>.Create(
-      TFastCaseAwareComparer.OrdinalIgnoreCase);
     fSemanticMemberResultsByOwnerName := TDictionary<string,
       TMemberVerdict>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
     lGraph := aGraph;
@@ -2258,10 +2231,6 @@ begin
   FreeAndNil(fDeclarationCandidates);
   fModels := nil;
   FreeAndNil(fSemanticMemberResultsByOwnerName);
-  if fByUnitOwnerName <> nil then
-    for lList in fByUnitOwnerName.Values do
-      lList.Free;
-  FreeAndNil(fByUnitOwnerName);
 end;
 
 destructor TWithBindingProjectMemberIndex.Destroy;
@@ -2310,10 +2279,8 @@ procedure TWithBindingProjectMemberIndex.AddMember(const aUnitName: string;
   const aMember: TDelphiSemanticMember);
 var
   lBound: TBoundMemberResolution;
-  lKey: string;
   lOwner: TDelphiSemanticTypeIdentity;
 begin
-  lKey := Key(aUnitName, aMember.OwnerName, aMember.Name);
   lBound := Default(TBoundMemberResolution);
   lBound.Value := MemberResult(aMember);
   lBound.Visibility := aMember.Visibility;
@@ -2321,7 +2288,6 @@ begin
   if OwnerIdentity(aUnitName, aMember.OwnerName, aMember.OwnerScopeId,
     aMember.OwnerSymbolId, lOwner) then
     lBound.OwnerDeclaredId := lOwner.DeclaredId;
-  AddResultToMap(fByUnitOwnerName, lKey, lBound);
   if lBound.OwnerDeclaredId.Value <> '' then
     AddResultToMap(fInventoryByOwnerId, lBound.OwnerDeclaredId.Value + #31 + aMember.Name, lBound);
 end;
@@ -2363,27 +2329,6 @@ begin
 
   aResult := aList[0];
   Result := True;
-end;
-
-class function TWithBindingProjectMemberIndex.ResolveResultIsUsable(
-  const aResult: TDelphiSemanticResolveResult): Boolean;
-begin
-  Result := aResult.Found or SameText(aResult.Status, 'ambiguous') or
-    SameText(aResult.Status, 'unsupported');
-end;
-
-function TWithBindingProjectMemberIndex.TryResolveUnitMember(const aUnitName, aOwnerName,
-  aName: string; out aResult: TBoundMemberResolution): Boolean;
-var
-  lList: TList<TBoundMemberResolution>;
-begin
-  if not fByUnitOwnerName.TryGetValue(Key(aUnitName, aOwnerName, aName), lList) then
-  begin
-    aResult := Default(TBoundMemberResolution);
-    Exit(False);
-  end;
-
-  Result := ResolveMemberList(aOwnerName, aName, lList, aResult);
 end;
 
 function TWithBindingProjectMemberIndex.LookupLegacyHelperMember(
