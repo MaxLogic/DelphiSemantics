@@ -1057,18 +1057,24 @@ begin
   fCurrentClassMembers.Free;
   fModelMemberSymbols.Free;
   fRootMemberAbsences.Free;
-  for lSymbols in fDeclarationsByName.Values do
-    lSymbols.Free;
-  for lSymbols in fMembersByOwnerName.Values do
-    lSymbols.Free;
-  for lSymbols in fSymbolsByName.Values do
-    lSymbols.Free;
-  for lSymbols in fSymbolsByOwnerType.Values do
-    lSymbols.Free;
-  for lSymbols in fUnitsAndGlobalsByName.Values do
-    lSymbols.Free;
-  for lSymbols in fUnitsAndGlobalsByPrefix.Values do
-    lSymbols.Free;
+  if fDeclarationsByName <> nil then
+    for lSymbols in fDeclarationsByName.Values do
+      lSymbols.Free;
+  if fMembersByOwnerName <> nil then
+    for lSymbols in fMembersByOwnerName.Values do
+      lSymbols.Free;
+  if fSymbolsByName <> nil then
+    for lSymbols in fSymbolsByName.Values do
+      lSymbols.Free;
+  if fSymbolsByOwnerType <> nil then
+    for lSymbols in fSymbolsByOwnerType.Values do
+      lSymbols.Free;
+  if fUnitsAndGlobalsByName <> nil then
+    for lSymbols in fUnitsAndGlobalsByName.Values do
+      lSymbols.Free;
+  if fUnitsAndGlobalsByPrefix <> nil then
+    for lSymbols in fUnitsAndGlobalsByPrefix.Values do
+      lSymbols.Free;
   fUnitsAndGlobalsByPrefix.Free;
   fUnitsAndGlobalsByName.Free;
   fSymbolsByOwnerType.Free;
