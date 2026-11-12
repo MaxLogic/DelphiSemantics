@@ -2,6 +2,11 @@ unit Test.MemberResolver.Legacy809;
 
 // Frozen DS-809 differential oracle from a6fcb873, before array snapshots.
 // Keep its constructor and lookup rules independent of the optimized source.
+// Retirement: after an approved member-resolution semantics change, replace this
+// oracle only when independent tests cover identity, candidate order, precedence,
+// refusals and isolation, and corpus/MaxTdb/KFZ plus cache-replay proof pass. Review
+// the intentional differential before retiring or replacing it; never refresh it
+// merely to make parity green.
 // Source SHA256: f89cb5d38b5c37cbd228f96d15a16ee265716630b0c62e6a61cd91f3cd453289
 
 interface
