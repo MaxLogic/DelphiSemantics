@@ -3411,7 +3411,7 @@ var
       SameText(aPointeeIdentity.CanonicalName, 'record');
   end;
 begin
-  Result.CaptureInsertionLine := 0;
+  Result := Default(TDelphiSemanticWithSelectorBinding);
   aIdentity := Default(TDelphiSemanticTypeIdentity);
   lCaptureTypeName := '';
   lCaptureTypeStatus := '';

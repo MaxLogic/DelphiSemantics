@@ -167,6 +167,9 @@ type
     [Test]
     [Category('Fast')]
     procedure ContextMemberResolutionPreservesDeclaringUnit;
+    [Test]
+    [Category('Fast')]
+    procedure RefusedSelectorIdentitiesAreDefaultAcrossCacheReplay;
     [Category('Fast')]
     [Test]
     procedure WithBindingUsesSingleResolverAuthorityAdapter;
@@ -181,7 +184,9 @@ uses
   System.IOUtils, System.StrUtils, System.SysUtils,
   maxLogic.IOUtils,
   DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model, DelphiSemantics.Model.Json,
-  DelphiSemantics.ProjectContext, DelphiSemantics.WithBinding.Budget, DelphiSemantics.WithBinding.Inventory,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding.Budget, DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
 
@@ -1505,6 +1510,120 @@ begin
   lReference := BindingReferenceByName(lFacts, 'TouchRight', 'Value');
   Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
   Assert.AreEqual('string', lReference.TypeName);
+end;
+
+procedure TProjectWithBindingTests.RefusedSelectorIdentitiesAreDefaultAcrossCacheReplay;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lStoredSelector: TSemanticRemoveWithSelectorBindingFact;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lRoot: string;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSession: TDelphiSemanticProjectSessionResult;
+  i: Integer;
+
+  procedure AssertDefaultIdentity(const aIdentity: TDelphiSemanticTypeIdentity);
+  begin
+    Assert.AreEqual('', aIdentity.DeclaredId.Value);
+    Assert.AreEqual('', aIdentity.Name);
+    Assert.IsFalse(aIdentity.Synthetic, 'Empty refusal must not be synthetic');
+    Assert.IsFalse(aIdentity.MembersClosed, 'Empty refusal cannot prove closure');
+    Assert.AreEqual('', aIdentity.SourceRange.FileName);
+    Assert.AreEqual(0, aIdentity.SourceRange.Line);
+    Assert.AreEqual(0, aIdentity.SourceRange.Column);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndLine);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndColumn);
+    Assert.AreEqual(0, aIdentity.SourceRange.Offset);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndOffset);
+  end;
+begin
+  lRoot := CreateTestTempRoot('refusal-identities-809-temp');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.pas'),
+    'unit Refusal809;'#13#10 + 'interface'#13#10 +
+    'type TData = record Value: Integer; end;'#13#10 +
+    'implementation'#13#10 + 'procedure Touch(var aData: TData);'#13#10 +
+    'begin'#13#10 + 'with aData do Value := 1;'#13#10 +
+    'with Missing809 do Value := 2;'#13#10 + 'end;'#13#10 + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.dpr'),
+    'program RefusalProject809; uses Refusal809; begin end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Refusal809.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Refusal809.pas"/></ItemGroup></Project>', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'Refusal809.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'refusal.sqlite3');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  for i := 0 to 1 do
+  begin
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lFacts := lSession.Session.BuildWithBindingFacts;
+      Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+      for lBinding in lFacts.Bindings do
+        for lSelector in lBinding.Selectors do
+        begin
+          if (lSelector.CaptureTypeIdentity.DeclaredId.Value = '') and
+            (lSelector.CaptureTypeIdentity.Name = '') then
+            AssertDefaultIdentity(lSelector.CaptureTypeIdentity);
+          if lSelector.SelectorText = 'Missing809' then
+          begin
+            Assert.AreNotEqual('resolved', lSelector.Status);
+            Assert.IsNotEmpty(lSelector.ReasonCode);
+            AssertDefaultIdentity(lSelector.TypeIdentity);
+          end;
+        end;
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+  // The relational SQLite payload persists refusal source coordinates too.
+  // Read a new cache instance, rather than rechecking the in-memory facts.
+  lCacheIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lCacheIdentity.IdentityKey := 'refusal-809';
+  lCacheIdentity.CacheKey := 'refusal-809';
+  lCacheIdentity.FileHash := 'file-809';
+  lCacheIdentity.ContextHash := 'context-809';
+  lCacheIdentity.IncludeGraphHash := 'include-809';
+  lCacheIdentity.SourceFileName := lOptions.ProjectPath;
+  lCacheIdentity.SchemaVersion := 'refusal-test-v1';
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lOptions.SqliteCacheFileName);
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lCacheIdentity, lSnapshot);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lOptions.SqliteCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lCacheIdentity, lLoaded));
+    try
+      lStoredSelector := lLoaded.RemoveWithPlanningBindingByIndex(1).Selectors[0];
+      Assert.AreEqual('Missing809', lLoaded.ExactTextOf(lStoredSelector.SelectorTextId));
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.Line);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.Column);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.EndLine);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.EndColumn);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.Line);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.Column);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.EndLine);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.EndColumn);
+    finally
+      lLoaded.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
 end;
 
 procedure TProjectWithBindingTests.WithBindingUsesSingleResolverAuthorityAdapter;

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- WITH binding no longer builds an unused context-member index, and refusal identities have deterministic scalar fields before cache storage (DS-809 follow-ups).
+
 - Semantic member-index construction snapshots graph arrays once and avoids managed-record copies during candidate scans, preserving lookup results and order (DS-809).
 
 - WITH binding shares immutable context members and indexes one symbol snapshot by ordered ordinals, releasing construction buffers before later indexes (DS-809).
