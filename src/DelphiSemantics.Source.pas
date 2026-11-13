@@ -43,6 +43,8 @@ type
     fMaterializationCount: Integer;
     function AddItems(const aSources: IDelphiSemanticSourceObservations; out aError: string): Boolean;
     procedure RequireUsable;
+  protected
+    function RequiresNormalizationRecheck: Boolean; virtual;
   public
     constructor Create;
     destructor Destroy; override;
@@ -226,17 +228,22 @@ begin
   Result := TSourceObservations.Create(lItems);
 end;
 
+function TDelphiSemanticSourceAccumulator.RequiresNormalizationRecheck: Boolean;
+begin
+{$IFDEF MSWINDOWS}
+  Result := (TOSVersion.Major < 10) or
+    ((TOSVersion.Major = 10) and (TOSVersion.Build < 14393));
+{$ELSE}
+  Result := True;
+{$ENDIF}
+end;
+
 constructor TDelphiSemanticSourceAccumulator.Create;
 begin
   inherited Create;
-{$IFDEF MSWINDOWS}
-  // Match IOUtils.CheckPathLength: only modern Windows guarantees that a
-  // normalized long path can be normalized again without a new exception.
-  fRecheckNormalizedPaths := (TOSVersion.Major < 10) or
-    ((TOSVersion.Major = 10) and (TOSVersion.Build < 14393));
-{$ELSE}
-  fRecheckNormalizedPaths := True;
-{$ENDIF}
+  // Match IOUtils.CheckPathLength; the protected policy seam lets comparison
+  // tests execute the legacy fold on supported modern hosts too.
+  fRecheckNormalizedPaths := RequiresNormalizationRecheck;
 end;
 
 destructor TDelphiSemanticSourceAccumulator.Destroy;

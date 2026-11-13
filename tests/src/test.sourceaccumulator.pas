@@ -19,14 +19,23 @@ type
     [TestCase('Normalization exception', 'path')]
     procedure FailedAddBlocksFurtherAddsAndPublication(const aKind: string);
     [Test] [Category('Fast,RefactoringLightObservations')]
-    procedure SeededSequencesMatchFrozenReference;
+    [TestCase('Modern policy', 'False')]
+    [TestCase('Legacy policy', 'True')]
+    procedure SeededSequencesMatchFrozenReference(const aLegacy: Boolean);
     [Test] [Category('Fast,RefactoringLightObservations')]
-    [TestCase('Long relative spelling', 'long')]
-    [TestCase('Trailing dot and space', 'trailing')]
-    [TestCase('Parent segment', 'parent')]
-    [TestCase('Forward slash', 'slash')]
-    [TestCase('Extended prefix', 'extended')]
-    procedure RepeatedNormalizationMatchesReference(const aKind: string);
+    procedure LegacyFallbackRenormalizesBeforeNextMerge;
+    [Test] [Category('Fast,RefactoringLightObservations')]
+    [TestCase('Long relative spelling', 'long,False')]
+    [TestCase('Trailing dot and space', 'trailing,False')]
+    [TestCase('Parent segment', 'parent,False')]
+    [TestCase('Forward slash', 'slash,False')]
+    [TestCase('Extended prefix', 'extended,False')]
+    [TestCase('Legacy long relative spelling', 'long,True')]
+    [TestCase('Legacy trailing dot and space', 'trailing,True')]
+    [TestCase('Legacy parent segment', 'parent,True')]
+    [TestCase('Legacy forward slash', 'slash,True')]
+    [TestCase('Legacy extended prefix', 'extended,True')]
+    procedure RepeatedNormalizationMatchesReference(const aKind: string; const aLegacy: Boolean);
     [Test] [Category('Fast,RefactoringLightObservations')]
     procedure MidMergeLookupRetainsLazyAndFirstSortedWinner;
   end;
@@ -37,6 +46,25 @@ uses
   System.Generics.Collections, System.Hash, System.IOUtils, System.SysUtils,
   AutoFree, MaxLogic.StrUtils,
   DelphiSemantics.Source;
+
+type
+  TLegacySourceAccumulator = class(TDelphiSemanticSourceAccumulator)
+  protected
+    function RequiresNormalizationRecheck: Boolean; override;
+  end;
+
+function TLegacySourceAccumulator.RequiresNormalizationRecheck: Boolean;
+begin
+  Result := True;
+end;
+
+function SourceAccumulator(const aLegacy: Boolean): TDelphiSemanticSourceAccumulator;
+begin
+  if aLegacy then
+    Result := TLegacySourceAccumulator.Create
+  else
+    Result := TDelphiSemanticSourceAccumulator.Create;
+end;
 
 function Item(const aName, aText, aRole: string): TDelphiSemanticSourceText;
 begin
@@ -196,7 +224,7 @@ begin
   Assert.IsTrue(lError <> '', 'The failed state keeps a precise failure reason.');
 end;
 
-procedure TSourceAccumulatorTests.SeededSequencesMatchFrozenReference;
+procedure TSourceAccumulatorTests.SeededSequencesMatchFrozenReference(const aLegacy: Boolean);
 var
   lOwner: TDelphiSemanticSourceAccumulator;
   lExpected, lIncoming, lCombined: IDelphiSemanticSourceObservations;
@@ -211,7 +239,7 @@ begin
     begin
       RandSeed := lSeed;
       lExpected := nil;
-      lOwner := TDelphiSemanticSourceAccumulator.Create;
+      lOwner := SourceAccumulator(aLegacy);
       try
         for lStep := 0 to 15 do
         begin
@@ -226,8 +254,7 @@ begin
           begin
             lExpectedError := '';
             lExpected := lIncoming;
-          end
-          else begin
+          end else begin
             lExpectedOk := ReferenceMerge(lExpected, lIncoming, lCombined, lExpectedError);
             if lExpectedOk then
               lExpected := lCombined;
@@ -248,7 +275,24 @@ begin
   end;
 end;
 
-procedure TSourceAccumulatorTests.RepeatedNormalizationMatchesReference(const aKind: string);
+procedure TSourceAccumulatorTests.LegacyFallbackRenormalizesBeforeNextMerge;
+var
+  g: TGarbos;
+  lOwner: TDelphiSemanticSourceAccumulator;
+  lError: string;
+begin
+  g := Default(TGarbos);
+  GC(lOwner, TLegacySourceAccumulator.Create, g);
+  Assert.IsTrue(lOwner.TryAdd(TDelphiSemanticSourceEvidence.FromItems([]), lError));
+  Assert.IsTrue(lOwner.TryAdd(TDelphiSemanticSourceEvidence.FromItems([]), lError));
+  Assert.AreEqual(0, lOwner.MaterializationCount);
+  Assert.IsTrue(lOwner.TryAdd(TDelphiSemanticSourceEvidence.FromItems([]), lError));
+  Assert.AreEqual(1, lOwner.MaterializationCount,
+    'Legacy policy must re-materialize the normalized union before the next merge.');
+end;
+
+procedure TSourceAccumulatorTests.RepeatedNormalizationMatchesReference(const aKind: string;
+  const aLegacy: Boolean);
 var
   lOwner: TDelphiSemanticSourceAccumulator;
   lInputs: TArray<IDelphiSemanticSourceObservations>;
@@ -290,7 +334,7 @@ begin
     end;
   lActualFailure := '';
   lActualIndex := -1;
-  lOwner := TDelphiSemanticSourceAccumulator.Create;
+  lOwner := SourceAccumulator(aLegacy);
   try
     for i := 0 to High(lInputs) do
       try
