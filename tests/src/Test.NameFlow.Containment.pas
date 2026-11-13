@@ -9,6 +9,23 @@ type
   [TestFixture]
   TNameFlowContainmentTests = class
   public
+    [TestCase('a1', 'True')]
+    [TestCase('a1b', 'False')]
+    [Test] procedure IncompleteAsmFactsKeepHardCoverage(const aConditional: Boolean);
+    [Test] procedure ParserRecoveredFactsKeepHardCoverageAfterMapping;
+    [TestCase('FindResource', 'Winapi.Windows.FindResource,2,1')]
+    [TestCase('FindResourceEx', 'Winapi.Windows.FindResourceEx,3,1')]
+    [TestCase('FindWindow', 'Winapi.Windows.FindWindow,1,1')]
+    [TestCase('FindWindowEx', 'Winapi.Windows.FindWindowEx,3,1')]
+    [TestCase('GetClassName', 'Winapi.Windows.GetClassName,2,1')]
+    [TestCase('SystemFindResource', 'System.FindResource,2,1')]
+    [TestCase('ReadComponentRes', 'System.Classes.ReadComponentRes,1,1')]
+    [TestCase('ResourceStream', 'System.Classes.TResourceStream.Create,2,1')]
+    [TestCase('ReaderFindMethod', 'aReader.FindMethod,2,0')]
+    [TestCase('ReaderFindMethodInstance', 'aReader.FindMethodInstance,2,0')]
+    [Test] procedure ResourceAndWindowConsumersStayHard(const aCallee: string; const aNameOrdinal, aClassTarget: Integer);
+    [Test] procedure SdkAncestorCannotBindUnimportedProjectHomonym;
+    [Test] procedure UnrelatedSdkExceptionIsNotObserved;
     [Test] procedure MissingFactsRefuse;
     [Test] procedure ScopedLookupHonorsUsesOrder;
     [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
@@ -63,7 +80,8 @@ uses
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Usage,
   DelphiSemantics.NameConsumers, DelphiSemantics.NameFlow.Containment,
-  DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkEffects, DelphiSemantics.Snapshot,
+  DelphiSemantics.NameFlow.Extract, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkEffects,
+  DelphiSemantics.Preprocess, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Symbols, DelphiSemantics.WithBinding,
   Test.Support;
@@ -1472,7 +1490,7 @@ end;
 
 procedure TNameFlowContainmentTests.CatalogConsumerShapeValueMatrixAlwaysRefuses;
 const
-  cCatalog: array[0..83] of string = (
+  cCatalog: array[0..151] of string = (
     'System.Classes.FindClass',
     'System.Classes.GetClass',
     'System.Classes.TComponent.FindComponent',
@@ -1556,7 +1574,75 @@ const
     'System.TypInfo.FindPropInfo',
     'System.TypInfo.GetAliasEnumValue',
     'System.TypInfo.GetEnumNameValue',
-    'System.Classes.TComponent.GetIDsOfNames');
+    'System.Classes.TComponent.GetIDsOfNames',
+    'System.FindResource',
+    'System.Classes.ReadComponentRes',
+    'System.Classes.TReader.FindMethod',
+    'System.Classes.TReader.FindMethodInstance',
+    'Winapi.Windows.FindResource',
+    'Winapi.Windows.FindResourceEx',
+    'Winapi.Windows.EnumResourceNames',
+    'Winapi.Windows.EnumResourceNamesA',
+    'Winapi.Windows.EnumResourceNamesW',
+    'Winapi.Windows.EnumResourceLanguages',
+    'Winapi.Windows.EnumResourceLanguagesA',
+    'Winapi.Windows.EnumResourceLanguagesW',
+    'Winapi.Windows.UpdateResource',
+    'Winapi.Windows.UpdateResourceA',
+    'Winapi.Windows.UpdateResourceW',
+    'Winapi.Windows.UnregisterClass',
+    'Winapi.Windows.UnregisterClassA',
+    'Winapi.Windows.UnregisterClassW',
+    'Winapi.Windows.GetClassInfo',
+    'Winapi.Windows.GetClassInfoA',
+    'Winapi.Windows.GetClassInfoW',
+    'Winapi.Windows.GetClassInfoEx',
+    'Winapi.Windows.GetClassInfoExA',
+    'Winapi.Windows.GetClassInfoExW',
+    'Winapi.Windows.CreateWindowEx',
+    'Winapi.Windows.CreateWindowExA',
+    'Winapi.Windows.CreateWindowExW',
+    'Winapi.Windows.CreateWindow',
+    'Winapi.Windows.CreateWindowA',
+    'Winapi.Windows.CreateWindowW',
+    'Winapi.Windows.CreateDialogParam',
+    'Winapi.Windows.CreateDialogParamA',
+    'Winapi.Windows.CreateDialogParamW',
+    'Winapi.Windows.CreateDialog',
+    'Winapi.Windows.CreateDialogA',
+    'Winapi.Windows.CreateDialogW',
+    'Winapi.Windows.DialogBoxParam',
+    'Winapi.Windows.DialogBoxParamA',
+    'Winapi.Windows.DialogBoxParamW',
+    'Winapi.Windows.DialogBox',
+    'Winapi.Windows.DialogBoxA',
+    'Winapi.Windows.DialogBoxW',
+    'Winapi.Windows.LoadMenu',
+    'Winapi.Windows.LoadMenuA',
+    'Winapi.Windows.LoadMenuW',
+    'Winapi.Windows.FindWindow',
+    'Winapi.Windows.FindWindowEx',
+    'Winapi.Windows.FindWindowExA',
+    'Winapi.Windows.FindWindowExW',
+    'Winapi.Windows.GetClassName',
+    'Winapi.Windows.LoadBitmap',
+    'Winapi.Windows.LoadBitmapA',
+    'Winapi.Windows.LoadBitmapW',
+    'Winapi.Windows.LoadCursor',
+    'Winapi.Windows.LoadCursorA',
+    'Winapi.Windows.LoadCursorW',
+    'Winapi.Windows.LoadIcon',
+    'Winapi.Windows.LoadIconA',
+    'Winapi.Windows.LoadIconW',
+    'Winapi.Windows.LoadImage',
+    'Winapi.Windows.LoadImageA',
+    'Winapi.Windows.LoadImageW',
+    'Winapi.Windows.CreateMDIWindow',
+    'Winapi.Windows.CreateMDIWindowA',
+    'Winapi.Windows.CreateMDIWindowW',
+    'Winapi.Windows.RealGetWindowClass',
+    'Winapi.Windows.RealGetWindowClassA',
+    'Winapi.Windows.RealGetWindowClassW');
 var
   lQualified, lName, lShape, lValue, lArguments, lSource, lFileName, lLabel: string;
   lOptions: TDelphiSemanticModelOptions;
@@ -1985,6 +2071,237 @@ begin
   finally
     lContext.ProjectSnapshot := nil;
     lSnapshot.Free;
+  end;
+end;
+
+
+procedure TNameFlowContainmentTests.IncompleteAsmFactsKeepHardCoverage(const aConditional: Boolean);
+var
+  lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lAccept: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-asm-coverage-temp'), 'Probe.pas');
+  lSource := 'unit Probe;'#13#10'interface'#13#10'uses System.Classes;'#13#10 +
+    'type TCount = class(TPersistent) end;'#13#10'procedure Touch;'#13#10 +
+    'implementation'#13#10'function Lookup(const aName: string): TPersistentClass;'#13#10 +
+    'asm jmp System.Classes.GetClass end;'#13#10'procedure Touch;'#13#10'begin'#13#10;
+  if aConditional then
+    lSource := lSource + 'WriteLn('''' {$IFDEF NEVERDEFINED} + ''x'' {$ENDIF});'#13#10;
+  lSource := lSource + 'Lookup(ParamStr(1)); end;'#13#10'end.';
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  Assert.IsFalse(lModel.NameFlowFacts.Complete);
+  Assert.AreEqual('name-flow-syntax-unsupported', lModel.NameFlowFacts.CoverageReason,
+    'Physical mapping must preserve the asm extraction gap.');
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved'));
+    for lAccept in [False, True] do
+    begin
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+      lPlan := RuntimePolicyPlan;
+      lPlan.UnresolvedReferences := lReport.Gaps;
+      ApplyRenameRuntimeNameRiskPolicy(lContext, lAccept, lPlan);
+      Assert.AreEqual('incomplete', lPlan.Status);
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ParserRecoveredFactsKeepHardCoverageAfterMapping;
+var
+  lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lNodes: TArray<TDelphiNameFlowNode>;
+  lPreprocess: TDelphiSemanticPreprocessResult;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  i: Integer;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-recovered-coverage-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10'procedure Touch;'#13#10 +
+    'implementation'#13#10'procedure Touch; begin GetClass(ParamStr(1)); end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  // The recovery path supplies an interface-only tree and this explicit cause.
+  // Keep just the interface node to represent implementation nodes genuinely absent.
+  SetLength(lNodes, 1);
+  lNodes[0] := Default(TDelphiNameFlowNode);
+  lNodes[0].Id := 1;
+  lNodes[0].Kind := TDelphiNameFlowNodeKind.Definition;
+  lNodes[0].SyntaxKind := 'typedecl';
+  lNodes[0].Name := 'TCount';
+  lNodes[0].SpanKnown := True;
+  lNodes[0].OutputStartOffset := 1;
+  lNodes[0].OutputEndOffset := 2;
+  lPreprocess := Default(TDelphiSemanticPreprocessResult);
+  lPreprocess.Success := True;
+  lModel.NameFlowFacts := MapNameFlowFacts(CreateNameFlowFacts(lNodes, False, True,
+    'name-flow-parser-recovered'), '', lPreprocess, 0);
+  Assert.AreEqual('name-flow-parser-recovered', lModel.NameFlowFacts.CoverageReason);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved'));
+    for i := 0 to High(lReport.Gaps) do
+      if lReport.Gaps[i].Reason = 'runtime-name-known-consumer-coverage-unproved' then
+        Assert.IsEmpty(RuntimeNameRiskCategory(lReport.Gaps[i].Reason));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ResourceAndWindowConsumersStayHard(const aCallee: string;
+  const aNameOrdinal, aClassTarget: Integer);
+var
+  lFile, lArguments: string;
+  i: Integer;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lTarget: TNameEffectTargetKind;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lAccept: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-resource-consumer-temp'), 'Probe.pas');
+  lArguments := 'ParamStr(1)';
+  for i := 2 to aNameOrdinal do
+    lArguments := 'nil, ' + lArguments;
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10'uses System.Classes, Winapi.Windows;'#13#10 +
+    'procedure Touch(aReader: TReader);'#13#10'implementation'#13#10 +
+    'procedure Touch(aReader: TReader);'#13#10'begin ' + aCallee + '(' + lArguments + '); end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lTarget := TNameEffectTargetKind.Member;
+    if aClassTarget <> 0 then
+      lTarget := TNameEffectTargetKind.ClassType;
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, lTarget, nil, ['TCount', 'TAmount']);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown') or
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-match'), aCallee);
+    for lAccept in [False, True] do
+    begin
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+      lPlan := RuntimePolicyPlan;
+      lPlan.UnresolvedReferences := lReport.Gaps;
+      ApplyRenameRuntimeNameRiskPolicy(lContext, lAccept, lPlan);
+      Assert.AreEqual('incomplete', lPlan.Status, aCallee);
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.SdkAncestorCannotBindUnimportedProjectHomonym;
+var
+  lRoot, lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lImport: TDelphiSemanticImportFact;
+  i: Integer;
+begin
+  lRoot := CreateTestTempRoot('nameflow-lineage-homonym-temp');
+  SetLength(lModels, 2);
+  for i := 0 to 1 do
+  begin
+    lFile := TPath.Combine(lRoot, 'UOther.pas');
+    lSource := 'unit UOther; interface type TStringList = class end; implementation end.';
+    if i = 1 then
+    begin
+      lFile := TPath.Combine(lRoot, 'Probe.pas');
+      lSource := 'unit Probe;'#13#10'interface'#13#10'uses System.Classes;'#13#10 +
+        'type TCount = class(TStringList) end;'#13#10'procedure Touch(aValue: TPersistent);'#13#10 +
+        'implementation'#13#10'procedure Touch(aValue: TPersistent);'#13#10 +
+        'begin WriteLn(aValue.ClassName); end;'#13#10'end.';
+    end;
+    TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success);
+  end;
+  lImport := Default(TDelphiSemanticImportFact);
+  lImport.Name := 'System.Classes';
+  lImport.SectionKind := 'interface';
+  lImport.SdkBoundary := True;
+  lModels[1].ImportFacts := [lImport];
+  lSnapshot := BuildProjectSnapshotFromModels(lModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+      'An unrelated TStringList must not close the renamed class lineage.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.UnrelatedSdkExceptionIsNotObserved;
+var
+  lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lImport: TDelphiSemanticImportFact;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lLean: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-sdk-root-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10 +
+    'type TCount = class end;'#13#10'procedure Touch;'#13#10'implementation'#13#10 +
+    'procedure Touch; begin raise Exception.Create(''boom''); end;'#13#10'end.', TEncoding.ASCII);
+  for lLean in [False, True] do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lOptions.SkipBodyAnalysis := lLean;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+    lImport := Default(TDelphiSemanticImportFact);
+    lImport.Name := 'System.SysUtils';
+    lImport.SectionKind := 'interface';
+    lImport.SdkBoundary := True;
+    lModel.ImportFacts := [lImport];
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    try
+      lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+      Assert.IsFalse(HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+        'A bound SDK Exception cannot descend from an unrelated project class.');
+    finally
+      lSnapshot.Free;
+    end;
   end;
 end;
 

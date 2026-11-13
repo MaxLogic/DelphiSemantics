@@ -871,268 +871,267 @@ end;
 function SnapshotProjectRoutineFamilyIsComplete(const aSnapshot: TDelphiProjectSnapshot;
   const aSourceUnit: TUnitSnapshot; const aCallee: TDelphiNameFlowNode;
   const aFacts: IDelphiNameFlowFacts; const aCatalogOwners: TArray<string>): Boolean;
-  var
-    lAncestor, lSelector, lReceiver, lDefinition, lClass, lChild: TDelphiNameFlowNode;
-    lTargetUnit, lCandidateUnit: TUnitSnapshot;
-    lSymbol, lReceiverSymbol: TSemanticSymbolFact;
-    lReceiverResolution: TDelphiSemanticSnapshotPositionResolution;
-    lTargetFacts: IDelphiNameFlowFacts;
-    lImport: TDelphiSemanticImportFact;
-    lReceiverName, lOwner, lTypeName, lQualifier, lFirst, lUnitName, lSignature: string;
-    lDepth, lIndex, lChildId, lMatches, lFamilies: Integer;
-    lVisible, lRootClass, lComplete: Boolean;
-    lRefs: TArray<TSemanticSymbolRef>;
-    lExternalTypeUnits: TArray<string>;
+var
+  lAncestor, lSelector, lReceiver, lDefinition, lClass, lChild: TDelphiNameFlowNode;
+  lTargetUnit, lCandidateUnit: TUnitSnapshot;
+  lSymbol, lReceiverSymbol: TSemanticSymbolFact;
+  lReceiverResolution: TDelphiSemanticSnapshotPositionResolution;
+  lTargetFacts: IDelphiNameFlowFacts;
+  lImport: TDelphiSemanticImportFact;
+  lReceiverName, lOwner, lTypeName, lQualifier, lFirst, lUnitName, lSignature: string;
+  lDepth, lIndex, lChildId, lMatches, lFamilies: Integer;
+  lVisible, lRootClass, lComplete: Boolean;
+  lRefs: TArray<TSemanticSymbolRef>;
+  lExternalTypeUnits: TArray<string>;
+begin
+  Result := False;
+  if aCallee.Id = 0 then
+    Exit;
+  lAncestor := aCallee;
+  lOwner := '';
+  for lDepth := 0 to 63 do
   begin
-    Result := False;
-    if aCallee.Id = 0 then
+    if MatchText(lAncestor.SyntaxKind, ['with', 'inherited']) then
       Exit;
-    lAncestor := aCallee;
-    lOwner := '';
-    for lDepth := 0 to 63 do
-    begin
-      if MatchText(lAncestor.SyntaxKind, ['with', 'inherited']) then
+    for lChildId in lAncestor.Children do
+      if aFacts.NodeById(lChildId).SyntaxKind = 'inherited' then
         Exit;
-      for lChildId in lAncestor.Children do
-        if aFacts.NodeById(lChildId).SyntaxKind = 'inherited' then
-          Exit;
-      if (lOwner = '') and (lAncestor.Kind = TDelphiNameFlowNodeKind.Routine) then
-      begin
-        lIndex := lAncestor.Name.LastIndexOf('.');
-        if lIndex >= 0 then
-          lOwner := Copy(lAncestor.Name, 1, lIndex);
-      end;
-      if lAncestor.ParentId = 0 then
+    if (lOwner = '') and (lAncestor.Kind = TDelphiNameFlowNodeKind.Routine) then
+    begin
+      lIndex := lAncestor.Name.LastIndexOf('.');
+      if lIndex >= 0 then
+        lOwner := Copy(lAncestor.Name, 1, lIndex);
+    end;
+    if lAncestor.ParentId = 0 then
+      Break;
+    lAncestor := aFacts.NodeById(lAncestor.ParentId);
+  end;
+  if lAncestor.ParentId <> 0 then
+    Exit;
+  lReceiver := Default(TDelphiNameFlowNode);
+  if aCallee.ParentId > 0 then
+  begin
+    lSelector := aFacts.NodeById(aCallee.ParentId);
+    if (lSelector.SyntaxKind = 'dot') and (Length(lSelector.Children) = 2) then
+      lReceiver := aFacts.NodeById(lSelector.Children[0]);
+  end;
+  lReceiverName := SnapshotNameFlowDottedName(aFacts, lReceiver, 0);
+  // DelphiAST nests a namespaced qualifier to the right: Easy.(TableFunctions.GetField).
+  // Keep the entire unit namespace rather than rebinding its last component.
+  if (lReceiver.Id <> 0) and (lReceiverName <> '') then
+    for lDepth := 0 to 15 do
+    begin
+      if lSelector.ParentId = 0 then
         Break;
-      lAncestor := aFacts.NodeById(lAncestor.ParentId);
-    end;
-    if lAncestor.ParentId <> 0 then
-      Exit;
-    lReceiver := Default(TDelphiNameFlowNode);
-    if aCallee.ParentId > 0 then
-    begin
-      lSelector := aFacts.NodeById(aCallee.ParentId);
-      if (lSelector.SyntaxKind = 'dot') and (Length(lSelector.Children) = 2) then
-        lReceiver := aFacts.NodeById(lSelector.Children[0]);
-    end;
-    lReceiverName := SnapshotNameFlowDottedName(aFacts, lReceiver, 0);
-    // DelphiAST nests a namespaced qualifier to the right: Easy.(TableFunctions.GetField).
-    // Keep the entire unit namespace rather than rebinding its last component.
-    if (lReceiver.Id <> 0) and (lReceiverName <> '') then
-      for lDepth := 0 to 15 do
-      begin
-        if lSelector.ParentId = 0 then
-          Break;
-        lAncestor := aFacts.NodeById(lSelector.ParentId);
-        if (lAncestor.SyntaxKind <> 'dot') or (Length(lAncestor.Children) <> 2) or
-          (lAncestor.Children[1] <> lSelector.Id) then
-          Break;
-        lQualifier := SnapshotNameFlowDottedName(aFacts, aFacts.NodeById(lAncestor.Children[0]), 0);
-        if lQualifier = '' then
-          Exit;
-        lReceiverName := lQualifier + '.' + lReceiverName;
-        lSelector := lAncestor;
-      end;
-    if (lReceiver.Id <> 0) and (lSelector.ParentId > 0) then
-    begin
       lAncestor := aFacts.NodeById(lSelector.ParentId);
-      if (lAncestor.SyntaxKind = 'dot') and (Length(lAncestor.Children) = 2) and
-        (lAncestor.Children[1] = lSelector.Id) then
-        Exit; // The namespace exceeded the bound; a suffix is not a binding.
-    end;
-    if ((lReceiver.Id <> 0) and (lReceiverName = '')) or
-      (SameText(lReceiverName, 'Self') and (lOwner = '')) then
-      Exit;
-    lFirst := Copy(lReceiverName, 1, Pos('.', lReceiverName + '.') - 1);
-    // A nearer declaration omitted by a lean symbol model must never expose a
-    // unit qualifier or an outer routine family. WITH was excluded above.
-    for lIndex := 1 to aFacts.NodeCount do
-    begin
-      lDefinition := aFacts.NodeById(lIndex);
-      if (lDefinition.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
-        (lDefinition.ScopeId <> '') and
-        StartsText(lDefinition.ScopeId, aCallee.ScopeId) and
-        (SameText(lDefinition.Name, aCallee.Name) or
-          ((lFirst <> '') and SameText(lDefinition.Name, lFirst))) then
+      if (lAncestor.SyntaxKind <> 'dot') or (Length(lAncestor.Children) <> 2) or
+        (lAncestor.Children[1] <> lSelector.Id) then
+        Break;
+      lQualifier := SnapshotNameFlowDottedName(aFacts, aFacts.NodeById(lAncestor.Children[0]), 0);
+      if lQualifier = '' then
         Exit;
+      lReceiverName := lQualifier + '.' + lReceiverName;
+      lSelector := lAncestor;
     end;
-    lTargetUnit := aSourceUnit;
-    lQualifier := '';
-    if (lReceiverName <> '') and not SameText(lReceiverName, 'Self') then
+  if (lReceiver.Id <> 0) and (lSelector.ParentId > 0) then
+  begin
+    lAncestor := aFacts.NodeById(lSelector.ParentId);
+    if (lAncestor.SyntaxKind = 'dot') and (Length(lAncestor.Children) = 2) and
+      (lAncestor.Children[1] = lSelector.Id) then
+      Exit; // The namespace exceeded the bound; a suffix is not a binding.
+  end;
+  if ((lReceiver.Id <> 0) and (lReceiverName = '')) or
+    (SameText(lReceiverName, 'Self') and (lOwner = '')) then
+    Exit;
+  lFirst := Copy(lReceiverName, 1, Pos('.', lReceiverName + '.') - 1);
+  // A nearer declaration omitted by a lean symbol model must never expose a
+  // unit qualifier or an outer routine family. WITH was excluded above.
+  for lIndex := 1 to aFacts.NodeCount do
+  begin
+    lDefinition := aFacts.NodeById(lIndex);
+    if (lDefinition.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
+      (lDefinition.ScopeId <> '') and
+      StartsText(lDefinition.ScopeId, aCallee.ScopeId) and
+      (SameText(lDefinition.Name, aCallee.Name) or
+        ((lFirst <> '') and SameText(lDefinition.Name, lFirst))) then
+      Exit;
+  end;
+  lTargetUnit := aSourceUnit;
+  lQualifier := '';
+  if (lReceiverName <> '') and not SameText(lReceiverName, 'Self') then
+  begin
+    // An imported, fully qualified project unit is a declaration namespace.
+    // Reject any project declaration that could shadow its first component.
+    for lIndex := 0 to aSnapshot.UnitCount - 1 do
     begin
-      // An imported, fully qualified project unit is a declaration namespace.
-      // Reject any project declaration that could shadow its first component.
+      lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
+      if not SameText(aSnapshot.TextOf(lCandidateUnit.UnitNameId), lReceiverName) then
+        Continue;
+      lVisible := lCandidateUnit = aSourceUnit;
+      for lImport in aSourceUnit.ImportFacts do
+        if ((lImport.OwnerFileName = '') or SameText(lImport.OwnerFileName,
+          aSnapshot.TextOf(aSourceUnit.FileNameId))) and SameText(lImport.Name, lReceiverName) and not lImport.SdkBoundary and
+          (lImport.Cause = '') and not lImport.ResolutionVaries then
+          lVisible := True;
+      if lVisible then
+      begin
+        lTargetUnit := lCandidateUnit;
+        lQualifier := lReceiverName;
+        lOwner := '';
+        Break;
+      end;
+    end;
+    if lQualifier <> '' then
+    begin
+      // A unit-level declaration in an unrelated unit cannot shadow this
+      // namespace. Keep imported declarations and possible inherited/helper
+      // members conservative until a more precise owner binding is available.
       for lIndex := 0 to aSnapshot.UnitCount - 1 do
       begin
         lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
-        if not SameText(aSnapshot.TextOf(lCandidateUnit.UnitNameId), lReceiverName) then
-          Continue;
+        lUnitName := aSnapshot.TextOf(lCandidateUnit.UnitNameId);
         lVisible := lCandidateUnit = aSourceUnit;
         for lImport in aSourceUnit.ImportFacts do
           if ((lImport.OwnerFileName = '') or SameText(lImport.OwnerFileName,
-            aSnapshot.TextOf(aSourceUnit.FileNameId))) and SameText(lImport.Name, lReceiverName) and not lImport.SdkBoundary and
-            (lImport.Cause = '') and not lImport.ResolutionVaries then
+          aSnapshot.TextOf(aSourceUnit.FileNameId))) and SameText(lImport.Name, lUnitName) then
             lVisible := True;
-        if lVisible then
+        for lChildId := 1 to lCandidateUnit.SymbolCount do
         begin
-          lTargetUnit := lCandidateUnit;
-          lQualifier := lReceiverName;
-          lOwner := '';
-          Break;
+          lSymbol := lCandidateUnit.SymbolById(lChildId);
+          if SameText(aSnapshot.TextOf(lSymbol.NameId), lFirst) and
+            (lVisible or (aSnapshot.TextOf(lSymbol.OwnerTypeId) <> '')) then
+            Exit;
         end;
       end;
-      if lQualifier <> '' then
+    end else begin
+      if (Pos('.', lReceiverName) > 0) or (lReceiver.SyntaxKind <> 'identifier') then
+        Exit;
+      lReceiverSymbol := Default(TSemanticSymbolFact);
+      if TryResolveSnapshotPosition(aSnapshot, lReceiver.FileName, lReceiver.Line,
+        lReceiver.Column, lReceiver.Name, lReceiverResolution) and lReceiverResolution.ReferenceFound then
       begin
-        // A unit-level declaration in an unrelated unit cannot shadow this
-        // namespace. Keep imported declarations and possible inherited/helper
-        // members conservative until a more precise owner binding is available.
-        for lIndex := 0 to aSnapshot.UnitCount - 1 do
-        begin
-          lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
-          lUnitName := aSnapshot.TextOf(lCandidateUnit.UnitNameId);
-          lVisible := lCandidateUnit = aSourceUnit;
-          for lImport in aSourceUnit.ImportFacts do
-            if ((lImport.OwnerFileName = '') or SameText(lImport.OwnerFileName,
-            aSnapshot.TextOf(aSourceUnit.FileNameId))) and SameText(lImport.Name, lUnitName) then
-              lVisible := True;
-          for lChildId := 1 to lCandidateUnit.SymbolCount do
-          begin
-            lSymbol := lCandidateUnit.SymbolById(lChildId);
-            if SameText(aSnapshot.TextOf(lSymbol.NameId), lFirst) and
-              (lVisible or (aSnapshot.TextOf(lSymbol.OwnerTypeId) <> '')) then
-              Exit;
-          end;
-        end;
+        // A foreign declaration's type has its own import/alias scope. This
+        // bounded fallback does not reinterpret it in the caller's unit.
+        if lReceiverResolution.SymbolUnit <> aSourceUnit then
+          Exit;
+        lReceiverSymbol := lReceiverResolution.Symbol;
       end else begin
-        if (Pos('.', lReceiverName) > 0) or (lReceiver.SyntaxKind <> 'identifier') then
-          Exit;
-        lReceiverSymbol := Default(TSemanticSymbolFact);
-        if TryResolveSnapshotPosition(aSnapshot, lReceiver.FileName, lReceiver.Line,
-          lReceiver.Column, lReceiver.Name, lReceiverResolution) and lReceiverResolution.ReferenceFound then
+        lMatches := 0;
+        for lIndex := 1 to aSourceUnit.SymbolCount do
         begin
-          // A foreign declaration's type has its own import/alias scope. This
-          // bounded fallback does not reinterpret it in the caller's unit.
-          if lReceiverResolution.SymbolUnit <> aSourceUnit then
-            Exit;
-          lReceiverSymbol := lReceiverResolution.Symbol;
-        end else begin
-          lMatches := 0;
-          for lIndex := 1 to aSourceUnit.SymbolCount do
+          lSymbol := aSourceUnit.SymbolById(lIndex);
+          if SameText(aSnapshot.TextOf(lSymbol.NameId), lReceiverName) and
+            SameText(aSnapshot.TextOf(lSymbol.KindId), 'field') and
+            (lOwner <> '') and SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
           begin
-            lSymbol := aSourceUnit.SymbolById(lIndex);
-            if SameText(aSnapshot.TextOf(lSymbol.NameId), lReceiverName) and
-              SameText(aSnapshot.TextOf(lSymbol.KindId), 'field') and
-              (lOwner <> '') and SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
-            begin
-              Inc(lMatches);
-              lReceiverSymbol := lSymbol;
-            end;
-          end;
-          if lMatches <> 1 then
-            Exit;
-        end;
-        if lReceiverSymbol.FileId <> 0 then
-          Exit;
-        lTypeName := aSnapshot.TextOf(lReceiverSymbol.TypeId);
-        lExternalTypeUnits := nil;
-        for lImport in aSourceUnit.ImportFacts do
-          if lImport.SdkBoundary then
-            lExternalTypeUnits := lExternalTypeUnits + [lImport.Name];
-        lRefs := SnapshotVisibleDeclarations(aSnapshot, aSourceUnit, lTypeName,
-          aSnapshot.TextOf(lReceiverSymbol.RoutineScopeId),
-          aSnapshot.TextOf(lReceiverSymbol.OwnerTypeId),
-          aSnapshot.TextOf(lReceiverSymbol.SectionKindId),
-          lReceiverSymbol.Line, lReceiverSymbol.Column, lExternalTypeUnits,
-          lComplete, aFacts, aSnapshot.TextOf(lReceiverSymbol.FileId));
-        if not lComplete or (Length(lRefs) <> 1) or
-          not aSnapshot.TryFindUnitById(lRefs[0].UnitId, lTargetUnit) then
-          Exit;
-        lSymbol := lTargetUnit.SymbolById(lRefs[0].SymbolId);
-        if not SameText(aSnapshot.TextOf(lSymbol.KindId), 'type') or
-          not SameText(aSnapshot.TextOf(lSymbol.TypeId), 'class') then
-          Exit;
-        lOwner := aSnapshot.TextOf(lSymbol.NameId);
-      end;
-    end;
-    if not SameText(aSnapshot.TextOf(lTargetUnit.ScopeModelStatusId), 'ast') then
-      Exit;
-    if lOwner <> '' then
-    begin
-      // The family join currently supports root project classes only. An
-      // inherited overload from an SDK class must remain a consumer candidate.
-      lTargetFacts := NameFlowFactsFromJson(aSnapshot.ExactTextOf(lTargetUnit.NameFlowFactsJsonId));
-      lRootClass := False;
-      lMatches := 0;
-      for lIndex := 1 to lTargetFacts.NodeCount do
-      begin
-        lDefinition := lTargetFacts.NodeById(lIndex);
-        if (lDefinition.SyntaxKind <> 'typedecl') or (lDefinition.ScopeId <> '') or
-          not SameText(lDefinition.Name, lOwner) then
-          Continue;
-        Inc(lMatches);
-        for lChildId in lDefinition.Children do
-        begin
-          lClass := lTargetFacts.NodeById(lChildId);
-          if (lClass.SyntaxKind <> 'type') or not SameText(lClass.TypeName, 'class') then
-            Continue;
-          lRootClass := True;
-          for lDepth in lClass.Children do
-          begin
-            lChild := lTargetFacts.NodeById(lDepth);
-            if lChild.SyntaxKind = 'type' then
-              lRootClass := False;
+            Inc(lMatches);
+            lReceiverSymbol := lSymbol;
           end;
         end;
-      end;
-      if not lRootClass or (lMatches <> 1) then
-        Exit;
-    end;
-    lFamilies := 0;
-    lSignature := '';
-    for lIndex := 1 to lTargetUnit.SymbolCount do
-    begin
-      lSymbol := lTargetUnit.SymbolById(lIndex);
-      if not SameText(aSnapshot.TextOf(lSymbol.NameId), aCallee.Name) or
-        not SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
-        Continue;
-      // A nested routine in some other body is not a unit-level candidate.
-      if ContainsText(aSnapshot.TextOf(lSymbol.RoutineScopeId), '/') then
-        Continue;
-      if not MatchText(aSnapshot.TextOf(lSymbol.KindId), ['routine', 'method']) or
-        (lSymbol.FileId <> 0) then
-        Exit;
-      if (lSignature <> '') and not SameText(lSignature, aSnapshot.TextOf(lSymbol.SignatureId)) and
-        not SnapshotUniqueProjectOverload(aSnapshot, aSourceUnit, lTargetUnit, aCallee, aFacts, lOwner) then
-        Exit; // Ambiguous/unknown argument binding cannot prove exemption.
-      lSignature := aSnapshot.TextOf(lSymbol.SignatureId);
-      Inc(lFamilies);
-    end;
-    if (lFamilies > 0) and (lOwner = '') then
-    begin
-      lTypeName := aCallee.Name;
-      if lQualifier <> '' then
-        lTypeName := lQualifier + '.' + lTypeName;
-      lRefs := SnapshotVisibleDeclarations(aSnapshot, aSourceUnit, lTypeName, aCallee.ScopeId,
-        '', 'implementation', aCallee.Line, aCallee.Column,
-        aCatalogOwners, lComplete);
-      if not lComplete or (Length(lRefs) = 0) then
-        Exit;
-      // A later own-unit routine cannot certify a nearer imported variable
-      // or a different routine family. Close the actual visible candidate set.
-      for var lRef in lRefs do
-      begin
-        if lRef.UnitId <> lTargetUnit.UnitId then
-          Exit;
-        if not MatchText(aSnapshot.TextOf(lTargetUnit.SymbolById(lRef.SymbolId).KindId),
-          ['routine', 'method']) then
+        if lMatches <> 1 then
           Exit;
       end;
-      if (Length(lRefs) > 1) and not SnapshotUniqueProjectOverload(aSnapshot,
-        aSourceUnit, lTargetUnit, aCallee, aFacts, lOwner) then
+      if lReceiverSymbol.FileId <> 0 then
         Exit;
+      lTypeName := aSnapshot.TextOf(lReceiverSymbol.TypeId);
+      lExternalTypeUnits := nil;
+      for lImport in aSourceUnit.ImportFacts do
+        if lImport.SdkBoundary then
+          lExternalTypeUnits := lExternalTypeUnits + [lImport.Name];
+      lRefs := SnapshotVisibleDeclarations(aSnapshot, aSourceUnit, lTypeName,
+        aSnapshot.TextOf(lReceiverSymbol.RoutineScopeId),
+        aSnapshot.TextOf(lReceiverSymbol.OwnerTypeId),
+        aSnapshot.TextOf(lReceiverSymbol.SectionKindId),
+        lReceiverSymbol.Line, lReceiverSymbol.Column, lExternalTypeUnits,
+        lComplete, aFacts, aSnapshot.TextOf(lReceiverSymbol.FileId));
+      if not lComplete or (Length(lRefs) <> 1) or
+        not aSnapshot.TryFindUnitById(lRefs[0].UnitId, lTargetUnit) then
+        Exit;
+      lSymbol := lTargetUnit.SymbolById(lRefs[0].SymbolId);
+      if not SameText(aSnapshot.TextOf(lSymbol.KindId), 'type') or
+        not SameText(aSnapshot.TextOf(lSymbol.TypeId), 'class') then
+        Exit;
+      lOwner := aSnapshot.TextOf(lSymbol.NameId);
     end;
-    Result := lFamilies > 0;
   end;
-
+  if not SameText(aSnapshot.TextOf(lTargetUnit.ScopeModelStatusId), 'ast') then
+    Exit;
+  if lOwner <> '' then
+  begin
+    // The family join currently supports root project classes only. An
+    // inherited overload from an SDK class must remain a consumer candidate.
+    lTargetFacts := NameFlowFactsFromJson(aSnapshot.ExactTextOf(lTargetUnit.NameFlowFactsJsonId));
+    lRootClass := False;
+    lMatches := 0;
+    for lIndex := 1 to lTargetFacts.NodeCount do
+    begin
+      lDefinition := lTargetFacts.NodeById(lIndex);
+      if (lDefinition.SyntaxKind <> 'typedecl') or (lDefinition.ScopeId <> '') or
+        not SameText(lDefinition.Name, lOwner) then
+        Continue;
+      Inc(lMatches);
+      for lChildId in lDefinition.Children do
+      begin
+        lClass := lTargetFacts.NodeById(lChildId);
+        if (lClass.SyntaxKind <> 'type') or not SameText(lClass.TypeName, 'class') then
+          Continue;
+        lRootClass := True;
+        for lDepth in lClass.Children do
+        begin
+          lChild := lTargetFacts.NodeById(lDepth);
+          if lChild.SyntaxKind = 'type' then
+            lRootClass := False;
+        end;
+      end;
+    end;
+    if not lRootClass or (lMatches <> 1) then
+      Exit;
+  end;
+  lFamilies := 0;
+  lSignature := '';
+  for lIndex := 1 to lTargetUnit.SymbolCount do
+  begin
+    lSymbol := lTargetUnit.SymbolById(lIndex);
+    if not SameText(aSnapshot.TextOf(lSymbol.NameId), aCallee.Name) or
+      not SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
+      Continue;
+    // A nested routine in some other body is not a unit-level candidate.
+    if ContainsText(aSnapshot.TextOf(lSymbol.RoutineScopeId), '/') then
+      Continue;
+    if not MatchText(aSnapshot.TextOf(lSymbol.KindId), ['routine', 'method']) or
+      (lSymbol.FileId <> 0) then
+      Exit;
+    if (lSignature <> '') and not SameText(lSignature, aSnapshot.TextOf(lSymbol.SignatureId)) and
+      not SnapshotUniqueProjectOverload(aSnapshot, aSourceUnit, lTargetUnit, aCallee, aFacts, lOwner) then
+      Exit; // Ambiguous/unknown argument binding cannot prove exemption.
+    lSignature := aSnapshot.TextOf(lSymbol.SignatureId);
+    Inc(lFamilies);
+  end;
+  if (lFamilies > 0) and (lOwner = '') then
+  begin
+    lTypeName := aCallee.Name;
+    if lQualifier <> '' then
+      lTypeName := lQualifier + '.' + lTypeName;
+    lRefs := SnapshotVisibleDeclarations(aSnapshot, aSourceUnit, lTypeName, aCallee.ScopeId,
+      '', 'implementation', aCallee.Line, aCallee.Column,
+      aCatalogOwners, lComplete);
+    if not lComplete or (Length(lRefs) = 0) then
+      Exit;
+    // A later own-unit routine cannot certify a nearer imported variable
+    // or a different routine family. Close the actual visible candidate set.
+    for var lRef in lRefs do
+    begin
+      if lRef.UnitId <> lTargetUnit.UnitId then
+        Exit;
+      if not MatchText(aSnapshot.TextOf(lTargetUnit.SymbolById(lRef.SymbolId).KindId),
+        ['routine', 'method']) then
+        Exit;
+    end;
+    if (Length(lRefs) > 1) and not SnapshotUniqueProjectOverload(aSnapshot,
+      aSourceUnit, lTargetUnit, aCallee, aFacts, lOwner) then
+      Exit;
+  end;
+  Result := lFamilies > 0;
+end;
 
 end.

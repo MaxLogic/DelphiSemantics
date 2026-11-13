@@ -483,7 +483,9 @@ begin
       if lNode.Kind <> TDelphiNameFlowNodeKind.Syntax then
       begin
         lComplete := False;
-        lReason := 'name-flow-physical-span-unproved';
+        // Mapping is dischargeable only when extraction had no earlier gap.
+        if lReason = '' then
+          lReason := 'name-flow-physical-span-unproved';
       end;
     end;
     lNodes[i - 1] := lNode;

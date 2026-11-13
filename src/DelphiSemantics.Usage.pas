@@ -89,6 +89,16 @@ type
     function NodesAt(const aLine, aColumn: Integer): TArray<TDelphiNameFlowNode>;
   end;
 
+type
+  TNameFlowConstant = record
+    Item: TDelphiSemanticStringConstant;
+    Owner, FileName, Kind: string;
+    UnitIndex, Line, Column: Integer;
+    SymbolId: TSemanticSymbolId;
+    Scope, OwnerType, Section: string;
+    UnprovedConstantBinding: Boolean;
+  end;
+
 function TSnapshotRuntimeContextIndex.BuildSubtree(const aFirst, aLast: Integer): Int64;
 var
   lMiddle: Integer;
@@ -184,6 +194,100 @@ begin
   aLine := lLow + 1;
   aColumn := aOffset - aLineStarts[lLow] + 1;
 end;
+
+function IntrinsicIsVisible(const aSnapshot: TDelphiProjectSnapshot;
+  const aConstants: TArray<TNameFlowConstant>; const aUnitFacts: TArray<IDelphiNameFlowFacts>;
+  const aUnitDefinitions: TArray<TDictionary<string, TArray<TDelphiNameFlowNode>>>;
+  const aIndex: Integer; const aName: string): Boolean;
+var
+  lRefs: TArray<TSemanticSymbolRef>;
+  lComplete: Boolean;
+  lContext: TNameFlowConstant;
+  lDefinitions: TArray<TDelphiNameFlowNode>;
+  lNode: TDelphiNameFlowNode;
+begin
+  lContext := aConstants[aIndex];
+  lRefs := SnapshotVisibleDeclarations(aSnapshot, aSnapshot.UnitByIndex(lContext.UnitIndex),
+    aName, lContext.Scope, lContext.OwnerType, lContext.Section,
+    lContext.Line, lContext.Column, nil, lComplete, aUnitFacts[lContext.UnitIndex], lContext.FileName);
+  Result := lComplete and (Length(lRefs) = 0);
+  if not Result then
+    Exit;
+  if not aUnitDefinitions[lContext.UnitIndex].TryGetValue(aName, lDefinitions) then
+    Exit;
+  for lNode in lDefinitions do
+  begin
+    if (lNode.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
+      SameText(lNode.Name, aName) and (lNode.ScopeId <> '') and
+      (SameText(lNode.ScopeId, lContext.Scope) or StartsText(lNode.ScopeId + '/', lContext.Scope)) then
+      Exit(False);
+  end;
+end;
+
+procedure BindExpressionContexts(const aSnapshot: TDelphiProjectSnapshot;
+  var aConstants: TArray<TNameFlowConstant>; const aLineStarts: TArray<TArray<Integer>>;
+  const aUnitContexts: TArray<TSnapshotRuntimeContextIndex>);
+var
+  lNode: TDelphiNameFlowNode;
+  lSimple: string;
+  lFact: TSemanticSymbolFact;
+  lUnit: TUnitSnapshot;
+  lBest, lScore, lIndex, lSymbolIndex: Integer;
+begin
+  for lIndex := 0 to High(aConstants) do
+  begin
+    lUnit := aSnapshot.UnitByIndex(aConstants[lIndex].UnitIndex);
+    if aConstants[lIndex].Item.Offset <= 0 then
+      Continue; // Symbol-only guards already carry their declaration context.
+    SnapshotRuntimeCoordinatesAtOffset(aLineStarts[aConstants[lIndex].UnitIndex],
+      aConstants[lIndex].Item.Offset, aConstants[lIndex].Line, aConstants[lIndex].Column);
+    aConstants[lIndex].Section := 'implementation';
+    for lNode in aUnitContexts[aConstants[lIndex].UnitIndex].NodesAt(
+      aConstants[lIndex].Line, aConstants[lIndex].Column) do
+    begin
+      if lNode.SyntaxKind = 'interface' then
+        aConstants[lIndex].Section := 'interface';
+      if Length(lNode.ScopeId) > Length(aConstants[lIndex].Scope) then
+        aConstants[lIndex].Scope := lNode.ScopeId;
+      if lNode.OwnerType <> '' then
+        aConstants[lIndex].OwnerType := lNode.OwnerType;
+      if (lNode.Kind = TDelphiNameFlowNodeKind.Routine) and (Pos('.', lNode.Name) > 0) then
+        aConstants[lIndex].OwnerType := Copy(lNode.Name, 1, LastDelimiter('.', lNode.Name) - 1);
+      // The lexical witness qualifies class constants with their owner;
+      // AST definitions carry that owner separately from the simple name.
+      if (lNode.SyntaxKind = 'constant') and SameText(lNode.Name,
+        Copy(aConstants[lIndex].Item.Name,
+          LastDelimiter('.', aConstants[lIndex].Item.Name) + 1, MaxInt)) then
+        aConstants[lIndex].Kind := 'const';
+    end;
+    if aConstants[lIndex].SymbolId <> 0 then
+      Continue;
+    lSimple := Copy(aConstants[lIndex].Item.Name,
+      LastDelimiter('.', aConstants[lIndex].Item.Name) + 1, MaxInt);
+    lBest := -1;
+    for lSymbolIndex := 1 to lUnit.SymbolCount do
+    begin
+      lFact := lUnit.SymbolById(lSymbolIndex);
+      if not SameText(SnapshotText(aSnapshot, lFact.NameId), lSimple) or
+        (lFact.Line > aConstants[lIndex].Line) or
+        ((lFact.Line = aConstants[lIndex].Line) and (lFact.Column >= aConstants[lIndex].Column)) then
+        Continue;
+      if (SnapshotText(aSnapshot, lFact.OwnerTypeId) <> '') and
+        not SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), aConstants[lIndex].OwnerType) then
+        Continue;
+      if not SameText(SnapshotText(aSnapshot, lFact.RoutineScopeId), aConstants[lIndex].Scope) then
+        Continue;
+      lScore := lFact.Line * 10000 + lFact.Column;
+      if lScore > lBest then
+      begin
+        lBest := lScore;
+        aConstants[lIndex].SymbolId := lFact.Id;
+        aConstants[lIndex].Kind := SnapshotText(aSnapshot, lFact.KindId);
+      end;
+    end;
+  end;
+end;
+
 
 function SnapshotUnknownActivity(const aSnapshot: TDelphiProjectSnapshot;
   const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId;
@@ -1542,17 +1646,8 @@ var
   // Equal duplicate values are safe containment evidence; ambiguity is unknown.
   // None of this inventory supplies binding or edits.
   procedure CheckStringConstants;
-  type
-    TConstant = record
-      Item: TDelphiSemanticStringConstant;
-      Owner, FileName, Kind: string;
-      UnitIndex, Line, Column: Integer;
-      SymbolId: TSemanticSymbolId;
-      Scope, OwnerType, Section: string;
-      UnprovedConstantBinding: Boolean;
-    end;
   var
-    lConstants: TArray<TConstant>;
+    lConstants: TArray<TNameFlowConstant>;
     lUnitFacts: TArray<IDelphiNameFlowFacts>;
     lUnitContexts: TArray<TSnapshotRuntimeContextIndex>;
     lLineStarts: TArray<TArray<Integer>>;
@@ -1562,7 +1657,7 @@ var
     lVisiting, lIntegerValues: TArray<Boolean>;
     lByName: TDictionary<string, TArray<Integer>>;
     lAliases: TDictionary<string, string>;
-    lConstant: TConstant;
+    lConstant: TNameFlowConstant;
     lUnit, lImportedUnit: TUnitSnapshot;
     lFact: TSemanticReferenceFact;
     lSymbol: TSemanticSymbolFact;
@@ -1598,7 +1693,7 @@ var
       lImport: TDelphiSemanticImportFact;
       lDot, lCandidate: Integer;
       lPossible: TArray<Integer>;
-      lContext: TConstant;
+      lContext: TNameFlowConstant;
       lDefinition: TDelphiNameFlowNode;
       lDefinitions: TArray<TDelphiNameFlowNode>;
     begin
@@ -1689,94 +1784,6 @@ var
         Result := Result + lPossible;
       end;
 
-    end;
-
-    function IntrinsicIsVisible(const aIndex: Integer; const aName: string): Boolean;
-    var
-      lRefs: TArray<TSemanticSymbolRef>;
-      lComplete: Boolean;
-      lContext: TConstant;
-      lDefinitions: TArray<TDelphiNameFlowNode>;
-      lNode: TDelphiNameFlowNode;
-    begin
-      lContext := lConstants[aIndex];
-      lRefs := SnapshotVisibleDeclarations(aSnapshot, aSnapshot.UnitByIndex(lContext.UnitIndex),
-        aName, lContext.Scope, lContext.OwnerType, lContext.Section,
-        lContext.Line, lContext.Column, nil, lComplete, lUnitFacts[lContext.UnitIndex], lContext.FileName);
-      Result := lComplete and (Length(lRefs) = 0);
-      if not Result then
-        Exit;
-      if not lUnitDefinitions[lContext.UnitIndex].TryGetValue(aName, lDefinitions) then
-        Exit;
-      for lNode in lDefinitions do
-      begin
-        if (lNode.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
-          SameText(lNode.Name, aName) and (lNode.ScopeId <> '') and
-          (SameText(lNode.ScopeId, lContext.Scope) or StartsText(lNode.ScopeId + '/', lContext.Scope)) then
-          Exit(False);
-      end;
-    end;
-
-    procedure BindExpressionContexts;
-    var
-      lNode: TDelphiNameFlowNode;
-      lSimple: string;
-      lFact: TSemanticSymbolFact;
-      lUnit: TUnitSnapshot;
-      lBest, lScore, lIndex, lSymbolIndex: Integer;
-    begin
-      for lIndex := 0 to High(lConstants) do
-      begin
-        lUnit := aSnapshot.UnitByIndex(lConstants[lIndex].UnitIndex);
-        if lConstants[lIndex].Item.Offset <= 0 then
-          Continue; // Symbol-only guards already carry their declaration context.
-        SnapshotRuntimeCoordinatesAtOffset(lLineStarts[lConstants[lIndex].UnitIndex],
-          lConstants[lIndex].Item.Offset, lConstants[lIndex].Line, lConstants[lIndex].Column);
-        lConstants[lIndex].Section := 'implementation';
-        for lNode in lUnitContexts[lConstants[lIndex].UnitIndex].NodesAt(
-          lConstants[lIndex].Line, lConstants[lIndex].Column) do
-        begin
-          if lNode.SyntaxKind = 'interface' then
-            lConstants[lIndex].Section := 'interface';
-          if Length(lNode.ScopeId) > Length(lConstants[lIndex].Scope) then
-            lConstants[lIndex].Scope := lNode.ScopeId;
-          if lNode.OwnerType <> '' then
-            lConstants[lIndex].OwnerType := lNode.OwnerType;
-          if (lNode.Kind = TDelphiNameFlowNodeKind.Routine) and (Pos('.', lNode.Name) > 0) then
-            lConstants[lIndex].OwnerType := Copy(lNode.Name, 1, LastDelimiter('.', lNode.Name) - 1);
-          // The lexical witness qualifies class constants with their owner;
-          // AST definitions carry that owner separately from the simple name.
-          if (lNode.SyntaxKind = 'constant') and SameText(lNode.Name,
-            Copy(lConstants[lIndex].Item.Name,
-              LastDelimiter('.', lConstants[lIndex].Item.Name) + 1, MaxInt)) then
-            lConstants[lIndex].Kind := 'const';
-        end;
-        if lConstants[lIndex].SymbolId <> 0 then
-          Continue;
-        lSimple := Copy(lConstants[lIndex].Item.Name,
-          LastDelimiter('.', lConstants[lIndex].Item.Name) + 1, MaxInt);
-        lBest := -1;
-        for lSymbolIndex := 1 to lUnit.SymbolCount do
-        begin
-          lFact := lUnit.SymbolById(lSymbolIndex);
-          if not SameText(SnapshotText(aSnapshot, lFact.NameId), lSimple) or
-            (lFact.Line > lConstants[lIndex].Line) or
-            ((lFact.Line = lConstants[lIndex].Line) and (lFact.Column >= lConstants[lIndex].Column)) then
-            Continue;
-          if (SnapshotText(aSnapshot, lFact.OwnerTypeId) <> '') and
-            not SameText(SnapshotText(aSnapshot, lFact.OwnerTypeId), lConstants[lIndex].OwnerType) then
-            Continue;
-          if not SameText(SnapshotText(aSnapshot, lFact.RoutineScopeId), lConstants[lIndex].Scope) then
-            Continue;
-          lScore := lFact.Line * 10000 + lFact.Column;
-          if lScore > lBest then
-          begin
-            lBest := lScore;
-            lConstants[lIndex].SymbolId := lFact.Id;
-            lConstants[lIndex].Kind := SnapshotText(aSnapshot, lFact.KindId);
-          end;
-        end;
-      end;
     end;
 
     function Evaluate(const aIndex, aDepth: Integer): Boolean; forward;
@@ -1917,7 +1924,7 @@ var
             MatchText(lIdentifier, ['Chr', 'Ord', 'Copy', 'UpperCase', 'LowerCase', 'Concat',
               'System.Chr', 'System.Ord', 'System.Copy', 'System.Concat',
               'System.SysUtils.UpperCase', 'System.SysUtils.LowerCase']) and
-            IntrinsicIsVisible(aIndex, lIdentifier) and IntrinsicIsVisible(aIndex, 'System') then
+            IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, lIdentifier) and IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, 'System') then
           begin
             Inc(lOffset);
             repeat
@@ -2055,7 +2062,7 @@ var
         end;
         Exit(True);
       end;
-      if not IntrinsicIsVisible(aIndex, aName) then
+      if not IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, aName) then
         Exit;
       lName := aName;
       if StartsText('System.SysUtils.', lName) then
@@ -2162,7 +2169,7 @@ var
             Exit(False);
         Exit;
       end;
-      if not IntrinsicIsVisible(aContext, lType) then
+      if not IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aContext, lType) then
         Exit;
       Result := MatchText(lType, ['integer', 'byte', 'shortint', 'smallint', 'word',
         'longint', 'longword', 'cardinal', 'int8', 'int16', 'int32', 'int64',
@@ -2191,7 +2198,7 @@ var
         for var lCandidateIndex in lIndices do
           if not NonStringType(lConstants[lCandidateIndex].Item.TypeName, 0, lCandidateIndex) then
             Exit; // A same-spelled declaration withholds intrinsic-call proof.
-      if (Length(lIndices) = 0) and not IntrinsicIsVisible(aContext, lHead) then
+      if (Length(lIndices) = 0) and not IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aContext, lHead) then
         Exit;
       if not NonStringType(lHead, 0, aContext) and not MatchText(lHead,
         ['Ord', 'SizeOf', 'Length', 'Round', 'Trunc']) then
@@ -2246,40 +2253,15 @@ var
       const aIdentifier: string): Boolean;
     var
       lSource, lToken: string;
-      lOffset, lLine, lColumn, lDot, i: Integer;
+      lOffset, lLine, lColumn, lDot, lIndex, i: Integer;
       lResolution: TDelphiSemanticSnapshotPositionResolution;
+      lResolutions: TArray<TDelphiSemanticSnapshotPositionResolution>;
       lUnit: TUnitSnapshot;
       lReference: TSemanticReferenceFact;
       lScopedRefs: TArray<TSemanticSymbolRef>;
       lScopedUnit: TUnitSnapshot;
       lComplete, lMatched: Boolean;
 
-      function ReferenceIsNonString: Boolean;
-      var
-        lIndex: Integer;
-      begin
-        Result := False;
-        if not lResolution.ReferenceFound then
-          Exit;
-        if SameText(SnapshotText(aSnapshot, lResolution.Symbol.KindId), 'const') and
-          (lResolution.Reference.WithId = 0) then
-          Exit; // Constant values/types use lexical lookup, never a position fallback.
-        for lIndex := 0 to High(lConstants) do
-          if (lConstants[lIndex].SymbolId = lResolution.SymbolRef.SymbolId) and
-            (aSnapshot.UnitByIndex(lConstants[lIndex].UnitIndex).UnitId = lResolution.SymbolRef.UnitId) then
-          begin
-            if NonStringType(SnapshotText(aSnapshot, lResolution.Symbol.TypeId), 0, lIndex) then
-              Exit(True);
-            // WITH binding is recorded by the DS resolver. It can prove that
-            // this reference has a numeric value without folding a string via
-            // the less precise position resolver or a bare-name index.
-            if (lResolution.Reference.WithId <> 0) and
-              SameText(SnapshotText(aSnapshot, lResolution.Symbol.KindId), 'const') and
-              (lConstants[lIndex].Item.Expression <> '') and Evaluate(lIndex, 0) and
-              lIntegerValues[lIndex] then
-              Exit(True);
-          end;
-      end;
 
     begin
       Result := False;
@@ -2291,7 +2273,7 @@ var
         // Include witnesses have no raw-unit offset. Join every retained
         // occurrence of the operand in that physical include; one unknown or
         // nonnumeric binding withholds type proof. No value is folded here.
-        lMatched := False;
+        lResolutions := nil;
         for i := 1 to lUnit.ReferenceCount do
         begin
           lReference := lUnit.ReferenceById(i);
@@ -2313,21 +2295,48 @@ var
           lResolution.SymbolRef := lScopedRefs[0];
           lResolution.Symbol := lScopedUnit.SymbolById(lScopedRefs[0].SymbolId);
           lResolution.ReferenceFound := True;
-          if not ReferenceIsNonString then
-            Exit;
-          lMatched := True;
+          lResolutions := lResolutions + [lResolution];
         end;
-        Exit(lMatched);
+      end else begin
+        lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
+        lOffset := lConstants[aIndex].Item.Offset + aRelativeOffset + lDot;
+        if (lOffset < 1) or (lOffset > Length(lSource)) then
+          Exit;
+        SnapshotRuntimeCoordinatesAtOffset(lLineStarts[lConstants[aIndex].UnitIndex],
+          lOffset, lLine, lColumn);
+        if TryResolveSnapshotPosition(aSnapshot, lConstants[aIndex].FileName,
+          lLine, lColumn, lToken, lResolution) then
+          lResolutions := [lResolution];
       end;
-      lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
-      lOffset := lConstants[aIndex].Item.Offset + aRelativeOffset + lDot;
-      if (lOffset < 1) or (lOffset > Length(lSource)) then
+      if Length(lResolutions) = 0 then
         Exit;
-      SnapshotRuntimeCoordinatesAtOffset(lLineStarts[lConstants[aIndex].UnitIndex],
-        lOffset, lLine, lColumn);
-      if TryResolveSnapshotPosition(aSnapshot, lConstants[aIndex].FileName,
-        lLine, lColumn, lToken, lResolution) then
-        Result := ReferenceIsNonString;
+      for lResolution in lResolutions do
+      begin
+        if not lResolution.ReferenceFound then
+          Exit;
+        if SameText(SnapshotText(aSnapshot, lResolution.Symbol.KindId), 'const') and
+          (lResolution.Reference.WithId = 0) then
+          Exit; // Constant values/types use lexical lookup, never a position fallback.
+        lMatched := False;
+        for lIndex := 0 to High(lConstants) do
+          if (lConstants[lIndex].SymbolId = lResolution.SymbolRef.SymbolId) and
+            (aSnapshot.UnitByIndex(lConstants[lIndex].UnitIndex).UnitId = lResolution.SymbolRef.UnitId) then
+          begin
+            if NonStringType(SnapshotText(aSnapshot, lResolution.Symbol.TypeId), 0, lIndex) then
+              lMatched := True;
+            // WITH binding is recorded by the DS resolver. It can prove that
+            // this reference has a numeric value without folding a string via
+            // the less precise position resolver or a bare-name index.
+            if (lResolution.Reference.WithId <> 0) and
+              SameText(SnapshotText(aSnapshot, lResolution.Symbol.KindId), 'const') and
+              (lConstants[lIndex].Item.Expression <> '') and Evaluate(lIndex, 0) and
+              lIntegerValues[lIndex] then
+              lMatched := True;
+          end;
+        if not lMatched then
+          Exit;
+      end;
+      Result := True;
     end;
 
     // A flat record/array does not concatenate its fields. Literal string
@@ -2498,7 +2507,7 @@ var
             // certified platforms. Imports or declarations can shadow its bare
             // spelling; without absence proof we keep the value unknown.
             if (SameText(lIdentifier, 'System.sLineBreak') and
-              IntrinsicIsVisible(aIndex, 'System')) or
+              IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, 'System')) or
               (SameText(lIdentifier, 'sLineBreak') and
               (Length(aSnapshot.UnitByIndex(lConstants[aIndex].UnitIndex).ImportFacts) = 0)) then
               AddFragment(#10)
@@ -2532,7 +2541,7 @@ var
       for i := 0 to aSnapshot.UnitCount - 1 do
       begin
         lUnit := aSnapshot.UnitByIndex(i);
-        lConstant := Default(TConstant);
+        lConstant := Default(TNameFlowConstant);
         lConstant.Owner := SnapshotText(aSnapshot, lUnit.UnitNameId);
         lConstant.FileName := SnapshotText(aSnapshot, lUnit.FileNameId);
         lConstant.UnitIndex := i;
@@ -2667,7 +2676,7 @@ var
           lUnitDefinitions[i].AddOrSetValue(lDefinition.Name, lDefinitionNodes + [lDefinition]);
         end;
       end;
-      BindExpressionContexts;
+      BindExpressionContexts(aSnapshot, lConstants, lLineStarts, lUnitContexts);
 
       SetLength(lValues, Length(lConstants));
       SetLength(lStates, Length(lConstants));

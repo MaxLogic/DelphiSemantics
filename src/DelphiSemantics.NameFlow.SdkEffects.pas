@@ -132,7 +132,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkArtifact;
 
 const
-  cSdkGeneratorVersion = 'ds803-sdk-effects-v4/primitive-v2/full-body-v1';
+  cSdkGeneratorVersion = 'ds803-sdk-effects-v5/primitive-v3/full-body-v1';
 
 type
   ESdkGenerationBudget = class(Exception);
@@ -248,7 +248,10 @@ begin
     aEffect := TNameSdkEffect.OpaqueEffect('sdk-dispatch-primitive');
     aEffect.Channels := aEffect.Channels + [TNameEffectChannel.Callback,
       TNameEffectChannel.ArgumentMetadata];
-  end else if MatchText(lName, ['winapi.windows.getprocaddress', 'winapi.windows.findresourcea',
+  end else if MatchText(lName, ['system.findresource', 'winapi.windows.findresource',
+    'winapi.windows.findresourceex', 'winapi.windows.findwindow', 'winapi.windows.findwindowex',
+    'winapi.windows.findwindowexa', 'winapi.windows.findwindowexw', 'winapi.windows.getclassname',
+    'winapi.windows.getprocaddress', 'winapi.windows.findresourcea',
     'winapi.windows.findresourcew', 'winapi.windows.findresourceexa', 'winapi.windows.findresourceexw',
     'winapi.windows.findwindowa', 'winapi.windows.findwindoww', 'winapi.windows.getclassnamea',
     'winapi.windows.getclassnamew', 'winapi.windows.registerclassa', 'winapi.windows.registerclassw',

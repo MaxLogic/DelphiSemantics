@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename preserves hard consumer coverage through mapping failures and recognizes WinAPI and component resource-name lookups. Class-name observations retain unresolved SDK ancestry conservatively (DS-803).
+
 - Rename uses scope and uses-order evidence for constant operands and project homonyms, retains inherited SDK consumer candidates, and recognizes additional RTTI name-taking overloads. Runtime name-exposure warnings exclude statically unrelated classes; unmapped captured calls retain distinct identities (DS-803).
 
 - Rename retains hard known-consumer refusals across call shapes, SDK hash changes and incomplete scopes. Constant intrinsics are folded where supported; unsupported evaluation of true constants stays hard. Accepted observed and unproven effects have distinct categories and a deterministic warning-inventory digest (DS-803).
