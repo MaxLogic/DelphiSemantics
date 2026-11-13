@@ -10,6 +10,8 @@ uses
   Dak.RenameMatrix.Inventory in '..\..\DelphiAiKit\src\Dak.RenameMatrix.Inventory.pas',
   Dak.Build.CommandSdk in '..\..\DelphiAiKit\src\Dak.Build.CommandSdk.pas',
   Dak.Build.NativeContext in '..\..\DelphiAiKit\src\Dak.Build.NativeContext.pas',
+  Dak.Build.SelectionLocks in '..\..\DelphiAiKit\src\Dak.Build.SelectionLocks.pas',
+  Dak.Build.SelectionNames in '..\..\DelphiAiKit\src\Dak.Build.SelectionNames.pas',
   Dak.CompilerDefineSettings in '..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas',
   Dak.CompilerDependencies in '..\..\DelphiAiKit\src\Dak.CompilerDependencies.pas',
   Dak.Build.Types in '..\..\DelphiAiKit\src\Dak.Build.Types.pas',
