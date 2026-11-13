@@ -22,7 +22,13 @@ type
     [Test]
     procedure RelativePathsBypassClassificationReuse;
     [Test]
-    procedure RelativeExpansionIsRepeatedAndRootIsOwnerSpecific;
+    procedure RelativeEntriesReuseProjectAnchoredExpansion;
+    [TestCase('Root relative', 'root')]
+    [TestCase('Drive relative', 'drive')]
+    [TestCase('Relative project', 'project')]
+    procedure CwdDependentExpansionIsRepeated(const aKind: string);
+    [Test]
+    procedure UnresolvedExpansionIsRetried;
   end;
 
 implementation
@@ -182,7 +188,66 @@ begin
   Assert.AreEqual(6, lLookup.SdkClassifications);
 end;
 
-procedure TSourceLookupTests.RelativeExpansionIsRepeatedAndRootIsOwnerSpecific;
+procedure TSourceLookupTests.RelativeEntriesReuseProjectAnchoredExpansion;
+var
+  g: TGarbos;
+  lProject: TDelphiSemanticProjectInfo;
+  lLookup: TLookupProbe;
+  lPaths: TArray<string>;
+begin
+  g := Default(TGarbos);
+  lProject := Project;
+  lProject.ProjectDirectory := 'C:\project\app';
+  lProject.ReferenceDirectories := ['..\ref'];
+  lProject.SearchPaths := ['..\lib', '..\sdk\source'];
+  GC(lLookup, TLookupProbe.Create(lProject, nil, True, 'C:\project\sdk'), g);
+  for var i := 1 to 2 do
+  begin
+    lLookup.BeginCall;
+    lPaths := lLookup.Paths;
+    Assert.AreEqual<NativeInt>(3, Length(lPaths));
+    Assert.AreEqual('C:\project\ref', lPaths[0]);
+    Assert.AreEqual('C:\project\lib', lPaths[1]);
+    Assert.AreEqual('C:\project\sdk\source', lPaths[2]);
+    Assert.IsTrue(lLookup.IsSdkPath(2));
+  end;
+  Assert.AreEqual(1, lLookup.PathExpansions,
+    'Project-anchored relative entries must retain the ordered expansion.');
+  Assert.AreEqual(1, lLookup.SdkClassifications);
+end;
+
+procedure TSourceLookupTests.UnresolvedExpansionIsRetried;
+var
+  g: TGarbos;
+  lProject: TDelphiSemanticProjectInfo;
+  lLookup: TLookupProbe;
+  lPaths: TArray<string>;
+  lRaised: Boolean;
+begin
+  g := Default(TGarbos);
+  lProject := Project;
+  lProject.SearchPaths := ['$(UnknownRoot)\lib'];
+  GC(lLookup, TLookupProbe.Create(lProject, nil, True, 'C:\sdk'), g);
+  for var i := 1 to 2 do
+  begin
+    lLookup.BeginCall;
+    lRaised := False;
+    try
+      lPaths := lLookup.Paths;
+      Assert.AreEqual<NativeInt>(0, Length(lPaths));
+    except
+      on E: EConvertError do
+      begin
+        lRaised := True;
+        Assert.IsTrue(Pos('unresolved macro', E.Message) > 0);
+      end;
+    end;
+    Assert.IsTrue(lRaised, 'Unresolved entries must retry their original error.');
+  end;
+  Assert.AreEqual(0, lLookup.PathExpansions);
+end;
+
+procedure TSourceLookupTests.CwdDependentExpansionIsRepeated(const aKind: string);
 var
   g: TGarbos;
   lProject: TDelphiSemanticProjectInfo;
@@ -190,14 +255,21 @@ var
 begin
   g := Default(TGarbos);
   lProject := Project;
-  lProject.SearchPaths := ['relative'];
+  if aKind = 'root' then
+    lProject.SearchPaths := ['\root-relative']
+  else if aKind = 'drive' then
+    lProject.SearchPaths := ['C:drive-relative']
+  else begin
+    lProject.ProjectDirectory := 'relative-project';
+    lProject.SearchPaths := ['relative'];
+  end;
   GC(lLookup, TLookupProbe.Create(lProject, nil, True, 'C:\sdk'), g);
   for var i := 1 to 2 do
   begin
     lLookup.BeginCall;
     Assert.AreEqual<NativeInt>(1, Length(lLookup.Paths));
   end;
-  Assert.AreEqual(2, lLookup.PathExpansions, 'No relative expansion is retained across operations.');
+  Assert.AreEqual(2, lLookup.PathExpansions, 'CWD-dependent expansions must not be retained across operations.');
 end;
 
 initialization

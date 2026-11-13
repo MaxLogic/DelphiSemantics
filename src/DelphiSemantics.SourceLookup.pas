@@ -51,6 +51,25 @@ begin
 {$ENDIF}
 end;
 
+function ReusableProjectPath(const aProjectDirectory, aValue: string): Boolean;
+var
+  lPath, lError, lValue: string;
+begin
+  Result := False;
+  lValue := Trim(aValue);
+  try
+    // Root-relative and drive-relative entries still depend on the process CWD.
+    if not FullyQualified(lValue) and TPath.IsPathRooted(lValue) then
+      Exit;
+    Result := TryResolveCompilerSearchPathEntry(aProjectDirectory, aValue, lPath, lError) and
+      ((lPath = '') or FullyQualified(lPath));
+  except
+    on E: EArgumentException do
+      // Eligibility is not a verdict: Paths retains the original error boundary.
+      Result := False;
+  end;
+end;
+
 constructor TDelphiSemanticSourceLookup.Create(const aProject: TDelphiSemanticProjectInfo;
   const aPossiblePaths: TArray<string>; const aExpand: Boolean; const aSdkRoot: string);
 var
@@ -62,13 +81,13 @@ begin
   fExpand := aExpand;
   fSdkRoot := aSdkRoot;
   fReusableExpansion := True;
-  // Keep relative, root-relative and drive-relative expansions at their original
-  // call boundary. No CWD-dependent normalization or exception is cached.
+  // Plain relative entries resolve against the absolute project directory.
+  // Unresolved or CWD-dependent entries retain their original call boundary.
   if aExpand then
   begin
     fReusableExpansion := FullyQualified(aProject.ProjectDirectory);
     for lPath in aProject.ReferenceDirectories + aProject.SearchPaths do
-      fReusableExpansion := fReusableExpansion and FullyQualified(lPath);
+      fReusableExpansion := fReusableExpansion and ReusableProjectPath(aProject.ProjectDirectory, lPath);
   end;
 end;
 
@@ -114,6 +133,8 @@ function TDelphiSemanticSourceLookup.IsSdkPath(const aIndex: Integer): Boolean;
 begin
   // Invoked lazily in the original directory order, after sentinel handling.
   // Exceptions and CWD-dependent paths are never retained as classifications.
+  Assert(fPathsReady, 'Call Paths after BeginCall before IsSdkPath.');
+  Assert((aIndex >= 0) and (aIndex < Length(fSdkStates)), 'Lookup path index is out of range.');
   if fSdkStates[aIndex] <> 0 then
     Exit(fSdkStates[aIndex] = 2);
   Inc(fSdkClassifications);

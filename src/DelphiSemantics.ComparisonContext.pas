@@ -17,13 +17,16 @@ type
 {$IFDEF MSWINDOWS}
     fLocale: LCID;
     fVersion: TNlsVersionInfoEx;
+{$ENDIF}
   protected
+{$IFDEF MSWINDOWS}
     function ReadComparisonContext(out aLocale: LCID;
       out aVersion: TNlsVersionInfoEx): Boolean; virtual;
 {$ENDIF}
-  public
-    // True only when this and the previous operation have the same readable stamp.
+    // Only the owner's operation entry point may advance this stamp: DS
+    // BeginCall or DAK Prepare. Helpers must not consume a second comparison.
     function BeginOperation: Boolean;
+  public
     property ComparisonAvailable: Boolean read fAvailable;
   end;
 
