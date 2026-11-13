@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- WITH inventory scans reuse a pass-owned source buffer and line offsets while preserving lexical fallback, record order and budget outcomes (DS-810 S2).
+
 - Semantic graph construction evaluates forward-class visibility candidates once per unit, preserving declaration identities and array order (DS-810 S1).
 
 - WITH binding also omits the unused unit/member map and its dead lookup helpers, preserving live lookup order and results (DS-809 follow-up A-SF-1).

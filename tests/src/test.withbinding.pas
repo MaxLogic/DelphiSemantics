@@ -23,6 +23,25 @@ type
     function HasReference(const aBinding: TDelphiSemanticWithBinding; const aName,
       aClassification: string): Boolean;
   public
+    [Category('Fast')]
+    [TestCase('CRLF plain record', '0,False')]
+    [TestCase('LF plain record', '0,True')]
+    [TestCase('CRLF constraint record token', '1,False')]
+    [TestCase('LF constraint record token', '1,True')]
+    [TestCase('CRLF nested record', '2,False')]
+    [TestCase('LF nested record', '2,True')]
+    [TestCase('CRLF multiline comment', '3,False')]
+    [TestCase('LF multiline comment', '3,True')]
+    [TestCase('CRLF unterminated body', '4,False')]
+    [TestCase('LF unterminated body', '4,True')]
+    [TestCase('CRLF repeated suffix queries', '5,False')]
+    [TestCase('LF repeated suffix queries', '5,True')]
+    [TestCase('CRLF class helper', '6,False')]
+    [TestCase('LF class helper', '6,True')]
+    [TestCase('CRLF embedded NUL before suffix', '7,False')]
+    [TestCase('LF embedded NUL before suffix', '7,True')]
+    procedure InventoryTypeEndLinesPreserveLexicalBoundaries(const aShape: Integer;
+      const aUseLF: Boolean);
     [Test]
     [Category('Fast')]
     procedure ProjectInventoryDoesNotStoreCurrentClassProjections;
@@ -2100,6 +2119,94 @@ begin
     end;
   end;
   Assert.IsTrue(lRefused, 'Admission must precede deserializer allocation for ' + aShape);
+end;
+
+procedure TProjectWithBindingTests.InventoryTypeEndLinesPreserveLexicalBoundaries(
+  const aShape: Integer; const aUseLF: Boolean);
+var
+  lExpectedEnd: Integer;
+  lFound: Boolean;
+  lHeader, lBody, lPrefix, lLineBreak, lProbeName: string;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  // Characterize the suffix scanner, including its conservative malformed-body
+  // fallback. The independent old/new inventory harness covers every record.
+  lHeader := '  TProbe = record';
+  lBody := '    Value: Integer;'#13#10'  end;';
+  lPrefix := '';
+  lProbeName := 'TProbe';
+  lExpectedEnd := 6;
+  case aShape of
+    1: lHeader := '  TProbe<T: record> = record';
+    2:
+      begin
+        lBody := '    Nested: record'#13#10'      Value: Integer;'#13#10 +
+          '    end;'#13#10'    Tail: Integer;'#13#10'  end;';
+        lExpectedEnd := 9;
+      end;
+    3:
+      begin
+        lBody := '    { end record'#13#10'      class end }'#13#10 +
+          '    Value: Integer; // end'#13#10'  end;';
+        lExpectedEnd := 8;
+      end;
+    4:
+      begin
+        lBody := '    Value: Integer;';
+        lExpectedEnd := 4;
+      end;
+    5:
+      begin
+        lPrefix := '  TFirst = record'#13#10'    Earlier: Integer;'#13#10'  end;'#13#10;
+        lExpectedEnd := 9;
+      end;
+    6: lHeader := '  TProbe = class helper for TObject';
+  end;
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'InventoryTypeEnds';
+  lModel.FileName := 'InventoryTypeEnds.pas';
+  lModel.SourceText := 'unit InventoryTypeEnds;'#13#10'interface'#13#10 +
+    'type'#13#10 + lPrefix + lHeader + #13#10 + lBody;
+  if aShape <> 4 then
+    lModel.SourceText := lModel.SourceText + #13#10'implementation'#13#10'end.';
+  if aShape = 7 then
+  begin
+    // Exact shape caught by the old/new differential: an earlier NUL must not
+    // change a later routine-local anonymous record's end or field ownership.
+    lModel.SourceText := 'unit InventoryTypeEnds;'#13#10'interface'#13#10 +
+      'type'#13#10'  TBefore = record'#13#10'    Earlier: Integer;'#13#10'  end;'#13#10 +
+      '  TProbe = record'#13#10'    Value: Integer;'#0'end;'#13#10 +
+      'implementation'#13#10'procedure TProbe.Run;'#13#10'var'#13#10 +
+      '  Local: record'#13#10'    LocalField: Integer;'#13#10'  end;'#13#10 +
+      'begin'#13#10'end;'#13#10'end.';
+    lProbeName := 'TProbe.Run.Local';
+    lExpectedEnd := 14;
+  end;
+  if aUseLF then
+    lLineBreak := #10
+  else
+    lLineBreak := #13#10;
+  lModel.SourceText := lModel.SourceText.Replace(#13#10, lLineBreak);
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel);
+  lFound := False;
+  for var lSymbol in lSymbols do
+    if SameText(lSymbol.Name, lProbeName) and SameText(lSymbol.SymbolClass, 'type-member') then
+    begin
+      lFound := True;
+      Assert.AreEqual(lExpectedEnd, lSymbol.EndLine);
+    end;
+  Assert.IsTrue(lFound, 'The inventory must retain the probed type even with an unfinished body.');
+  if aShape = 7 then
+  begin
+    Assert.IsTrue(HasLookupSymbol(lSymbols, 'LocalField', 'field'));
+    for var lSymbol in lSymbols do
+      if SameText(lSymbol.Name, 'LocalField') then
+      begin
+        Assert.AreEqual('TProbe.Run.Local', lSymbol.OwnerType);
+        Assert.AreEqual('', lSymbol.RoutineName);
+      end;
+  end;
 end;
 
 initialization

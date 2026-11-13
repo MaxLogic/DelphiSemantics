@@ -109,6 +109,21 @@ uses
   DelphiSemantics.SourceConditionals, DelphiSemantics.WithBinding.Budget;
 
 type
+  // One immutable buffer per parser pass. Lexer instances remain query-local,
+  // so comment/directive state never leaks from an earlier suffix scan.
+  TInventoryTypeScan = class
+  private
+    fLines: TArray<string>;
+    fLexer: TmwBasePasLex;
+    fHasEmbeddedNull: Boolean;
+    fLineOffsets: TArray<Integer>;
+    procedure PrepareBuffer;
+  public
+    constructor Create(const aLines: TArray<string>);
+    destructor Destroy; override;
+    function FindEndLine(const aStartIndex: Integer): Integer;
+  end;
+
   TInventoryRoutineLineFacts = record
     Known: Boolean;
     LowerLine: string;
@@ -1227,8 +1242,43 @@ begin
   Result := '';
 end;
 
-function InventoryFindTypeEndLine(const aLines: TArray<string>; const aStartIndex: Integer):
-  Integer;
+constructor TInventoryTypeScan.Create(const aLines: TArray<string>);
+begin
+  inherited Create;
+  fLines := aLines;
+end;
+
+destructor TInventoryTypeScan.Destroy;
+begin
+  fLexer.Free;
+  inherited;
+end;
+
+procedure TInventoryTypeScan.PrepareBuffer;
+var
+  i, lOffset: Integer;
+  lText: string;
+begin
+  if Length(fLineOffsets) > 0 then
+    Exit;
+  lText := string.Join(sLineBreak, fLines);
+  fHasEmbeddedNull := Pos(#0, lText) > 0;
+  if not fHasEmbeddedNull then
+  begin
+    fLexer := TmwBasePasLex.Create;
+    fLexer.UseDefines := False;
+    fLexer.Origin := lText;
+  end;
+  SetLength(fLineOffsets, Length(fLines));
+  lOffset := 0;
+  for i := 0 to High(fLines) do
+  begin
+    fLineOffsets[i] := lOffset;
+    Inc(lOffset, Length(fLines[i]) + Length(sLineBreak));
+  end;
+end;
+
+function TInventoryTypeScan.FindEndLine(const aStartIndex: Integer): Integer;
 var
   lDepth, lHeaderPos, lLine: Integer;
   lLexer: TmwBasePasLex;
@@ -1236,16 +1286,29 @@ var
   lStarted: Boolean;
 begin
   Result := aStartIndex + 1;
-  lText := string.Join(sLineBreak, aLines, aStartIndex, Length(aLines) - aStartIndex);
-  lHeaderPos := Pos('=', aLines[aStartIndex]);
+  PrepareBuffer;
+  lHeaderPos := Pos('=', fLines[aStartIndex]);
   if lHeaderPos = 0 then
-    lHeaderPos := Pos(':', aLines[aStartIndex]);
-  // Constraints precede '=', so their RECORD keyword cannot open the body.
-  lText := StringOfChar(' ', lHeaderPos) + Copy(lText, lHeaderPos + 1, MaxInt);
+    lHeaderPos := Pos(':', fLines[aStartIndex]);
+  // The old scanner masked through '=' (or ':') with spaces. Starting after
+  // that same prefix drops only an ignored space token, with no line breaks.
+  // InitFrom borrows the pass-owned immutable buffer. Reset all lexer state
+  // before seeking; the pass owner outlives this fresh query lexer.
   lLexer := TmwBasePasLex.Create;
   try
     lLexer.UseDefines := False;
-    lLexer.Origin := lText;
+    if fHasEmbeddedNull then
+    begin
+      // Origin uses StrPCopy, which stops at NUL. Seeking beyond it in a shared
+      // buffer would read uninitialized memory; retain the old suffix path.
+      lText := string.Join(sLineBreak, fLines, aStartIndex, Length(fLines) - aStartIndex);
+      lText := StringOfChar(' ', lHeaderPos) + Copy(lText, lHeaderPos + 1, MaxInt);
+      lLexer.Origin := lText;
+    end else begin
+      lLexer.InitFrom(fLexer);
+      lLexer.Init;
+      lLexer.RunPos := fLineOffsets[aStartIndex] + lHeaderPos;
+    end;
     lDepth := 0;
     lLine := aStartIndex + 1;
     lStarted := False;
@@ -1575,7 +1638,7 @@ end;
 
 procedure ParseDakInventoryLocals(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aLines: TArray<string>; const aStartLine: Integer; const aRoutineName, aUnitName,
-  aFileName: string);
+  aFileName: string; const aTypeScan: TInventoryTypeScan);
 var
   g: TGarbos;
   lRoutineScan: TInventoryRoutineScan;
@@ -1685,7 +1748,7 @@ begin
             ((lTypeShape = itsUnrecognized) and (not EndsText(';', lTypeText)));
           if lTypeOpensBody then
             AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
-              aFileName, i + 1, InventoryFindTypeEndLine(aLines, i), aLines[i])
+              aFileName, i + 1, aTypeScan.FindEndLine(i), aLines[i])
           else
             AddDakInventoryTypeSymbol(aSymbols, lCurrentType, '', lTypeCategory, aUnitName,
               aFileName, i + 1, lTypeTextEndLine + 1, aLines[i]);
@@ -1737,7 +1800,7 @@ begin
     begin
       if InventoryTryAnonymousRecordLocalStart(lLine, lConstName, lTypeCategory) then
       begin
-        lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+        lAnonymousEndLine := aTypeScan.FindEndLine(i);
         for lRecordName in lConstName.Split([',']) do
         begin
           lTypeName := aRoutineName + '.' + Trim(lRecordName);
@@ -1784,6 +1847,8 @@ end;
 procedure ParseDakInventoryTypeMembers(const aSymbols: TList<TDelphiSemanticInventorySymbol>;
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
+  g: TGarbos;
+  lTypeScan: TInventoryTypeScan;
   i: Integer;
   j: Integer;
   lAnonymousEndLine: Integer;
@@ -1828,6 +1893,7 @@ var
   lTypeText: string;
   lTypeTextEndLine: Integer;
 begin
+  GC(lTypeScan, TInventoryTypeScan.Create(aLines), g);
   lConditionalDepth := 0;
   lCurrentType := '';
   lCurrentTypeUnsupportedReason := '';
@@ -1927,7 +1993,7 @@ begin
         lSymbol.FileName := aFileName;
         lSymbol.Line := i + 1;
         if lTypeOpensBody then
-          lSymbol.EndLine := InventoryFindTypeEndLine(aLines, i)
+          lSymbol.EndLine := lTypeScan.FindEndLine(i)
         else
           lSymbol.EndLine := lTypeTextEndLine + 1;
         lSymbol.Column := InventoryFindColumn(aLines[i], lCurrentType);
@@ -1985,7 +2051,7 @@ begin
       Continue;
     if InventoryTryAnonymousRecordLocalStart(lLine, lMemberName, lTypeCategory) then
     begin
-      lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+      lAnonymousEndLine := lTypeScan.FindEndLine(i);
       for lRecordName in lMemberName.Split([',']) do
       begin
         lTypeName := lCurrentType + '.' + Trim(lRecordName);
@@ -2122,6 +2188,7 @@ procedure ParseDakInventoryUnitGlobals(const aSymbols: TList<TDelphiSemanticInve
   const aLines: TArray<string>; const aUnitName, aFileName: string);
 var
   g: TGarbos;
+  lTypeScan: TInventoryTypeScan;
   lRoutineScan: TInventoryRoutineScan;
   i: Integer;
   j: Integer;
@@ -2142,6 +2209,7 @@ var
   lTypeCategory: string;
   lTypeName: string;
 begin
+  GC(lTypeScan, TInventoryTypeScan.Create(aLines), g);
   GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
   lDeclaration := '';
   lDeclarationLine := 0;
@@ -2216,7 +2284,7 @@ begin
         if (lDeclaration = '') and InventoryTryAnonymousRecordLocalStart(lLine, lConstName,
           lTypeCategory) then
         begin
-          lAnonymousEndLine := InventoryFindTypeEndLine(aLines, i);
+          lAnonymousEndLine := lTypeScan.FindEndLine(i);
           for lRecordName in lConstName.Split([',']) do
           begin
             lTypeName := aUnitName + '.' + Trim(lRecordName);
@@ -2268,6 +2336,7 @@ procedure ParseDakInventoryRoutines(const aSymbols: TList<TDelphiSemanticInvento
   const aCurrentClassMembers: TDelphiSemanticCurrentClassMemberIndex);
 var
   g: TGarbos;
+  lTypeScan: TInventoryTypeScan;
   lRoutineScan: TInventoryRoutineScan;
   i: Integer;
   lEndLine: Integer;
@@ -2285,6 +2354,7 @@ var
   lSymbol: TDelphiSemanticInventorySymbol;
   lTopLevelLine: Boolean;
 begin
+  GC(lTypeScan, TInventoryTypeScan.Create(aLines), g);
   GC(lRoutineScan, TInventoryRoutineScan.Create(aLines), g);
   if aCurrentClassMembers <> nil then
     aCurrentClassMembers.CaptureOwnMembers(aSymbols);
@@ -2357,7 +2427,7 @@ begin
       AddInventorySymbol(aSymbols, lSymbol);
       ParseDakInventoryParams(aSymbols, aLines, i, lSignature, lRoutineName, aUnitName,
         aFileName);
-      ParseDakInventoryLocals(aSymbols, aLines, i + 1, lRoutineName, aUnitName, aFileName);
+      ParseDakInventoryLocals(aSymbols, aLines, i + 1, lRoutineName, aUnitName, aFileName, lTypeScan);
 
       if aCurrentClassMembers <> nil then
         aCurrentClassMembers.CaptureRoutine(lRoutineName);
@@ -2460,12 +2530,10 @@ begin
   // Rendering retains inactive locals inside an active routine. Keep their
   // lexical scope from raw source while active headers remain independently
   // checked; these symbols do not claim active declaration authority.
-  ParseDakInventoryRoutines(aSymbols, InventorySourceTextLines(aModel.SourceText),
-    InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
-      aModel.SourceText, aModel.VerifiedActiveSourceText)), aModel.UnitName, aModel.FileName,
-    aStoreProjections, aCurrentClassMembers);
   lActiveLines := InventorySourceTextLines(TDelphiSemanticSourceConditionals.SourceForScan(
     aModel.SourceText, aModel.VerifiedActiveSourceText));
+  ParseDakInventoryRoutines(aSymbols, lRawLines, lActiveLines, aModel.UnitName, aModel.FileName,
+    aStoreProjections, aCurrentClassMembers);
   // Preserve the scanner's source-layout refusals. Remove only member tokens
   // that the compiler activity evidence positively identifies as inactive.
   for i := aSymbols.Count - 1 downto lFirst do
