@@ -64,8 +64,13 @@ begin
     Result := TryResolveCompilerSearchPathEntry(aProjectDirectory, aValue, lPath, lError) and
       ((lPath = '') or FullyQualified(lPath));
   except
-    on E: EArgumentException do
-      // Eligibility is not a verdict: Paths retains the original error boundary.
+    // Eligibility is not a verdict: Paths retains the original error boundary,
+    // including legacy path-length and WinAPI normalization failures.
+    on EArgumentException do
+      Result := False;
+    on EPathTooLongException do
+      Result := False;
+    on ENotSupportedException do
       Result := False;
   end;
 end;
