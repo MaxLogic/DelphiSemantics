@@ -4,7 +4,7 @@ interface
 
 uses
   DelphiSemantics.Cache, DelphiSemantics.CompilerProfile, DelphiSemantics.Model,
-  DelphiSemantics.Snapshot;
+  DelphiSemantics.NameFlow.SdkEffects, DelphiSemantics.Snapshot;
 
 type
   TDelphiSemanticSymbolQueryContext = record
@@ -14,6 +14,8 @@ type
     CompilerProfile: TDelphiSemanticCompilerProfile;
     CacheMetrics: TDelphiSemanticCacheMetrics;
     ProjectSnapshot: IDelphiProjectSnapshotRef;
+    // Query-owned; supplied only for explicit runtime-risk planning.
+    NameSdkCatalog: TNameSdkCatalog;
   end;
 
   TDelphiSemanticSymbolQueryResult = record

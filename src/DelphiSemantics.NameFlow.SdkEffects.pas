@@ -88,6 +88,9 @@ type
     fStatistics: TNameSdkStatistics;
     fCacheReason: string;
     fCoverage: TArray<TNameSdkSourceCoverage>;
+    // Query-local declaration models; never loaded from the effects artifact.
+    fDeclarationModels: TDictionary<string, TDelphiSemanticUnitModel>;
+    fDeclarationAbsence: TDictionary<string, Boolean>;
     function ComputeIdentity: string;
     function ActualInputIdentity: string;
     procedure CaptureInitialActualInputs;
@@ -106,6 +109,7 @@ type
       const aCandidatesComplete: Boolean): TNameSdkEffect;
     function Entries: TArray<TNameSdkEffectEntry>;
     function SourceCoverage: TArray<TNameSdkSourceCoverage>;
+    function ExcludesDeclaration(const aSourceFileName, aName: string): Boolean;
     function RequestedSourceFileNames: TArray<string>;
     function ArtifactKey: string;
     function Save(const aFileName: string): Boolean;
@@ -128,8 +132,9 @@ implementation
 
 uses
   System.Classes, System.Diagnostics, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
-  AutoFree,
-  DelphiSemantics.Cache, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkArtifact;
+  AutoFree, MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
+  DelphiSemantics.Cache, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts,
+  DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess;
 
 const
   cSdkGeneratorVersion = 'ds803-sdk-effects-v6/primitive-v3/full-body-v1';
@@ -361,6 +366,8 @@ begin
   fRequest := aRequest;
   fRequest.UnitOptions := Copy(aRequest.UnitOptions);
   fIndex := TDictionary<string, Integer>.Create;
+  fDeclarationModels := TDictionary<string, TDelphiSemanticUnitModel>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fDeclarationAbsence := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fReason := 'sdk-generation-unproved';
   if fRequest.MaxUnitSourceBytes = 0 then
     fRequest.MaxUnitSourceBytes := 64 * 1024;
@@ -392,6 +399,8 @@ end;
 
 destructor TNameSdkCatalog.Destroy;
 begin
+  fDeclarationAbsence.Free;
+  fDeclarationModels.Free;
   fIndex.Free;
   inherited;
 end;
@@ -742,6 +751,8 @@ begin
   fIdentity := '';
   fEntries := nil;
   fCoverage := nil;
+  fDeclarationModels.Clear;
+  fDeclarationAbsence.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try
@@ -912,6 +923,99 @@ begin
     Result[i] := fRequest.UnitOptions[i].SourceFileName;
 end;
 
+function SdkDeclarationSourceIsClosed(const aSource: string): Boolean;
+var
+  lLexer: TmwBasePasLex;
+  lBody: string;
+begin
+  Result := False;
+  if aSource = '' then
+    Exit;
+  lLexer := TmwBasePasLex.Create;
+  try
+    lLexer.UseDefines := False;
+    lLexer.Origin := aSource;
+    while lLexer.TokenID <> ptNull do
+    begin
+      if lLexer.IsCompilerDirective then
+      begin
+        lBody := lLexer.Token.Trim(['{', '}', '(', ')', '*', '$', ' ', #9, #10, #13]);
+        if TDelphiSemanticPreprocessor.IncludeArgumentFromDirective(lBody) <> '' then
+          Exit; // Unexpanded includes cannot prove export absence in every SDK configuration.
+      end;
+      lLexer.Next;
+    end;
+    Result := True;
+  finally
+    lLexer.Free;
+  end;
+end;
+
+function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName: string): Boolean;
+var
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lDeclaration: TDelphiSemanticDeclaration;
+  lRoutine: TDelphiSemanticRoutine;
+  lFileName, lKey: string;
+begin
+  Result := False;
+  // A query uses only the SDK/compiler pair admitted by the existing reviewed
+  // pins. The caller revalidates those bytes before publication and apply.
+  if not fValidated or (aSourceFileName = '') or (aName = '') then
+    Exit;
+  if not IsIdentifierStart(aName[1]) then
+    Exit;
+  for var i := 1 to Length(aName) do
+    if not IsIdentifierChar(aName[i]) then
+      Exit;
+  try
+    lFileName := TPath.GetFullPath(aSourceFileName);
+    if not InsideRoot(lFileName, fRequest.SdkRoot) or
+      not SameText(TPath.GetExtension(lFileName), '.pas') or not TFile.Exists(lFileName) then
+      Exit;
+    lKey := lFileName + '|' + aName;
+    if fDeclarationAbsence.TryGetValue(lKey, Result) then
+      Exit;
+    Result := False;
+    if not fDeclarationModels.TryGetValue(lFileName, lModel) then
+    begin
+      // Reuse the ordinary SDK declaration extractor, without project defines
+      // or paths. This data is query-owned and independent of passive effects.
+      if TFile.GetSize(lFileName) > 8 * 1024 * 1024 then
+        Exit;
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lFileName;
+      lOptions.SkipBodyAnalysis := True;
+      lOptions.SkipReferenceExtraction := True;
+      lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      fDeclarationModels.Add(lFileName, lModel);
+    end;
+    // SDK DCU switch state need not be available to the source extractor.
+    // A failed selected preprocess/AST cannot invalidate a negative proof
+    // over the complete retained source, including every conditional branch.
+    if lModel.SourceText = '' then
+      Exit;
+    for lDeclaration in lModel.Declarations do
+      if SameText(lDeclaration.Name, aName) then
+        Exit;
+    for lRoutine in lModel.Routines do
+      if SameText(lRoutine.Name, aName) then
+        Exit;
+    // The selected SDK AST alone is not an all-configuration export proof.
+    // Check the complete retained source too: any spelling in any branch,
+    // including enum members, escaped names or rejected syntax, keeps refusal.
+    // Comments and implementation-only occurrences deliberately over-refuse.
+    Result := not TextContainsIdentifier(LowerCase(lModel.SourceText), LowerCase(aName)) and
+      SdkDeclarationSourceIsClosed(lModel.SourceText);
+    fDeclarationAbsence.Add(lKey, Result);
+  except
+    on e: Exception do
+      // Unreadable/unsupported SDK source supplies no negative declaration proof.
+      Result := False;
+  end;
+end;
+
 function TNameSdkCatalog.SourceCoverage: TArray<TNameSdkSourceCoverage>;
 begin
   Result := Copy(fCoverage);
@@ -1011,6 +1115,8 @@ begin
   fValidated := False;
   fEntries := nil;
   fCoverage := nil;
+  fDeclarationModels.Clear;
+  fDeclarationAbsence.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try

@@ -27,6 +27,9 @@ function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
 function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
   const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
   const aNames: TArray<string>): TNameFlowAnalysis; overload;
+function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
+  const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean): TNameFlowAnalysis; overload;
 
 function NameFlowDeclarationKind(const aSnapshot: TDelphiProjectSnapshot;
   const aFileName, aName: string; const aLine: Integer): string;
@@ -40,7 +43,7 @@ implementation
 uses
   System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   AutoFree,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Snapshot.PositionResolver;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.SourceConditionals;
 
 const
   cNameConsumerPrefixes: array[0..14] of string = ('System', 'System.Classes.TReader',
@@ -49,7 +52,8 @@ const
     'System.Rtti.TRttiEnumerationType', 'System.TObject', 'Winapi.Windows', 'Winapi.ActiveX',
     'System.Rtti.TRttiNamedObject', 'System.Rtti.TRttiPackage', 'System.TypInfo.TTypeInfoFieldAccessor');
 
-function SourceExcludesKnownConsumers(const aSource: string; const aIncludesOnly: Boolean = False): Boolean;
+function SourceExcludesKnownConsumers(const aSource: string; const aIncludesOnly: Boolean = False;
+  const aActivity: string = ''): Boolean;
 var
   lChecked: TDictionary<string, Boolean>;
   lEffect: TNameSdkEffect;
@@ -72,7 +76,8 @@ begin
         lDirective := i + 1
       else if (aSource[i] = '(') and (Copy(aSource, i, 2) = '(*') then
         lDirective := i + 2;
-      if lDirective > 0 then
+      if (lDirective > 0) and
+        not TDelphiSemanticSourceConditionals.InactiveAtOffset(aSource, aActivity, i) then
       begin
         while (lDirective <= Length(aSource)) and
           CharInSet(aSource[lDirective], [#9, #10, #13, ' ']) do
@@ -614,12 +619,20 @@ end;
 function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
   const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
   const aNames: TArray<string>): TNameFlowAnalysis;
+begin
+  Result := AnalyzeNameFlowSnapshot(aSnapshot, aTargetKind, aSdk, aNames, False);
+end;
+
+function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
+  const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean): TNameFlowAnalysis;
 var
   g: TGarbos;
   i, j, lIndex: Integer;
   lUnit: TUnitSnapshot;
   lFacts: IDelphiNameFlowFacts;
   lNode, lParent, lCallNode: TDelphiNameFlowNode;
+  lIncludeActivity: string;
   lResolution: TDelphiSemanticSnapshotPositionResolution;
   lEntry: TNameSdkEffectEntry;
   lEntries: TArray<TNameSdkEffectEntry>;
@@ -1360,8 +1373,13 @@ begin
         // Captured unmapped nodes still reach the consumer scan by their output
         // identities. Only missing nodes, unscanned includes and incomplete
         // preprocessing require a separate hard consumer-coverage refusal.
+        lIncludeActivity := '';
+        if aAcceptRuntimeNameRisk then
+          lIncludeActivity := aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId);
+        // Only preprocessor-proved inactive includes are absent in this
+        // selected configuration. Unknown/unavailable activity keeps refusal.
         if (lFacts.CoverageReason <> 'name-flow-physical-span-unproved') or
-          (lFacts.NodeCount = 0) or not SourceExcludesKnownConsumers(lSource, True) then
+          (lFacts.NodeCount = 0) or not SourceExcludesKnownConsumers(lSource, True, lIncludeActivity) then
           Report(lFileName, lFacts.CoverageReason, 'runtime-name-known-consumer-coverage-unproved', 0, 0);
         if ContainsText(lFacts.CoverageReason, 'budget-exceeded') then
           Report(lFileName, lFacts.CoverageReason, 'runtime-name-flow-budget-exceeded', 0, 0)

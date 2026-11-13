@@ -66,7 +66,7 @@ implementation
 uses
   System.Generics.Collections, System.Generics.Defaults, System.Math, System.RegularExpressions, System.StrUtils, System.SysUtils,
   SimpleParser.Lexer, SimpleParser.Lexer.Types,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Snapshot,
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkEffects, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceConditionals, MaxLogic.StrUtils;
 
@@ -1179,7 +1179,8 @@ begin
 end;
 
 function ScopedSnapshotSourceGaps(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>): TArray<TDelphiSemanticUsage>;
+  const aSymbol: TDelphiSemanticIndexedSymbol; const aNames: TArray<string>;
+  const aSdk: TNameSdkCatalog = nil): TArray<TDelphiSemanticUsage>;
 var
   i, j: Integer;
   lUnit, lLocalUnit: TUnitSnapshot;
@@ -1735,7 +1736,13 @@ var
         lExternalUnits := nil;
         for lImport in aSnapshot.UnitByIndex(lContext.UnitIndex).ImportFacts do
           if lImport.SdkBoundary then
+          begin
+            if (aSdk <> nil) and
+              (lImport.GapReason = '') and not lImport.ResolutionVaries and
+              aSdk.ExcludesDeclaration(lImport.TargetFileName, aName) then
+              Continue;
             lExternalUnits := lExternalUnits + [lImport.Name];
+          end;
         lScopedRefs := SnapshotVisibleDeclarations(aSnapshot,
           aSnapshot.UnitByIndex(lContext.UnitIndex), lQualified, lContext.Scope,
           lContext.OwnerType, lContext.Section, lContext.Line, lContext.Column,
@@ -2928,13 +2935,13 @@ begin
   lSnapshot := ContextProjectSnapshot(aContext);
   if lSnapshot = nil then
     Exit(nil);
-  Result := ScopedSnapshotSourceGaps(lSnapshot, aSymbol, aNames);
+  Result := ScopedSnapshotSourceGaps(lSnapshot, aSymbol, aNames, aContext.NameSdkCatalog);
 end;
 
 function CollectSnapshotUnresolvedUsages(const aSnapshot: TDelphiProjectSnapshot;
   const aSymbol: TDelphiSemanticIndexedSymbol; const aEquivalentRefs: TList<TSemanticSymbolRef>;
   const aUsages: TList<TDelphiSemanticUsage>;
-  out aHasUnverifiedConditionals: Boolean): TArray<TDelphiSemanticUsage>;
+  out aHasUnverifiedConditionals: Boolean; const aSdk: TNameSdkCatalog): TArray<TDelphiSemanticUsage>;
 var
   i: Integer;
   lColumn: Integer;
@@ -2980,7 +2987,7 @@ begin
     lName := aSymbol.Name;
     // Includes retain their coverage barrier. Missing imports are scoped to
     // nonlocal occurrences and possible uses reachability, including inactive uses.
-    lUnresolved.AddRange(ScopedSnapshotSourceGaps(aSnapshot, aSymbol, [lName]));
+    lUnresolved.AddRange(ScopedSnapshotSourceGaps(aSnapshot, aSymbol, [lName], aSdk));
     lNameKnown := aSnapshot.TryFindStringId(lName, lNameId);
     if lNameKnown then
       AddPossibleOverrideUsages(lUnresolved, aSnapshot, aSymbol, aEquivalentRefs, lNameId);
@@ -3150,8 +3157,8 @@ begin
 end;
 
 function BuildSnapshotResultForSymbol(const aSnapshot: TDelphiProjectSnapshot;
-  const aSymbolRef: TSemanticSymbolRef; const aSymbol: TDelphiSemanticIndexedSymbol):
-  TDelphiSemanticUsageResult;
+  const aSymbolRef: TSemanticSymbolRef; const aSymbol: TDelphiSemanticIndexedSymbol;
+  const aSdk: TNameSdkCatalog): TDelphiSemanticUsageResult;
 var
   i: Integer;
   lHighIndex: Integer;
@@ -3226,7 +3233,7 @@ begin
     Result.Symbol := aSymbol;
     Result.Usages := SortedUsages(lUsages);
     Result.Unresolved := CollectSnapshotUnresolvedUsages(aSnapshot, aSymbol, lEquivalentRefs,
-      lUsages, Result.HasUnverifiedConditionalOccurrences);
+      lUsages, Result.HasUnverifiedConditionalOccurrences, aSdk);
     Result.IndexMetrics.BuildInvocationCount := 0;
   finally
     lUsages.Free;
@@ -3303,7 +3310,7 @@ begin
     Exit(SnapshotLookupDiagnostic(lSnapshot, 'unresolved', 'No visible symbol named "' + aName +
       '" was found.', aName));
 
-  Result := BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol);
+  Result := BuildSnapshotResultForSymbol(lSnapshot, lSymbolRef, lSymbol, aContext.NameSdkCatalog);
   if lSnapshot.TryFindUnitById(lSymbolRef.UnitId, lUnit) then
     Result := GateSnapshotDeclaringUnit(lSnapshot, lUnit, Result);
 end;
@@ -3380,7 +3387,7 @@ begin
     Exit(SnapshotLookupDiagnostic(lSnapshot, 'unknown', 'The identifier "' + lIdentifier +
       '" at the requested position was resolved to "' + lSymbol.Name +
       '"; its own symbol cannot be proven.', lIdentifier));
-  Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol);
+  Result := BuildSnapshotResultForSymbol(lSnapshot, lPositionResolution.SymbolRef, lSymbol, aContext.NameSdkCatalog);
   Result := GateSnapshotDeclaringUnit(lSnapshot, lPositionResolution.SymbolUnit, Result);
   // The requested position must be one of the symbol's own declarations or proven references;
   // whitespace or punctuation in a routine body only matched the routine's range.

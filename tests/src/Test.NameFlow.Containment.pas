@@ -32,6 +32,20 @@ type
     [Test] procedure ResourceStreamRoutesStayHard(const aRoute: Integer);
     [Test] procedure SdkAncestorCannotBindUnimportedProjectHomonym;
     [Test] procedure UnrelatedSdkExceptionIsNotObserved;
+    [TestCase('inactive consumer include', 'False,True')]
+    [TestCase('active consumer include', 'True,True')]
+    [TestCase('unknown include activity', 'False,False')]
+    [Test] procedure IncludeCoverageUsesActiveBranch(const aActive, aCertified: Boolean);
+    [TestCase('SDK does not declare name', 'absent')]
+    [TestCase('SDK unavailable option state retains complete source', 'unsupported')]
+    [TestCase('SDK declares name', 'present')]
+    [TestCase('SDK source unavailable', 'missing')]
+    [TestCase('SDK source unpinned', 'unpinned')]
+    [TestCase('SDK name in another branch', 'inactive')]
+    [TestCase('SDK name in include', 'include')]
+    [TestCase('SDK source outside pin', 'outside')]
+    [Test] procedure SdkNonDeclarationControlsConstantBinding(const aCase: string);
+    [Test] procedure SdkFallbackRetainsSourceProvenance;
     [Test] procedure MissingFactsRefuse;
     [Test] procedure ScopedLookupHonorsUsesOrder;
     [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
@@ -90,7 +104,7 @@ uses
   DelphiSemantics.Preprocess, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.PositionResolver,
   DelphiSemantics.Symbols, DelphiSemantics.WithBinding,
-  Test.Support;
+  Test.CompilerDefineEvidence, Test.Support;
 
 procedure TNameFlowContainmentTests.ConstantBindingUsesNearestDeclaration;
 const
@@ -2365,6 +2379,220 @@ begin
       lSnapshot.Free;
     end;
   end;
+end;
+
+procedure TNameFlowContainmentTests.IncludeCoverageUsesActiveBranch(const aActive, aCertified: Boolean);
+var
+  lRoot, lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+begin
+  lRoot := CreateTestTempRoot('ds814-include-temp');
+  lFile := TPath.Combine(lRoot, 'Probe.pas');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'consumer.inc'),
+    'GetClass(ParamStr(1));', TEncoding.ASCII);
+  lSource := 'unit Probe;'#13#10'interface'#13#10'procedure Touch;'#13#10 +
+    'implementation'#13#10'procedure Touch;'#13#10'begin'#13#10 +
+    '{$IFDEF FPC}{$I consumer.inc}{$ENDIF}'#13#10 +
+    'WriteLn('''' {$IFDEF OTHER} + ''x'' {$ENDIF});'#13#10'end;'#13#10'end.';
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.ProjectContextApplied := True;
+  lOptions.DefineEvidenceComplete := True;
+  if aActive then
+    lOptions.Defines := ['FPC'];
+  if aCertified then
+    CertifyClosedGeneratedModel(lOptions);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    Assert.IsNotEmpty(lModel.VerifiedActiveSourceText, 'The test must supply preprocessor activity evidence.');
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil, ['Count', 'Amount']);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved') or
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'), 'Strict mode is unchanged.');
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil, ['Count', 'Amount'], True);
+    Assert.AreEqual(aActive or not aCertified,
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved') or
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'),
+      'Inactive includes cannot hide consumers; active includes retain a hard refusal.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.SdkNonDeclarationControlsConstantBinding(const aCase: string);
+var
+  lRoot, lSdkRoot, lSdkFile, lFile, lSource, lSdkSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lImports: TArray<TDelphiSemanticImportFact>;
+  lRequest: TNameSdkGenerationRequest;
+  lSdk: TNameSdkCatalog;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lGap: TDelphiSemanticUsage;
+  lFound: Boolean;
+  i: Integer;
+begin
+  lRoot := CreateTestTempRoot('ds814-sdk-binding-temp');
+  lSdkRoot := TPath.Combine(lRoot, 'sdk');
+  TDirectory.CreateDirectory(lSdkRoot);
+  lSdkFile := TPath.Combine(lSdkRoot, 'System.Later.pas');
+  lSdkSource := 'unit System.Later; interface const OtherName = 7; implementation end.';
+  if aCase = 'unsupported' then
+    // SDK DCU option state is deliberately unavailable, as in the installed
+    // Generics.Collections source. Both branches remain in the retained text.
+    lSdkSource := 'unit System.Later;'#13#10'interface'#13#10'{$IFOPT Q+}'#13#10 +
+      'const OtherName = 7;'#13#10'{$ENDIF}'#13#10'implementation end.';
+  if aCase = 'present' then
+    lSdkSource := lSdkSource.Replace('OtherName = 7', 'cLimit = ''Count''');
+  if aCase = 'inactive' then
+    lSdkSource := lSdkSource.Replace('OtherName = 7;', '{$IFDEF ALTERNATE}cLimit = ''Count'';{$ENDIF} OtherName = 7;');
+  if aCase = 'include' then
+  begin
+    lSdkSource := lSdkSource.Replace('OtherName = 7;', '{$I names.inc} OtherName = 7;');
+    TFile.WriteAllText(TPath.Combine(lSdkRoot, 'names.inc'), 'cLimit = ''Count'';', TEncoding.ASCII);
+  end;
+  TFile.WriteAllText(lSdkFile, lSdkSource, TEncoding.ASCII);
+  lRequest := Default(TNameSdkGenerationRequest);
+  lRequest.SdkRoot := lSdkRoot;
+  lRequest.CompilerFileName := ParamStr(0);
+  lRequest.CompilerVersion := 'test-identity';
+  lRequest.ExpectedSourceIdentity := CaptureSdkSourceIdentity(lSdkRoot);
+  lRequest.ExpectedCompilerHash := THashSHA2.GetHashStringFromFile(ParamStr(0));
+  lRequest.Platform := 'Win32';
+  lRequest.Configuration := 'Debug';
+  if aCase = 'unpinned' then
+    lRequest.ExpectedSourceIdentity := '';
+  lSdk := TNameSdkCatalog.Create(lRequest);
+  lSnapshot := nil;
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  try
+    lSdk.Generate;
+    Assert.IsFalse(lSdk.ExcludesDeclaration(lSdkFile, 'Values.cLimit'),
+      'Qualified spellings cannot supply a bare-name SDK absence proof.');
+    if aCase = 'unsupported' then
+    begin
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lSdkFile;
+      lOptions.SkipBodyAnalysis := True;
+      lOptions.SkipReferenceExtraction := True;
+      Assert.IsFalse(TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions).Success,
+        'The regression must exercise unavailable SDK compiler option state.');
+    end;
+    SetLength(lModels, 2);
+    for i := 0 to 1 do
+    begin
+      lFile := TPath.Combine(lRoot, 'Values.pas');
+      lSource := 'unit Values; interface const cLimit = 7; implementation end.';
+      if i = 1 then
+      begin
+        lFile := TPath.Combine(lRoot, 'Probe.pas');
+        lSource := 'unit Probe;'#13#10'interface'#13#10'uses Values, System.Later;'#13#10 +
+          'type TC = class Count: Integer; end;'#13#10'const Bound = cLimit;'#13#10 +
+          'implementation'#13#10'end.';
+      end;
+      TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lFile;
+      lOptions.DefineEvidenceComplete := True;
+      lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      Assert.IsTrue(lModels[i].Success);
+    end;
+    SetLength(lImports, 2);
+    for i := 0 to 1 do
+    begin
+      lImports[i] := Default(TDelphiSemanticImportFact);
+      lImports[i].SectionKind := 'interface';
+      lImports[i].OrderIndex := i;
+      lImports[i].Name := 'Values';
+      if i = 1 then
+      begin
+        lImports[i].Name := 'System.Later';
+        lImports[i].TargetFileName := lSdkFile;
+        lImports[i].SdkBoundary := True;
+      end;
+    end;
+    lModels[1].ImportFacts := lImports;
+    lSnapshot := BuildProjectSnapshotFromModels(lModels,
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lContext.NameSdkCatalog := lSdk;
+    if aCase = 'missing' then
+      TFile.Move(lSdkFile, TPath.Combine(lRoot, 'removed-source.pas'));
+    if aCase = 'outside' then
+    begin
+      lSdkFile := TPath.Combine(lRoot, 'Unpinned.pas');
+      TFile.WriteAllText(lSdkFile, lSdkSource, TEncoding.ASCII);
+      lImports[1].TargetFileName := lSdkFile;
+      // The snapshot owns its copied provenance, so rebuild it with this edge.
+      lContext.ProjectSnapshot := nil;
+      lSnapshot.Free;
+      lSnapshot := nil;
+      lModels[1].ImportFacts := lImports;
+      lSnapshot := BuildProjectSnapshotFromModels(lModels,
+        Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+      lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    end;
+    lSymbol := Default(TDelphiSemanticIndexedSymbol);
+    lSymbol.Name := 'Count';
+    lSymbol.Kind := 'field';
+    lSymbol.OwnerName := 'TC';
+    lSymbol.UnitName := 'Probe';
+    lSymbol.FileName := lFile;
+    lFound := False;
+    for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Count', 'Amount']) do
+      if lGap.Reason = 'string-constant-evaluator-unsupported' then
+        lFound := True;
+    Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported']), lFound,
+      'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+    lSdk.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.SdkFallbackRetainsSourceProvenance;
+var
+  lRoot, lSdkRoot, lSdkFile, lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lImport: TDelphiSemanticImportFact;
+  lFound: Boolean;
+begin
+  lRoot := CreateTestTempRoot('ds814-sdk-provenance-temp');
+  lSdkRoot := TPath.Combine(lRoot, 'sdk');
+  TDirectory.CreateDirectory(TPath.Combine(lSdkRoot, 'source'));
+  lSdkFile := TPath.Combine(lSdkRoot, 'source\System.Later.pas');
+  TFile.WriteAllText(lSdkFile, 'unit System.Later; interface implementation end.', TEncoding.ASCII);
+  lFile := TPath.Combine(lRoot, 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe; interface uses System.Later; implementation end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.InstalledSdkRoot := lSdkRoot;
+  lOptions.ProjectContextApplied := True;
+  CertifyClosedGeneratedModel(lOptions);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lFound := False;
+  for lImport in lModel.ImportFacts do
+    if SameText(lImport.Name, 'System.Later') then
+    begin
+      lFound := True;
+      Assert.IsTrue(lImport.SdkBoundary);
+      Assert.AreEqual(lSdkFile, lImport.TargetFileName,
+        'Fallback SDK discovery must retain its witnessed source for declaration proof.');
+    end;
+  Assert.IsTrue(lFound);
 end;
 
 initialization

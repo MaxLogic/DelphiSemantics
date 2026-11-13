@@ -53,6 +53,8 @@ type
     class function WithNeverActivity(const aSource, aCurrent, aPossible: string): string; static;
     class function NeverAtOffset(const aSource, aEvidence: string;
       const aOffset: Integer): Boolean; static;
+    class function InactiveAtOffset(const aSource, aEvidence: string;
+      const aOffset: Integer): Boolean; static;
     class function SourceForScan(const aSource, aEvidence: string): string; static;
     class function UnknownAtOffset(const aSource, aEvidence: string;
       const aOffset: Integer): Boolean; static;
@@ -501,6 +503,17 @@ begin
     (Length(aEvidence) = Length(cActivityPrefix) + Length(aSource)) and
     (aOffset >= 1) and (aOffset <= Length(aSource)) and
     (aEvidence[Length(cActivityPrefix) + aOffset] = 'N');
+end;
+
+class function TDelphiSemanticSourceConditionals.InactiveAtOffset(const aSource,
+  aEvidence: string; const aOffset: Integer): Boolean;
+begin
+  // Only encoded preprocessor activity proves an inactive selected branch.
+  // Legacy copied-text witnesses blank active directives too and cannot decide.
+  Result := StartsStr(cActivityPrefix, aEvidence) and
+    (Length(aEvidence) = Length(cActivityPrefix) + Length(aSource)) and
+    (aOffset >= 1) and (aOffset <= Length(aSource)) and
+    CharInSet(aEvidence[Length(cActivityPrefix) + aOffset], ['I', 'N']);
 end;
 
 class function TDelphiSemanticSourceConditionals.SourceForScan(const aSource,

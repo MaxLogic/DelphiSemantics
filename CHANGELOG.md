@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Explicit runtime-name risk planning uses active include coverage and pinned SDK non-declaration proof to admit safe constant bindings; strict mode and known-consumer refusals remain unchanged (DS-814).
+
 - Rename keeps ReadComponentResEx, InitComponentRes and unresolved TResourceStream descendant constructors as hard runtime-name consumers, including inherited and class-reference construction (DS-803).
 
 - Rename preserves hard consumer coverage through mapping failures and recognizes WinAPI and component resource-name lookups. Class-name observations retain unresolved SDK ancestry conservatively (DS-803).
