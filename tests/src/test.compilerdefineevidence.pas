@@ -81,6 +81,7 @@ type
     [TestCase('Dependency transport is not semantic input', 'transport')]
     [TestCase('Source selection is immutable', 'source')]
     [TestCase('DCU has no source applicability', 'dcu')]
+    [TestCase('Legacy selection format requires re-plan', 'legacy-format')]
     [TestCase('Missing format', 'format')]
     [TestCase('Missing dependency digest', 'dependency')]
     [TestCase('Unmatched source witness', 'witness')]
@@ -495,7 +496,7 @@ begin
   lDescriptor.Sources[0].SourceFileName :=
     TPath.GetFullPath('tests/fixtures/RemoveWithPointerEvaluation/PointerReceiverUnit.pas');
   lDescriptor.Sources[0].ContentHash := THashSHA2.GetHashStringFromFile(lDescriptor.Sources[0].SourceFileName);
-  lDescriptor.SourceSelectionFormat := 'dcc-dependencies-rebuilt-units-v1';
+  lDescriptor.SourceSelectionFormat := 'dcc-dependencies-rebuilt-units-v2';
   lDescriptor.SourceSelectionIdentity := StringOfChar('B', 64);
   lDescriptor.DependencyContentHash := StringOfChar('C', 64);
   SetLength(lDescriptor.SourceSelections, 1);
@@ -514,6 +515,8 @@ begin
     if aShape = 'dcu' then
       lDescriptor.Sources := nil;
   end;
+  if aShape = 'legacy-format' then
+    lDescriptor.SourceSelectionFormat := 'dcc-dependencies-rebuilt-units-v1';
   if aShape = 'format' then lDescriptor.SourceSelectionFormat := '';
   if aShape = 'dependency' then lDescriptor.DependencyContentHash := '';
   if aShape = 'witness' then lDescriptor.SourceSelections[0].ContentHash := StringOfChar('E', 64);
@@ -526,6 +529,8 @@ begin
     Assert.IsFalse(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,
       lAdmitted, lReason), 'Malformed source selection must fail closed.');
     Assert.IsNotEmpty(lReason);
+    if aShape = 'legacy-format' then
+      Assert.IsTrue(lReason.Contains('re-plan'), lReason);
     Exit;
   end;
   Assert.IsTrue(TDelphiSemanticCompilerDefines.TryAdmit(lProvider, lDescriptor.Invocation,

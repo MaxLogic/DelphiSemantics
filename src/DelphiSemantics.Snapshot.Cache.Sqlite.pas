@@ -208,7 +208,7 @@ const
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
-  cSnapshotCacheSchemaVersion = '2000';
+  cSnapshotCacheSchemaVersion = '2003';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
