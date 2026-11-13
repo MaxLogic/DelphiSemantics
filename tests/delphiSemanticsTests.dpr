@@ -142,6 +142,7 @@ uses
   Test.SnapshotEvidence.Support in 'src\test.snapshotevidence.support.pas',
   Test.SnapshotSqlite in 'src\test.snapshotsqlite.pas',
   Test.SourceContext in 'src\test.sourcecontext.pas',
+  Test.SourceAccumulator in 'src\test.sourceaccumulator.pas',
   Test.SourceLoader in 'src\test.sourceloader.pas',
   Test.Support in 'src\test.support.pas',
   Test.SymbolQuery in 'src\test.symbolquery.pas',

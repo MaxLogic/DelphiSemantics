@@ -25,6 +25,7 @@ type
     fFileIdentities: TDictionary<string, string>;
     fSources: TArray<TDelphiSemanticRenamePreparedSource>;
     fObservations: IDelphiSemanticSourceObservations;
+    fObservationAccumulator: TDelphiSemanticSourceAccumulator;
     fSession: TDelphiSemanticProjectSession;
     fModelOptions: TDelphiSemanticModelOptions;
     function LoadFile(const aFileName: string): TDelphiSemanticSourceLoadResult;
@@ -110,19 +111,10 @@ end;
 procedure TDelphiSemanticRenamePreparation.MergeObservations(
   const aSources: IDelphiSemanticSourceObservations);
 var
-  lCombined: IDelphiSemanticSourceObservations;
   lError: string;
 begin
-  if aSources = nil then
-    Exit;
-  if fObservations = nil then
-  begin
-    fObservations := aSources;
-    Exit;
-  end;
-  if not TDelphiSemanticSourceEvidence.TryMerge(fObservations, aSources, lCombined, lError) then
+  if not fObservationAccumulator.TryAdd(aSources, lError) then
     raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: ' + lError);
-  fObservations := lCombined;
 end;
 
 constructor TDelphiSemanticRenamePreparation.Create(const aOptions: TDelphiSemanticOptions);
@@ -140,6 +132,7 @@ var
 begin
   inherited Create;
   fInputs := TDelphiSemanticIdentityInputs.Create(True);
+  fObservationAccumulator := TDelphiSemanticSourceAccumulator.Create;
   fFileIdentities := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   lSession := TDelphiSemanticProjectSession.Open(aOptions);
   if not lSession.Success then
@@ -205,6 +198,7 @@ begin
     end;
     lBatch.RequireCurrentDiscovery;
     MergeObservations(fInputs.Observations);
+    fObservations := fObservationAccumulator.Freeze;
     RequireCurrent;
   finally
     lBatch.Free;
@@ -218,6 +212,7 @@ end;
 destructor TDelphiSemanticRenamePreparation.Destroy;
 begin
   fSession.Free;
+  fObservationAccumulator.Free;
   fFileIdentities.Free;
   fInputs.Free;
   inherited;

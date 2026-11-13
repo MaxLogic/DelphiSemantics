@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Certified rename preparation accumulates source observations once, preserving cache identities and currentness refusals (DS-808).
+
 - Certified source-selection fingerprints use canonical proof version 2. Re-create plans made with the previous version before applying them; older native certificates are refused and semantic snapshot caches rebuild (DS-813).
 
 - Snapshot global-vars analysis preserves bound owner-qualified class-variable usages when captured provenance or includes select physical analysis, including cache hits and SQLite reloads. Older snapshot storage rebuilds.
