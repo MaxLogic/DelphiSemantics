@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- EOF parse error positions are deterministic for multiline strings ending at the input boundary (DS-812).
+
 - WITH inventory scans reuse a pass-owned source buffer and line offsets while preserving lexical fallback, record order and budget outcomes (DS-810 S2).
 
 - Semantic graph construction evaluates forward-class visibility candidates once per unit, preserving declaration identities and array order (DS-810 S1).

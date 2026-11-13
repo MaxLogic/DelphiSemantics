@@ -56,6 +56,10 @@ type
     procedure ExtractReentrantLoop(const aPath, aUnitName, aTypeName, aRoutineName,
       aReferenceName: string; out aError: string);
   public
+    [Category('DS812,Fast')]
+    [TestCase('CRLF at EOF', 'True')]
+    [TestCase('LF at EOF', 'False')]
+    procedure EndOfFileParseCoordinatesAreStable(const aCrLf: Boolean);
     [Test]
     procedure PhysicalSymbolsKeepExactIncludedOrigins;
     [Category('DS703Slice')]
@@ -612,7 +616,7 @@ uses
   System.Classes, System.Generics.Collections, System.IOUtils, System.JSON, System.StrUtils,
   System.SysUtils,
   Winapi.Windows,
-  AutoFree, maxLogic.IOUtils,
+  AutoFree, DelphiAST, DelphiAST.Classes, maxLogic.IOUtils,
   DelphiSemantics.Cache, DelphiSemantics.Model.Coordinates, DelphiSemantics.Model.Json, DelphiSemantics.Preprocess,
   DelphiSemantics.WithBinding.Inventory,
   Test.CompilerDefineEvidence, Test.Support;
@@ -4678,6 +4682,54 @@ begin
   Assert.AreEqual('unit:scopefixture', lRestored.Routines[0].ParentScopeId);
   Assert.AreEqual('routine:scopefixture.run', lRestored.Locals[0].RoutineScopeId);
   Assert.AreEqual('routine:scopefixture.run', lRestored.References[0].RoutineScopeId);
+end;
+
+procedure TUnitModelTests.EndOfFileParseCoordinatesAreStable(const aCrLf: Boolean);
+const
+  cSource = 'unit EofCoordinates;'#13#10'interface'#13#10'implementation'#13#10 +
+    'procedure Run;'#13#10'var lText: string;'#13#10'begin'#13#10 +
+    '  lText :='#13#10 + #39#39#39#13#10 + 'unterminated'#13#10;
+var
+  lBuilder: TPasSyntaxTreeBuilder;
+  lCount: Integer;
+  lNoise: string;
+  lSource: string;
+  lStream: TStringStream;
+  lTree: TSyntaxNode;
+  i: Integer;
+begin
+  lSource := cSource;
+  if not aCrLf then
+    lSource := StringReplace(lSource, #13#10, #10, [rfReplaceAll]);
+  lCount := 0;
+  for i := 1 to 100 do
+  begin
+    // DS-812: varying allocations exposes reads beyond the final lexer NUL.
+    lNoise := StringOfChar(Char(65 + i mod 26), i * 127);
+    lBuilder := TPasSyntaxTreeBuilder.Create;
+    lStream := TStringStream.Create(lSource, TEncoding.UTF8);
+    lTree := nil;
+    try
+      try
+        lTree := lBuilder.Run(lStream);
+        Assert.Fail('The incomplete routine must remain a parser refusal.');
+      except
+        on E: ESyntaxTreeException do
+        begin
+          Inc(lCount);
+          // Preserve DelphiAST's existing ExpectedFatal X/Y exception mapping.
+          Assert.AreEqual(1, E.Line, 'EOF column; noise=' + IntToStr(Length(lNoise)));
+          Assert.AreEqual(10, E.Col, 'EOF line');
+          Assert.AreEqual('''SemiColon'' expected found ''end of file''', E.Message);
+        end;
+      end;
+    finally
+      lTree.Free;
+      lStream.Free;
+      lBuilder.Free;
+    end;
+  end;
+  Assert.AreEqual(100, lCount);
 end;
 
 procedure TUnitModelTests.PhysicalSymbolsKeepExactIncludedOrigins;
