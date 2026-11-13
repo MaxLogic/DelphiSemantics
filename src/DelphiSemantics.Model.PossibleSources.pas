@@ -81,6 +81,7 @@ type
     fSdkBinaries: TDictionary<string, string>;
     fSdkDirectories: TArray<string>;
     fLookup: TDelphiSemanticSourceLookup;
+    fSources: TDelphiSemanticSourceAccumulator;
     function TrySdkAlias(const aName: string; out aTarget: string): Boolean;
     function ResolveProjectUnit(const aName: string): TDelphiSemanticUnitResolutionResult;
     function HasAlternateProjectSource(const aName, aOwner, aSelected: string): Boolean;
@@ -299,6 +300,7 @@ constructor TPossibleSourceCapture.Create(const aOptions: TDelphiSemanticModelOp
   const aCollectReferences: Boolean; const aBatch: TDelphiSemanticPossibleSourceBatch);
 begin
   inherited Create;
+  fSources := TDelphiSemanticSourceAccumulator.Create;
   fOptions := aOptions;
   fBatch := aBatch;
   fCollectReferences := aCollectReferences;
@@ -321,6 +323,7 @@ end;
 
 destructor TPossibleSourceCapture.Destroy;
 begin
+  fSources.Free;
   fLookup.Free;
   fDirectoryFiles.Free;
   fObservedCandidates.Free;
@@ -349,16 +352,9 @@ end;
 
 procedure TPossibleSourceCapture.MergeSources(const aSources: IDelphiSemanticSourceObservations);
 var
-  lCombined: IDelphiSemanticSourceObservations;
   lError: string;
 begin
-  if aSources = nil then
-    Exit;
-  if fResult.Sources = nil then
-    fResult.Sources := aSources
-  else if TDelphiSemanticSourceEvidence.TryMerge(fResult.Sources, aSources, lCombined, lError) then
-    fResult.Sources := lCombined
-  else
+  if not fSources.TryAdd(aSources, lError) then
     raise EInvalidOpException.Create('MODEL_SOURCE_VALIDATION_FAILED: ' + lError);
 end;
 
@@ -372,7 +368,7 @@ begin
   if fObservedCandidates.Contains(aFileName) then
     Exit;
   fObservedCandidates.Add(aFileName);
-  if (fResult.Sources <> nil) and fResult.Sources.TryFind(aFileName, lSource) then
+  if fSources.TryFind(aFileName, lSource) then
     Exit;
   if fBatch.Inputs.FileExists(aFileName) then
   begin
@@ -946,7 +942,7 @@ var
   lPossible: TDelphiSemanticPreprocessResult;
   lRoot: TDelphiSemanticSourceText;
 begin
-  fResult.Sources := aNormal.SourceObservations;
+  MergeSources(aNormal.SourceObservations);
   fVisited.Add(TPath.GetFullPath(fOptions.SourceFileName));
   lPossible := fBatch.PreprocessNeutral(fOptions.SourceFileName);
   ScanPreprocessed(lPossible, aNormal, TPath.GetFullPath(fOptions.SourceFileName), '', 0);
@@ -955,6 +951,7 @@ begin
     fResult.RootActivity := AggregateActivity(lRoot.Text, lRoot.FileName, lPossible);
   if fCandidateSources.Count > 0 then
     MergeSources(TDelphiSemanticSourceEvidence.FromItems(fCandidateSources.ToArray));
+  fResult.Sources := fSources.Freeze;
   fResult.ProjectUnitImports := fProjectImports.ToArray;
   fResult.ImportFacts := fImportFacts.ToArray;
   fResult.References := fReferences.ToArray;
