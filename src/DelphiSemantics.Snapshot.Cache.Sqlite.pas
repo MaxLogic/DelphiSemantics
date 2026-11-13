@@ -40,6 +40,8 @@ type
     PersistentConnectionOpenCount: Integer;
     SnapshotCacheProbes: Integer;
     SnapshotSqlWriteMilliseconds: Int64;
+    // Streamed planning-symbol reads time Open here; subsequent row fetches
+    // run in the decoding loop outside this counter (DAK-491).
     SnapshotSqlReadMilliseconds: Int64;
     SnapshotDeserializeMilliseconds: Int64;
     SnapshotIndexRebuildMilliseconds: Int64;
@@ -97,7 +99,7 @@ type
       const aEvidence: TDelphiSemanticValueMemberEvidence);
     procedure LoadRemoveWithPlanningFacts(
       const aProjectKey: Int64; const aConnection: TObject;
-      const aBuilder: TDelphiProjectSnapshotBuilder);
+      const aBuilder: TDelphiProjectSnapshotBuilder; const aRecordLimit: Integer);
     procedure LoadRemoveWithVisibility(
       const aProjectKey: Int64; const aConnection: TObject;
       const aBuilder: TDelphiProjectSnapshotBuilder);
@@ -172,7 +174,10 @@ type
       const aLookupSymbols: TArray<TDelphiSemanticInventorySymbol>); overload;
     function TryLoadProjectRemoveWithPlanningFacts(
       const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
-      out aSnapshot: TDelphiProjectSnapshot): Boolean;
+      out aSnapshot: TDelphiProjectSnapshot): Boolean; overload;
+    function TryLoadProjectRemoveWithPlanningFacts(
+      const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+      out aSnapshot: TDelphiProjectSnapshot; const aRecordLimit: Integer): Boolean; overload;
     procedure BeginUnitLoadBatch(const aIdentities: TArray<TDelphiSemanticSnapshotCacheIdentity>);
     procedure EndUnitLoadBatch;
     function TryLoadUnit(const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
@@ -194,7 +199,7 @@ uses
   FireDAC.Stan.Def, FireDAC.Stan.Intf,
   DelphiSemantics.Cache, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.TypeResolver,
-  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith;
+  DelphiSemantics.Snapshot.Evidence, DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding.Budget;
 
 const
   // 11: DS-659 file_id; 12: include facts; 13: receiver identities;
@@ -208,7 +213,7 @@ const
   // 33: integrate package witnesses, AST headings and implementation references.
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
-  cSnapshotCacheSchemaVersion = '2000';
+  cSnapshotCacheSchemaVersion = '2001';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -2137,7 +2142,7 @@ end;
 
 procedure TDelphiSemanticSnapshotSqliteCache.LoadRemoveWithPlanningFacts(
   const aProjectKey: Int64; const aConnection: TObject;
-  const aBuilder: TDelphiProjectSnapshotBuilder);
+  const aBuilder: TDelphiProjectSnapshotBuilder; const aRecordLimit: Integer);
 var
   i: Integer;
   lEntityKind: string;
@@ -2256,6 +2261,7 @@ begin
     lContextFingerprintIdField := lQuery.Fields[0];
     lExpectedRoutineOwnerCount := lQuery.Fields[1].AsInteger;
     lExpectedSymbolCount := lQuery.Fields[2].AsInteger;
+    RequireWithInventoryBudget(lExpectedSymbolCount, aRecordLimit, 'cached planning inventory allocation');
     lExpectedBindingCount := lQuery.Fields[3].AsInteger;
     lExpectedIdentityCount := lQuery.Fields[4].AsInteger;
     if lExpectedIdentityCount < 0 then
@@ -2355,12 +2361,15 @@ begin
     lQuery.Params[0].AsLargeInt := aProjectKey;
     lStopwatch := TStopwatch.StartNew;
     lQuery.Open;
-    lQuery.FetchAll;
+    // Stream symbol rows: a changed/malformed row count must not fetch an
+    // unbounded inventory before request admission is checked.
     Inc(fMetrics.SnapshotSqlReadMilliseconds, VisibleElapsedMilliseconds(lStopwatch));
     CacheQueryFields(lQuery, lFields);
     lLoadedSymbolCount := 0;
     while not lQuery.Eof do
     begin
+      RequireWithInventoryBudget(Int64(lLoadedSymbolCount) + 1, aRecordLimit,
+        'cached planning inventory rows');
       lItemIndex := lFields[21].AsInteger;
       if (lItemIndex < 0) or (lItemIndex >= lExpectedSymbolCount) then
         raise Exception.Create('Snapshot remove-with symbol row count mismatch.');
@@ -2699,7 +2708,7 @@ begin
 
   lEvidence := LoadValueMemberEvidence(aProjectKey, aConnection);
   if not lFacts.LookupIndex.IsAvailable then
-    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build([],
+    lFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact([],
       LoadedInventorySymbols(aBuilder.ExactStrings, lFacts.Symbols));
   lFacts.LookupIndex.AttachValueMemberEvidence(lEvidence);
   lUnitId := 0;
@@ -4553,6 +4562,13 @@ end;
 function TDelphiSemanticSnapshotSqliteCache.TryLoadProjectRemoveWithPlanningFacts(
   const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
   out aSnapshot: TDelphiProjectSnapshot): Boolean;
+begin
+  Result := TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot, 0);
+end;
+
+function TDelphiSemanticSnapshotSqliteCache.TryLoadProjectRemoveWithPlanningFacts(
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  out aSnapshot: TDelphiProjectSnapshot; const aRecordLimit: Integer): Boolean;
 var
   lBuilder: TDelphiProjectSnapshotBuilder;
   lProjectKey: Int64;
@@ -4560,6 +4576,7 @@ var
   lEntryBelongsToIdentity: Boolean;
   lError: string;
   lIndexRebuildStopwatch: TStopwatch;
+  lBudgetQuery: TFDQuery;
 begin
   Result := False;
   aSnapshot := nil;
@@ -4581,11 +4598,28 @@ begin
     Exit;
   end;
 
+  lBudgetQuery := NewQuery(lConnectionObject as TFDConnection,
+    'select symbol_count, (select count(*) from snapshot_remove_with_symbols where project_key = ?) ' +
+    'from snapshot_remove_with_facts where project_key = ?');
+  try
+    lBudgetQuery.Params[0].AsLargeInt := lProjectKey;
+    lBudgetQuery.Params[1].AsLargeInt := lProjectKey;
+    lBudgetQuery.Open;
+    if not lBudgetQuery.Eof then
+    begin
+      RequireWithInventoryBudget(lBudgetQuery.Fields[0].AsLargeInt, aRecordLimit,
+        'cached planning inventory metadata');
+      RequireWithInventoryBudget(lBudgetQuery.Fields[1].AsLargeInt, aRecordLimit,
+        'cached planning inventory rows');
+    end;
+  finally
+    lBudgetQuery.Free;
+  end;
   lBuilder := TDelphiProjectSnapshotBuilder.Create;
   try
     try
       LoadExactStrings(aIdentity.CacheKey, lProjectKey, lConnectionObject, lBuilder.ExactStrings, True);
-      LoadRemoveWithPlanningFacts(lProjectKey, lConnectionObject, lBuilder);
+      LoadRemoveWithPlanningFacts(lProjectKey, lConnectionObject, lBuilder, aRecordLimit);
       LoadRemoveWithVisibility(lProjectKey, lConnectionObject, lBuilder);
       lIndexRebuildStopwatch := TStopwatch.StartNew;
       aSnapshot := lBuilder.Build;
@@ -4598,6 +4632,8 @@ begin
     except
       on E: Exception do
       begin
+        if E is EDelphiSemanticWithInventoryBudget then
+          raise;
         aSnapshot.Free;
         aSnapshot := nil;
         DeleteCacheKey(aIdentity.CacheKey);

@@ -75,6 +75,8 @@
     <DCCReference Include="src\test.externalsymbols.pas"/>
     <DCCReference Include="src\test.globalvars.pas"/>
     <DCCReference Include="src\test.lspboundary.pas"/>
+    <DCCReference Include="src\test.memberindexparity.pas"/>
+    <DCCReference Include="src\test.memberresolver.legacy809.pas"/>
     <DCCReference Include="src\test.memberresolver.pas"/>
     <DCCReference Include="src\test.memberresolveraccessoverloads.pas"/>
     <DCCReference Include="src\test.memberresolverinheritedhelpers.pas"/>
@@ -114,7 +116,9 @@
     <DCCReference Include="src\test.usage.pas"/>
     <DCCReference Include="src\test.unitmodel.pas"/>
     <DCCReference Include="src\test.withdiscovery.pas"/>
+    <DCCReference Include="src\test.currentclassmembers.pas"/>
     <DCCReference Include="src\test.withbinding.pas"/>
+    <DCCReference Include="src\test.withbindingindexstorage.pas"/>
     <DCCReference Include="src\test.withscan.pas"/>
     <DCCReference Include="src\test.withbinder.pas"/>
     <DCCReference Include="..\..\DelphiAiKit\src\Dak.CompilerDefineSettings.pas"/>
@@ -169,6 +173,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Usage.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Version.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithScan.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.WithBinding.Budget.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.Inventory.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Consistency.GuidInventory.pas"/>

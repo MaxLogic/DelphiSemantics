@@ -7,6 +7,35 @@
 - Remove-with reports unverified helper and inherited-member scopes explicitly instead of reporting a missing receiver member. The safety refusals and planned rewrites are unchanged (DS-795).
 - Remove-with avoids unused instance captures for class constants, class variables, explicit static methods and static class properties, and registers every unit constant declared on one line (DS-647).
 
+- EOF parse error positions are deterministic for multiline strings ending at the input boundary (DS-812).
+
+- WITH inventory scans reuse a pass-owned source buffer and line offsets while preserving lexical fallback, record order and budget outcomes (DS-810 S2).
+
+- Semantic graph construction evaluates forward-class visibility candidates once per unit, preserving declaration identities and array order (DS-810 S1).
+
+- WITH binding also omits the unused unit/member map and its dead lookup helpers, preserving live lookup order and results (DS-809 follow-up A-SF-1).
+
+- WITH binding no longer builds an unused context-member index, and refusal identities have deterministic scalar fields before cache storage (DS-809 follow-ups).
+
+- Semantic member-index construction snapshots graph arrays once and avoids managed-record copies during candidate scans, preserving lookup results and order (DS-809).
+
+- WITH binding shares immutable context members and indexes one symbol snapshot by ordered ordinals, releasing construction buffers before later indexes (DS-809).
+
+- Cached WITH context reconstruction honors the request record-limit override on combined-payload and SQLite replay (DS-805 follow-up).
+
+- Capture proofs index physical routine candidates and tokenize each source projection once, preserving ordered proof contents and refusals (DS-807).
+
+- WITH inventories omit eager current-class projections and reconstruct exact ordered routine views on demand; older semantic caches rebuild and the stored-record budget remains enforced (DS-805).
+
+- WITH inventory refusals identify the threshold crossing without claiming a measured project total; compatibility planning returns a blocked result, and native-evidence renewal stops on budget refusal (DAK-491).
+
+- WITH binding/planning refuses incomplete project inventories above the native one-million-record default, including cache replay; an explicit record-limit override is available with proportionally higher memory use (DAK-491).
+
+- Unit extraction indexes lexical scope and declaration candidates and shares the immutable source buffer between routine-header readers, reducing repeated work on large units while preserving model contents (DAK-491).
+- Snapshot header-type checks reuse line-start positions, and reference lookups index unit and visibility candidates and avoid repeated managed-record copies while preserving source-coordinate checks, lookup order and ambiguity refusals (DAK-491).
+- Symbol-index construction reuses a routine lookup, and model-cache serialization shares one JSON object between model and evidence fields, preserving ambiguity refusals and serialized contents (DAK-491).
+- Global analysis rejects names without global candidates before local-shadow scans. Legacy indexing memoizes visible-unit and routine resolutions; dependency/import lookups avoid copying nonmatching models. Dead-code checks reuse source positions and exports blocks; WITH inventory construction reuses routine-line facts, nested ends and exact alias-position buckets while preserving name comparisons and conservative blockers (DAK-491).
+
 - WITH planning excludes certified inactive anonymous-record fields, refuses unknown field activity, and preserves separate anonymous-record members and multi-variable declarations through SQLite reloads.
 - Anonymous-record completeness uses the compiler include classifier for `INCLUDE+name` and `INCLUDE-name`.
 - SQLite snapshot child rows use integer ownership keys to reduce cache size and repeated-key work; older storage generations rebuild (DS-793).

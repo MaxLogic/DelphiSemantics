@@ -94,6 +94,7 @@ uses
   DelphiSemantics.Usage in '..\src\DelphiSemantics.Usage.pas',
   DelphiSemantics.Version in '..\src\DelphiSemantics.Version.pas',
   DelphiSemantics.WithBinding in '..\src\DelphiSemantics.WithBinding.pas',
+  DelphiSemantics.WithBinding.Budget in '..\src\DelphiSemantics.WithBinding.Budget.pas',
   DelphiSemantics.WithBinding.Inventory in '..\src\DelphiSemantics.WithBinding.Inventory.pas',
   DelphiSemantics.WithScan in '..\src\DelphiSemantics.WithScan.pas',
   Test.Api in 'src\test.api.pas',
@@ -106,6 +107,8 @@ uses
   Test.ExternalSymbols in 'src\test.externalsymbols.pas',
   Test.GlobalVars in 'src\test.globalvars.pas',
   Test.LspBoundary in 'src\test.lspboundary.pas',
+  Test.MemberIndexParity in 'src\test.memberindexparity.pas',
+  Test.MemberResolver.Legacy809 in 'src\test.memberresolver.legacy809.pas',
   Test.MemberResolver in 'src\test.memberresolver.pas',
   Test.MemberResolverAccessOverloads in 'src\test.memberresolveraccessoverloads.pas',
   Test.MemberResolverInheritedHelpers in 'src\test.memberresolverinheritedhelpers.pas',
@@ -147,7 +150,9 @@ uses
   Test.UnitResolver in 'src\test.unitresolver.pas',
   Test.Usage in 'src\test.usage.pas',
   Test.WithBinder in 'src\test.withbinder.pas',
+  Test.CurrentClassMembers in 'src\test.currentclassmembers.pas',
   Test.WithBinding in 'src\test.withbinding.pas',
+  Test.WithBindingIndexStorage in 'src\test.withbindingindexstorage.pas',
   Test.WithDiscovery in 'src\test.withdiscovery.pas',
   Test.WithScan in 'src\test.withscan.pas';
 

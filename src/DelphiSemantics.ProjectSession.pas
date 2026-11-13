@@ -244,13 +244,13 @@ uses
   {$ENDIF}
   DelphiSemantics.Snapshot.ContextEvidence, DelphiSemantics.Snapshot.RemoveWith,
   DelphiSemantics.Snapshot.TargetIdentity,
-  DelphiSemantics.Source, DelphiSemantics.Version,
+  DelphiSemantics.Source, DelphiSemantics.Version, DelphiSemantics.WithBinding.Budget,
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2000-tr1116-integrated';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v2001-tr1117-integrated';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v2000-tr1116-integrated';
+    'project-session-remove-with-facts-v2001-tr1117-integrated';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -1080,7 +1080,7 @@ begin
     Exit;
   lIdentity := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions,
     aSourceFileNames, aScopedSourceFileNames, aUnitCacheIdentities, aWitness.IdentityText);
-  lText := 'combined-remove-with-facts-v1|' + lIdentity.CacheKey + '|' +
+  lText := 'combined-remove-with-facts-v3|' + lIdentity.CacheKey + '|' +
     aProject.ContextObservations.EvidenceFingerprint + '|' +
     aProject.ContextObservations.ConfigurationIdentity + '|' +
     BoolToStr(aOptions.ForceFullIdentifierAnalysis, True) + '|' +
@@ -1150,14 +1150,19 @@ begin
     lReadMilliseconds := lStopwatch.ElapsedMilliseconds;
     lStopwatch := TStopwatch.StartNew;
     try
+      RequireCombinedInventoryBudget(lPayloadText, aOptions.WithInventoryRecordLimit);
       lPayload := lSerializer.Deserialize<TCombinedPlanningFactsPayload>(lPayloadText);
+      RequireWithInventoryBudget(Length(lPayload.Symbols), aOptions.WithInventoryRecordLimit,
+        'cached combined inventory');
       // Reject incomplete, unknown or noncanonical fields, not just malformed JSON.
-      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v1') or
+      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v3') or
         (lPayload.ContextFingerprint <> aContextFingerprint) or
         (lSerializer.Serialize<TCombinedPlanningFactsPayload>(lPayload) <> lPayloadText);
     except
       on E: Exception do
       begin
+        if E is EDelphiSemanticWithInventoryBudget then
+          raise;
         aInvalid := True;
         OutputDebugString(PChar('DAK-477 combined facts decode miss: ' + E.Message));
       end;
@@ -1171,11 +1176,14 @@ begin
       aFacts.Symbols := lPayload.Symbols;
       aFacts.Bindings := lPayload.Bindings;
       aFacts.UnitModels := Copy(aModels);
-      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.Build(aModels, aFacts.Symbols);
+      aFacts.LookupIndex := TDelphiSemanticRemoveWithLookupIndex.BuildCompact(aModels,
+        aFacts.Symbols, aOptions.WithInventoryRecordLimit);
       aFacts.LookupIndex.AttachValueMemberEvidence(lPayload.ValueEvidence);
     except
       on E: Exception do
       begin
+        if E is EDelphiSemanticWithInventoryBudget then
+          raise;
         aInvalid := True;
         aFacts := Default(TDelphiSemanticProjectWithBindingFacts);
         OutputDebugString(PChar('DAK-477 combined facts reconstruction miss: ' + E.Message));
@@ -1225,7 +1233,7 @@ var
   lSerializer: TJsonSerializer;
 begin
   lPayload := Default(TCombinedPlanningFactsPayload);
-  lPayload.Schema := 'combined-remove-with-facts-v1';
+  lPayload.Schema := 'combined-remove-with-facts-v3';
   lPayload.ContextFingerprint := aFacts.ContextFingerprint;
   lPayload.Symbols := aFacts.Symbols;
   lPayload.Bindings := aFacts.Bindings;
@@ -1350,7 +1358,7 @@ begin
     begin
       lFacts := TDelphiSemanticWithBinder.BindProject(
         aProject.ContextFingerprint, lGraph, lExtraction.Models,
-        aOptions.ImplicitRootMemberAbsence, lWitness);
+        aOptions.ImplicitRootMemberAbsence, lWitness, aOptions.WithInventoryRecordLimit);
       if Result.CacheIdentity <> '' then
       begin
         lFacts.Metrics.ProjectFactsCacheMisses := 1;
@@ -1591,7 +1599,8 @@ begin
 end;
 
 function BuildCachedRemoveWithSnapshotWithLookup(const aCachedSnapshot:
-  TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>):
+  TDelphiProjectSnapshot; const aModels: TArray<TDelphiSemanticUnitModel>;
+  const aRecordLimit: Integer):
   TDelphiProjectSnapshot;
 var
   i: Cardinal;
@@ -1610,6 +1619,9 @@ begin
     for i := 1 to aCachedSnapshot.ExactStringCount do
       lBuilder.ExactStrings.Intern(aCachedSnapshot.ExactTextOf(TSemanticStringId(i)));
     lFacts := aCachedSnapshot.RemoveWithPlanningFacts;
+    // DS-805: persisted members omit projections. Restore the exact scanner
+    // contexts from these already validated models before exposing lookups.
+    lFacts.LookupIndex.RebuildCurrentClassMembers(aModels, aRecordLimit);
     // Keep the loaded inventory and value evidence in the original project identity
     // domain. The cache loader already validated their source and activity witnesses.
     lBuilder.SetRemoveWithPlanningFactsOwned(lFacts);
@@ -1655,7 +1667,7 @@ begin
 end;
 
 function TryLoadProjectRemoveWithFactsFromCache(const aCacheFileName: string;
-  const aIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  const aIdentity: TDelphiSemanticSnapshotCacheIdentity; const aRecordLimit: Integer;
   out aSnapshot: TDelphiProjectSnapshot;
   out aCacheMetrics: TDelphiSemanticSnapshotCacheMetrics): Boolean;
 var
@@ -1669,7 +1681,7 @@ begin
 
   lCache := TDelphiSemanticSnapshotSqliteCache.Create(aCacheFileName);
   try
-    Result := lCache.TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot);
+    Result := lCache.TryLoadProjectRemoveWithPlanningFacts(aIdentity, aSnapshot, aRecordLimit);
     aCacheMetrics := lCache.Metrics;
   finally
     lCache.Free;
@@ -2832,14 +2844,14 @@ begin
       lSourceFileNames, aScopedSourceFileNames, lUnitCacheIdentities, lWitness.IdentityText);
     lCacheSnapshot := nil;
     if TryLoadProjectRemoveWithFactsFromCache(fOptions.SqliteCacheFileName,
-      lProjectFactsIdentity, lCacheSnapshot, lCacheSnapshotMetrics) then
+      lProjectFactsIdentity, fOptions.WithInventoryRecordLimit, lCacheSnapshot, lCacheSnapshotMetrics) then
     begin
       try
         AccumulateProjectFactsCacheMetrics(Result.SnapshotMetrics,
           lCacheSnapshotMetrics);
         Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
         lSnapshot := BuildCachedRemoveWithSnapshotWithLookup(lCacheSnapshot,
-          lExtraction.Models);
+          lExtraction.Models, fOptions.WithInventoryRecordLimit);
         try
           lCachedPlan := TDelphiSemanticRemoveWithPlanner.Plan(lSnapshot);
           if not CachedRemoveWithPlanNeedsModelRebuild(lCachedPlan) then
@@ -2863,7 +2875,8 @@ begin
           else
             Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
           lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint,
-            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
+            lGraph, lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness,
+            fOptions.WithInventoryRecordLimit);
           lSnapshot := BuildSnapshotFromModels(lExtraction.Models, lFacts, False,
             fOptions.SnapshotBuildWorkerCount, lFallbackMetrics);
           try
@@ -2908,7 +2921,8 @@ begin
       Result.SemanticGraphMetrics := Default(TDelphiSemanticGraphBuildMetrics);
 
     lFacts := TDelphiSemanticWithBinder.BindProject(fProject.ContextFingerprint, lGraph,
-      lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness);
+      lExtraction.Models, fOptions.ImplicitRootMemberAbsence, lWitness,
+      fOptions.WithInventoryRecordLimit);
     RequireCurrentRequestModels(fOptions, lExtraction.Models);
     lFacts.Metrics.ModelExtractionMilliseconds := lExtraction.ExtractionMilliseconds;
     lFacts.Metrics.SemanticCacheHits := lExtraction.CacheMetrics.CacheHits;

@@ -255,12 +255,14 @@ constructor TDelphiSemanticMemberIdentityIndexData.Create(
   const aGraph: TDelphiSemanticSemanticGraph;
   const aTypeIndex: TDelphiSemanticTypeIdentityIndex);
 var
-  lGraphMember: TDelphiSemanticGraphMember;
-  lGraphType: TDelphiSemanticGraphType;
-  lGraphRoutine: TDelphiSemanticGraphRoutine;
+  lGraphMembers: TArray<TDelphiSemanticGraphMember>;
+  lGraphRoutines: TArray<TDelphiSemanticGraphRoutine>;
+  lGraphTypes: TArray<TDelphiSemanticGraphType>;
+  lGraphUnits: TArray<TDelphiSemanticGraphUnit>;
+  lMemberIndex, lRoutineIndex, lTypeIndex, lUnitIndex: Integer;
+  lRoutinesCaptured: Boolean;
   lPossiblyLocal: Boolean;
   lMember: TDelphiSemanticMemberIdentity;
-  lUnit: TDelphiSemanticGraphUnit;
 begin
   inherited Create;
   fTypeIndex := aTypeIndex;
@@ -274,60 +276,76 @@ begin
 
   fUnitFacts := TDictionary<string, TDelphiSemanticDirectiveFacts>.Create(
     TFastCaseAwareComparer.OrdinalIgnoreCase);
-  for lUnit in aGraph.Units do
+  lGraphUnits := aGraph.Units;
+  for lUnitIndex := 0 to High(lGraphUnits) do
   begin
-    fUnitNamesById.AddOrSetValue(lUnit.Id.Value, lUnit.UnitName);
-    fUnitFacts.AddOrSetValue(lUnit.UnitName, lUnit.DirectiveFacts);
+    fUnitNamesById.AddOrSetValue(lGraphUnits[lUnitIndex].Id.Value, lGraphUnits[lUnitIndex].UnitName);
+    fUnitFacts.AddOrSetValue(lGraphUnits[lUnitIndex].UnitName, lGraphUnits[lUnitIndex].DirectiveFacts);
   end;
 
-  for lGraphMember in aGraph.Members do
+  // Public graph getters return independent array copies. Capture each once;
+  // direct field reads avoid managed-record assignment for rejected candidates.
+  lGraphMembers := aGraph.Members;
+  if Length(lGraphMembers) > 0 then
+    lGraphTypes := aGraph.Types;
+  lRoutinesCaptured := False;
+  for lMemberIndex := 0 to High(lGraphMembers) do
   begin
     lMember := Default(TDelphiSemanticMemberIdentity);
-    lMember.SymbolId := lGraphMember.SymbolId;
-    lMember.UnitId := lGraphMember.UnitId;
+    lMember.SymbolId := lGraphMembers[lMemberIndex].SymbolId;
+    lMember.UnitId := lGraphMembers[lMemberIndex].UnitId;
     fUnitNamesById.TryGetValue(lMember.UnitId.Value, lMember.UnitName);
-    lMember.OwnerName := lGraphMember.OwnerName;
-    lMember.OwnerScopeId := lGraphMember.OwnerScopeId;
-    lMember.OwnerSymbolId := lGraphMember.OwnerSemanticSymbolId;
+    lMember.OwnerName := lGraphMembers[lMemberIndex].OwnerName;
+    lMember.OwnerScopeId := lGraphMembers[lMemberIndex].OwnerScopeId;
+    lMember.OwnerSymbolId := lGraphMembers[lMemberIndex].OwnerSemanticSymbolId;
     // Source owner facts identify the bucket; no visibility lookup participates.
-    for lGraphType in aGraph.Types do
-      if SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
-        SameText(lGraphType.Name, lMember.OwnerName) and
+    for lTypeIndex := 0 to High(lGraphTypes) do
+      if SameText(lGraphTypes[lTypeIndex].UnitId.Value, lMember.UnitId.Value) and
+        SameText(lGraphTypes[lTypeIndex].Name, lMember.OwnerName) and
         (((lMember.OwnerScopeId = '') and
-          (not SameText(lGraphType.ScopeKind, 'routine'))) or
+          (not SameText(lGraphTypes[lTypeIndex].ScopeKind, 'routine'))) or
         ((lMember.OwnerScopeId <> '') and
-          SameText(lGraphType.OwnerScopeId, lMember.OwnerScopeId) and
+          SameText(lGraphTypes[lTypeIndex].OwnerScopeId, lMember.OwnerScopeId) and
           (lMember.OwnerSymbolId <> '') and
-          SameText(lGraphType.SemanticSymbolId, lMember.OwnerSymbolId))) then
+          SameText(lGraphTypes[lTypeIndex].SemanticSymbolId, lMember.OwnerSymbolId))) then
       begin
         if (lMember.OwnerDeclaredId.Value <> '') and
-          (lMember.OwnerDeclaredId.Value <> lGraphType.DeclaredId.Value) then
+          (lMember.OwnerDeclaredId.Value <> lGraphTypes[lTypeIndex].DeclaredId.Value) then
         begin
           lMember.OwnerDeclaredId := Default(TDelphiSemanticGraphTypeId);
           Break;
         end;
-        lMember.OwnerDeclaredId := lGraphType.DeclaredId;
+        lMember.OwnerDeclaredId := lGraphTypes[lTypeIndex].DeclaredId;
       end;
-    lMember.Name := lGraphMember.Name;
-    lMember.Kind := lGraphMember.Kind;
-    lMember.TypeName := lGraphMember.TypeName;
-    lMember.Visibility := lGraphMember.Visibility;
-    lMember.Signature := lGraphMember.Signature;
-    lMember.IsIndexed := lGraphMember.IsIndexed;
-    lMember.IsDefault := lGraphMember.IsDefault;
-    lMember.SourceRange := lGraphMember.SourceRange;
+    lMember.Name := lGraphMembers[lMemberIndex].Name;
+    lMember.Kind := lGraphMembers[lMemberIndex].Kind;
+    lMember.TypeName := lGraphMembers[lMemberIndex].TypeName;
+    lMember.Visibility := lGraphMembers[lMemberIndex].Visibility;
+    lMember.Signature := lGraphMembers[lMemberIndex].Signature;
+    lMember.IsIndexed := lGraphMembers[lMemberIndex].IsIndexed;
+    lMember.IsDefault := lGraphMembers[lMemberIndex].IsDefault;
+    lMember.SourceRange := lGraphMembers[lMemberIndex].SourceRange;
     lPossiblyLocal := False;
     if lMember.OwnerScopeId = '' then
-      for lGraphType in aGraph.Types do
-        if SameText(lGraphType.ScopeKind, 'routine') and
-          SameText(lGraphType.UnitId.Value, lMember.UnitId.Value) and
-          SameText(lGraphType.Name, lMember.OwnerName) and
-          (lGraphType.SourceRange.Line <= lMember.SourceRange.Line) then
-          for lGraphRoutine in aGraph.Routines do
-            if SameText(lGraphRoutine.UnitId.Value, lMember.UnitId.Value) and
-              SameText(lGraphRoutine.ScopeId, lGraphType.OwnerScopeId) and
-              (lGraphRoutine.SourceRange.EndLine >= lMember.SourceRange.Line) then
+      for lTypeIndex := 0 to High(lGraphTypes) do
+        if SameText(lGraphTypes[lTypeIndex].ScopeKind, 'routine') and
+          SameText(lGraphTypes[lTypeIndex].UnitId.Value, lMember.UnitId.Value) and
+          SameText(lGraphTypes[lTypeIndex].Name, lMember.OwnerName) and
+          (lGraphTypes[lTypeIndex].SourceRange.Line <= lMember.SourceRange.Line) then
+        begin
+          // Most graphs never need this local-type fallback. Remember an empty
+          // snapshot too, so a later candidate cannot copy the array again.
+          if not lRoutinesCaptured then
+          begin
+            lGraphRoutines := aGraph.Routines;
+            lRoutinesCaptured := True;
+          end;
+          for lRoutineIndex := 0 to High(lGraphRoutines) do
+            if SameText(lGraphRoutines[lRoutineIndex].UnitId.Value, lMember.UnitId.Value) and
+              SameText(lGraphRoutines[lRoutineIndex].ScopeId, lGraphTypes[lTypeIndex].OwnerScopeId) and
+              (lGraphRoutines[lRoutineIndex].SourceRange.EndLine >= lMember.SourceRange.Line) then
               lPossiblyLocal := True;
+        end;
     if lPossiblyLocal then
       Continue;
     AddMember(lMember);

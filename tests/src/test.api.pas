@@ -74,6 +74,13 @@ type
     procedure RemoveWithLegacyFactBuildFailsLoudlyOnSessionDiagnostics;
     [Test]
     procedure RemoveWithRequestOwnsBodyAnalysisScope;
+    [TestCase('Cold', 'False')]
+    [TestCase('Combined cache replay', 'True')]
+    procedure WithInventoryBudgetRefusesIncompletePlan(const aCached: Boolean);
+    [Test]
+    procedure WithInventoryBudgetAppliesToPrimaryCache;
+    [Test]
+    procedure CompatibilityPlanBudgetReturnsBlockedResult;
   end;
 
 implementation
@@ -751,6 +758,118 @@ begin
     'Remove-with request scope must suppress bindings for non-scoped source files.');
   Assert.IsTrue(HasProjectSymbol(lFacts, 'TUnreferencedRecord', 'declaration'),
     'Remove-with request scope must still preserve declarations from loaded sources.');
+end;
+
+procedure TApiTests.CompatibilityPlanBudgetReturnsBlockedResult;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lPlan: DelphiSemantics.Api.RemoveWith.Compatibility.TDelphiSemanticRemoveWithPlan;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.RemoveWithOptions.RecordLimit := 1;
+  try
+    lPlan := TDelphiSemanticRemoveWithCompatibilityApi.PlanRemoveWith(lRequest);
+  except
+    on E: Exception do
+      Assert.Fail('Budget exception escaped the plan API: ' + E.ClassName + ': ' + E.Message);
+  end;
+  Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
+  Assert.AreEqual('remove-with', lPlan.Operation);
+  Assert.AreEqual(1, Integer(Length(lPlan.Diagnostics)));
+  Assert.AreEqual('WITH_INVENTORY_BUDGET_EXCEEDED', lPlan.Diagnostics[0].Code);
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'coverage is incomplete'), lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Statements)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+end;
+
+procedure TApiTests.WithInventoryBudgetAppliesToPrimaryCache;
+var
+  lRequest: TDelphiSemanticRemoveWithRequest;
+  lPlan: DelphiSemantics.Api.RemoveWith.TDelphiSemanticRemoveWithPlan;
+begin
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := FixturePath('ProjectWithBinding\ProjectWithBinding.dproj');
+  lRequest.Options.Cache.SqliteCacheFileName := TPath.Combine(
+    CreateTestTempRoot('primary-budget-temp'), 'facts.sqlite3');
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.RemoveWithOptions.RecordLimit := 10000;
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+  Assert.IsTrue(Length(lPlan.Statements) > 0);
+  lRequest.RemoveWithOptions.RecordLimit := 1;
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+  Assert.AreEqual('blocked', lPlan.Status, 'A cached plan must obey the current request budget');
+  Assert.AreEqual('WITH_INVENTORY_BUDGET_EXCEEDED', lPlan.Diagnostics[0].Code);
+  Assert.IsTrue(ContainsText(lPlan.Diagnostic, 'cached planning inventory'), lPlan.Diagnostic);
+  Assert.AreEqual(0, Integer(Length(lPlan.Statements)));
+  Assert.AreEqual(0, Integer(Length(lPlan.Edits)));
+  lRequest.RemoveWithOptions.RecordLimit := 10000;
+  lPlan := TDelphiSemanticRemoveWithApi.PlanRemoveWith(lRequest);
+  Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+end;
+
+procedure TApiTests.WithInventoryBudgetRefusesIncompletePlan(const aCached: Boolean);
+var
+  i: Integer;
+  lExpected, lActual: TDelphiSemanticRemoveWithCombinedResult;
+  lRootPath, lSource: string;
+  lRequest: TDelphiSemanticRemoveWithRequest;
+begin
+  lRootPath := CreateTestTempRoot('with-budget-temp');
+  lSource := 'unit BudgetUnit;'#13#10 + 'interface'#13#10 +
+    'type TReceiver = class'#13#10;
+  for i := 1 to 20 do
+    lSource := lSource + Format('  Field%d: Integer;'#13#10, [i]);
+  for i := 1 to 40 do
+    lSource := lSource + Format('  procedure Method%d;'#13#10, [i]);
+  lSource := lSource + 'end;'#13#10 + 'implementation'#13#10;
+  for i := 1 to 40 do
+    lSource := lSource + Format('procedure TReceiver.Method%d;'#13#10 +
+      'begin with Self do Field1 := Field1 + 1; end;'#13#10, [i]);
+  lSource := lSource + 'end.'#13#10;
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'BudgetUnit.pas'), lSource, TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRootPath, 'BudgetProject.dpr'),
+    'program BudgetProject; uses BudgetUnit; begin end.', TEncoding.UTF8);
+  lRequest := Default(TDelphiSemanticRemoveWithRequest);
+  lRequest.Options.ProjectFileName := TPath.Combine(lRootPath, 'BudgetProject.dproj');
+  TFile.WriteAllText(lRequest.Options.ProjectFileName,
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>BudgetProject.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="BudgetUnit.pas"/></ItemGroup></Project>', TEncoding.UTF8);
+  lRequest.RemoveWithOptions.SkipSemanticGraph := True;
+  lRequest.RemoveWithOptions.RecordLimit := 10000;
+  if aCached then
+  begin
+    lRequest.Options.Cache.SqliteCacheFileName := TPath.Combine(lRootPath, 'facts.sqlite3');
+    lRequest.Options.PlanningCacheInputsProvided := True;
+    SetLength(lRequest.Options.PlanningCacheInputs, 1);
+    lRequest.Options.PlanningCacheInputs[0].Name := 'fixture-context';
+    lRequest.Options.PlanningCacheInputs[0].Value := 'with-budget-v1';
+    lExpected := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lRequest);
+    Assert.IsTrue(lExpected.Success, lExpected.Plan.Diagnostic);
+    Assert.AreEqual('stored', lExpected.Facts.Metrics.ProjectFactsCacheStoreOutcome);
+  end;
+  lRequest.RemoveWithOptions.RecordLimit := 128;
+  lActual := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lRequest);
+  Assert.IsFalse(lActual.Success, 'An over-budget inventory must refuse the entire plan');
+  Assert.AreEqual('blocked', lActual.Plan.Status);
+  Assert.AreEqual('WITH_INVENTORY_BUDGET_EXCEEDED', lActual.Diagnostics[0].Code);
+  Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'limit=128'));
+  Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'exceeded at 129 records (total not measured)'));
+  Assert.IsTrue(ContainsText(lActual.Diagnostics[0].Message, 'coverage is incomplete'));
+  Assert.AreEqual(0, Integer(Length(lActual.Facts.Symbols)));
+  Assert.AreEqual(0, Integer(Length(lActual.Facts.Bindings)));
+  Assert.AreEqual(0, Integer(Length(lActual.Plan.FinalStatements)));
+  Assert.AreEqual(0, Integer(Length(lActual.Plan.Edits)));
+  // A failed request must release its inventory and leave a higher override usable.
+  lRequest.RemoveWithOptions.RecordLimit := 10000;
+  lActual := TDelphiSemanticRemoveWithCompatibilityApi.BuildProjectWithBindingFactsAndPlanResult(lRequest);
+  Assert.IsTrue(lActual.Success, lActual.Plan.Diagnostic);
+  Assert.AreEqual(40, Integer(Length(lActual.Plan.FinalStatements)));
+  if aCached then
+    Assert.AreEqual<Int64>(1, lActual.Facts.Metrics.ProjectFactsCacheHits);
 end;
 
 initialization

@@ -111,6 +111,7 @@
     <DCCReference Include="..\src\DelphiSemantics.Symbols.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.Usage.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.pas"/>
+    <DCCReference Include="..\src\DelphiSemantics.WithBinding.Budget.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithBinding.Inventory.pas"/>
     <DCCReference Include="..\src\DelphiSemantics.WithScan.pas"/>
     <DCCReference Include="src\test.support.pas"/>

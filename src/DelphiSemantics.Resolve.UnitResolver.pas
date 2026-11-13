@@ -223,16 +223,16 @@ procedure AddModelCandidates(const aItems: TList<TUnitCandidateRank>;
   const aRequestedName: string; const aNameInfo: TUnitCandidateName; const aRank: Integer);
 var
   lCandidate: TDelphiSemanticUnitResolutionCandidate;
-  lModel: TDelphiSemanticUnitModel;
+  i: Integer;
 begin
-  for lModel in aUnitModels do
-    if SameText(lModel.UnitName, aNameInfo.TargetName) then
+  for i := 0 to High(aUnitModels) do
+    if SameText(aUnitModels[i].UnitName, aNameInfo.TargetName) then
     begin
       lCandidate := Default(TDelphiSemanticUnitResolutionCandidate);
       lCandidate.RequestedName := aRequestedName;
       lCandidate.CandidateName := aNameInfo.TargetName;
-      lCandidate.CanonicalUnitName := lModel.UnitName;
-      lCandidate.FileName := lModel.FileName;
+      lCandidate.CanonicalUnitName := aUnitModels[i].UnitName;
+      lCandidate.FileName := aUnitModels[i].FileName;
       lCandidate.SourceKind := 'project';
       lCandidate.MatchKind := aNameInfo.MatchKind;
       lCandidate.UnitScopeName := aNameInfo.UnitScopeName;

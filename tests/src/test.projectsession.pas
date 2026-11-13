@@ -55,6 +55,7 @@ type
     [TestCase('Warm accepted', 'hit-accept')]
     procedure RequestOwnerSealsEveryModelBeforePublication(const aMode: string);
     [Test]
+    [TestCase('Before compact current-class inventory', '101')]
     [TestCase('Before namespace candidate competition', '86')]
     [TestCase('Before indexed record helper completeness', '88')]
     [TestCase('Before SDK-only witness scope', '68')]
@@ -86,6 +87,7 @@ type
     procedure ProjectSessionOpensFromProjectFileName;
     [Category('Fast')]
     [Test]
+    [TestCase('Before compact current-class inventory', '70')]
     [TestCase('Before inactive WITH safety', '46')]
     [TestCase('Before namespace candidate competition', '56')]
     procedure RebuildsSnapshotBeforeInactiveNestedWithSafety(const aVersion: string);
@@ -208,6 +210,7 @@ type
     [TestCase('Corrupt payload', 'corrupt')]
     [TestCase('Partial payload', 'partial')]
     [TestCase('Obsolete payload schema', 'obsolete-payload')]
+    [TestCase('Lane payload schema', 'obsolete-payload-v2')]
     [TestCase('Uncertified inputs', 'uncertified')]
     [TestCase('Corrupt SQLite file', 'corrupt-file')]
     [TestCase('Partial SQLite file', 'partial-file')]
@@ -3267,7 +3270,10 @@ begin
           lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = substr(payload, 1, length(payload) / 2)')
         else begin
           lPayload := lConnection.ExecSQLScalar('SELECT payload FROM combined_remove_with_facts');
-          lPayload := lPayload.Replace('combined-remove-with-facts-v1', 'combined-remove-with-facts-v0');
+          if aScenario = 'obsolete-payload-v2' then
+            lPayload := lPayload.Replace('combined-remove-with-facts-v3', 'combined-remove-with-facts-v2')
+          else
+            lPayload := lPayload.Replace('combined-remove-with-facts-v3', 'combined-remove-with-facts-v1');
           lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = ?, payload_hash = ?',
             [lPayload, THashSHA2.GetHashString(lPayload)]);
         end;

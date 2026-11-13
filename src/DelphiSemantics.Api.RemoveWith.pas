@@ -67,6 +67,8 @@ type
 
   TDelphiSemanticRemoveWithOptions = record
     SkipSemanticGraph: Boolean;
+    // Zero selects the native default; positive values explicitly override it.
+    RecordLimit: Integer;
   end;
 
   TDelphiSemanticRemoveWithRequest = record
@@ -87,7 +89,7 @@ implementation
 
 uses
   DelphiSemantics.Api.ProjectOptions, DelphiSemantics.ProjectContext,
-  DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan;
+  DelphiSemantics.ProjectSession, DelphiSemantics.RemoveWithPlan, DelphiSemantics.WithBinding.Budget;
 
 function ProjectOptionsFromRemoveWithRequest(
   const aRequest: TDelphiSemanticRemoveWithRequest): TDelphiSemanticOptions;
@@ -96,6 +98,7 @@ begin
   if Result.ProjectPath = '' then
     Result.ProjectPath := aRequest.Options.ProjectFileName;
   Result.SkipWithBindingSemanticGraph := aRequest.RemoveWithOptions.SkipSemanticGraph;
+  Result.WithInventoryRecordLimit := aRequest.RemoveWithOptions.RecordLimit;
 end;
 
 function OpenProjectSession(const aRequest: TDelphiSemanticRemoveWithRequest):
@@ -276,10 +279,25 @@ begin
       Exit;
     end;
 
-    lInternalPlan := lSession.Session.PlanRemoveWith(
-      aRequest.BodyAnalysisSourceFileNames);
-    lInternalPlan.Diagnostics := Copy(lSession.Diagnostics);
-    Result := PublicPlanFromInternal(lInternalPlan);
+    try
+      lInternalPlan := lSession.Session.PlanRemoveWith(
+        aRequest.BodyAnalysisSourceFileNames);
+      lInternalPlan.Diagnostics := Copy(lSession.Diagnostics);
+      Result := PublicPlanFromInternal(lInternalPlan);
+    except
+      on E: EDelphiSemanticWithInventoryBudget do
+      begin
+        Result := Default(TDelphiSemanticRemoveWithPlan);
+        Result.Operation := 'remove-with';
+        Result.Status := 'blocked';
+        Result.Diagnostic := E.Message;
+        SetLength(Result.Diagnostics, 1);
+        Result.Diagnostics[0].Code := cWithInventoryBudgetExceeded;
+        Result.Diagnostics[0].Message := E.Message;
+        Result.Diagnostics[0].Severity := dsError;
+        Result.Diagnostics[0].FileName := aRequest.Options.ProjectFileName;
+      end;
+    end;
   finally
     lSession.Session.Free;
   end;

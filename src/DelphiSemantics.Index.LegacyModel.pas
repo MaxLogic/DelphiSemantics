@@ -18,11 +18,16 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.StrUtils, System.SysUtils,
+  System.Generics.Collections, System.Generics.Defaults, System.StrUtils, System.SysUtils,
   DelphiSemantics.Model;
 
 type
   TDelphiSemanticSymbolList = TList<TDelphiSemanticIndexedSymbol>;
+  TLegacyRoutineResolution = record
+    Id: TDelphiSemanticSymbolId;
+    Found: Boolean;
+    Ambiguous: Boolean;
+  end;
 
 function SymbolIdInList(const aIds: TList<TDelphiSemanticSymbolId>;
   const aId: TDelphiSemanticSymbolId): Boolean; forward;
@@ -241,7 +246,7 @@ begin
     Result := aRoutineName;
 end;
 
-function TryResolveUniqueRoutineId(const aIndex: TDelphiSemanticProjectSymbolIndex;
+function ResolveUniqueRoutineId(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
   out aRoutineId: TDelphiSemanticSymbolId; out aAmbiguous: Boolean): Boolean;
 var
@@ -272,6 +277,27 @@ begin
     end;
 
   Result := lCount = 1;
+end;
+
+// The immutable index and model are fixed throughout this reference pass.
+// Reuse both successful and ambiguous/missing routine results without re-copying
+// every same-name symbol array for each reference in the same body (DAK-491).
+function TryResolveUniqueRoutineId(const aIndex: TDelphiSemanticProjectSymbolIndex;
+  const aModel: TDelphiSemanticUnitModel; const aRoutineName: string;
+  out aRoutineId: TDelphiSemanticSymbolId; out aAmbiguous: Boolean;
+  const aRoutines: TDictionary<string, TLegacyRoutineResolution>): Boolean;
+var
+  lResolution: TLegacyRoutineResolution;
+begin
+  if not aRoutines.TryGetValue(aRoutineName, lResolution) then
+  begin
+    lResolution.Found := ResolveUniqueRoutineId(aIndex, aModel, aRoutineName,
+      lResolution.Id, lResolution.Ambiguous);
+    aRoutines.Add(aRoutineName, lResolution);
+  end;
+  aRoutineId := lResolution.Id;
+  aAmbiguous := lResolution.Ambiguous;
+  Result := lResolution.Found;
 end;
 
 function SymbolIdInList(const aIds: TList<TDelphiSemanticSymbolId>;
@@ -305,7 +331,8 @@ end;
 
 function AddLocalReferenceCandidates(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  const aCandidateIds: TList<TDelphiSemanticSymbolId>): Boolean;
+  const aCandidateIds: TList<TDelphiSemanticSymbolId>;
+  const aRoutines: TDictionary<string, TLegacyRoutineResolution>): Boolean;
 var
   lAmbiguousRoutine: Boolean;
   lRoutineId: TDelphiSemanticSymbolId;
@@ -316,7 +343,7 @@ begin
     Exit;
 
   if not TryResolveUniqueRoutineId(aIndex, aModel, aReference.RoutineName, lRoutineId,
-    lAmbiguousRoutine) then
+    lAmbiguousRoutine, aRoutines) then
   begin
     Result := lAmbiguousRoutine;
     Exit;
@@ -360,11 +387,14 @@ end;
 
 procedure AddTopLevelReferenceCandidates(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  const aCandidateIds: TList<TDelphiSemanticSymbolId>);
+  const aCandidateIds: TList<TDelphiSemanticSymbolId>;
+  const aVisibleUnits: TDictionary<string, TArray<string>>);
 var
   lSectionKind: string;
-  lScope: TDelphiSemanticUnitModel;
-  lSymbol: TDelphiSemanticIndexedSymbol;
+  i: Integer;
+  j: Integer;
+  lScopes: TArray<TDelphiSemanticUnitModel>;
+  lUnitNames: TArray<string>;
   lSymbols: TArray<TDelphiSemanticIndexedSymbol>;
 begin
   lSectionKind := aReference.SectionKind;
@@ -372,25 +402,37 @@ begin
     lSectionKind := 'implementation';
 
   lSymbols := aIndex.FindSymbolsByName(aReference.Name);
-  for lScope in aIndex.FindVisibleUnitScopes(aModel.UnitName, lSectionKind) do
-    for lSymbol in lSymbols do
-      if SameText(lSymbol.UnitName, lScope.UnitName) and
-        TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lSymbol) then
-        AddCandidateId(aCandidateIds, lSymbol);
+  // The index is immutable throughout this model's reference pass. Resolve the
+  // same unit/section once and retain only its ordered unit names (DAK-491).
+  if not aVisibleUnits.TryGetValue(lSectionKind, lUnitNames) then
+  begin
+    lScopes := aIndex.FindVisibleUnitScopes(aModel.UnitName, lSectionKind);
+    SetLength(lUnitNames, Length(lScopes));
+    for i := 0 to High(lScopes) do
+      lUnitNames[i] := lScopes[i].UnitName;
+    aVisibleUnits.Add(lSectionKind, lUnitNames);
+  end;
+  for i := 0 to High(lUnitNames) do
+    for j := 0 to High(lSymbols) do
+      if SameText(lSymbols[j].UnitName, lUnitNames[i]) and
+        TopLevelSymbolIsVisibleFromReference(aModel, lSectionKind, lSymbols[j]) then
+        AddCandidateId(aCandidateIds, lSymbols[j]);
 end;
 
 procedure ResolveReference(const aIndex: TDelphiSemanticProjectSymbolIndex;
   const aModel: TDelphiSemanticUnitModel; const aReference: TDelphiSemanticReference;
-  var aIndexedReference: TDelphiSemanticIndexedReference);
+  var aIndexedReference: TDelphiSemanticIndexedReference;
+  const aVisibleUnits: TDictionary<string, TArray<string>>;
+  const aRoutines: TDictionary<string, TLegacyRoutineResolution>);
 var
   lCandidateIds: TList<TDelphiSemanticSymbolId>;
 begin
   lCandidateIds := TList<TDelphiSemanticSymbolId>.Create;
   try
-    if not AddLocalReferenceCandidates(aIndex, aModel, aReference, lCandidateIds) then
+    if not AddLocalReferenceCandidates(aIndex, aModel, aReference, lCandidateIds, aRoutines) then
     begin
       AddOwnedReferenceCandidates(aIndex, aModel, aReference, lCandidateIds);
-      AddTopLevelReferenceCandidates(aIndex, aModel, aReference, lCandidateIds);
+      AddTopLevelReferenceCandidates(aIndex, aModel, aReference, lCandidateIds, aVisibleUnits);
     end;
 
     aIndexedReference.CandidateSymbolIds := lCandidateIds.ToArray;
@@ -415,38 +457,49 @@ procedure AddModelReferences(const aIndex: TDelphiSemanticProjectSymbolIndex;
 var
   lIndexedReference: TDelphiSemanticIndexedReference;
   lReference: TDelphiSemanticReference;
+  lVisibleUnits: TDictionary<string, TArray<string>>;
+  lRoutines: TDictionary<string, TLegacyRoutineResolution>;
 begin
-  for lReference in aModel.References do
-  begin
-    lIndexedReference := Default(TDelphiSemanticIndexedReference);
-    lIndexedReference.Name := lReference.Name;
-    lIndexedReference.RoutineName := lReference.RoutineName;
-    lIndexedReference.UnitName := aModel.UnitName;
-    lIndexedReference.SourceKind := aSourceKind;
-    lIndexedReference.FileName := aModel.FileName;
-    if lReference.FileName <> '' then
-      lIndexedReference.FileName := lReference.FileName;
-    lIndexedReference.SectionKind := lReference.SectionKind;
-    if lIndexedReference.SectionKind = '' then
-      lIndexedReference.SectionKind := 'implementation';
-    lIndexedReference.Line := lReference.Line;
-    lIndexedReference.Column := lReference.Column;
-    lIndexedReference.EndLine := lReference.EndLine;
-    if lIndexedReference.EndLine = 0 then
-      lIndexedReference.EndLine := lReference.Line;
-    lIndexedReference.EndColumn := lReference.EndColumn;
-    if lIndexedReference.EndColumn = 0 then
-      lIndexedReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
-    // DS-659: an include reference stays unresolved, as in the project snapshot.
-    if lReference.FileName = '' then
-      ResolveReference(aIndex, aModel, lReference, lIndexedReference)
-    else begin
-      lIndexedReference.Status := 'unresolved';
-      lIndexedReference.Confidence := 'no-candidates';
+  lVisibleUnits := nil;
+  lRoutines := nil;
+  try
+    lVisibleUnits := TDictionary<string, TArray<string>>.Create(TStringComparer.Ordinal);
+    lRoutines := TDictionary<string, TLegacyRoutineResolution>.Create(TStringComparer.Ordinal);
+    for lReference in aModel.References do
+    begin
+      lIndexedReference := Default(TDelphiSemanticIndexedReference);
+      lIndexedReference.Name := lReference.Name;
+      lIndexedReference.RoutineName := lReference.RoutineName;
+      lIndexedReference.UnitName := aModel.UnitName;
+      lIndexedReference.SourceKind := aSourceKind;
+      lIndexedReference.FileName := aModel.FileName;
+      if lReference.FileName <> '' then
+        lIndexedReference.FileName := lReference.FileName;
+      lIndexedReference.SectionKind := lReference.SectionKind;
+      if lIndexedReference.SectionKind = '' then
+        lIndexedReference.SectionKind := 'implementation';
+      lIndexedReference.Line := lReference.Line;
+      lIndexedReference.Column := lReference.Column;
+      lIndexedReference.EndLine := lReference.EndLine;
+      if lIndexedReference.EndLine = 0 then
+        lIndexedReference.EndLine := lReference.Line;
+      lIndexedReference.EndColumn := lReference.EndColumn;
+      if lIndexedReference.EndColumn = 0 then
+        lIndexedReference.EndColumn := lReference.Column + Length(lReference.Name) - 1;
+      // DS-659: an include reference stays unresolved, as in the project snapshot.
+      if lReference.FileName = '' then
+        ResolveReference(aIndex, aModel, lReference, lIndexedReference, lVisibleUnits, lRoutines)
+      else begin
+        lIndexedReference.Status := 'unresolved';
+        lIndexedReference.Confidence := 'no-candidates';
+      end;
+      if MatchText(lReference.Role, ['occurrence-in-inactive-configuration', 'unverified-condition']) then
+        lIndexedReference.Confidence := 'possible-source-advisory';
+      aReferences.Add(lIndexedReference);
     end;
-    if MatchText(lReference.Role, ['occurrence-in-inactive-configuration', 'unverified-condition']) then
-      lIndexedReference.Confidence := 'possible-source-advisory';
-    aReferences.Add(lIndexedReference);
+  finally
+    lRoutines.Free;
+    lVisibleUnits.Free;
   end;
 end;
 

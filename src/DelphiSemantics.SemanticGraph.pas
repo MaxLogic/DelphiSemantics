@@ -1006,12 +1006,33 @@ procedure AddDeclarationSymbols(const aSymbols: TList<TDelphiSemanticGraphSymbol
 var
   lDeclarationDto: TDelphiSemanticGraphDeclaration;
   lDeclaration: TDelphiSemanticDeclaration;
+  lDeclarationOrdinal: Integer;
+  lEarlier: TDelphiSemanticDeclaration;
+  lForwardCount: Integer;
+  lForwardOrdinals: TArray<Integer>;
+  lHasLaterBodies: TArray<Boolean>;
   lSymbol: TDelphiSemanticGraphSymbol;
   lType: TDelphiSemanticGraphType;
   lTypeName: string;
 begin
-  for lDeclaration in aModel.Declarations do
+  // The model is immutable here. Evaluate the unchanged predicate once per
+  // declaration, including unnamed forwards, and retain their original order.
+  SetLength(lHasLaterBodies, Length(aModel.Declarations));
+  SetLength(lForwardOrdinals, Length(aModel.Declarations));
+  lForwardCount := 0;
+  for lDeclarationOrdinal := 0 to High(aModel.Declarations) do
   begin
+    lHasLaterBodies[lDeclarationOrdinal] := HasLaterClassBody(aModel,
+      aModel.Declarations[lDeclarationOrdinal]);
+    if lHasLaterBodies[lDeclarationOrdinal] then
+    begin
+      lForwardOrdinals[lForwardCount] := lDeclarationOrdinal;
+      Inc(lForwardCount);
+    end;
+  end;
+  for lDeclarationOrdinal := 0 to High(aModel.Declarations) do
+  begin
+    lDeclaration := aModel.Declarations[lDeclarationOrdinal];
     if lDeclaration.Name = '' then
       Continue;
 
@@ -1038,7 +1059,7 @@ begin
     aDeclarations.Add(lDeclarationDto);
 
     if (SameText(lDeclaration.Kind, 'type') or SameText(lDeclaration.Kind, 'type-alias')) and
-      not HasLaterClassBody(aModel, lDeclaration) then
+      not lHasLaterBodies[lDeclarationOrdinal] then
     begin
       lTypeName := lDeclaration.TypeName;
       if lTypeName = '' then
@@ -1075,9 +1096,10 @@ begin
       end;
       lType.SourceRange := lSymbol.SourceRange;
       lType.VisibilityRange := lType.SourceRange;
-      for var lEarlier in aModel.Declarations do
-        if HasLaterClassBody(aModel, lEarlier) and
-          SameText(lEarlier.SymbolId, lDeclaration.SymbolId) and
+      for var i := 0 to lForwardCount - 1 do
+      begin
+        lEarlier := aModel.Declarations[lForwardOrdinals[i]];
+        if SameText(lEarlier.SymbolId, lDeclaration.SymbolId) and
           SameText(lEarlier.OwnerScopeId, lDeclaration.OwnerScopeId) and
           SameText(lEarlier.SectionKind, lDeclaration.SectionKind) and
           SameText(DeclarationSourceRange(aModel, lEarlier).FileName, lType.SourceRange.FileName) and
@@ -1085,6 +1107,7 @@ begin
           (lEarlier.Line < lType.VisibilityRange.Line) then
           // Visibility begins at the forward; declaration evidence stays at the body.
           lType.VisibilityRange := DeclarationSourceRange(aModel, lEarlier);
+      end;
       aTypes.Add(lType);
     end;
   end;
@@ -1440,15 +1463,15 @@ function CanonicalProjectImport(const aProject: TDelphiSemanticProjectInfo;
   const aModels: TArray<TDelphiSemanticUnitModel>; const aUnitName: string): string;
 var
   lCandidate: TUnitCandidateName;
-  lModel: TDelphiSemanticUnitModel;
+  i: Integer;
   lResolved: TDelphiSemanticUnitResolutionResult;
 begin
   Result := aUnitName;
   // Only a model hit can change ProjectImports' spelling. Avoid filesystem
   // resolution for source/DCU-only names; their result is discarded below.
   for lCandidate in TDelphiSemanticUnitResolver.CandidateNames(aProject, Trim(aUnitName)) do
-    for lModel in aModels do
-      if SameText(lModel.UnitName, lCandidate.TargetName) then
+    for i := 0 to High(aModels) do
+      if SameText(aModels[i].UnitName, lCandidate.TargetName) then
       begin
         lResolved := TDelphiSemanticUnitResolver.Resolve(aProject, aUnitName, aModels);
         if lResolved.Found and SameText(lResolved.SourceKind, 'project') then

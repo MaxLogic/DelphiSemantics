@@ -24,10 +24,42 @@ type
       aClassification: string): Boolean;
   public
     [Category('Fast')]
+    [TestCase('CRLF plain record', '0,False')]
+    [TestCase('LF plain record', '0,True')]
+    [TestCase('CRLF constraint record token', '1,False')]
+    [TestCase('LF constraint record token', '1,True')]
+    [TestCase('CRLF nested record', '2,False')]
+    [TestCase('LF nested record', '2,True')]
+    [TestCase('CRLF multiline comment', '3,False')]
+    [TestCase('LF multiline comment', '3,True')]
+    [TestCase('CRLF unterminated body', '4,False')]
+    [TestCase('LF unterminated body', '4,True')]
+    [TestCase('CRLF repeated suffix queries', '5,False')]
+    [TestCase('LF repeated suffix queries', '5,True')]
+    [TestCase('CRLF class helper', '6,False')]
+    [TestCase('LF class helper', '6,True')]
+    [TestCase('CRLF embedded NUL before suffix', '7,False')]
+    [TestCase('LF embedded NUL before suffix', '7,True')]
+    procedure InventoryTypeEndLinesPreserveLexicalBoundaries(const aShape: Integer;
+      const aUseLF: Boolean);
+    [Test]
+    [Category('Fast')]
+    procedure ProjectInventoryDoesNotStoreCurrentClassProjections;
+    [Category('Fast')]
     [TestCase('Unicode field', 'field')]
     [TestCase('Unicode class var', 'class-var')]
     [TestCase('Unicode constant', 'constant')]
     procedure InventoryPreservesUnicodeDeclarations(const aShape: string);
+    [Category('Fast')]
+    [TestCase('Aggregate project', 'False')]
+    [TestCase('Expansion adds inherited member', 'True')]
+    procedure InventoryBudgetCoversAggregateAndExpansion(const aExpansion: Boolean);
+    [Category('Fast')]
+    [TestCase('Lowercase deserializer property', 'lower')]
+    [TestCase('Duplicate deserializer property', 'duplicate')]
+    [TestCase('Cumulative duplicate arrays', 'cumulative')]
+    [TestCase('Malformed scalar slots', 'scalar')]
+    procedure CombinedInventoryBudgetPreflightsNoncanonicalArrays(const aShape: string);
     [Category('Fast')]
     [TestCase('Operator parameters on one line', 'operator')]
     [TestCase('Operator parameters across lines', 'operator-multiline')]
@@ -151,6 +183,12 @@ type
     [Category('Fast')]
     [Test]
     procedure ReceiverMemberIndexDoesNotWalkVisibleUnitsPerLookup;
+    [Test]
+    [Category('Fast')]
+    procedure ContextMemberResolutionPreservesDeclaringUnit;
+    [Test]
+    [Category('Fast')]
+    procedure RefusedSelectorIdentitiesAreDefaultAcrossCacheReplay;
     [Category('Fast')]
     [Test]
     procedure WithBindingUsesSingleResolverAuthorityAdapter;
@@ -163,8 +201,11 @@ implementation
 
 uses
   System.IOUtils, System.StrUtils, System.SysUtils,
+  maxLogic.IOUtils,
   DelphiSemantics.Api.RemoveWith.Compatibility, DelphiSemantics.Model, DelphiSemantics.Model.Json,
-  DelphiSemantics.ProjectContext, DelphiSemantics.WithBinding.Inventory, maxLogic.IOUtils,
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.TypeResolver, DelphiSemantics.Snapshot,
+  DelphiSemantics.Snapshot.Builder, DelphiSemantics.Snapshot.Cache.Sqlite,
+  DelphiSemantics.Snapshot.RemoveWith, DelphiSemantics.WithBinding.Budget, DelphiSemantics.WithBinding.Inventory,
   Test.Support;
 
 
@@ -1433,14 +1474,175 @@ begin
     'Expected receiver-member index lookup source section.');
   lIndexText := Copy(lSourceText, lIndexStart, lIndexEnd - lIndexStart);
 
-  Assert.IsTrue(ContainsText(lSourceText, 'fDirectMembersByContextOwnerName'),
-    'Receiver/member binding must precompute current/visible-unit owner-name lookup keys.');
   Assert.IsTrue(ContainsText(lSourceText, 'fSemanticMemberResultsByOwnerName'),
     'Receiver/member binding must cache semantic member-index results by owner and member name.');
   Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in lVisibleUnits do'),
     'Receiver/member lookup must not walk visible units for each lookup.');
   Assert.IsFalse(ContainsText(lIndexText, 'for lUnitName in fUnitNames do'),
     'Receiver/member lookup must not walk all project units for each lookup.');
+end;
+
+procedure TProjectWithBindingTests.ContextMemberResolutionPreservesDeclaringUnit;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lOptions: TDelphiSemanticModelOptions;
+  lReference: TDelphiSemanticBoundReference;
+  lRoot: string;
+  lSources: TArray<string>;
+  lUnits: TArray<string>;
+  i: Integer;
+begin
+  // DS-809 SF-1: the removed source assertion only pinned an unread index.
+  // Protect the live identity-based path with homonymous owners instead.
+  lRoot := CreateTestTempRoot('context-members-809-temp');
+  TDirectory.CreateDirectory(lRoot);
+  lUnits := ['Left809', 'Right809', 'Consumer809'];
+  lSources := [
+    'unit Left809;'#13#10 + 'interface'#13#10 + 'type'#13#10 +
+    '  TShared = record'#13#10 + '    Value: Integer;'#13#10 + '  end;'#13#10 +
+    'implementation'#13#10 + 'end.',
+    'unit Right809;'#13#10 + 'interface'#13#10 + 'type'#13#10 +
+    '  TShared = record'#13#10 + '    Value: string;'#13#10 + '  end;'#13#10 +
+    'implementation'#13#10 + 'end.',
+    'unit Consumer809;'#13#10 + 'interface uses Left809, Right809;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TouchLeft(var aValue: Left809.TShared);'#13#10 +
+    'begin with aValue do Value := 1; end;'#13#10 +
+    'procedure TouchRight(var aValue: Right809.TShared);'#13#10 +
+    'begin with aValue do Value := ''x''; end;'#13#10 + 'end.'];
+  SetLength(lModels, Length(lUnits));
+  for i := 0 to High(lUnits) do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := TPath.Combine(lRoot, lUnits[i] + '.pas');
+    lOptions.ProjectContextApplied := True;
+    TFile.WriteAllText(lOptions.SourceFileName, lSources[i], TEncoding.UTF8);
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lUnits[i]);
+  end;
+  lFacts := TDelphiSemanticWithBinder.BindProject('context-members-809', nil, lModels);
+  Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+  lReference := BindingReferenceByName(lFacts, 'TouchLeft', 'Value');
+  Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
+  Assert.AreEqual('Integer', lReference.TypeName);
+  lReference := BindingReferenceByName(lFacts, 'TouchRight', 'Value');
+  Assert.AreEqual('member', lReference.Classification, lReference.ReasonCode);
+  Assert.AreEqual('string', lReference.TypeName);
+end;
+
+procedure TProjectWithBindingTests.RefusedSelectorIdentitiesAreDefaultAcrossCacheReplay;
+var
+  lBinding: TDelphiSemanticWithBinding;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+  lCacheIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lLoaded, lSnapshot: TDelphiProjectSnapshot;
+  lStoredSelector: TSemanticRemoveWithSelectorBindingFact;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lOptions: TDelphiSemanticOptions;
+  lRoot: string;
+  lSelector: TDelphiSemanticWithSelectorBinding;
+  lSession: TDelphiSemanticProjectSessionResult;
+  i: Integer;
+
+  procedure AssertDefaultIdentity(const aIdentity: TDelphiSemanticTypeIdentity);
+  begin
+    Assert.AreEqual('', aIdentity.DeclaredId.Value);
+    Assert.AreEqual('', aIdentity.Name);
+    Assert.IsFalse(aIdentity.Synthetic, 'Empty refusal must not be synthetic');
+    Assert.IsFalse(aIdentity.MembersClosed, 'Empty refusal cannot prove closure');
+    Assert.AreEqual('', aIdentity.SourceRange.FileName);
+    Assert.AreEqual(0, aIdentity.SourceRange.Line);
+    Assert.AreEqual(0, aIdentity.SourceRange.Column);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndLine);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndColumn);
+    Assert.AreEqual(0, aIdentity.SourceRange.Offset);
+    Assert.AreEqual(0, aIdentity.SourceRange.EndOffset);
+  end;
+begin
+  lRoot := CreateTestTempRoot('refusal-identities-809-temp');
+  TDirectory.CreateDirectory(lRoot);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.pas'),
+    'unit Refusal809;'#13#10 + 'interface'#13#10 +
+    'type TData = record Value: Integer; end;'#13#10 +
+    'implementation'#13#10 + 'procedure Touch(var aData: TData);'#13#10 +
+    'begin'#13#10 + 'with aData do Value := 1;'#13#10 +
+    'with Missing809 do Value := 2;'#13#10 + 'end;'#13#10 + 'end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.dpr'),
+    'program RefusalProject809; uses Refusal809; begin end.', TEncoding.UTF8);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'Refusal809.dproj'),
+    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
+    '<PropertyGroup><MainSource>Refusal809.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="Refusal809.pas"/></ItemGroup></Project>', TEncoding.UTF8);
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := TPath.Combine(lRoot, 'Refusal809.dproj');
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'refusal.sqlite3');
+  lOptions.SkipWithBindingSemanticGraph := True;
+  for i := 0 to 1 do
+  begin
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lFacts := lSession.Session.BuildWithBindingFacts;
+      Assert.AreEqual(2, Integer(Length(lFacts.Bindings)));
+      for lBinding in lFacts.Bindings do
+        for lSelector in lBinding.Selectors do
+        begin
+          if (lSelector.CaptureTypeIdentity.DeclaredId.Value = '') and
+            (lSelector.CaptureTypeIdentity.Name = '') then
+            AssertDefaultIdentity(lSelector.CaptureTypeIdentity);
+          if lSelector.SelectorText = 'Missing809' then
+          begin
+            Assert.AreNotEqual('resolved', lSelector.Status);
+            Assert.IsNotEmpty(lSelector.ReasonCode);
+            AssertDefaultIdentity(lSelector.TypeIdentity);
+          end;
+        end;
+    finally
+      lSession.Session.Free;
+    end;
+  end;
+  // The relational SQLite payload persists refusal source coordinates too.
+  // Read a new cache instance, rather than rechecking the in-memory facts.
+  lCacheIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+  lCacheIdentity.IdentityKey := 'refusal-809';
+  lCacheIdentity.CacheKey := 'refusal-809';
+  lCacheIdentity.FileHash := 'file-809';
+  lCacheIdentity.ContextHash := 'context-809';
+  lCacheIdentity.IncludeGraphHash := 'include-809';
+  lCacheIdentity.SourceFileName := lOptions.ProjectPath;
+  lCacheIdentity.SchemaVersion := 'refusal-test-v1';
+  lSnapshot := BuildCompatibilityRemoveWithPlanningSnapshotFromFacts(lFacts);
+  try
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(lOptions.SqliteCacheFileName);
+    try
+      lCache.StoreProjectRemoveWithPlanningFacts(lCacheIdentity, lSnapshot);
+    finally
+      lCache.Free;
+    end;
+  finally
+    lSnapshot.Free;
+  end;
+  lCache := TDelphiSemanticSnapshotSqliteCache.Create(lOptions.SqliteCacheFileName);
+  try
+    Assert.IsTrue(lCache.TryLoadProjectRemoveWithPlanningFacts(lCacheIdentity, lLoaded));
+    try
+      lStoredSelector := lLoaded.RemoveWithPlanningBindingByIndex(1).Selectors[0];
+      Assert.AreEqual('Missing809', lLoaded.ExactTextOf(lStoredSelector.SelectorTextId));
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.Line);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.Column);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.EndLine);
+      Assert.AreEqual(0, lStoredSelector.TypeIdentity.EndColumn);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.Line);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.Column);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.EndLine);
+      Assert.AreEqual(0, lStoredSelector.CaptureTypeIdentity.EndColumn);
+    finally
+      lLoaded.Free;
+    end;
+  finally
+    lCache.Free;
+  end;
 end;
 
 procedure TProjectWithBindingTests.WithBindingUsesSingleResolverAuthorityAdapter;
@@ -1666,6 +1868,30 @@ begin
     Assert.AreEqual(lExpected[i], lBindings[0].Selectors[i].SelectorText);
 end;
 
+procedure TProjectWithBindingTests.ProjectInventoryDoesNotStoreCurrentClassProjections;
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbol: TDelphiSemanticInventorySymbol;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.UnitName := 'CompactInventory';
+  lModel.FileName := 'CompactInventory.pas';
+  lModel.SourceText := string.Join(sLineBreak, ['unit CompactInventory;', 'interface',
+    'type', '  TExample = class', '    Value: Integer;', '    procedure Run;',
+    '  end;', 'implementation', 'procedure TExample.Run;', 'var',
+    '  LocalValue: Integer;', 'begin', '  LocalValue := Value;', 'end;', 'end.']);
+  lFacts := TDelphiSemanticWithBinder.BindProject('ds805-compact', nil, [lModel]);
+  Assert.IsTrue(Length(lFacts.Symbols) > 0, 'The non-projection inventory remains eager.');
+  for lSymbol in lFacts.Symbols do
+    Assert.IsFalse(SameText(lSymbol.SymbolClass, 'current-class-member'),
+      'DS-805: production Symbols must not store current-class-member projections.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'Value', 'field'), 'Own scanned fields stay eager.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'TExample.Run', 'routine'), 'Scanner routine entries stay eager.');
+  Assert.IsTrue(HasProjectSymbol(lFacts, 'LocalValue', 'local'), 'Scanner locals stay eager.');
+end;
+
 procedure TProjectWithBindingTests.InventoryPreservesUnicodeDeclarations(const aShape: string);
 var
   lModel: TDelphiSemanticUnitModel;
@@ -1801,6 +2027,186 @@ begin
           lFound := True;
       Assert.IsTrue(lFound, 'Real member must survive: ' + lName);
     end;
+end;
+
+procedure TProjectWithBindingTests.InventoryBudgetCoversAggregateAndExpansion(const aExpansion: Boolean);
+var
+  i: Integer;
+  lModel: TDelphiSemanticUnitModel;
+  lOther: TDelphiSemanticUnitModel;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+  lRefused: Boolean;
+begin
+  lRefused := False;
+  if aExpansion then
+  begin
+    SetLength(lSymbols, 2);
+    lSymbols[0].Name := 'Value';
+    lSymbols[0].SymbolClass := 'field';
+    lSymbols[0].OwnerType := 'TBase';
+    lSymbols[0].Kind := 'field';
+    lSymbols[1].Name := 'TDerived';
+    lSymbols[1].SymbolClass := 'type-member';
+    lSymbols[1].RelatedTypeName := 'TBase';
+    try
+      TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(lSymbols, 2);
+    except
+      on E: EDelphiSemanticWithInventoryBudget do
+      begin
+        lRefused := True;
+        Assert.IsTrue(ContainsText(E.Message, 'exceeded at 3 records (total not measured)'), E.Message);
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'Expansion must admit newly inherited symbols');
+    lSymbols := TDelphiSemanticWithBindingInventory.ExpandInventorySymbols(lSymbols, 100);
+    Assert.IsTrue(Length(lSymbols) >= 3);
+    Assert.AreEqual('Value', lSymbols[2].Name);
+    Assert.AreEqual('TDerived', lSymbols[2].OwnerType);
+  end else begin
+    lModel := Default(TDelphiSemanticUnitModel);
+    lModel.UnitName := 'FirstUnit';
+    SetLength(lModel.Declarations, 2);
+    for i := 0 to 1 do
+    begin
+      lModel.Declarations[i].Name := 'Value' + IntToStr(i);
+      lModel.Declarations[i].Kind := 'variable';
+    end;
+    lOther := lModel;
+    lOther.UnitName := 'SecondUnit';
+    Assert.AreEqual(4, Integer(Length(TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lModel))));
+    Assert.AreEqual(4, Integer(Length(TDelphiSemanticWithBindingInventory.BuildInventorySymbols(lOther))));
+    try
+      TDelphiSemanticWithBinder.BindProject('aggregate-budget', nil,
+        [lModel, lOther], nil, nil, 7);
+    except
+      on E: EDelphiSemanticWithInventoryBudget do
+      begin
+        lRefused := True;
+        Assert.IsTrue(ContainsText(E.Message, 'limit=7'), E.Message);
+        Assert.IsTrue(ContainsText(E.Message, 'exceeded at 8 records (total not measured)'), E.Message);
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'Per-unit admission must include prior project inventory');
+  end;
+end;
+
+procedure TProjectWithBindingTests.CombinedInventoryBudgetPreflightsNoncanonicalArrays(
+  const aShape: string);
+var
+  lPayload: string;
+  lRefused: Boolean;
+begin
+  // Nested/unrelated arrays consume no root inventory records. Equality is admitted.
+  RequireCombinedInventoryBudget('{"Symbols":[{"Nested":[{},{},{}]},{}],"Other":[{},{},{}]}', 2);
+  if aShape = 'lower' then
+    lPayload := '{"symbols":[{},{},{}]}'
+  else if aShape = 'duplicate' then
+    lPayload := '{"Symbols":[],"Symbols":[{},{},{}]}'
+  else if aShape = 'cumulative' then
+    lPayload := '{"Symbols":[{}],"symbols":[{},{}]}'
+  else
+    lPayload := '{"Symbols":[null,1,"invalid"]}';
+  lRefused := False;
+  try
+    RequireCombinedInventoryBudget(lPayload, 2);
+  except
+    on E: EDelphiSemanticWithInventoryBudget do
+    begin
+      lRefused := True;
+      Assert.IsTrue(ContainsText(E.Message, 'limit=2 records'), E.Message);
+      Assert.IsTrue(ContainsText(E.Message, 'exceeded at 3 records (total not measured)'), E.Message);
+      Assert.IsTrue(ContainsText(E.Message, 'cached combined inventory'), E.Message);
+    end;
+  end;
+  Assert.IsTrue(lRefused, 'Admission must precede deserializer allocation for ' + aShape);
+end;
+
+procedure TProjectWithBindingTests.InventoryTypeEndLinesPreserveLexicalBoundaries(
+  const aShape: Integer; const aUseLF: Boolean);
+var
+  lExpectedEnd: Integer;
+  lFound: Boolean;
+  lHeader, lBody, lPrefix, lLineBreak, lProbeName: string;
+  lModel: TDelphiSemanticUnitModel;
+  lSymbols: TArray<TDelphiSemanticInventorySymbol>;
+begin
+  // Characterize the suffix scanner, including its conservative malformed-body
+  // fallback. The independent old/new inventory harness covers every record.
+  lHeader := '  TProbe = record';
+  lBody := '    Value: Integer;'#13#10'  end;';
+  lPrefix := '';
+  lProbeName := 'TProbe';
+  lExpectedEnd := 6;
+  case aShape of
+    1: lHeader := '  TProbe<T: record> = record';
+    2:
+      begin
+        lBody := '    Nested: record'#13#10'      Value: Integer;'#13#10 +
+          '    end;'#13#10'    Tail: Integer;'#13#10'  end;';
+        lExpectedEnd := 9;
+      end;
+    3:
+      begin
+        lBody := '    { end record'#13#10'      class end }'#13#10 +
+          '    Value: Integer; // end'#13#10'  end;';
+        lExpectedEnd := 8;
+      end;
+    4:
+      begin
+        lBody := '    Value: Integer;';
+        lExpectedEnd := 4;
+      end;
+    5:
+      begin
+        lPrefix := '  TFirst = record'#13#10'    Earlier: Integer;'#13#10'  end;'#13#10;
+        lExpectedEnd := 9;
+      end;
+    6: lHeader := '  TProbe = class helper for TObject';
+  end;
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.UnitName := 'InventoryTypeEnds';
+  lModel.FileName := 'InventoryTypeEnds.pas';
+  lModel.SourceText := 'unit InventoryTypeEnds;'#13#10'interface'#13#10 +
+    'type'#13#10 + lPrefix + lHeader + #13#10 + lBody;
+  if aShape <> 4 then
+    lModel.SourceText := lModel.SourceText + #13#10'implementation'#13#10'end.';
+  if aShape = 7 then
+  begin
+    // Exact shape caught by the old/new differential: an earlier NUL must not
+    // change a later routine-local anonymous record's end or field ownership.
+    lModel.SourceText := 'unit InventoryTypeEnds;'#13#10'interface'#13#10 +
+      'type'#13#10'  TBefore = record'#13#10'    Earlier: Integer;'#13#10'  end;'#13#10 +
+      '  TProbe = record'#13#10'    Value: Integer;'#0'end;'#13#10 +
+      'implementation'#13#10'procedure TProbe.Run;'#13#10'var'#13#10 +
+      '  Local: record'#13#10'    LocalField: Integer;'#13#10'  end;'#13#10 +
+      'begin'#13#10'end;'#13#10'end.';
+    lProbeName := 'TProbe.Run.Local';
+    lExpectedEnd := 14;
+  end;
+  if aUseLF then
+    lLineBreak := #10
+  else
+    lLineBreak := #13#10;
+  lModel.SourceText := lModel.SourceText.Replace(#13#10, lLineBreak);
+  lSymbols := TDelphiSemanticWithBindingInventory.BuildCompactInventorySymbols(lModel);
+  lFound := False;
+  for var lSymbol in lSymbols do
+    if SameText(lSymbol.Name, lProbeName) and SameText(lSymbol.SymbolClass, 'type-member') then
+    begin
+      lFound := True;
+      Assert.AreEqual(lExpectedEnd, lSymbol.EndLine);
+    end;
+  Assert.IsTrue(lFound, 'The inventory must retain the probed type even with an unfinished body.');
+  if aShape = 7 then
+  begin
+    Assert.IsTrue(HasLookupSymbol(lSymbols, 'LocalField', 'field'));
+    for var lSymbol in lSymbols do
+      if SameText(lSymbol.Name, 'LocalField') then
+      begin
+        Assert.AreEqual('TProbe.Run.Local', lSymbol.OwnerType);
+        Assert.AreEqual('', lSymbol.RoutineName);
+      end;
+  end;
 end;
 
 initialization
