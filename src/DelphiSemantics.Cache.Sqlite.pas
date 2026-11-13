@@ -53,7 +53,7 @@ type
 
 const
   cPersistentKeysPerIdentity = 4;
-  cSqliteSchemaVersion = '11';
+  cSqliteSchemaVersion = '12';
   cUnitCacheSqliteBusyAttemptTimeoutMs = 250;
   cUnitCacheSqliteBusyRetryDelayMs = 50;
   cUnitCacheSqliteBusyTimeoutMs = 30000;

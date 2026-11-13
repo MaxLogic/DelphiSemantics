@@ -247,6 +247,10 @@ type
     [Category('Fast')]
     [Test]
     [TestCase('Before integer owner keys', '60')]
+    [TestCase('Previous canonical selection identity', '2000')]
+    [TestCase('Lane A integration identity', '2001')]
+    [TestCase('Deferred DS803 identity', '2002')]
+    [TestCase('DS813 identity before integration', '2003')]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
     [TestCase('Schema24', '24')]
@@ -3662,13 +3666,18 @@ begin
     'create table source_owner_marker (value_text text not null)');
   ExecCacheSql(lCacheFileName,
     'insert into source_owner_marker(value_text) values (''source-data'')');
-  ExecCacheSql(lCacheFileName,
-    'create table old_remove_with_facts as select p.cache_key, context_fingerprint_id, ' +
-    'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts f ' +
-    'join snapshot_project_remove_with_facts p on p.project_key=f.project_key');
-  ExecCacheSql(lCacheFileName, 'drop table snapshot_remove_with_facts');
-  ExecCacheSql(lCacheFileName,
-    'alter table old_remove_with_facts rename to snapshot_remove_with_facts');
+  // Version-only migration must invalidate even an intact previous layout.
+  if (aOldSchema <> '2000') and (aOldSchema <> '2001') and
+    (aOldSchema <> '2002') and (aOldSchema <> '2003') then
+  begin
+    ExecCacheSql(lCacheFileName,
+      'create table old_remove_with_facts as select p.cache_key, context_fingerprint_id, ' +
+      'routine_owner_count, symbol_count, binding_count from snapshot_remove_with_facts f ' +
+      'join snapshot_project_remove_with_facts p on p.project_key=f.project_key');
+    ExecCacheSql(lCacheFileName, 'drop table snapshot_remove_with_facts');
+    ExecCacheSql(lCacheFileName,
+      'alter table old_remove_with_facts rename to snapshot_remove_with_facts');
+  end;
   ExecCacheSql(lCacheFileName,
     'update meta set value_text = ' + QuotedStr(aOldSchema) +
     ' where key_name = ''snapshot_schema_version''');

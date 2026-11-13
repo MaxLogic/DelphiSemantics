@@ -493,8 +493,12 @@ begin
   aReason := 'compiler source selection evidence invalid';
   if aDescriptor.SourceSelectionFormat <> '' then
   begin
-    if (aDescriptor.SourceSelectionFormat <> 'dcc-dependencies-rebuilt-units-v1') or
-      not IsDigest(aDescriptor.SourceSelectionIdentity) or
+    if aDescriptor.SourceSelectionFormat <> 'dcc-dependencies-rebuilt-units-v2' then
+    begin
+      aReason := 'compiler source selection evidence version unsupported; re-plan with this version';
+      Exit(False);
+    end;
+    if not IsDigest(aDescriptor.SourceSelectionIdentity) or
       not IsDigest(aDescriptor.DependencyContentHash) or
       (aDescriptor.SourceSelectionReason <> '') or (Length(aDescriptor.SourceSelections) = 0) then
       Exit(False);
