@@ -288,7 +288,6 @@ begin
   end;
 end;
 
-
 function SnapshotUnknownActivity(const aSnapshot: TDelphiProjectSnapshot;
   const aUnit: TUnitSnapshot; const aFileId: TSemanticStringId;
   const aLine, aColumn: Integer): Boolean;
@@ -1193,7 +1192,6 @@ var
   lFact: TDelphiSemanticImportFact;
   lEdges: TList<TDelphiSemanticImportFact>;
   lKey: string;
-
   procedure Report(const aOwner, aReason, aName: string; const aLine, aColumn: Integer);
   var
     lUsage: TDelphiSemanticUsage;
@@ -1924,7 +1922,8 @@ var
             MatchText(lIdentifier, ['Chr', 'Ord', 'Copy', 'UpperCase', 'LowerCase', 'Concat',
               'System.Chr', 'System.Ord', 'System.Copy', 'System.Concat',
               'System.SysUtils.UpperCase', 'System.SysUtils.LowerCase']) and
-            IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, lIdentifier) and IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, 'System') then
+            IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, lIdentifier) and
+            IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aIndex, 'System') then
           begin
             Inc(lOffset);
             repeat

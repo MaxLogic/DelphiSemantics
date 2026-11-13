@@ -152,6 +152,22 @@
     aEffect.Targets := [TNameEffectTargetKind.ClassType];
     Exit(True);
   end;
+  if SameText(aQualifiedName, 'System.Classes.ReadComponentResEx') then
+  begin
+    aEffect.Channels := [TNameEffectChannel.NameFormal];
+    aEffect.Precision.FormalOrdinal := 2;
+    aEffect.Precision.Grammar := TNameConsumerGrammar.Identifier;
+    aEffect.Targets := [TNameEffectTargetKind.ClassType];
+    Exit(True);
+  end;
+  if SameText(aQualifiedName, 'System.Classes.InitComponentRes') then
+  begin
+    aEffect.Channels := [TNameEffectChannel.NameFormal];
+    aEffect.Precision.FormalOrdinal := 1;
+    aEffect.Precision.Grammar := TNameConsumerGrammar.Identifier;
+    aEffect.Targets := [TNameEffectTargetKind.ClassType];
+    Exit(True);
+  end;
   if SameText(aQualifiedName, 'System.Classes.TResourceStream.Create') then
   begin
     aEffect.Channels := [TNameEffectChannel.NameFormal];

@@ -20,10 +20,16 @@ type
     [TestCase('GetClassName', 'Winapi.Windows.GetClassName,2,1')]
     [TestCase('SystemFindResource', 'System.FindResource,2,1')]
     [TestCase('ReadComponentRes', 'System.Classes.ReadComponentRes,1,1')]
+    [TestCase('ReadComponentResEx', 'System.Classes.ReadComponentResEx,2,1')]
+    [TestCase('InitComponentRes', 'System.Classes.InitComponentRes,1,1')]
     [TestCase('ResourceStream', 'System.Classes.TResourceStream.Create,2,1')]
     [TestCase('ReaderFindMethod', 'aReader.FindMethod,2,0')]
     [TestCase('ReaderFindMethodInstance', 'aReader.FindMethodInstance,2,0')]
     [Test] procedure ResourceAndWindowConsumersStayHard(const aCallee: string; const aNameOrdinal, aClassTarget: Integer);
+    [TestCase('descendant', '0')]
+    [TestCase('inherited', '1')]
+    [TestCase('class reference', '2')]
+    [Test] procedure ResourceStreamRoutesStayHard(const aRoute: Integer);
     [Test] procedure SdkAncestorCannotBindUnimportedProjectHomonym;
     [Test] procedure UnrelatedSdkExceptionIsNotObserved;
     [Test] procedure MissingFactsRefuse;
@@ -1490,7 +1496,7 @@ end;
 
 procedure TNameFlowContainmentTests.CatalogConsumerShapeValueMatrixAlwaysRefuses;
 const
-  cCatalog: array[0..151] of string = (
+  cCatalog: array[0..153] of string = (
     'System.Classes.FindClass',
     'System.Classes.GetClass',
     'System.Classes.TComponent.FindComponent',
@@ -1577,6 +1583,8 @@ const
     'System.Classes.TComponent.GetIDsOfNames',
     'System.FindResource',
     'System.Classes.ReadComponentRes',
+    'System.Classes.ReadComponentResEx',
+    'System.Classes.InitComponentRes',
     'System.Classes.TReader.FindMethod',
     'System.Classes.TReader.FindMethodInstance',
     'Winapi.Windows.FindResource',
@@ -2074,7 +2082,6 @@ begin
   end;
 end;
 
-
 procedure TNameFlowContainmentTests.IncompleteAsmFactsKeepHardCoverage(const aConditional: Boolean);
 var
   lFile, lSource: string;
@@ -2216,6 +2223,61 @@ begin
     end;
   finally
     lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ResourceStreamRoutesStayHard(const aRoute: Integer);
+var
+  lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lAccept, lLean: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-stream-routes-temp'), 'Probe.pas');
+  lSource := 'unit Probe;'#13#10'interface'#13#10'uses System.Classes;'#13#10 +
+    'type TProbeStream = class(TResourceStream)'#13#10 +
+    'constructor CreateNamed(const aName: string); end;'#13#10 +
+    'TProbeStreamClass = class of TProbeStream;'#13#10 +
+    'procedure Touch(aStreamClass: TProbeStreamClass);'#13#10'implementation'#13#10 +
+    'constructor TProbeStream.CreateNamed(const aName: string);'#13#10'begin ';
+  if aRoute = 1 then
+    lSource := lSource + 'inherited Create(0, aName, nil);';
+  lSource := lSource + ' end;'#13#10'procedure Touch(aStreamClass: TProbeStreamClass);'#13#10'begin ';
+  if aRoute = 0 then
+    lSource := lSource + 'TProbeStream.Create(0, ParamStr(1), nil);'
+  else if aRoute = 2 then
+    lSource := lSource + 'aStreamClass.Create(0, ParamStr(1), nil);';
+  lSource := lSource + ' end;'#13#10'end.';
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  for lLean in [False, True] do
+  begin
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lOptions.DefineEvidenceComplete := True;
+    lOptions.SkipBodyAnalysis := lLean;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModel.Success);
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    try
+      lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+      Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'), lSource);
+      for lAccept in [False, True] do
+      begin
+        lContext := Default(TDelphiSemanticSymbolQueryContext);
+        lPlan := RuntimePolicyPlan;
+        lPlan.UnresolvedReferences := lReport.Gaps;
+        ApplyRenameRuntimeNameRiskPolicy(lContext, lAccept, lPlan);
+        Assert.AreEqual('incomplete', lPlan.Status, lSource);
+      end;
+    finally
+      lSnapshot.Free;
+    end;
   end;
 end;
 

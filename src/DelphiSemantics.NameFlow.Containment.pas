@@ -435,7 +435,8 @@ end;
 
 function BuildClassLineage(const aSnapshot: TDelphiProjectSnapshot;
   const aSourceUnit: TUnitSnapshot; const aType: string;
-  const aTarget: Boolean; out aComplete: Boolean): TArray<string>;
+  const aTarget: Boolean; out aComplete: Boolean;
+  const aClassReferences: Boolean = False): TArray<string>;
 var
   lType, lBase: string;
   lScopeUnit, lTypeUnit: TUnitSnapshot;
@@ -497,7 +498,9 @@ begin
         for lChildId in lDefinition.Children do
         begin
           lClass := lTypeFacts.NodeById(lChildId);
-          if (lClass.SyntaxKind <> 'type') or not SameText(lClass.TypeName, 'class') then
+          if (lClass.SyntaxKind <> 'type') or
+            not (SameText(lClass.TypeName, 'class') or
+              (aClassReferences and SameText(lClass.TypeName, 'classof'))) then
             Continue;
           Inc(lMatches);
           lScopeUnit := lTypeUnit;
@@ -520,19 +523,67 @@ end;
 function ClassLineage(const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot;
   const aLineages: TDictionary<string, TArray<string>>;
   const aCompleteness: TDictionary<string, Boolean>; const aType: string;
-  const aTarget: Boolean; out aComplete: Boolean): TArray<string>;
+  const aTarget: Boolean; out aComplete: Boolean;
+  const aClassReferences: Boolean = False): TArray<string>;
 var
   lKey: string;
 begin
-  lKey := IntToStr(aUnit.UnitId) + '|' + BoolToStr(aTarget, True) + '|' + LowerCase(aType);
+  lKey := IntToStr(aUnit.UnitId) + '|' + BoolToStr(aTarget, True) + '|' +
+    BoolToStr(aClassReferences, True) + '|' + LowerCase(aType);
   if aLineages.TryGetValue(lKey, Result) then
   begin
     aComplete := aCompleteness[lKey];
     Exit;
   end;
-  Result := BuildClassLineage(aSnapshot, aUnit, aType, aTarget, aComplete);
+  Result := BuildClassLineage(aSnapshot, aUnit, aType, aTarget, aComplete, aClassReferences);
   aLineages.Add(lKey, Result);
   aCompleteness.Add(lKey, aComplete);
+end;
+
+function ResourceStreamConstructorCandidate(const aSnapshot: TDelphiProjectSnapshot;
+  const aUnit: TUnitSnapshot; const aFacts: IDelphiNameFlowFacts;
+  const aLineages: TDictionary<string, TArray<string>>;
+  const aCompleteness: TDictionary<string, Boolean>;
+  const aCallee: TDelphiNameFlowNode): Boolean;
+var
+  lNode, lReceiver: TDelphiNameFlowNode;
+  lType, lOwner, lAncestor: string;
+  lLineage: TArray<string>;
+  lComplete: Boolean;
+  lDepth: Integer;
+begin
+  Result := False;
+  lNode := aCallee;
+  lOwner := '';
+  for lDepth := 0 to 63 do
+  begin
+    if lNode.Kind = TDelphiNameFlowNodeKind.Routine then
+    begin
+      lOwner := Copy(lNode.Name, 1, LastDelimiter('.', lNode.Name) - 1);
+      Break;
+    end;
+    if lNode.ParentId = 0 then
+      Break;
+    lNode := aFacts.NodeById(lNode.ParentId);
+  end;
+  lType := lOwner;
+  if aCallee.ParentId > 0 then
+  begin
+    lNode := aFacts.NodeById(aCallee.ParentId);
+    if (lNode.SyntaxKind = 'dot') and (Length(lNode.Children) = 2) then
+    begin
+      lReceiver := aFacts.NodeById(lNode.Children[0]);
+      if not SameText(lReceiver.Name, 'Self') then
+        lType := StaticExpressionType(aSnapshot, aUnit, aFacts, lReceiver, 0);
+    end;
+  end;
+  if lType = '' then
+    Exit;
+  lLineage := ClassLineage(aSnapshot, aUnit, aLineages, aCompleteness,
+    lType, False, lComplete, True);
+  for lAncestor in lLineage do
+    if MatchText(lAncestor, ['TResourceStream', 'System.Classes.TResourceStream']) then
+      Exit(True);
 end;
 
 function TypeCanExposeRenamedClass(const aSnapshot: TDelphiProjectSnapshot; const aUnit: TUnitSnapshot;
@@ -575,7 +626,9 @@ var
   lByName: TObjectDictionary<string, TList<Integer>>;
   lCandidates: TList<Integer>;
   lClassLineages: TDictionary<string, TArray<string>>;
-  lClassLineageComplete: TDictionary<string, Boolean>;
+  lClassLineageComplete, lConstructorNames: TDictionary<string, Boolean>;
+  lConstructorNode: TDelphiNameFlowNode;
+  lConstructorAttribute: TDelphiNameFlowAttribute;
   lEffects: TList<TNameSdkEffect>;
   lGaps: TList<TDelphiSemanticUsage>;
   lSeen, lCallSites, lOpaqueSdk, lOpaqueProject, lPinnedSources: TDictionary<string, Boolean>;
@@ -1000,6 +1053,19 @@ var
     while (lSelector.ParentId > 0) and
       (lFacts.NodeById(lSelector.ParentId).SyntaxKind = 'dot') do
       lSelector := lFacts.NodeById(lSelector.ParentId);
+    // SDK constructors are absent from lean project bindings. Until their
+    // overload set is bound, every constructor on this descendant lineage is
+    // a hard candidate, including inherited and class-reference construction.
+    if (aTargetKind = TNameEffectTargetKind.ClassType) and
+      not EndsText('TResourceStream.Create', DottedName(lSelector, 0)) and
+      lConstructorNames.ContainsKey(LowerCase(lCallee.Name)) and
+      ResourceStreamConstructorCandidate(aSnapshot, lUnit, lFacts,
+        lClassLineages, lClassLineageComplete, lCallee) then
+    begin
+      DescribeKnownConsumer('System.Classes.TResourceStream.Create', aDescription);
+      aDescription.Precision.FormalOrdinal := 0;
+      Exit(True);
+    end;
     for lPrefix in cNameConsumerPrefixes do
     begin
       if SameText(lPrefix, 'System.Classes.TResourceStream') and
@@ -1227,6 +1293,7 @@ begin
   GC(lGaps, TList<TDelphiSemanticUsage>.Create, g);
   GC(lClassLineages, TDictionary<string, TArray<string>>.Create, g);
   GC(lClassLineageComplete, TDictionary<string, Boolean>.Create, g);
+  GC(lConstructorNames, TDictionary<string, Boolean>.Create, g);
   GC(lSeen, TDictionary<string, Boolean>.Create, g);
   GC(lCallSites, TDictionary<string, Boolean>.Create, g);
   GC(lOpaqueSdk, TDictionary<string, Boolean>.Create, g);
@@ -1275,6 +1342,19 @@ begin
         Continue;
       end;
       lFacts := NameFlowFactsFromJson(lJson);
+      lConstructorNames.Clear;
+      lConstructorNames.Add('create', True);
+      for j := 1 to lFacts.NodeCount do
+      begin
+        lConstructorNode := lFacts.NodeById(j);
+        if lConstructorNode.Kind <> TDelphiNameFlowNodeKind.Routine then
+          Continue;
+        for lConstructorAttribute in lConstructorNode.Attributes do
+          if SameText(lConstructorAttribute.Name, 'kind') and
+            SameText(lConstructorAttribute.Value, 'constructor') then
+            lConstructorNames.AddOrSetValue(LowerCase(Copy(lConstructorNode.Name,
+              LastDelimiter('.', lConstructorNode.Name) + 1, MaxInt)), True);
+      end;
       if not lFacts.Complete then
       begin
         // Captured unmapped nodes still reach the consumer scan by their output

@@ -132,7 +132,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkArtifact;
 
 const
-  cSdkGeneratorVersion = 'ds803-sdk-effects-v5/primitive-v3/full-body-v1';
+  cSdkGeneratorVersion = 'ds803-sdk-effects-v6/primitive-v3/full-body-v1';
 
 type
   ESdkGenerationBudget = class(Exception);

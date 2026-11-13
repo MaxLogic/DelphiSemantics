@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename keeps ReadComponentResEx, InitComponentRes and unresolved TResourceStream descendant constructors as hard runtime-name consumers, including inherited and class-reference construction (DS-803).
+
 - Rename preserves hard consumer coverage through mapping failures and recognizes WinAPI and component resource-name lookups. Class-name observations retain unresolved SDK ancestry conservatively (DS-803).
 
 - Rename uses scope and uses-order evidence for constant operands and project homonyms, retains inherited SDK consumer candidates, and recognizes additional RTTI name-taking overloads. Runtime name-exposure warnings exclude statically unrelated classes; unmapped captured calls retain distinct identities (DS-803).
