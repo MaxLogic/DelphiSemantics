@@ -132,7 +132,7 @@ uses
   DelphiSemantics.Cache, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkArtifact;
 
 const
-  cSdkGeneratorVersion = 'ds803-sdk-effects-v3/primitive-v1/full-body-v1';
+  cSdkGeneratorVersion = 'ds803-sdk-effects-v4/primitive-v2/full-body-v1';
 
 type
   ESdkGenerationBudget = class(Exception);
@@ -271,6 +271,7 @@ begin
   // name-taking overloads only; callers must establish the visible SDK group.
   aEffect := TNameSdkEffect.PassiveEffect;
   aEffect.Precision.Grammar := TNameConsumerGrammar.Identifier;
+  {$I DelphiSemantics.NameFlow.SdkNameConsumers.inc}
   if MatchText(aQualifiedName, ['System.Classes.GetClass', 'System.Classes.FindClass',
     'System.Classes.TComponent.FindComponent']) then
   begin

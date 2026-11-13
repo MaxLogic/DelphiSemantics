@@ -43,11 +43,12 @@ uses
   DelphiSemantics.ImportFacts, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Snapshot.PositionResolver;
 
 const
-  cNameConsumerPrefixes: array[0..8] of string = ('System.Classes', 'System.Classes.TComponent',
+  cNameConsumerPrefixes: array[0..11] of string = ('System.Classes', 'System.Classes.TComponent',
     'System.TypInfo', 'System.Rtti.TRttiType', 'System.Rtti.TRttiContext',
-    'System.Rtti.TRttiEnumerationType', 'System.TObject', 'Winapi.Windows', 'Winapi.ActiveX');
+    'System.Rtti.TRttiEnumerationType', 'System.TObject', 'Winapi.Windows', 'Winapi.ActiveX',
+    'System.Rtti.TRttiNamedObject', 'System.Rtti.TRttiPackage', 'System.TypInfo.TTypeInfoFieldAccessor');
 
-function SourceExcludesKnownConsumers(const aSource: string): Boolean;
+function SourceExcludesKnownConsumers(const aSource: string; const aIncludesOnly: Boolean = False): Boolean;
 var
   lChecked: TDictionary<string, Boolean>;
   lEffect: TNameSdkEffect;
@@ -101,6 +102,8 @@ begin
       lStart := i;
       while (i <= Length(aSource)) and IsIdentifierChar(aSource[i]) do
         Inc(i);
+      if aIncludesOnly then
+        Continue;
       lToken := LowerCase(Copy(aSource, lStart, i - lStart));
       if not lChecked.TryGetValue(lToken, lIsConsumer) then
       begin
@@ -331,6 +334,8 @@ var
   lEntries: TArray<TNameSdkEffectEntry>;
   lByName: TObjectDictionary<string, TList<Integer>>;
   lCandidates: TList<Integer>;
+  lClassLineages: TDictionary<string, TArray<string>>;
+  lClassLineageComplete: TDictionary<string, Boolean>;
   lEffects: TList<TNameSdkEffect>;
   lGaps: TList<TDelphiSemanticUsage>;
   lSeen, lCallSites, lOpaqueSdk, lOpaqueProject, lPinnedSources: TDictionary<string, Boolean>;
@@ -347,11 +352,16 @@ var
   begin
     lReportKey := aFileName + '|' + aReason + '|' + aName + '|' +
       IntToStr(aLine) + ':' + IntToStr(aColumn);
+    if (aFileName = '') and (lNode.Id > 0) then
+      lReportKey := lReportKey + '|' + lFileName + ':' +
+        IntToStr(lNode.OutputStartOffset) + ':' + IntToStr(lNode.OutputEndOffset);
     if lSeen.ContainsKey(lReportKey) then
       Exit;
     lSeen.Add(lReportKey, True);
     lGap := Default(TDelphiSemanticUsage);
     lGap.FileName := aFileName;
+    if lGap.FileName = '' then
+      lGap.FileName := lFileName;
     lGap.Name := aName;
     lGap.Line := aLine;
     lGap.Column := aColumn;
@@ -717,244 +727,6 @@ var
     end;
   end;
 
-  function ProjectRoutineFamily(const aCallee: TDelphiNameFlowNode): Boolean;
-  var
-    lAncestor, lSelector, lReceiver, lDefinition, lClass, lChild: TDelphiNameFlowNode;
-    lTargetUnit, lCandidateUnit: TUnitSnapshot;
-    lSymbol, lReceiverSymbol: TSemanticSymbolFact;
-    lReceiverResolution: TDelphiSemanticSnapshotPositionResolution;
-    lTargetFacts: IDelphiNameFlowFacts;
-    lImport: TDelphiSemanticImportFact;
-    lReceiverName, lOwner, lTypeName, lQualifier, lFirst, lUnitName: string;
-    lDepth, lIndex, lChildId, lMatches, lFamilies: Integer;
-    lVisible, lRootClass: Boolean;
-  begin
-    Result := False;
-    if (aCallee.Id = 0) or not aCallee.SpanKnown then
-      Exit;
-    lAncestor := aCallee;
-    lOwner := '';
-    for lDepth := 0 to 63 do
-    begin
-      if lAncestor.SyntaxKind = 'with' then
-        Exit;
-      if (lOwner = '') and (lAncestor.Kind = TDelphiNameFlowNodeKind.Routine) then
-      begin
-        lIndex := lAncestor.Name.LastIndexOf('.');
-        if lIndex >= 0 then
-          lOwner := Copy(lAncestor.Name, 1, lIndex);
-      end;
-      if lAncestor.ParentId = 0 then
-        Break;
-      lAncestor := lFacts.NodeById(lAncestor.ParentId);
-    end;
-    if lAncestor.ParentId <> 0 then
-      Exit;
-    lReceiver := Default(TDelphiNameFlowNode);
-    if aCallee.ParentId > 0 then
-    begin
-      lSelector := lFacts.NodeById(aCallee.ParentId);
-      if (lSelector.SyntaxKind = 'dot') and (Length(lSelector.Children) = 2) then
-        lReceiver := lFacts.NodeById(lSelector.Children[0]);
-    end;
-    lReceiverName := DottedName(lReceiver, 0);
-    // DelphiAST nests a namespaced qualifier to the right: Easy.(TableFunctions.GetField).
-    // Keep the entire unit namespace rather than rebinding its last component.
-    if (lReceiver.Id <> 0) and (lReceiverName <> '') then
-      for lDepth := 0 to 15 do
-      begin
-        if lSelector.ParentId = 0 then
-          Break;
-        lAncestor := lFacts.NodeById(lSelector.ParentId);
-        if (lAncestor.SyntaxKind <> 'dot') or (Length(lAncestor.Children) <> 2) or
-          (lAncestor.Children[1] <> lSelector.Id) then
-          Break;
-        lQualifier := DottedName(lFacts.NodeById(lAncestor.Children[0]), 0);
-        if lQualifier = '' then
-          Exit;
-        lReceiverName := lQualifier + '.' + lReceiverName;
-        lSelector := lAncestor;
-      end;
-    if (lReceiver.Id <> 0) and (lSelector.ParentId > 0) then
-    begin
-      lAncestor := lFacts.NodeById(lSelector.ParentId);
-      if (lAncestor.SyntaxKind = 'dot') and (Length(lAncestor.Children) = 2) and
-        (lAncestor.Children[1] = lSelector.Id) then
-        Exit; // The namespace exceeded the bound; a suffix is not a binding.
-    end;
-    if ((lReceiver.Id <> 0) and (lReceiverName = '')) or
-      (SameText(lReceiverName, 'Self') and (lOwner = '')) then
-      Exit;
-    lFirst := Copy(lReceiverName, 1, Pos('.', lReceiverName + '.') - 1);
-    // A nearer declaration omitted by a lean symbol model must never expose a
-    // unit qualifier or an outer routine family. WITH was excluded above.
-    for lIndex := 1 to lFacts.NodeCount do
-    begin
-      lDefinition := lFacts.NodeById(lIndex);
-      if (lDefinition.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
-        (lDefinition.ScopeId <> '') and
-        StartsText(lDefinition.ScopeId, aCallee.ScopeId) and
-        (SameText(lDefinition.Name, aCallee.Name) or
-          ((lFirst <> '') and SameText(lDefinition.Name, lFirst))) then
-        Exit;
-    end;
-    lTargetUnit := lUnit;
-    lQualifier := '';
-    if (lReceiverName <> '') and not SameText(lReceiverName, 'Self') then
-    begin
-      // An imported, fully qualified project unit is a declaration namespace.
-      // Reject any project declaration that could shadow its first component.
-      for lIndex := 0 to aSnapshot.UnitCount - 1 do
-      begin
-        lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
-        if not SameText(aSnapshot.TextOf(lCandidateUnit.UnitNameId), lReceiverName) then
-          Continue;
-        lVisible := lCandidateUnit = lUnit;
-        for lImport in lUnit.ImportFacts do
-          if SameText(lImport.Name, lReceiverName) and not lImport.SdkBoundary and
-            (lImport.Cause = '') and not lImport.ResolutionVaries then
-            lVisible := True;
-        if lVisible then
-        begin
-          lTargetUnit := lCandidateUnit;
-          lQualifier := lReceiverName;
-          lOwner := '';
-          Break;
-        end;
-      end;
-      if lQualifier <> '' then
-      begin
-        // A unit-level declaration in an unrelated unit cannot shadow this
-        // namespace. Keep imported declarations and possible inherited/helper
-        // members conservative until a more precise owner binding is available.
-        for lIndex := 0 to aSnapshot.UnitCount - 1 do
-        begin
-          lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
-          lUnitName := aSnapshot.TextOf(lCandidateUnit.UnitNameId);
-          lVisible := lCandidateUnit = lUnit;
-          for lImport in lUnit.ImportFacts do
-            if SameText(lImport.Name, lUnitName) then
-              lVisible := True;
-          for lChildId := 1 to lCandidateUnit.SymbolCount do
-          begin
-            lSymbol := lCandidateUnit.SymbolById(lChildId);
-            if SameText(aSnapshot.TextOf(lSymbol.NameId), lFirst) and
-              (lVisible or (aSnapshot.TextOf(lSymbol.OwnerTypeId) <> '')) then
-              Exit;
-          end;
-        end;
-      end else begin
-        if (Pos('.', lReceiverName) > 0) or (lReceiver.SyntaxKind <> 'identifier') then
-          Exit;
-        lReceiverSymbol := Default(TSemanticSymbolFact);
-        if TryResolveSnapshotPosition(aSnapshot, lReceiver.FileName, lReceiver.Line,
-          lReceiver.Column, lReceiver.Name, lReceiverResolution) and lReceiverResolution.ReferenceFound then
-        begin
-          // A foreign declaration's type has its own import/alias scope. This
-          // bounded fallback does not reinterpret it in the caller's unit.
-          if lReceiverResolution.SymbolUnit <> lUnit then
-            Exit;
-          lReceiverSymbol := lReceiverResolution.Symbol;
-        end else begin
-          lMatches := 0;
-          for lIndex := 1 to lUnit.SymbolCount do
-          begin
-            lSymbol := lUnit.SymbolById(lIndex);
-            if SameText(aSnapshot.TextOf(lSymbol.NameId), lReceiverName) and
-              SameText(aSnapshot.TextOf(lSymbol.KindId), 'field') and
-              (lOwner <> '') and SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
-            begin
-              Inc(lMatches);
-              lReceiverSymbol := lSymbol;
-            end;
-          end;
-          if lMatches <> 1 then
-            Exit;
-        end;
-        if lReceiverSymbol.FileId <> 0 then
-          Exit;
-        lTypeName := aSnapshot.TextOf(lReceiverSymbol.TypeId);
-        lMatches := 0;
-        for lIndex := 0 to aSnapshot.UnitCount - 1 do
-        begin
-          lCandidateUnit := aSnapshot.UnitByIndex(lIndex);
-          lUnitName := aSnapshot.TextOf(lCandidateUnit.UnitNameId);
-          lVisible := lCandidateUnit = lUnit;
-          for lImport in lUnit.ImportFacts do
-            if SameText(lImport.Name, lUnitName) and not lImport.SdkBoundary and
-            (lImport.Cause = '') and not lImport.ResolutionVaries then
-              lVisible := True;
-          if not lVisible then
-            Continue;
-          for lChildId := 1 to lCandidateUnit.SymbolCount do
-          begin
-            lSymbol := lCandidateUnit.SymbolById(lChildId);
-            if SameText(aSnapshot.TextOf(lSymbol.KindId), 'type') and
-              SameText(aSnapshot.TextOf(lSymbol.TypeId), 'class') and
-              (aSnapshot.TextOf(lSymbol.OwnerTypeId) = '') and
-              SameText(aSnapshot.TextOf(lSymbol.NameId), lTypeName) then
-            begin
-              Inc(lMatches);
-              lTargetUnit := lCandidateUnit;
-              lOwner := lTypeName;
-            end;
-          end;
-        end;
-        if lMatches <> 1 then
-          Exit;
-      end;
-    end;
-    if not SameText(aSnapshot.TextOf(lTargetUnit.ScopeModelStatusId), 'ast') then
-      Exit;
-    if lOwner <> '' then
-    begin
-      // The family join currently supports root project classes only. An
-      // inherited overload from an SDK class must remain a consumer candidate.
-      lTargetFacts := NameFlowFactsFromJson(aSnapshot.ExactTextOf(lTargetUnit.NameFlowFactsJsonId));
-      lRootClass := False;
-      lMatches := 0;
-      for lIndex := 1 to lTargetFacts.NodeCount do
-      begin
-        lDefinition := lTargetFacts.NodeById(lIndex);
-        if (lDefinition.SyntaxKind <> 'typedecl') or (lDefinition.ScopeId <> '') or
-          not SameText(lDefinition.Name, lOwner) then
-          Continue;
-        Inc(lMatches);
-        for lChildId in lDefinition.Children do
-        begin
-          lClass := lTargetFacts.NodeById(lChildId);
-          if (lClass.SyntaxKind <> 'type') or not SameText(lClass.TypeName, 'class') then
-            Continue;
-          lRootClass := True;
-          for lDepth in lClass.Children do
-          begin
-            lChild := lTargetFacts.NodeById(lDepth);
-            if lChild.SyntaxKind = 'type' then
-              lRootClass := False;
-          end;
-        end;
-      end;
-      if not lRootClass or (lMatches <> 1) then
-        Exit;
-    end;
-    lFamilies := 0;
-    for lIndex := 1 to lTargetUnit.SymbolCount do
-    begin
-      lSymbol := lTargetUnit.SymbolById(lIndex);
-      if not SameText(aSnapshot.TextOf(lSymbol.NameId), aCallee.Name) or
-        not SameText(aSnapshot.TextOf(lSymbol.OwnerTypeId), lOwner) then
-        Continue;
-      // A nested routine in some other body is not a unit-level candidate.
-      if ContainsText(aSnapshot.TextOf(lSymbol.RoutineScopeId), '/') then
-        Continue;
-      if not MatchText(aSnapshot.TextOf(lSymbol.KindId), ['routine', 'method']) or
-        (lSymbol.FileId <> 0) then
-        Exit;
-      Inc(lFamilies);
-    end;
-    Result := lFamilies > 0;
-  end;
-
   function KnownConsumer(const aCall: TDelphiNameFlowNode;
     out aDescription: TNameSdkEffect): Boolean;
   var
@@ -963,6 +735,7 @@ var
     lResolution: TDelphiSemanticSnapshotPositionResolution;
     lCandidate: TNameSdkEffect;
     lDescriptions: TArray<TNameSdkEffect>;
+    lCatalogOwners: TArray<string>;
   begin
     // A catalog spelling seeds a conservative candidate join. SDK byte pins
     // guard passivity, never the lower bound required to retain a refusal.
@@ -982,7 +755,6 @@ var
       lQualified := lQualified + '.' + lCallee.Name;
       if DescribeKnownConsumer(lQualified, aDescription) then
         Exit(aTargetKind in aDescription.Targets);
-      Exit(False);
     end;
     for lPrefix in cNameConsumerPrefixes do
       if DescribeKnownConsumer(lPrefix + '.' + lCallee.Name, lCandidate) and
@@ -993,12 +765,170 @@ var
           ProvedPropertyInfoArgument(aCall, lCallee.Name) then
           Continue;
         lDescriptions := lDescriptions + [lCandidate];
+        lCatalogOwners := lCatalogOwners + [lPrefix];
       end;
     Result := Length(lDescriptions) > 0;
-    if Result and ProjectRoutineFamily(lCallee) then
+    if Result and (SnapshotProjectRoutineBindingIsComplete(aSnapshot, lUnit, lCallee,
+      lFacts, lResolution, lCatalogOwners) or SnapshotProjectRoutineFamilyIsComplete(
+      aSnapshot, lUnit, lCallee, lFacts, lCatalogOwners)) then
       Exit(False);
     if Result then
       aDescription := TNameSdkEffect.Join(lDescriptions, True);
+  end;
+
+  function StaticExpressionType(const aExpression: TDelphiNameFlowNode;
+    const aDepth: Integer): string;
+  var
+    lPart, lDefinition: TDelphiNameFlowNode;
+    lRefs: TArray<TSemanticSymbolRef>;
+    lTypeUnit: TUnitSnapshot;
+    lComplete: Boolean;
+    lIndex, lMatches: Integer;
+  begin
+    Result := '';
+    if aDepth >= 32 then
+      Exit;
+    if (aExpression.SyntaxKind = 'call') and (Length(aExpression.Children) > 0) then
+    begin
+      lPart := lFacts.NodeById(aExpression.Children[0]);
+      if (lPart.SyntaxKind = 'dot') and (Length(lPart.Children) = 2) and
+        SameText(lFacts.NodeById(lPart.Children[1]).Name, 'Create') then
+        Exit(StaticExpressionType(lFacts.NodeById(lPart.Children[0]), aDepth + 1));
+    end;
+    if Length(aExpression.Children) = 1 then
+      Exit(StaticExpressionType(lFacts.NodeById(aExpression.Children[0]), aDepth + 1));
+    if aExpression.SyntaxKind <> 'identifier' then
+      Exit;
+    lRefs := SnapshotVisibleDeclarations(aSnapshot, lUnit, aExpression.Name,
+      aExpression.ScopeId, '', 'implementation', aExpression.Line, aExpression.Column, nil, lComplete);
+    if lComplete and (Length(lRefs) = 1) and aSnapshot.TryFindUnitById(lRefs[0].UnitId, lTypeUnit) then
+    begin
+      Result := aSnapshot.TextOf(lTypeUnit.SymbolById(lRefs[0].SymbolId).TypeId);
+      if SameText(Result, 'class') then
+        Result := aExpression.Name;
+      Exit;
+    end;
+    // Lean symbol models still retain all local declared types in runtime facts.
+    lMatches := 0;
+    for lIndex := 1 to lFacts.NodeCount do
+    begin
+      lDefinition := lFacts.NodeById(lIndex);
+      if (lDefinition.Kind in [TDelphiNameFlowNodeKind.Definition, TDelphiNameFlowNodeKind.Formal]) and
+        SameText(lDefinition.Name, aExpression.Name) and
+        SameText(lDefinition.ScopeId, aExpression.ScopeId) and
+        (lDefinition.OutputStartOffset < aExpression.OutputStartOffset) then
+      begin
+        Inc(lMatches);
+        Result := lDefinition.TypeName;
+      end;
+    end;
+    if lMatches = 1 then
+      Exit;
+    Result := '';
+    if (lMatches = 0) and MatchText(aExpression.Name,
+      ['Exception', 'TObject', 'TComponent', 'TPersistent']) then
+      Result := aExpression.Name;
+  end;
+
+  function BuildClassLineage(const aType: string; out aComplete: Boolean): TArray<string>;
+  var
+    lType, lBase: string;
+    lTypeUnit: TUnitSnapshot;
+    lTypeFacts: IDelphiNameFlowFacts;
+    lDefinition, lClass, lChild: TDelphiNameFlowNode;
+    lDepth, lIndex, lUnitIndex, lChildId, lBaseId, lMatches: Integer;
+  begin
+    Result := nil;
+    aComplete := False;
+    lType := aType;
+    for lDepth := 0 to 31 do
+    begin
+      lType := Copy(lType, LastDelimiter('.', lType) + 1, MaxInt);
+      if lType = '' then
+        Exit;
+      Result := Result + [lType];
+      if SameText(lType, 'TObject') then
+      begin
+        aComplete := True;
+        Exit;
+      end;
+      lMatches := 0;
+      lBase := '';
+      for lUnitIndex := 0 to aSnapshot.UnitCount - 1 do
+      begin
+        lTypeUnit := aSnapshot.UnitByIndex(lUnitIndex);
+        lTypeFacts := NameFlowFactsFromJson(aSnapshot.ExactTextOf(lTypeUnit.NameFlowFactsJsonId));
+        for lIndex := 1 to lTypeFacts.NodeCount do
+        begin
+          lDefinition := lTypeFacts.NodeById(lIndex);
+          if (lDefinition.SyntaxKind <> 'typedecl') or not SameText(lDefinition.Name, lType) then
+            Continue;
+          for lChildId in lDefinition.Children do
+          begin
+            lClass := lTypeFacts.NodeById(lChildId);
+            if (lClass.SyntaxKind <> 'type') or not SameText(lClass.TypeName, 'class') then
+              Continue;
+            Inc(lMatches);
+            lBase := 'TObject';
+            for lBaseId in lClass.Children do
+            begin
+              lChild := lTypeFacts.NodeById(lBaseId);
+              if lChild.SyntaxKind = 'type' then
+                lBase := lChild.Name;
+            end;
+          end;
+        end;
+      end;
+      if lMatches > 1 then
+        Exit;
+      if lMatches = 0 then
+      begin
+        // SDK classes cannot derive from a project declaration. These
+        // reviewed parent edges close the common exception/component roots.
+        if SameText(lType, 'Exception') and ImportedSdk('System.SysUtils') and NoProjectShadow('Exception') then
+          lBase := 'TObject'
+        else if SameText(lType, 'TComponent') and ImportedSdk('System.Classes') and NoProjectShadow('TComponent') then
+          lBase := 'TPersistent'
+        else if SameText(lType, 'TPersistent') and ImportedSdk('System.Classes') and NoProjectShadow('TPersistent') then
+          lBase := 'TObject'
+        else
+          Exit;
+      end;
+      lType := lBase;
+    end;
+  end;
+
+  function ClassLineage(const aType: string; out aComplete: Boolean): TArray<string>;
+  var
+    lKey: string;
+  begin
+    lKey := LowerCase(aType);
+    if lClassLineages.TryGetValue(lKey, Result) then
+    begin
+      aComplete := lClassLineageComplete[lKey];
+      Exit;
+    end;
+    Result := BuildClassLineage(aType, aComplete);
+    lClassLineages.Add(lKey, Result);
+    lClassLineageComplete.Add(lKey, aComplete);
+  end;
+
+  function TypeCanExposeRenamedClass(const aType: string): Boolean;
+  var
+    lTarget, lType: string;
+    lTargetLineage, lExpressionLineage: TArray<string>;
+    lTargetComplete, lExpressionComplete: Boolean;
+  begin
+    Result := True;
+    if (aType = '') or (Length(aNames) = 0) then
+      Exit;
+    lType := Copy(aType, LastDelimiter('.', aType) + 1, MaxInt);
+    lTarget := aNames[0];
+    lTargetLineage := ClassLineage(lTarget, lTargetComplete);
+    lExpressionLineage := ClassLineage(lType, lExpressionComplete);
+    if MatchText(lType, lTargetLineage) or MatchText(lTarget, lExpressionLineage) then
+      Exit;
+    Result := not lTargetComplete or not lExpressionComplete;
   end;
 
   function ExposesNames(const aCall: TDelphiNameFlowNode): Boolean;
@@ -1025,8 +955,8 @@ var
     lReceiver := lFacts.NodeById(lSelector.Children[0]);
     lOwner := ReceiverType(lReceiver, 0);
     if (aTargetKind = TNameEffectTargetKind.ClassType) and
-      MatchText(lOwner, ['TObject', 'TComponent']) then
-      Exit(True);
+      MatchText(lName, ['ClassName', 'QualifiedClassName', 'UnitName', 'UnitScope', 'ToString']) then
+      Exit(TypeCanExposeRenamedClass(StaticExpressionType(lReceiver, 0)));
     if (aTargetKind = TNameEffectTargetKind.Member) and
       MatchText(lName, ['ObjectToJsonString', 'ObjectToJsonObject']) and
       SameText(DottedName(lReceiver, 0), 'TJson') and ImportedSdk('REST.Json') and
@@ -1200,6 +1130,8 @@ var
 begin
   Result := Default(TNameFlowAnalysis);
   GC(lGaps, TList<TDelphiSemanticUsage>.Create, g);
+  GC(lClassLineages, TDictionary<string, TArray<string>>.Create, g);
+  GC(lClassLineageComplete, TDictionary<string, Boolean>.Create, g);
   GC(lSeen, TDictionary<string, Boolean>.Create, g);
   GC(lCallSites, TDictionary<string, Boolean>.Create, g);
   GC(lOpaqueSdk, TDictionary<string, Boolean>.Create, g);
@@ -1250,11 +1182,11 @@ begin
       lFacts := NameFlowFactsFromJson(lJson);
       if not lFacts.Complete then
       begin
-        // A physical mapping gap need not hide a consumer when the complete
-        // original source contains no catalog spelling and no unscanned include.
-        // Other extraction failures and every budget boundary remain hard.
+        // Captured unmapped nodes still reach the consumer scan by their output
+        // identities. Only missing nodes, unscanned includes and incomplete
+        // preprocessing require a separate hard consumer-coverage refusal.
         if (lFacts.CoverageReason <> 'name-flow-physical-span-unproved') or
-          not SourceExcludesKnownConsumers(lSource) then
+          (lFacts.NodeCount = 0) or not SourceExcludesKnownConsumers(lSource, True) then
           Report(lFileName, lFacts.CoverageReason, 'runtime-name-known-consumer-coverage-unproved', 0, 0);
         if ContainsText(lFacts.CoverageReason, 'budget-exceeded') then
           Report(lFileName, lFacts.CoverageReason, 'runtime-name-flow-budget-exceeded', 0, 0)
@@ -1289,7 +1221,10 @@ begin
           begin
             Inc(Result.Statistics.LanguageRoots);
             if lNode.SyntaxKind = 'raise' then
-              Report(lNode.FileName, lNode.SyntaxKind, 'runtime-name-observed', lNode.Line, lNode.Column)
+            begin
+              if TypeCanExposeRenamedClass(StaticExpressionType(lNode, 0)) then
+                Report(lNode.FileName, lNode.SyntaxKind, 'runtime-name-observed', lNode.Line, lNode.Column);
+            end
             else
               Report(lNode.FileName, lNode.SyntaxKind, 'runtime-name-metadata-consumer',
                 lNode.Line, lNode.Column);
@@ -1321,8 +1256,16 @@ begin
         lName := lNode.Name;
         if MatchText(lName, ['Self', 'Result', 'True', 'False', 'nil']) then
           Continue;
-        lKey := lNode.FileName + ':' + IntToStr(lNode.Line) + ':' +
-          IntToStr(lNode.Column) + ':' + LowerCase(lName);
+        if lName = '' then
+          lName := '<indirect call>';
+        if lNode.SpanKnown then
+          lKey := lNode.FileName + ':' + IntToStr(lNode.Line) + ':' + IntToStr(lNode.Column)
+        else
+          // Physical mapping can fail for a captured node. Its output identity
+          // remains unique within this unit and must still reach consumer checks.
+          lKey := lFileName + ':output:' + IntToStr(lNode.OutputStartOffset) + ':' +
+            IntToStr(lNode.OutputEndOffset) + ':' + IntToStr(lNode.Id);
+        lKey := lKey + ':' + LowerCase(lName);
         if lCallSites.ContainsKey(lKey) then
           Continue;
         lCallSites.Add(lKey, True);

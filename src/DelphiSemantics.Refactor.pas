@@ -38,6 +38,8 @@ type
     RuntimeNameWarnings: TArray<TDelphiSemanticUsage>;
     RuntimeNameWarningsFileName: string;
     RuntimeNameWarningsSha256: string;
+    RuntimeNameHardEntriesFileName: string;
+    RuntimeNameHardEntriesSha256: string;
     HasUnverifiedConditionalOccurrences: Boolean;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
@@ -74,6 +76,8 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; overload; static;
   end;
 
+function RuntimeNameHardEntries(const aPlan: TDelphiSemanticRenamePlan): TArray<TDelphiSemanticUsage>;
+function RuntimeNameEntryCategory(const aReason: string): string;
 function RuntimeNameRiskCategory(const aReason: string): string;
 function RuntimeNameWarningsJsonl(const aWarnings: TArray<TDelphiSemanticUsage>): string;
 procedure ApplyRenameRuntimeNameRiskPolicy(const aContext: TDelphiSemanticSymbolQueryContext;
@@ -296,6 +300,8 @@ begin
     lBuilder.AppendLine('acceptRuntimeNameRisk=' + BoolToStr(aPlan.AcceptRuntimeNameRisk, True));
     lBuilder.AppendLine('runtimeWarningsSha256=' + aPlan.RuntimeNameWarningsSha256);
     lBuilder.AppendLine('runtimeWarningsCount=' + Length(aPlan.RuntimeNameWarnings).ToString);
+    lBuilder.AppendLine('runtimeHardSha256=' + aPlan.RuntimeNameHardEntriesSha256);
+    lBuilder.AppendLine('runtimeHardCount=' + Length(RuntimeNameHardEntries(aPlan)).ToString);
     for lVerification in aPlan.RequiredVerification do
       lBuilder.AppendLine('verification=' + lVerification.Kind + '|' +
         lVerification.Description);
@@ -369,7 +375,7 @@ begin
     begin
       lJson := TJSONObject.Create;
       try
-        lJson.AddPair('category', RuntimeNameRiskCategory(lWarning.Reason));
+        lJson.AddPair('category', RuntimeNameEntryCategory(lWarning.Reason));
         lJson.AddPair('name', lWarning.Name);
         lJson.AddPair('role', lWarning.Role);
         lJson.AddPair('routine', lWarning.RoutineName);
@@ -390,6 +396,23 @@ begin
     Result := lBuilder.ToString;
   finally
     lBuilder.Free;
+  end;
+end;
+
+function RuntimeNameHardEntries(const aPlan: TDelphiSemanticRenamePlan): TArray<TDelphiSemanticUsage>;
+var
+  lUsage: TDelphiSemanticUsage;
+  lEntries: TList<TDelphiSemanticUsage>;
+begin
+  lEntries := TList<TDelphiSemanticUsage>.Create;
+  try
+    for lUsage in aPlan.UnresolvedReferences do
+      if StartsText('runtime-name-', lUsage.Reason) or
+        (RuntimeNameRiskCategory(lUsage.Reason) <> '') then
+        lEntries.Add(lUsage);
+    Result := lEntries.ToArray;
+  finally
+    lEntries.Free;
   end;
 end;
 
@@ -414,6 +437,16 @@ begin
     Result := 'effect-budget';
 end;
 
+function RuntimeNameEntryCategory(const aReason: string): string;
+begin
+  Result := RuntimeNameRiskCategory(aReason);
+  if Result = '' then
+    if StartsText('runtime-name-known-consumer', aReason) then
+      Result := 'known-consumer'
+    else
+      Result := 'hard-runtime-name';
+end;
+
 procedure ApplyRenameRuntimeNameRiskPolicy(const aContext: TDelphiSemanticSymbolQueryContext;
   const aAccepted: Boolean; var aPlan: TDelphiSemanticRenamePlan);
 var
@@ -436,6 +469,8 @@ begin
     aPlan.RuntimeNameWarnings := lWarnings.ToArray;
     aPlan.RuntimeNameWarningsSha256 := THashSHA2.GetHashString(
       RuntimeNameWarningsJsonl(aPlan.RuntimeNameWarnings));
+    aPlan.RuntimeNameHardEntriesSha256 := THashSHA2.GetHashString(
+      RuntimeNameWarningsJsonl(RuntimeNameHardEntries(aPlan)));
     // Report accepted uncertainty even on failed plans. Classification grants
     // no authority to repair failed binding, invalid inputs or a blocked edit.
     if not MatchText(aPlan.Status, ['planned', 'incomplete']) then

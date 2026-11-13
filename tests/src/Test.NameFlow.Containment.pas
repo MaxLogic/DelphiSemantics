@@ -10,6 +10,10 @@ type
   TNameFlowContainmentTests = class
   public
     [Test] procedure MissingFactsRefuse;
+    [Test] procedure ScopedLookupHonorsUsesOrder;
+    [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
+    [Test] procedure ClassObservationsHonorStaticTypes;
+    [Test] procedure UnmappedCallsKeepDistinctOutputIdentities;
     [Test] procedure PhysicalSpanGapRequiresCompleteConsumerFreeSource;
     [Test] procedure NoCallsDoNotCreateConfigurationEffects;
     [Test] procedure WarningInventorySerializationIsOrderIndependent;
@@ -22,6 +26,8 @@ type
     [Test] procedure RaiseDoesNotObserveRecordNames;
     [Test] procedure UnboundExecutableCallRefuses;
     [Test] procedure ConstantBindingUsesNearestDeclaration;
+    [Test] procedure ConstantOperandsHonorLexicalPrecedence;
+    [Test] procedure UnrelatedConstantsCannotHardenUnknownOperands;
     [Test] procedure AcceptedRiskOnlyPromotesWarnableGaps;
     [Test] procedure RiskConsentPreservesHardAndFailedPlans;
     [Test] procedure RiskWarningsChangeFingerprint;
@@ -327,7 +333,7 @@ begin
       end;
       try
         lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil);
-        lExpectedHard := (i >= 4) or (j <> 0);
+        lExpectedHard := True; // SF-C: nil facts represent genuinely missing nodes.
         lFoundHard := False;
         for lGap in lReport.Gaps do
           if lGap.Reason = 'runtime-name-known-consumer-coverage-unproved' then
@@ -1466,7 +1472,7 @@ end;
 
 procedure TNameFlowContainmentTests.CatalogConsumerShapeValueMatrixAlwaysRefuses;
 const
-  cCatalog: array[0..65] of string = (
+  cCatalog: array[0..83] of string = (
     'System.Classes.FindClass',
     'System.Classes.GetClass',
     'System.Classes.TComponent.FindComponent',
@@ -1532,7 +1538,25 @@ const
     'Winapi.Windows.RegisterClassExA',
     'Winapi.Windows.RegisterClassExW',
     'Winapi.ActiveX.CLSIDFromProgID',
-    'Winapi.ActiveX.ProgIDFromCLSID');
+    'Winapi.ActiveX.ProgIDFromCLSID',
+    'System.Rtti.TRttiType.GetMethods',
+    'System.Rtti.TRttiType.GetIndexedProperty',
+    'System.Rtti.TRttiType.GetNamedObject',
+    'System.Rtti.TRttiType.GetNamedObjects',
+    'System.Rtti.TRttiNamedObject.HasName',
+    'System.Rtti.TRttiPackage.FindType',
+    'System.TypInfo.TTypeInfoFieldAccessor.HasName',
+    'System.TypInfo.GetSetElementValue',
+    'System.Classes.TComponent.FindSortedComponent',
+    'System.Classes.FindGlobalComponent',
+    'System.Classes.IsUniqueGlobalComponentName',
+    'System.Classes.FindNestedComponent',
+    'System.Classes.GetComponentFieldAddress',
+    'System.Classes.TComponent.ValidateRename',
+    'System.TypInfo.FindPropInfo',
+    'System.TypInfo.GetAliasEnumValue',
+    'System.TypInfo.GetEnumNameValue',
+    'System.Classes.TComponent.GetIDsOfNames');
 var
   lQualified, lName, lShape, lValue, lArguments, lSource, lFileName, lLabel: string;
   lOptions: TDelphiSemanticModelOptions;
@@ -1597,6 +1621,371 @@ begin
     end;
   end;
   Assert.IsTrue(lCount >= 1000, 'The complete catalog x shape x value matrix must execute.');
+end;
+
+procedure TNameFlowContainmentTests.ImportedRoutineVariableCannotUseLaterRoutineExemption;
+const
+  cLibrary = 'unit UHelper;'#13#10'interface'#13#10 +
+    'type TGetter = function(const aName: string): TObject;'#13#10 +
+    'var GetClass: TGetter;'#13#10'implementation'#13#10'end.';
+  cSource = 'unit Probe;'#13#10'interface uses UHelper;'#13#10 +
+    'procedure Touch;'#13#10'implementation'#13#10 +
+    'procedure Touch; begin GetClass(ParamStr(1)); end;'#13#10 +
+    'function GetClass(const aName: string): TObject; begin Result := nil; end;'#13#10'end.';
+var
+  lRoot, lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lSnapshotOptions: TDelphiSnapshotBuildOptions;
+  lImport: TDelphiSemanticImportFact;
+  lReport: TNameFlowAnalysis;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lLean, lAccept: Boolean;
+  lIndex: Integer;
+begin
+  lRoot := CreateTestTempRoot('nameflow-imported-routine-variable-temp');
+  SetLength(lModels, 2);
+  for lLean in [False, True] do
+  begin
+    for lIndex := 0 to 1 do
+    begin
+      if lIndex = 0 then
+        lFile := TPath.Combine(lRoot, 'UHelper.pas')
+      else
+        lFile := TPath.Combine(lRoot, 'Probe.pas');
+      if lIndex = 0 then
+        TFile.WriteAllText(lFile, cLibrary, TEncoding.ASCII)
+      else
+        TFile.WriteAllText(lFile, cSource, TEncoding.ASCII);
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lFile;
+      lOptions.DefineEvidenceComplete := True;
+      lOptions.SkipBodyAnalysis := lLean;
+      lModels[lIndex] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      Assert.IsTrue(lModels[lIndex].Success);
+    end;
+    lImport := Default(TDelphiSemanticImportFact);
+    lImport.Name := 'UHelper';
+    lImport.OwnerFileName := lFile;
+    lImport.SectionKind := 'interface';
+    lImport.TargetFileName := TPath.Combine(lRoot, 'UHelper.pas');
+    lModels[1].ImportFacts := [lImport];
+    lSnapshotOptions := Default(TDelphiSnapshotBuildOptions);
+    lSnapshotOptions.ResolveReferenceTargets := True;
+    lSnapshot := BuildProjectSnapshotFromModels(lModels,
+      Default(TDelphiSemanticProjectWithBindingFacts), lSnapshotOptions, lMetrics);
+    try
+      lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['Count', 'Amount']);
+      Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'),
+        'An imported routine variable is not a positive project routine binding; lean=' + BoolToStr(lLean, True));
+      for lAccept in [False, True] do
+      begin
+        lContext := Default(TDelphiSemanticSymbolQueryContext);
+        lPlan := RuntimePolicyPlan;
+        lPlan.UnresolvedReferences := lReport.Gaps;
+        ApplyRenameRuntimeNameRiskPolicy(lContext, lAccept, lPlan);
+        Assert.AreEqual('incomplete', lPlan.Status);
+        Assert.IsEmpty(lPlan.ContextFingerprint);
+      end;
+    finally
+      lSnapshot.Free;
+    end;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ScopedLookupHonorsUsesOrder;
+var
+  lRoot, lFile, lSource, lMessage: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lImports: TArray<TDelphiSemanticImportFact>;
+  lRefs: TArray<TSemanticSymbolRef>;
+  lUnit: TUnitSnapshot;
+  lSymbol: TSemanticSymbolFact;
+  lComplete, lProjectLast: Boolean;
+  i, j: Integer;
+begin
+  lRoot := CreateTestTempRoot('scoped-uses-order-temp');
+  SetLength(lModels, 2);
+  for lProjectLast in [False, True] do
+  begin
+    for i := 0 to 1 do
+    begin
+      if i = 0 then
+      begin
+        lFile := TPath.Combine(lRoot, 'UHelper.pas');
+        lSource := 'unit UHelper;'#13#10'interface'#13#10'function GetClass(const aName: string): TObject;'#13#10 +
+          'implementation'#13#10'function GetClass(const aName: string): TObject;'#13#10'begin Result := nil; end;'#13#10'end.';
+      end else begin
+        lFile := TPath.Combine(lRoot, 'Probe.pas');
+        lSource := 'unit Probe;'#13#10'interface'#13#10'uses UHelper, System.Classes;'#13#10'procedure Touch;'#13#10 +
+          'implementation'#13#10'procedure Touch;'#13#10'begin GetClass(ParamStr(1)); end;'#13#10'end.';
+      end;
+      TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lFile;
+      lOptions.DefineEvidenceComplete := True;
+      lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      Assert.IsTrue(lModels[i].Success);
+    end;
+    SetLength(lImports, 2);
+    for i := 0 to 1 do
+    begin
+      lImports[i] := Default(TDelphiSemanticImportFact);
+      lImports[i].OwnerFileName := lFile;
+      lImports[i].SectionKind := 'interface';
+      lImports[i].OrderIndex := i;
+    end;
+    lImports[Ord(lProjectLast)].Name := 'UHelper';
+    lImports[Ord(not lProjectLast)].Name := 'System.Classes';
+    lImports[Ord(not lProjectLast)].SdkBoundary := True;
+    lModels[1].ImportFacts := lImports;
+    lSnapshot := BuildProjectSnapshotFromModels(lModels,
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    try
+      lUnit := lSnapshot.UnitByIndex(1);
+      lRefs := SnapshotVisibleDeclarations(lSnapshot, lUnit, 'GetClass', '', '', 'implementation',
+        100, 100, ['System.Classes'], lComplete);
+      lMessage := 'projectLast=' + BoolToStr(lProjectLast, True) + ', complete=' + BoolToStr(lComplete, True);
+      for i := 0 to 1 do
+        for j := 1 to lSnapshot.UnitByIndex(i).SymbolCount do
+        begin
+          lSymbol := lSnapshot.UnitByIndex(i).SymbolById(j);
+          lMessage := lMessage + #13#10 + lSnapshot.TextOf(lSymbol.NameId) + ':scope=' +
+            lSnapshot.TextOf(lSymbol.RoutineScopeId) + ':owner=' + lSnapshot.TextOf(lSymbol.OwnerScopeId) +
+            ':kind=' + lSnapshot.TextOf(lSymbol.ScopeKindId);
+        end;
+      Assert.AreEqual(lProjectLast, lComplete and (Length(lRefs) > 0), lMessage);
+    finally
+      lSnapshot.Free;
+    end;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ClassObservationsHonorStaticTypes;
+var
+  lFile, lType, lOperation, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lLean: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-static-types-temp'), 'Probe.pas');
+  for lLean in [False, True] do
+    for lType in ['TCount', 'TRelated', 'TOther', 'TObject', 'TUnknown'] do
+      for lOperation in ['WriteLn(aValue.ClassName);', 'raise aValue;'] do
+      begin
+        lSource := 'unit Probe;'#13#10'interface'#13#10 +
+          'type TCount = class end; TRelated = class(TCount) end; TOther = class end;'#13#10 +
+          'procedure Touch(aValue: ' + lType + ');'#13#10'implementation'#13#10 +
+          'procedure Touch(aValue: ' + lType + ');'#13#10'begin ' + lOperation + ' end;'#13#10'end.';
+        TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+        lOptions := Default(TDelphiSemanticModelOptions);
+        lOptions.SourceFileName := lFile;
+        lOptions.SkipBodyAnalysis := lLean;
+        lOptions.DefineEvidenceComplete := True;
+        lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+        Assert.IsTrue(lModel.Success);
+        lSnapshot := BuildProjectSnapshotFromModels([lModel],
+          Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+        try
+          lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, ['TCount', 'TAmount']);
+          Assert.AreEqual(lType <> 'TOther', HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+            lType + ' / ' + lOperation + ' / lean=' + BoolToStr(lLean, True));
+        finally
+          lSnapshot.Free;
+        end;
+      end;
+end;
+
+procedure TNameFlowContainmentTests.UnmappedCallsKeepDistinctOutputIdentities;
+var
+  lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lNodes: TArray<TDelphiNameFlowNode>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lGap: TDelphiSemanticUsage;
+  i, lUnknown: Integer;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('nameflow-unmapped-calls-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10'procedure Touch;'#13#10 +
+    'implementation'#13#10'procedure Touch;'#13#10 +
+    'begin GetField(ParamStr(1)); GetField(ParamStr(2)); end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  SetLength(lNodes, lModel.NameFlowFacts.NodeCount);
+  for i := 0 to High(lNodes) do
+  begin
+    lNodes[i] := lModel.NameFlowFacts.NodeById(i + 1);
+    lNodes[i].SpanKnown := False;
+    lNodes[i].FileName := '';
+    lNodes[i].Line := 0;
+    lNodes[i].Column := 0;
+  end;
+  lModel.NameFlowFacts := CreateNameFlowFacts(lNodes, False, True, 'name-flow-physical-span-unproved');
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil, ['Count', 'Amount']);
+    Assert.IsFalse(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved'),
+      'Every node was captured; only physical mapping is unavailable.');
+    lUnknown := 0;
+    for lGap in lReport.Gaps do
+      if lGap.Reason = 'runtime-name-known-consumer-unknown' then
+        Inc(lUnknown);
+    Assert.AreEqual(2, lUnknown, 'Both unmapped GetField calls must reach their own argument check.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.ConstantOperandsHonorLexicalPrecedence;
+const
+  cBodies: array[0..4] of string = (
+    'const cPart = ''x''; procedure Touch; implementation procedure Touch; '#13#10 +
+    'const cPart = ''u''; cName = ''Co'' + cPart + ''nt''; begin end;',
+    'const cPart = ''x''; type TProbe = class const cPart = ''u''; procedure Touch; end;'#13#10 +
+    'implementation procedure TProbe.Touch; const cName = ''Co'' + cPart + ''nt''; begin end;',
+    'const cPart = ''u''; cName = ''Co'' + cPart + ''nt''; implementation',
+    'const cName = ''Co'' + cPart + ''nt''; implementation',
+    'const cName = ''Co'' + cPart + ''nt''; implementation');
+var
+  lRoot, lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lImports: TArray<TDelphiSemanticImportFact>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lGap: TDelphiSemanticUsage;
+  lFound: Boolean;
+  i, j: Integer;
+begin
+  lRoot := CreateTestTempRoot('nameflow-constant-scope-temp');
+  SetLength(lModels, 3);
+  for i := Low(cBodies) to High(cBodies) do
+  begin
+    for j := 0 to 2 do
+    begin
+      case j of
+        0: begin lFile := TPath.Combine(lRoot, 'UA.pas');
+          lSource := 'unit UA; interface const cPart = ''u''; implementation end.'; end;
+        1: begin lFile := TPath.Combine(lRoot, 'UB.pas');
+          lSource := 'unit UB; interface const cPart = ''x''; implementation end.'; end;
+      else
+        lFile := TPath.Combine(lRoot, 'Probe.pas');
+        lSource := 'unit Probe;'#13#10'interface'#13#10'uses UA, UB;'#13#10 +
+          'type TC = class Count: Integer; end;'#13#10 + cBodies[i] + #13#10'end.';
+        if i = 4 then
+          lSource := lSource.Replace('uses UA, UB;', 'uses UB, UA;');
+      end;
+      TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+      lOptions := Default(TDelphiSemanticModelOptions);
+      lOptions.SourceFileName := lFile;
+      lOptions.DefineEvidenceComplete := True;
+      lModels[j] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+      Assert.IsTrue(lModels[j].Success, lSource);
+    end;
+    SetLength(lImports, 2);
+    for j := 0 to 1 do
+    begin
+      lImports[j] := Default(TDelphiSemanticImportFact);
+      lImports[j].SectionKind := 'interface';
+      lImports[j].OrderIndex := j;
+      lImports[j].Name := 'UA';
+      if (j = 1) xor (i = 4) then
+        lImports[j].Name := 'UB';
+    end;
+    lModels[2].ImportFacts := lImports;
+    lSnapshot := BuildProjectSnapshotFromModels(lModels,
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    try
+      lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+      lSymbol := Default(TDelphiSemanticIndexedSymbol);
+      lSymbol.Name := 'Count';
+      lSymbol.Kind := 'field';
+      lSymbol.OwnerName := 'TC';
+      lSymbol.UnitName := 'Probe';
+      lSymbol.FileName := lFile;
+      lFound := False;
+      for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Count', 'Amount']) do
+        if lGap.Reason = 'string-name-consumer' then
+          lFound := True;
+      Assert.AreEqual(i <> 3, lFound, 'Lexical scope case ' + i.ToString);
+    finally
+      lContext.ProjectSnapshot := nil;
+      lSnapshot.Free;
+    end;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.UnrelatedConstantsCannotHardenUnknownOperands;
+var
+  lRoot, lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModels: TArray<TDelphiSemanticUnitModel>;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lGap: TDelphiSemanticUsage;
+  i: Integer;
+begin
+  lRoot := CreateTestTempRoot('nameflow-unrelated-constant-temp');
+  SetLength(lModels, 2);
+  for i := 0 to 1 do
+  begin
+    if i = 0 then
+    begin
+      lFile := TPath.Combine(lRoot, 'Unrelated.pas');
+      lSource := 'unit Unrelated; interface const n = 42; implementation end.';
+    end else begin
+      lFile := TPath.Combine(lRoot, 'Probe.pas');
+      lSource := 'unit Probe;'#13#10'interface'#13#10 +
+        'type TC = class(TMissing) Count: Integer; procedure Touch; end;'#13#10 +
+        'implementation'#13#10'procedure TC.Touch;'#13#10 +
+        'begin WriteLn(''prefix'' + n); end;'#13#10'end.';
+    end;
+    TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFile;
+    lOptions.DefineEvidenceComplete := True;
+    lModels[i] := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    Assert.IsTrue(lModels[i].Success, lSource);
+  end;
+  lSnapshot := BuildProjectSnapshotFromModels(lModels,
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  try
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lSymbol := Default(TDelphiSemanticIndexedSymbol);
+    lSymbol.Name := 'Count';
+    lSymbol.Kind := 'field';
+    lSymbol.OwnerName := 'TC';
+    lSymbol.UnitName := 'Probe';
+    lSymbol.FileName := lFile;
+    for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Count', 'Amount']) do
+      Assert.AreNotEqual('string-constant-evaluator-unsupported', lGap.Reason,
+        'An unresolved operand has no true-constant evidence from an unimported unit.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
 end;
 
 initialization
