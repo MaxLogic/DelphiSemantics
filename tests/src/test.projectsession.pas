@@ -259,6 +259,10 @@ type
     [Category('Fast')]
     [Test]
     procedure ProjectSessionReusesUnchangedMultiUnitSnapshotCacheEntries;
+    [Test]
+    [TestCase('Risk symbol then strict symbol', 'True')]
+    [TestCase('Strict symbol then risk symbol', 'False')]
+    procedure CrossSymbolSnapshotCachePreservesNumericOperands(const aRiskFirst: Boolean);
     [Category('Fast')]
     [Test]
     procedure ProjectSessionPartialSnapshotCacheFullyAnalyzesOnlyMissedUnits;
@@ -4866,6 +4870,87 @@ begin
     end;
   finally
     lResult.Session.Free;
+  end;
+end;
+
+procedure TProjectSessionTests.CrossSymbolSnapshotCachePreservesNumericOperands(const aRiskFirst: Boolean);
+var
+  lRoot, lProject, lMain, lFirst, lSecond, lStable, lLibrary, lOther, lCache: string;
+  lOptions: TDelphiSemanticOptions;
+  lSession: TDelphiSemanticProjectSessionResult;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lMetrics: TDelphiSemanticCacheMetrics;
+  lScope: TDelphiSemanticIdentifierScopeMetrics;
+  lElapsed: Int64;
+  lPlan: TDelphiSemanticRenamePlan;
+  lActual, lExpected: string;
+  lIdentifier: string;
+  lPass: Integer;
+begin
+  lRoot := ProjectSessionTempPath('cross-symbol-' + BoolToStr(aRiskFirst, True));
+  TDirectory.CreateDirectory(lRoot);
+  lProject := TPath.Combine(lRoot, 'Projection.dproj');
+  lMain := TPath.Combine(lRoot, 'Projection.dpr');
+  lFirst := TPath.Combine(lRoot, 'First.pas');
+  lSecond := TPath.Combine(lRoot, 'Second.pas');
+  lStable := TPath.Combine(lRoot, 'Stable.pas');
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'lib'));
+  lLibrary := CombinePath([lRoot, 'lib', 'Ident.pas']);
+  lOther := CombinePath([lRoot, 'lib', 'Other.pas']);
+  lCache := TPath.Combine(lRoot, 'cache.sqlite3');
+  TFile.WriteAllText(lProject, '<Project><PropertyGroup><MainSource>Projection.dpr</MainSource>' +
+    '<DCC_UnitSearchPath>lib</DCC_UnitSearchPath>' +
+    '</PropertyGroup><ItemGroup><DCCReference Include="First.pas"/>' +
+    '<DCCReference Include="Second.pas"/><DCCReference Include="Stable.pas"/></ItemGroup></Project>');
+  TFile.WriteAllText(lMain, 'program Projection; uses First, Second, Stable; begin end.');
+  TFile.WriteAllText(lFirst, 'unit First; interface uses Other; procedure Soundex; implementation ' +
+    'procedure Soundex; begin end; end.');
+  TFile.WriteAllText(lSecond, 'unit Second; interface type ArrayVarRecPtr = Integer; implementation end.');
+  TFile.WriteAllText(lStable, 'unit Stable; interface uses Ident; implementation end.');
+  TFile.WriteAllText(lOther, 'unit Other; interface const OtherValue = 1; implementation end.');
+  TFile.WriteAllText(lLibrary, 'unit Ident;'#13#10'interface'#13#10'procedure Calculate;'#13#10 +
+    'implementation'#13#10'procedure Calculate;'#13#10'var p: Int32;'#13#10 +
+    'begin'#13#10'  p := p + 1;'#13#10'end;'#13#10'end.');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := lProject;
+  lExpected := '';
+  // The two symbol orders use one cache; pass zero is the uncached second query.
+  for lPass := 0 to 2 do
+  begin
+    lIdentifier := 'ArrayVarRecPtr';
+    if not aRiskFirst then
+      lIdentifier := 'Soundex';
+    lOptions.SqliteCacheFileName := lCache;
+    if lPass = 0 then
+      lOptions.SqliteCacheFileName := ''
+    else if lPass = 1 then
+      if aRiskFirst then
+        lIdentifier := 'Soundex'
+      else
+        lIdentifier := 'ArrayVarRecPtr';
+    lSession := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lSession.Success);
+      lContext := lSession.Session.BuildSnapshotSymbolQueryContextForIdentifier(lIdentifier,
+        lMetrics, lElapsed, lScope);
+      Assert.IsFalse(lScope.FailOpen, lScope.FailOpenReason);
+      Assert.IsTrue(lScope.LeanModelCount > 0);
+      lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, lIdentifier, 'RenamedTarget');
+      lActual := '';
+      for var lUsage in lPlan.UnresolvedReferences do
+        if SameText(lUsage.FileName, lLibrary) and
+          (lUsage.Reason = 'string-constant-value-unproved') then
+          lActual := lActual + lUsage.Name + ';';
+      if lPass = 0 then
+      begin
+        Assert.AreEqual('', lActual, 'The fresh result excludes Int32 arithmetic from string witnesses.');
+        lExpected := lActual;
+      end else if lPass = 2 then
+        Assert.AreEqual(lExpected, lActual, 'Cross-symbol cache reuse must preserve fresh numeric operands.');
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+    finally
+      lSession.Session.Free;
+    end;
   end;
 end;
 

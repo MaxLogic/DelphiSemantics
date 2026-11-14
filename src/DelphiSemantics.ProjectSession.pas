@@ -229,7 +229,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81402-ds814-configuration-closure';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81404-ds814-analysis-projection';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v103-ds799-switch-state';
 
@@ -539,10 +539,25 @@ begin
     'skipWithGraph=' + BoolToStr(aOptions.SkipWithBindingSemanticGraph, True));
 end;
 
+function SnapshotAnalysisProjectionIdentity(const aScopedSourceFileNames: TArray<string>): string;
+var
+  lPaths: TArray<string>;
+  i: Integer;
+begin
+  if Length(aScopedSourceFileNames) = 0 then
+    Exit('full');
+  SetLength(lPaths, Length(aScopedSourceFileNames));
+  for i := 0 to High(lPaths) do
+    lPaths[i] := TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aScopedSourceFileNames[i]);
+  TArray.Sort<string>(lPaths);
+  Result := 'scoped:' + THashSHA2.GetHashString(string.Join(#10, lPaths));
+end;
+
 function SnapshotCacheIdentityForUnit(const aProject: TDelphiSemanticProjectInfo;
   const aOptions: TDelphiSemanticOptions; const aSourceFileName: string;
   const aUnitCacheIdentity: TDelphiSemanticUnitCacheIdentity;
-  const aParseAvoidedEstimateMilliseconds: Int64): TDelphiSemanticSnapshotCacheIdentity;
+  const aParseAvoidedEstimateMilliseconds: Int64;
+  const aAnalysisProjection: string): TDelphiSemanticSnapshotCacheIdentity;
 var
   lProjectContextHash: string;
   lSourceFileName: string;
@@ -559,7 +574,11 @@ begin
   else
     Result.FileHash := 'missing';
   lProjectContextHash := SnapshotCacheContextHash(aProject, aOptions);
+  // Bound references contain project-local unit/symbol IDs. The full/lean
+  // projection of every provider affects those IDs and import-closure order,
+  // even when this unit's own extraction options are unchanged (DS-814).
   Result.ContextHash := THashSHA2.GetHashString(lProjectContextHash + sLineBreak +
+    'analysisProjection=' + aAnalysisProjection + sLineBreak +
     'unitCache=' + aUnitCacheIdentity.UnitCacheKey);
   Result.IncludeGraphHash := aUnitCacheIdentity.IncludeGraphHash;
   if Result.IncludeGraphHash = '' then
@@ -1694,6 +1713,7 @@ procedure StoreSnapshotCacheEntries(const aCacheFileName: string;
   const aSourceFileNames: TArray<string>;
   const aUnitCacheIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   const aStoreUnitFlags: TArray<Boolean>;
+  const aAnalysisProjection: string;
   const aSnapshot: TDelphiProjectSnapshot;
   const aParseAvoidedEstimateMilliseconds: Int64;
   var aMetrics: TDelphiSemanticProjectSnapshotBuildMetrics);
@@ -1717,7 +1737,7 @@ begin
       else
         lUnitCacheIdentity := Default(TDelphiSemanticUnitCacheIdentity);
       lIdentity := SnapshotCacheIdentityForUnit(aProject, aOptions, aSourceFileNames[i],
-        lUnitCacheIdentity, aParseAvoidedEstimateMilliseconds);
+        lUnitCacheIdentity, aParseAvoidedEstimateMilliseconds, aAnalysisProjection);
       lCache.StoreUnitFromSnapshot(lIdentity, aSnapshot, i);
     end;
     Inc(aMetrics.SnapshotSqlWriteMilliseconds,
@@ -2102,6 +2122,7 @@ var
   lClosureFile: string;
   lNewIdentities: TArray<TDelphiSemanticUnitCacheIdentity>;
   lCacheHadPartialHit: Boolean;
+  lAnalysisProjection: string;
   lCacheMetrics: TDelphiSemanticSnapshotCacheMetrics;
   lCacheSnapshot: TDelphiProjectSnapshot;
   lCacheSnapshotMetrics: TDelphiSemanticProjectSnapshotBuildMetrics;
@@ -2126,6 +2147,7 @@ var
   lUnitSnapshots: TArray<TDelphiProjectSnapshot>;
 begin
   Result := Default(TDelphiSemanticProjectSnapshotBuildResult);
+  lAnalysisProjection := SnapshotAnalysisProjectionIdentity(aScopedSourceFileNames);
   lSourceFileNames := ProjectModelFileNames(fProject);
   SetLength(lUnitCacheIdentities, 0);
   SetLength(lMissingSourceFileNames, 0);
@@ -2162,7 +2184,7 @@ begin
           SetLength(lUnitSnapshots, Length(lSourceFileNames));
         end;
         lCacheIdentity := SnapshotCacheIdentityForUnit(fProject, fOptions, lSourceFileNames[i],
-          lUnitCacheIdentities[i], 0);
+          lUnitCacheIdentities[i], 0, lAnalysisProjection);
         lCacheSnapshot := nil;
         if TryLoadSingleUnitSnapshotFromCache(fOptions.SqliteCacheFileName, lCacheIdentity,
           lCacheSnapshot, lCacheMetrics) then
@@ -2284,8 +2306,8 @@ begin
       if Length(lUnitCacheIdentities) = Length(lSourceFileNames) then
         lStoreCacheIdentities := lUnitCacheIdentities;
       StoreSnapshotCacheEntries(fOptions.SqliteCacheFileName, fProject, fOptions,
-        lSourceFileNames, lStoreCacheIdentities, lStoreUnitFlags, lSnapshot,
-        lParseAvoidedEstimateMilliseconds, Result.Metrics);
+        lSourceFileNames, lStoreCacheIdentities, lStoreUnitFlags, lAnalysisProjection,
+        lSnapshot, lParseAvoidedEstimateMilliseconds, Result.Metrics);
     end;
     Result.Snapshot := lSnapshot;
     lSnapshot := nil;
