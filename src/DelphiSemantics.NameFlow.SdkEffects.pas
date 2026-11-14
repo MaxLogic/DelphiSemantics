@@ -5,7 +5,7 @@ interface
 uses
   System.Generics.Collections,
   DelphiSemantics.CompilerProfile, DelphiSemantics.Model, DelphiSemantics.NameConsumers,
-  DelphiSemantics.ProjectContext;
+  DelphiSemantics.ProjectContext, DelphiSemantics.Resolve.UnitResolver;
 
 type
   TNameSdkProgress = reference to procedure(const aStage, aSource: string;
@@ -96,6 +96,8 @@ type
     fDeclarationDiscovery: TDelphiSemanticRtlSourceDiscovery;
     fDeclarationAbsence: TDictionary<string, Boolean>;
     fDeclarationSelections: TDictionary<string, string>;
+    fDeclarationResolutions: TDictionary<string, TDelphiSemanticUnitResolutionResult>;
+    fSelectionDirectories: TObjectDictionary<string, THashSet<string>>;
     function DeclarationSelectionsAreCurrent: Boolean;
     function ComputeIdentity: string;
     function ActualInputIdentity: string;
@@ -139,9 +141,10 @@ implementation
 
 uses
   System.Classes, System.Diagnostics, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
+  Winapi.Windows,
   AutoFree, MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Cache, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts,
-  DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver;
+  DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess;
 
 const
   cSdkGeneratorVersion = 'ds803-sdk-effects-v7/primitive-v3/full-body-v1';
@@ -377,6 +380,10 @@ begin
   fRequest.SelectionProject.UnitAliases := Copy(aRequest.SelectionProject.UnitAliases);
   fRequest.SelectionProject.UnitScopeNames := Copy(aRequest.SelectionProject.UnitScopeNames);
   fDeclarationSelections := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fDeclarationResolutions := TDictionary<string, TDelphiSemanticUnitResolutionResult>.Create(
+    TFastCaseAwareComparer.OrdinalIgnoreCase);
+  fSelectionDirectories := TObjectDictionary<string, THashSet<string>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.Ordinal);
   fIndex := TDictionary<string, Integer>.Create;
   fDeclarationModels := TDictionary<string, TDelphiSemanticUnitModel>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fDeclarationAbsence := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -412,6 +419,8 @@ end;
 destructor TNameSdkCatalog.Destroy;
 begin
   fDeclarationDiscovery.Free;
+  fSelectionDirectories.Free;
+  fDeclarationResolutions.Free;
   fDeclarationSelections.Free;
   fDeclarationAbsence.Free;
   fDeclarationModels.Free;
@@ -769,6 +778,8 @@ begin
   fDeclarationModels.Clear;
   fDeclarationAbsence.Clear;
   fDeclarationSelections.Clear;
+  fDeclarationResolutions.Clear;
+  fSelectionDirectories.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try
@@ -967,16 +978,96 @@ begin
   end;
 end;
 
+function TrySdkSelectionDirectory(const aPath: string;
+  const aDirectories: TObjectDictionary<string, THashSet<string>>;
+  out aNames: THashSet<string>): Boolean;
+var
+  lNames: THashSet<string>;
+  lSearch: TSearchRec;
+  lCode: Integer;
+begin
+  if aDirectories.TryGetValue(aPath, aNames) then
+    Exit(aNames <> nil);
+  // Exact path keys keep distinct compiler paths distinct. A failed listing
+  // remains a refusal for the command, including after a later query.
+  aDirectories.Add(aPath, nil);
+  aNames := nil;
+  Result := False;
+  lNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  try
+    try
+      lCode := System.SysUtils.FindFirst(TPath.Combine(aPath, '*'), faAnyFile, lSearch);
+      if lCode = 0 then
+      begin
+        try
+          repeat
+            if (lSearch.Attr and faDirectory) = 0 then
+              lNames.Add(lSearch.Name);
+            lCode := System.SysUtils.FindNext(lSearch);
+          until lCode <> 0;
+        finally
+          System.SysUtils.FindClose(lSearch);
+        end;
+        if lCode <> ERROR_NO_MORE_FILES then
+          Exit;
+      end else if (lCode <> ERROR_FILE_NOT_FOUND) and (lCode <> ERROR_PATH_NOT_FOUND) then
+        Exit;
+      aDirectories[aPath] := lNames;
+      aNames := lNames;
+      lNames := nil;
+      Result := True;
+    except
+      on e: Exception do
+        // Partial, inaccessible or invalid paths supply no absence evidence.
+        Result := False;
+    end;
+  finally
+    lNames.Free;
+  end;
+end;
+
+function SdkSelectionFollowsCompilerNameOrder(const aProject: TDelphiSemanticProjectInfo;
+  const aImportName, aSelectedName: string;
+  const aDirectories: TObjectDictionary<string, THashSet<string>>): Boolean;
+var
+  lName: TUnitCandidateName;
+  lPath: string;
+  lNames: THashSet<string>;
+begin
+  // dcc searches every directory for the exact/alias name before trying any
+  // namespace. One complete listing per exact path serves the whole command.
+  for lName in TDelphiSemanticUnitResolver.CandidateNames(aProject, aImportName) do
+  begin
+    if SameText(lName.TargetName, aSelectedName) then
+      Exit(True);
+    for lPath in aProject.SourceLookupPaths do
+    begin
+      if not TrySdkSelectionDirectory(lPath, aDirectories, lNames) then
+        Exit(False);
+      if lNames.Contains(lName.TargetName + '.pas') or lNames.Contains(lName.TargetName + '.dcu') then
+        Exit(False);
+    end;
+  end;
+  Result := False;
+end;
+
 function TNameSdkCatalog.DeclarationSelectionsAreCurrent: Boolean;
 var
+  g: TGarbos;
   lPair: TPair<string, string>;
   lSelection: TDelphiSemanticUnitResolutionResult;
+  lDirectories: TObjectDictionary<string, THashSet<string>>;
 begin
+  // Publication always takes fresh listings, separate from the query baseline.
+  GC(lDirectories, TObjectDictionary<string, THashSet<string>>.Create(
+    [doOwnsValues], TFastCaseAwareComparer.Ordinal), g);
   Result := False;
   for lPair in fDeclarationSelections do
   begin
     lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, lPair.Key);
     if not lSelection.Found or lSelection.Ambiguous or
+      not SdkSelectionFollowsCompilerNameOrder(fRequest.SelectionProject, lPair.Key,
+        lSelection.CanonicalUnitName, lDirectories) or
       not SameText(lPair.Value, lSelection.FileName + #10 +
         THashSHA2.GetHashStringFromFile(lSelection.FileName)) then
       Exit;
@@ -1020,6 +1111,12 @@ begin
       Exit;
   try
     lInputFileName := TPath.GetFullPath(aSourceFileName);
+    lKey := lInputFileName + '|' + aName + '|' + aImportName;
+    if fDeclarationAbsence.TryGetValue(lKey, Result) then
+      Exit;
+    // Cache refusals too. Every admission miss proves selection before it can
+    // publish True; every hit remains behind fValidated and publication checks.
+    fDeclarationAbsence.Add(lKey, False);
     if not TFile.Exists(lInputFileName) then
       Exit;
     lLibraryRoot := TPath.Combine(TPath.GetDirectoryName(fRequest.SdkRoot), 'lib');
@@ -1030,16 +1127,21 @@ begin
         Exit;
     end else if not IsDefaultLanguageSdkDcu(lInputFileName, lLibraryRoot) then
       Exit;
-    lKey := lInputFileName + '|' + aName + '|' + aImportName;
-    if fDeclarationAbsence.TryGetValue(lKey, Result) then
-      Exit;
     Result := False;
     // Inventory discovery does not prove compiler selection. Resolve the
     // original import through this target's certified ordered profile paths.
     if not SameText(fRequest.SelectionProject.Platform, fRequest.Platform) or
       not SameText(fRequest.SelectionProject.Configuration, fRequest.Configuration) then
       Exit;
-    lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, aImportName);
+    if not fDeclarationResolutions.TryGetValue(aImportName, lSelection) then
+    begin
+      lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, aImportName);
+      if lSelection.Found and not lSelection.Ambiguous then
+        if not SdkSelectionFollowsCompilerNameOrder(fRequest.SelectionProject, aImportName,
+          lSelection.CanonicalUnitName, fSelectionDirectories) then
+          lSelection.Found := False;
+      fDeclarationResolutions.Add(aImportName, lSelection);
+    end;
     if not lSelection.Found or lSelection.Ambiguous then
       Exit;
     lUnitName := lSelection.CanonicalUnitName;
@@ -1069,8 +1171,11 @@ begin
       Exit;
     // Retain the actual selected artifact, including DCU bytes, for publication
     // revalidation. Duplicate language/platform sources already refused above.
-    fDeclarationSelections.AddOrSetValue(aImportName, lSelection.FileName + #10 +
-      THashSHA2.GetHashStringFromFile(lSelection.FileName));
+    // The first selected artifact is the baseline. Later misses may never
+    // replace it, even if the file changes before a different name is queried.
+    if not fDeclarationSelections.ContainsKey(aImportName) then
+      fDeclarationSelections.Add(aImportName, lSelection.FileName + #10 +
+        THashSHA2.GetHashStringFromFile(lSelection.FileName));
     if not fDeclarationModels.TryGetValue(lFileName, lModel) then
     begin
       // Reuse the ordinary SDK declaration extractor, without project defines
@@ -1101,7 +1206,7 @@ begin
     // Comments and implementation-only occurrences deliberately over-refuse.
     Result := not TextContainsIdentifier(LowerCase(lModel.SourceText), LowerCase(aName)) and
       SdkDeclarationSourceIsClosed(lModel.SourceText);
-    fDeclarationAbsence.Add(lKey, Result);
+    fDeclarationAbsence[lKey] := Result;
   except
     on e: Exception do
       // Unreadable/unsupported SDK source supplies no negative declaration proof.
@@ -1212,6 +1317,8 @@ begin
   fDeclarationModels.Clear;
   fDeclarationAbsence.Clear;
   fDeclarationSelections.Clear;
+  fDeclarationResolutions.Clear;
+  fSelectionDirectories.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try

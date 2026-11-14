@@ -46,6 +46,14 @@ type
     [TestCase('SDK source outside pin', 'outside')]
     [TestCase('SDK compiler selection unavailable', 'selection-missing')]
     [TestCase('SDK compiler selection shadowed', 'selection-shadow')]
+    [TestCase('Exact name at path 10 refuses', 'path-10')]
+    [TestCase('Exact name at path 11 refuses', 'path-11')]
+    [TestCase('Alias at path 11 refuses', 'alias-11')]
+    [TestCase('Consumer cannot use shadowed SDK absence', 'consumer-11')]
+    [TestCase('Exact DCU at path 11 refuses', 'dcu-11')]
+    [TestCase('Command directory snapshot rechecked at publication', 'directory-snapshot')]
+    [TestCase('A cached refusal can outlive a removed shadow', 'cached-refusal')]
+    [TestCase('First selected artifact baseline never changes', 'selection-baseline')]
     [TestCase('Selected SDK DCU source and artifact currentness', 'precompiled')]
     [TestCase('German SDK DCU cannot bind English source', 'localized-de')]
     [TestCase('French SDK DCU cannot bind English source', 'localized-fr')]
@@ -2458,7 +2466,8 @@ var
   lSymbol: TDelphiSemanticIndexedSymbol;
   lGap: TDelphiSemanticUsage;
   lFound: Boolean;
-  i: Integer;
+  i, lPathIndex: Integer;
+  lImportName, lShadowDirectory: string;
 begin
   lRoot := CreateTestTempRoot('ds814-sdk-binding-temp');
   lSdkRoot := TPath.Combine(lRoot, 'sdk');
@@ -2491,8 +2500,34 @@ begin
   lRequest.SelectionProject.Platform := 'Win32';
   lRequest.SelectionProject.Configuration := 'Debug';
   lSdkTarget := lSdkFile;
+  lImportName := 'System.Later';
   lRequest.SelectionProject.SearchPaths := [lSdkRoot];
-  if (aCase = 'precompiled') or StartsText('localized-', aCase) then
+  if MatchText(aCase, ['path-10', 'path-11', 'alias-11', 'consumer-11', 'dcu-11',
+    'directory-snapshot', 'cached-refusal']) then
+  begin
+    lImportName := 'Later';
+    lRequest.SelectionProject.UnitScopeNames := ['System'];
+    lPathIndex := 11;
+    if aCase = 'path-10' then
+      lPathIndex := 10;
+    for i := 1 to lPathIndex do
+    begin
+      lShadowDirectory := TPath.Combine(lRoot, 'path' + IntToStr(i));
+      TDirectory.CreateDirectory(lShadowDirectory);
+      lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    end;
+    if aCase = 'alias-11' then
+    begin
+      lImportName := 'Legacy';
+      lRequest.SelectionProject.UnitAliases := ['Legacy=Later'];
+    end;
+    if aCase = 'dcu-11' then
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Later.dcu'), 'opaque user artifact', TEncoding.ASCII)
+    else if aCase <> 'directory-snapshot' then
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Later.pas'),
+        'unit Later; interface const cLimit = ''Count''; implementation end.', TEncoding.ASCII);
+  end;
+  if MatchText(aCase, ['precompiled', 'selection-baseline']) or StartsText('localized-', aCase) then
   begin
     lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release');
     if StartsText('localized-', aCase) then
@@ -2536,9 +2571,18 @@ begin
       if i = 1 then
       begin
         lFile := TPath.Combine(lRoot, 'Probe.pas');
-        lSource := 'unit Probe;'#13#10'interface'#13#10'uses Values, System.Later;'#13#10 +
+        lSource := 'unit Probe;'#13#10'interface'#13#10'uses Values, ' + lImportName + ';'#13#10 +
           'type TC = class Count: Integer; end;'#13#10'const Bound = cLimit;'#13#10 +
           'implementation'#13#10'end.';
+      end;
+      if aCase = 'consumer-11' then
+      begin
+        if i = 0 then
+          lSource := lSource.Replace('cLimit = 7', 'cLimit = ''Other''')
+        else
+          lSource := lSource.Replace('implementation'#13#10'end.',
+            'implementation'#13#10'procedure Observe; var obj: TObject;' +
+            ' begin obj.MethodAddress(Bound); end;'#13#10'end.');
       end;
       TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
       lOptions := Default(TDelphiSemanticModelOptions);
@@ -2556,7 +2600,7 @@ begin
       lImports[i].Name := 'Values';
       if i = 1 then
       begin
-        lImports[i].Name := 'System.Later';
+        lImports[i].Name := lImportName;
         lImports[i].TargetFileName := lSdkTarget;
         lImports[i].SdkBoundary := True;
       end;
@@ -2592,8 +2636,33 @@ begin
     for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Count', 'Amount']) do
       if lGap.Reason = 'string-constant-evaluator-unsupported' then
         lFound := True;
-    Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported', 'precompiled']), lFound,
+    Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported', 'precompiled',
+      'directory-snapshot', 'selection-baseline']), lFound,
       'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
+    if aCase = 'directory-snapshot' then
+    begin
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Later.pas'),
+        'unit Later; interface const OtherLimit = 9; implementation end.', TEncoding.ASCII);
+      Assert.IsTrue(lSdk.ExcludesDeclaration(lSdkTarget, 'AnotherAbsent', lImportName),
+        'A command shares its initial directory listing across different declaration queries.');
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'Publication must find a shadow added after the initial directory listing.');
+    end;
+    if aCase = 'cached-refusal' then
+    begin
+      Assert.IsFalse(lSdk.ExcludesDeclaration(lSdkTarget, 'AnotherAbsent', lImportName));
+      TFile.Delete(TPath.Combine(lShadowDirectory, 'Later.pas'));
+      Assert.IsFalse(lSdk.ExcludesDeclaration(lSdkTarget, 'AnotherAbsent', lImportName),
+        'A cached refusal is conservative when the original shadow disappears.');
+    end;
+    if aCase = 'selection-baseline' then
+    begin
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);
+      TFile.AppendAllText(lSdkTarget, ' selected artifact changed', TEncoding.ASCII);
+      lSdk.ExcludesDeclaration(lSdkTarget, 'AnotherAbsent', lImportName);
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'Another query must never replace the first selected-artifact hash.');
+    end;
     if aCase = 'precompiled' then
     begin
       Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);

@@ -2,6 +2,11 @@ unit DelphiSemantics.CompilerDefineEvidence;
 
 interface
 
+const
+  // Reviewed bin64 hosts shared by certificate admission and SDK selection.
+  cVerifiedCompiler64Hash = '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9';
+  cVerifiedWin32Compiler64Hash = '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765';
+
 type
   TDelphiSemanticCompilerDefineRequest = record
     ProjectFileName: string;
@@ -377,9 +382,7 @@ function ValidateDescriptor(var aDescriptor: TDelphiSemanticCompilerDefineDescri
   const aRequest: TDelphiSemanticCompilerDefineRequest; out aReason: string): Boolean;
 const
   cVerifiedCompilerHash = 'A4945A14F9C4DE0CA2B38B4E772F45929235FA515F3621AFB63387AC5F23AC03';
-  cVerifiedCompiler64Hash = '69AE66304E62B37EA7C2DB59A563BE2E416F5D6ADF77FB5D42EDFE5FA02FB7F9';
   cVerifiedWin32CompilerHash = 'BD301B7A6B56EB3D34C714545ABF7D2044D17C6B7641C7FBDF4BDCECB90D2378';
-  cVerifiedWin32Compiler64Hash = '7B746D2F234AC262014A3524CD6CA559860370C56D10CA43806E953A9CDEA765';
 var
   i, j: Integer;
   lNormalized: TArray<string>;
