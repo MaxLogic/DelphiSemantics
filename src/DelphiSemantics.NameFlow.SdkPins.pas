@@ -13,7 +13,8 @@ function ExpectedNameSdkCompilerHash(const aDelphiVersion, aPlatform,
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  DelphiSemantics.CompilerDefineEvidence;
 
 function ExpectedNameSdkSourceIdentity(const aDelphiVersion: string): string;
 begin
@@ -46,9 +47,9 @@ begin
   // The native certificate already admits these independently certified hosts.
   // Select the reviewed pin, never the captured hash itself.
   if SameText(aPlatform, 'Win32') then
-    Result := '7b746d2f234ac262014a3524cd6ca559860370c56d10ca43806e953a9cdea765'
+    Result := LowerCase(cVerifiedWin32Compiler64Hash)
   else if SameText(aPlatform, 'Win64') then
-    Result := '69ae66304e62b37ea7c2db59a563be2e416f5d6adf77fb5d42edfe5fa02fb7f9';
+    Result := LowerCase(cVerifiedCompiler64Hash);
 end;
 
 end.

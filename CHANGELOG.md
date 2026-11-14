@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- SDK declaration absence proof refuses earlier exact or alias unit names anywhere in the certified search paths (DS-814).
+
 - Explicit runtime-name risk planning uses certified include coverage and pinned SDK non-declaration proof. SDK selection accepts only default-language DCUs and the certified compiler host (DS-814).
 
 - Rename keeps ReadComponentResEx, InitComponentRes and unresolved TResourceStream descendant constructors as hard runtime-name consumers, including inherited and class-reference construction (DS-803).
