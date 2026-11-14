@@ -105,6 +105,7 @@ type
     SourceFileNames: TArray<string>;
     Defines: TArray<string>;
     DefineEvidenceComplete: Boolean;
+    DeclaredSelections: TArray<TDelphiSemanticCompilerDefineRequest>;
     CompilerDefineEvidence: IDelphiSemanticCompilerDefineEvidence;
     CompilerDefineEvidenceFingerprint: string;
     IncludePaths: TArray<string>;
@@ -3121,13 +3122,15 @@ function PossibleProjectSearchPaths(const aProjectFileName: string;
   const aDocument: IXMLDocument; const aOptions: TDelphiSemanticOptions;
   const aSelected: TDelphiSemanticProjectInfo; const aSelectedProperties: TPropertyMap;
   const aObservations: IProjectContextObservationsBuilder;
-  out aScopeNames, aResourceDirectories: TArray<string>): TArray<string>;
+  out aScopeNames, aResourceDirectories: TArray<string>;
+  out aSelections: TArray<TDelphiSemanticCompilerDefineRequest>): TArray<string>;
 var
   lConfigurations, lPlatforms, lPaths, lScopes, lResources: TList<string>;
   lDiagnostics: TList<TDelphiSemanticDiagnostic>;
   lOptions: TDelphiSemanticOptions;
   lProperties: TPropertyMap;
   lConfiguration, lPlatform, lPath: string;
+  lSelection: TDelphiSemanticCompilerDefineRequest;
 
   procedure AddResourcePaths(const aProperties: TPropertyMap);
   var
@@ -3157,6 +3160,18 @@ begin
     AddUniqueText(lConfigurations, aSelected.Configuration);
     AddUniqueText(lPlatforms, aSelected.Platform);
     CollectProjectSelections(aDocument.DocumentElement, lConfigurations, lPlatforms);
+    aSelections := nil;
+    for lConfiguration in lConfigurations do
+      for lPlatform in lPlatforms do
+      begin
+        lSelection := Default(TDelphiSemanticCompilerDefineRequest);
+        lSelection.ProjectFileName := aSelected.ProjectFileName;
+        lSelection.MainSourceFileName := aSelected.MainSourceFileName;
+        lSelection.Configuration := lConfiguration;
+        lSelection.Platform := lPlatform;
+        lSelection.DelphiVersion := aOptions.DelphiVersion;
+        aSelections := aSelections + [lSelection];
+      end;
     for lConfiguration in lConfigurations do
       for lPlatform in lPlatforms do
       begin
@@ -3252,7 +3267,9 @@ begin
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
     Result.PossibleUnitSearchPaths := PossibleProjectSearchPaths(aProjectFileName,
-      lDocument, aOptions, Result, lProperties, lObservations, Result.PossibleUnitScopeNames, Result.PossibleResourceDirectories);
+      lDocument, aOptions, Result, lProperties, lObservations,
+      Result.PossibleUnitScopeNames, Result.PossibleResourceDirectories,
+      Result.DeclaredSelections);
     AddAdditionalSourceFiles(Result, aOptions);
     AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);
     Result.CompilerProfileName := BuildCompilerProfileName(Result, aOptions);

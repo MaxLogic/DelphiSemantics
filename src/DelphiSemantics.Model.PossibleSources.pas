@@ -80,6 +80,7 @@ type
     fBatch: TDelphiSemanticPossibleSourceBatch;
     fSdkBinaries: TDictionary<string, string>;
     fSdkDirectories: TArray<string>;
+    fSdkTargets: TDictionary<string, string>;
     function TrySdkAlias(const aName: string; out aTarget: string): Boolean;
     function ResolveProjectUnit(const aName: string): TDelphiSemanticUnitResolutionResult;
     function HasAlternateProjectSource(const aName, aOwner, aSelected: string): Boolean;
@@ -300,6 +301,7 @@ begin
   inherited Create;
   fOptions := aOptions;
   fBatch := aBatch;
+  fSdkTargets := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fCollectReferences := aCollectReferences;
   fCandidateSources := TList<TDelphiSemanticSourceText>.Create;
   fObservedCandidates := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -322,6 +324,8 @@ begin
   fObservedCandidates.Free;
   fCandidateSources.Free;
   fSdkBinaries.Free;
+  fSdkTargets.Free;
+  fSdkDiscovery.Free;
   fVisited.Free;
   fDiagnostics.Free;
   fReferences.Free;
@@ -453,6 +457,7 @@ var
   lDiagnostic: TDelphiSemanticModelDiagnostic;
 begin
   ObserveCandidate(aFileName);
+  fSdkTargets.AddOrSetValue(aOwnerFileName + '|' + aName, aFileName);
   fResult.Identity := fResult.Identity + #10 + aName + '|installed-sdk|' + LowerCase(aFileName);
   lDiagnostic := Default(TDelphiSemanticModelDiagnostic);
   lDiagnostic.Code := 'POSSIBLE_UNIT_SDK_BOUNDARY';
@@ -800,7 +805,12 @@ begin
         for lIndex := lDiagnosticStart to fDiagnostics.Count - 1 do
           if SameText(fDiagnostics[lIndex].Code, 'POSSIBLE_UNIT_SDK_BOUNDARY') and
             StartsText(lName + ' resolves to installed SDK ', fDiagnostics[lIndex].Message) then
+          begin
             lFact.SdkBoundary := True;
+            // Preserve the source already selected and witnessed by SDK fallback.
+            // No name-only rediscovery may replace this binding during a query.
+            fSdkTargets.TryGetValue(lFileName + '|' + lName, lFact.TargetFileName);
+          end;
         if lCause = '' then
           // Active import uncertainty belongs to typed provenance. It still
           // blocks affected rename/usage names, without discarding selected AST

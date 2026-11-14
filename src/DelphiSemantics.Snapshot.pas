@@ -193,6 +193,7 @@ type
     fScopeModelVersionId: TSemanticStringId;
     fSourceTextId: TSemanticStringId;
     fModelEvidenceJson: string;
+    fNameFlowFactsJsonId: TSemanticStringId;
     fVerifiedActiveSourceTextId: TSemanticStringId;
     fSymbols: TSimpleList<TSemanticSymbolFact>;
     fHasIncludes: Boolean;
@@ -257,6 +258,7 @@ type
     function TargetSymbolKeyById(const id: TSemanticSymbolId): TSemanticTargetKey;
     procedure SetModelEvidenceJson(const aPayload: string);
     property ModelEvidenceJson: string read fModelEvidenceJson;
+    procedure SetNameFlowFactsJsonId(const aId: TSemanticStringId);
     procedure SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);
     procedure SetScopeModelMetadata(const aStatusId, aVersionId,
       aDiagnosticId: TSemanticStringId; const aRejectedDeclarationCount: Integer);
@@ -286,6 +288,7 @@ type
     property ScopeModelStatusId: TSemanticStringId read fScopeModelStatusId;
     property ScopeModelVersionId: TSemanticStringId read fScopeModelVersionId;
     property SourceTextId: TSemanticStringId read fSourceTextId;
+    property NameFlowFactsJsonId: TSemanticStringId read fNameFlowFactsJsonId;
     property VerifiedActiveSourceTextId: TSemanticStringId read fVerifiedActiveSourceTextId;
     property SymbolCount: Integer read GetSymbolCount;
     property UnitId: TSemanticUnitId read fUnitId;
@@ -763,6 +766,12 @@ procedure TUnitSnapshot.SetModelEvidenceJson(const aPayload: string);
 begin
   CheckMutable;
   fModelEvidenceJson := aPayload;
+end;
+
+procedure TUnitSnapshot.SetNameFlowFactsJsonId(const aId: TSemanticStringId);
+begin
+  CheckMutable;
+  fNameFlowFactsJsonId := aId;
 end;
 
 procedure TUnitSnapshot.SetVerifiedActiveSourceTextId(const aId: TSemanticStringId);

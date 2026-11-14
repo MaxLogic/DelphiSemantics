@@ -216,8 +216,8 @@ const
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v2';
   cDefaultIdentitySchemaVersion = '1';
-  // Integrated import provenance and all unit constants on each physical line.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.80305';
+  // Integrated tr1117 extraction and DS-814 configuration/SDK name-flow evidence.
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.81403';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;
@@ -346,6 +346,7 @@ begin
     '|skippedIncludePolicy=all-candidates-v1' +
     '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
+    sLineBreak + 'nameFlowFactLimit=' + IntToStr(aOptions.NameFlowFactLimit) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
     sLineBreak + 'writableTypedConstants=' + BoolToStr(aOptions.WritableTypedConstants, True);

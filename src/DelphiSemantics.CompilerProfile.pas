@@ -30,12 +30,14 @@ type
   TDelphiSemanticRtlSourceDiscovery = class
   private
     fRecursiveFileIndex: TDictionary<string, string>;
+    fUniqueFileIndex: TDictionary<string, string>;
     fRecursiveIndexBuildCount: Integer;
     fRtlSourceRoot: string;
   public
     constructor Create(const aRtlSourceRoot: string);
     destructor Destroy; override;
     function DiscoverSourceFiles(const aUnitNames: TArray<string>): TArray<string>;
+    function TryResolveUniqueSourceFile(const aUnitName: string; out aFileName: string): Boolean;
     property RecursiveIndexBuildCount: Integer read fRecursiveIndexBuildCount;
     property RtlSourceRoot: string read fRtlSourceRoot;
   end;
@@ -471,6 +473,7 @@ end;
 
 destructor TDelphiSemanticRtlSourceDiscovery.Destroy;
 begin
+  fUniqueFileIndex.Free;
   fRecursiveFileIndex.Free;
   inherited;
 end;
@@ -504,6 +507,32 @@ begin
   finally
     lFiles.Free;
   end;
+end;
+
+function TDelphiSemanticRtlSourceDiscovery.TryResolveUniqueSourceFile(const aUnitName: string;
+  out aFileName: string): Boolean;
+var
+  lFile, lName: string;
+begin
+  aFileName := '';
+  if fUniqueFileIndex = nil then
+  begin
+    fUniqueFileIndex := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+    if TDirectory.Exists(fRtlSourceRoot) then
+      for lFile in TDirectory.GetFiles(fRtlSourceRoot, '*.pas', TSearchOption.soAllDirectories) do
+      begin
+        lName := TPath.GetFileName(lFile);
+        if fUniqueFileIndex.ContainsKey(lName) then
+          // Localized/platform duplicates cannot identify the linked SDK source.
+          fUniqueFileIndex[lName] := ''
+        else
+          fUniqueFileIndex.Add(lName, TPath.GetFullPath(lFile));
+      end;
+  end;
+  for lName in RtlSourceCandidateFileNames(aUnitName) do
+    if fUniqueFileIndex.TryGetValue(lName, aFileName) then
+      Exit(aFileName <> '');
+  Result := False;
 end;
 
 function TryReadRegistryBdsRoot(const aDelphiVersion: string; const aViewFlag: Cardinal;

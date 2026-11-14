@@ -237,7 +237,7 @@ uses
   Winapi.Windows,
   DelphiAST.ProjectIndexer,
   DelphiSemantics.Cache.Sqlite, DelphiSemantics.CompilerProfile,
-  DelphiSemantics.IdentifierScope, DelphiSemantics.ImportFacts, DelphiSemantics.RemoveWith.Visibility,
+  DelphiSemantics.IdentifierScope, DelphiSemantics.ImportFacts, DelphiSemantics.NameFlow.Facts, DelphiSemantics.RemoveWith.Visibility,
   DelphiSemantics.Resolve.UnitNameWitness, DelphiSemantics.Snapshot.Builder,
   {$IFNDEF DS_PROJECT_SESSION_TEST_SUPPORT}
   DelphiSemantics.Snapshot.Cache.Sqlite,
@@ -248,7 +248,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v80305-tr1117-final';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81403-tr1118-integration';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v2004-tr1117-final';
 
@@ -1637,6 +1637,7 @@ begin
         lBuilder.Strings.Intern(lModel.UnitName),
         lBuilder.ExactStrings.Intern(lModel.SourceText));
       try
+        lUnit.SetNameFlowFactsJsonId(lBuilder.ExactStrings.Intern(NameFlowFactsToJson(lModel.NameFlowFacts)));
         lUnit.SetVerifiedActiveSourceTextId(
           lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
         lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),

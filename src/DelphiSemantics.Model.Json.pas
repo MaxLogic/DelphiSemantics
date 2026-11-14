@@ -14,7 +14,7 @@ implementation
 
 uses
   System.Generics.Collections, System.JSON, System.JSON.Serializers, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Coordinates, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Coordinates, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Source, DelphiSemantics.SourceConditionals;
 
 function JsonBool(const aObject: TJSONObject; const aName: string): Boolean;
 var
@@ -1085,6 +1085,7 @@ begin
     lObject.AddPair('Success', TJSONBool.Create(aModel.Success));
     lObject.AddPair('FileName', aModel.FileName);
     lObject.AddPair('UnitName', aModel.UnitName);
+    lObject.AddPair('NameFlowFacts', NameFlowFactsToJson(aModel.NameFlowFacts));
     lObject.AddPair('EncodingName', aModel.EncodingName);
     lObject.AddPair('LineEndingName', aModel.LineEndingName);
     lObject.AddPair('LineBreak', aModel.LineBreak);
@@ -1153,6 +1154,7 @@ begin
   Result.Success := JsonBool(aObject, 'Success');
   Result.FileName := JsonString(aObject, 'FileName');
   Result.UnitName := JsonString(aObject, 'UnitName');
+  Result.NameFlowFacts := NameFlowFactsFromJson(JsonString(aObject, 'NameFlowFacts'));
   Result.EncodingName := JsonString(aObject, 'EncodingName');
   Result.LineEndingName := JsonString(aObject, 'LineEndingName');
   Result.LineBreak := JsonString(aObject, 'LineBreak');

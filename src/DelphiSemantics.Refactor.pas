@@ -34,6 +34,12 @@ type
     // Status 'incomplete': these same-name occurrences could not be classified, so the edits
     // are a review aid only and must not be applied.
     UnresolvedReferences: TArray<TDelphiSemanticUsage>;
+    AcceptRuntimeNameRisk: Boolean;
+    RuntimeNameWarnings: TArray<TDelphiSemanticUsage>;
+    RuntimeNameWarningsFileName: string;
+    RuntimeNameWarningsSha256: string;
+    RuntimeNameHardEntriesFileName: string;
+    RuntimeNameHardEntriesSha256: string;
     HasUnverifiedConditionalOccurrences: Boolean;
     IndexMetrics: TDelphiSemanticProjectSymbolIndexMetrics;
   end;
@@ -70,10 +76,17 @@ type
       const aProfile: string): TDelphiSemanticDeadCodeRemovalPlan; overload; static;
   end;
 
+function RuntimeNameHardEntries(const aPlan: TDelphiSemanticRenamePlan): TArray<TDelphiSemanticUsage>;
+function RuntimeNameEntryCategory(const aReason: string): string;
+function RuntimeNameRiskCategory(const aReason: string): string;
+function RuntimeNameWarningsJsonl(const aWarnings: TArray<TDelphiSemanticUsage>): string;
+procedure ApplyRenameRuntimeNameRiskPolicy(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aAccepted: Boolean; var aPlan: TDelphiSemanticRenamePlan);
+
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Hash, System.IOUtils, System.RegularExpressions, System.StrUtils,
+  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.JSON, System.RegularExpressions, System.StrUtils,
   System.SysUtils,
   DelphiSemantics.Model, DelphiSemantics.Model.Text, DelphiSemantics.Snapshot,
   DelphiSemantics.Snapshot.QuerySupport, DelphiSemantics.SourceContext, DelphiSemantics.Version,
@@ -264,6 +277,10 @@ procedure AddRenameVerification(var aPlan: TDelphiSemanticRenamePlan; const aKin
 var
   lIndex: Integer;
 begin
+  for lIndex := 0 to High(aPlan.RequiredVerification) do
+    if (aPlan.RequiredVerification[lIndex].Kind = aKind) and
+      (aPlan.RequiredVerification[lIndex].Description = aDescription) then
+      Exit;
   lIndex := Length(aPlan.RequiredVerification);
   SetLength(aPlan.RequiredVerification, lIndex + 1);
   aPlan.RequiredVerification[lIndex].Kind := aKind;
@@ -280,6 +297,11 @@ begin
   try
     lBuilder.AppendLine('operation=rename');
     lBuilder.AppendLine('model=' + aPlan.BaselineSemanticModelVersion);
+    lBuilder.AppendLine('acceptRuntimeNameRisk=' + BoolToStr(aPlan.AcceptRuntimeNameRisk, True));
+    lBuilder.AppendLine('runtimeWarningsSha256=' + aPlan.RuntimeNameWarningsSha256);
+    lBuilder.AppendLine('runtimeWarningsCount=' + Length(aPlan.RuntimeNameWarnings).ToString);
+    lBuilder.AppendLine('runtimeHardSha256=' + aPlan.RuntimeNameHardEntriesSha256);
+    lBuilder.AppendLine('runtimeHardCount=' + Length(RuntimeNameHardEntries(aPlan)).ToString);
     for lVerification in aPlan.RequiredVerification do
       lBuilder.AppendLine('verification=' + lVerification.Kind + '|' +
         lVerification.Description);
@@ -311,6 +333,181 @@ begin
     'DAK must build the owning project after apply and roll back every edit if it fails.');
   aPlan.ContextFingerprint := RenamePlanFingerprint(aPlan);
 end;
+
+function RuntimeNameWarningsJsonl(const aWarnings: TArray<TDelphiSemanticUsage>): string;
+var
+  lSorted: TArray<TDelphiSemanticUsage>;
+  lWarning: TDelphiSemanticUsage;
+  lJson: TJSONObject;
+  lBuilder: TStringBuilder;
+begin
+  lSorted := Copy(aWarnings);
+  TArray.Sort<TDelphiSemanticUsage>(lSorted, TComparer<TDelphiSemanticUsage>.Construct(
+    function(const aLeft, aRight: TDelphiSemanticUsage): Integer
+    begin
+      Result := CompareStr(aLeft.FileName, aRight.FileName);
+      if Result = 0 then
+        Result := aLeft.Line - aRight.Line;
+      if Result = 0 then
+        Result := aLeft.Column - aRight.Column;
+      if Result = 0 then
+        Result := CompareStr(aLeft.Reason, aRight.Reason);
+      if Result = 0 then
+        Result := CompareStr(aLeft.Name, aRight.Name);
+      if Result = 0 then
+        Result := CompareStr(aLeft.RoutineName, aRight.RoutineName);
+      if Result = 0 then
+        Result := CompareStr(aLeft.Role, aRight.Role);
+      if Result = 0 then
+        Result := CompareStr(aLeft.SectionKind, aRight.SectionKind);
+      if Result = 0 then
+        Result := CompareStr(aLeft.SourceKind, aRight.SourceKind);
+      if Result = 0 then
+        Result := CompareStr(aLeft.UnitName, aRight.UnitName);
+      if Result = 0 then
+        Result := aLeft.EndLine - aRight.EndLine;
+      if Result = 0 then
+        Result := aLeft.EndColumn - aRight.EndColumn;
+    end));
+  lBuilder := TStringBuilder.Create;
+  try
+    for lWarning in lSorted do
+    begin
+      lJson := TJSONObject.Create;
+      try
+        lJson.AddPair('category', RuntimeNameEntryCategory(lWarning.Reason));
+        lJson.AddPair('name', lWarning.Name);
+        lJson.AddPair('role', lWarning.Role);
+        lJson.AddPair('routine', lWarning.RoutineName);
+        lJson.AddPair('section', lWarning.SectionKind);
+        lJson.AddPair('sourceKind', lWarning.SourceKind);
+        lJson.AddPair('file', lWarning.FileName);
+        lJson.AddPair('unit', lWarning.UnitName);
+        lJson.AddPair('line', TJSONNumber.Create(lWarning.Line));
+        lJson.AddPair('column', TJSONNumber.Create(lWarning.Column));
+        lJson.AddPair('endLine', TJSONNumber.Create(lWarning.EndLine));
+        lJson.AddPair('endColumn', TJSONNumber.Create(lWarning.EndColumn));
+        lJson.AddPair('reason', lWarning.Reason);
+        lBuilder.Append(lJson.ToJSON).Append(#10);
+      finally
+        lJson.Free;
+      end;
+    end;
+    Result := lBuilder.ToString;
+  finally
+    lBuilder.Free;
+  end;
+end;
+
+function RuntimeNameHardEntries(const aPlan: TDelphiSemanticRenamePlan): TArray<TDelphiSemanticUsage>;
+var
+  lUsage: TDelphiSemanticUsage;
+  lEntries: TList<TDelphiSemanticUsage>;
+begin
+  lEntries := TList<TDelphiSemanticUsage>.Create;
+  try
+    for lUsage in aPlan.UnresolvedReferences do
+      if StartsText('runtime-name-', lUsage.Reason) or
+        (RuntimeNameRiskCategory(lUsage.Reason) <> '') then
+        lEntries.Add(lUsage);
+    Result := lEntries.ToArray;
+  finally
+    lEntries.Free;
+  end;
+end;
+
+function RuntimeNameRiskCategory(const aReason: string): string;
+begin
+  Result := '';
+  if aReason = 'runtime-name-observed' then
+    Result := 'runtime-name-observed'
+  else if aReason = 'runtime-name-metadata-consumer' then
+    Result := 'metadata'
+  else if aReason = 'runtime-name-value-unproved' then
+    Result := 'name-value'
+  else if aReason = 'runtime-name-call-effect-unproved' then
+    Result := 'call-effects'
+  else if aReason = 'string-constant-value-unproved' then
+    Result := 'string-value'
+  else if aReason = 'runtime-name-flow-configuration-unproved' then
+    Result := 'configuration'
+  else if aReason = 'runtime-name-flow-coverage-unproved' then
+    Result := 'effect-coverage'
+  else if aReason = 'runtime-name-flow-budget-exceeded' then
+    Result := 'effect-budget';
+end;
+
+function RuntimeNameEntryCategory(const aReason: string): string;
+begin
+  Result := RuntimeNameRiskCategory(aReason);
+  if Result = '' then
+    if StartsText('runtime-name-known-consumer', aReason) then
+      Result := 'known-consumer'
+    else
+      Result := 'hard-runtime-name';
+end;
+
+procedure ApplyRenameRuntimeNameRiskPolicy(const aContext: TDelphiSemanticSymbolQueryContext;
+  const aAccepted: Boolean; var aPlan: TDelphiSemanticRenamePlan);
+var
+  lUsage: TDelphiSemanticUsage;
+  lEdit: TDelphiSemanticTextEdit;
+  lPending: TArray<TDelphiSemanticUsage>;
+  lHard, lWarnings: TList<TDelphiSemanticUsage>;
+begin
+  lPending := aPlan.UnresolvedReferences + aPlan.RuntimeNameWarnings;
+  aPlan.AcceptRuntimeNameRisk := aAccepted;
+  lHard := TList<TDelphiSemanticUsage>.Create;
+  lWarnings := TList<TDelphiSemanticUsage>.Create;
+  try
+    for lUsage in lPending do
+      if aAccepted and (RuntimeNameRiskCategory(lUsage.Reason) <> '') then
+        lWarnings.Add(lUsage)
+      else
+        lHard.Add(lUsage);
+    aPlan.UnresolvedReferences := lHard.ToArray;
+    aPlan.RuntimeNameWarnings := lWarnings.ToArray;
+    aPlan.RuntimeNameWarningsSha256 := THashSHA2.GetHashString(
+      RuntimeNameWarningsJsonl(aPlan.RuntimeNameWarnings));
+    aPlan.RuntimeNameHardEntriesSha256 := THashSHA2.GetHashString(
+      RuntimeNameWarningsJsonl(RuntimeNameHardEntries(aPlan)));
+    // Report accepted uncertainty even on failed plans. Classification grants
+    // no authority to repair failed binding, invalid inputs or a blocked edit.
+    if not MatchText(aPlan.Status, ['planned', 'incomplete']) then
+      Exit;
+    if (lHard.Count > 0) or aPlan.HasUnverifiedConditionalOccurrences then
+    begin
+      aPlan.Status := 'incomplete';
+      aPlan.ContextFingerprint := '';
+      Exit;
+    end;
+    if SameText(aPlan.Status, 'incomplete') then
+    begin
+      // Only a nonempty set of explicitly accepted risks can discharge an
+      // incomplete plan. An unexplained incomplete state has no new authority.
+      if not aAccepted or (lWarnings.Count = 0) or (Length(aPlan.Edits) = 0) then
+        Exit;
+      // Runtime consent cannot manufacture authority to collide with an
+      // ordinary snapshot declaration omitted from containment references.
+      for lEdit in aPlan.Edits do
+        if IsIdentifierText(lEdit.ExpectedSourceText) and IsIdentifierText(lEdit.NewText) and
+          HasSnapshotNameCollision(aContext, lEdit.ExpectedSourceText, lEdit.NewText) then
+        begin
+          aPlan.Status := 'blocked';
+          aPlan.ContextFingerprint := '';
+          aPlan.Diagnostic := 'Rename collision: a visible symbol already uses "' + lEdit.NewText + '".';
+          Exit;
+        end;
+      aPlan.Status := 'planned';
+      aPlan.Diagnostic := '';
+    end;
+    FinalizeRenamePlan(aPlan, aContext);
+  finally
+    lWarnings.Free;
+    lHard.Free;
+  end;
+end;
+
 
 function EditAlreadyPlanned(const aEdits: TList<TDelphiSemanticTextEdit>;
   const aEdit: TDelphiSemanticTextEdit): Boolean;
@@ -1340,7 +1537,7 @@ begin
   begin
     lUsageResult := TDelphiSemanticUsageFinder.FindUsagesByName(aContext, aName);
     Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
-    if (Result.Status = 'planned') and HasSnapshotNameCollision(aContext, aName, aNewName) then
+    if MatchText(Result.Status, ['planned', 'incomplete']) and HasSnapshotNameCollision(aContext, aName, aNewName) then
       Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
         aNewName + '".'));
     Result.IndexMetrics := lUsageResult.IndexMetrics;
@@ -1427,7 +1624,7 @@ begin
     if HasContainmentNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
       Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' + aNewName + '".'));
     Result := BuildRenamePlanFromUsages(aContext, lUsageResult, aNewName);
-    if (Result.Status = 'planned') and
+    if MatchText(Result.Status, ['planned', 'incomplete']) and
       HasSnapshotNameCollision(aContext, lUsageResult.Symbol.Name, aNewName) then
       Exit(MakeBlockedPlan('Rename collision: a visible symbol already uses "' +
         aNewName + '".'));

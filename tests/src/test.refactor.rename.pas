@@ -224,7 +224,7 @@ type
     [TestCase('literal-getproperty', 'literal-getproperty,UCertified.pas,3,5,Renamed,rtti-string-name-consumer,Win32,False')]
     [TestCase('interface-resolution', 'interface-resolution,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
     [TestCase('interface-inherited', 'interface-inherited,UCertified.pas,8,11,Other,implicit-interface-method,Win32,False')]
-    [TestCase('interface-newname', 'interface-newname,UCertified.pas,8,11,Run,implicit-interface-method,Win32,False')]
+    [TestCase('interface-newname', 'interface-newname,UCertified.pas,8,11,Run,Rename collision,Win32,False')]
     [TestCase('local-newname-sdk-call', 'local-newname-sdk-call,UCertified.pas,6,5,WriteLn,containment-local-capture,Win32,False')]
     [TestCase('parameter-newname-sdk-call', 'parameter-newname-sdk-call,UCertified.pas,5,17,WriteLn,containment-local-capture,Win32,False')]
     [TestCase('inherited-escaped', 'inherited-escaped,UCertified.pas,5,16,Other,implicit-bare-inherited,Win32,False')]
@@ -1616,8 +1616,12 @@ function PlanCompletenessRename(const aRoot, aFileName: string; const aLine, aCo
   const aExpectCacheHit: Boolean = False; const aPlatform: string = '';
   const aCertified: Boolean = False; const aIdentifier: string = '';
   const aProjectBase: string = 'P'; const aDefines: TArray<string> = nil;
-  const aAnalysisSourceDirectory: string = ''): TDelphiSemanticRenamePlan;
+  const aAnalysisSourceDirectory: string = '';
+  const aRequiredGapReason: string = ''): TDelphiSemanticRenamePlan;
 var
+  lGap: TDelphiSemanticUsage;
+  lUsageResult: TDelphiSemanticUsageResult;
+  lFoundGap: Boolean;
   lCacheMetrics: TDelphiSemanticCacheMetrics;
   lRequest: TDelphiSemanticCompilerDefineRequest;
   lContext: TDelphiSemanticSymbolQueryContext;
@@ -1691,6 +1695,20 @@ begin
             end;
         end;
         Assert.IsTrue(lAnalysisSymbols > 0, 'The transitive library declaration must be indexed.');
+      end;
+      if aRequiredGapReason <> '' then
+      begin
+        // A stronger collision refusal must not mask loss of the independent
+        // new-name interface guard. Check it on the same cold/warm snapshot.
+        lUsageResult := TDelphiSemanticUsageFinder.FindUsagesAtPosition(lContext,
+          TPath.Combine(aRoot, aFileName), aLine, aColumn);
+        Assert.AreEqual('resolved', lUsageResult.Status, lUsageResult.Diagnostic);
+        lFoundGap := False;
+        for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext,
+          lUsageResult.Symbol, [aNewName]) do
+          if lGap.Reason = aRequiredGapReason then
+            lFoundGap := True;
+        Assert.IsTrue(lFoundGap, 'Missing independent new-name guard: ' + aRequiredGapReason);
       end;
       Result := TDelphiSemanticRenamePlanner.PlanRenameAtPosition(lContext,
         TPath.Combine(aRoot, aFileName), aLine, aColumn, aNewName);
@@ -2002,9 +2020,11 @@ begin
   if StartsText('closure-', aCase) then
     lAnalysisSourceDirectory := TPath.Combine(lRoot, 'lib');
   lPlan := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
+    TPath.Combine(lRoot, 'proof.sqlite3'), False, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory,
+    IfThen(aCase = 'interface-newname', 'implicit-interface-method', ''));
   lWarm := PlanCompletenessRename(lRoot, aFile, aLine, aColumn, aNewName,
-    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory);
+    TPath.Combine(lRoot, 'proof.sqlite3'), True, aPlatform, True, '', IfThen(MatchText(aCase, ['f1-dfm-shared-dir', 'k15-dfm-outside-folders', 'r3-form-resource-missing']), 'proj\Certified', 'Certified'), lDefines, lAnalysisSourceDirectory,
+    IfThen(aCase = 'interface-newname', 'implicit-interface-method', ''));
   if StartsText('closure-', aCase) or (aCase = 'm1d-transitive-cond-nonmember') then
     for lUsage in lPlan.UnresolvedReferences do
       Assert.AreNotEqual('active-import-source-not-retained', lUsage.Reason,
@@ -2031,7 +2051,9 @@ begin
     if aReason = 'Rename collision' then
     begin
       Assert.AreEqual('blocked', lPlan.Status, lPlan.Diagnostic);
-      Assert.AreEqual('Rename collision: a visible symbol already uses "RenamedValue".', lPlan.Diagnostic);
+      Assert.AreEqual('Rename collision: a visible symbol already uses "' + aNewName + '".', lPlan.Diagnostic);
+      Assert.AreEqual(0, Integer(Length(lPlan.Edits)), 'A collision must provide no advisory edits.');
+      Assert.AreEqual(lPlan.Diagnostic, lWarm.Diagnostic);
     end else
       Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
     lFound := (aReason = 'Rename collision') and (lPlan.Status = 'blocked');

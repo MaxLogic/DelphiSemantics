@@ -710,7 +710,8 @@ begin
       Exit(False);
     end;
   end;
-  Result := aModel.UnitName <> '';
+  Result := (aModel.UnitName <> '') and (aModel.NameFlowFacts <> nil) and
+    not aModel.NameFlowFacts.CoverageReason.StartsWith('name-flow-facts-json-unverified');
   if not Result then
     DiscardUnreadablePersistentEntry(lConnectionObject, aKey,
       'SQLite cache entry was unreadable and will be rebuilt.');

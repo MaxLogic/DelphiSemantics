@@ -68,6 +68,13 @@ type
     function InputsAreCurrent(out aReason: string): Boolean;
   end;
 
+  // Declared selections come from the project, never from the supplied evidence.
+  // Missing certificates remain visible and deny all-configuration inactivity.
+  TDelphiSemanticCompilerDefineMatrix = record
+    Declared: TArray<TDelphiSemanticCompilerDefineRequest>;
+    Certificates: TArray<IDelphiSemanticCompilerDefineEvidence>;
+  end;
+
   TDelphiSemanticCompilerDefines = record
   public
     class function TryAdmit(const aEvidence: IDelphiSemanticCompilerDefineEvidence;

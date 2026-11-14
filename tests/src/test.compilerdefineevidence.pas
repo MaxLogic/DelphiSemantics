@@ -191,7 +191,7 @@ begin
   lDescriptor.Defines := Copy(aDefines);
   if Length(aPredefinedFalse) > 0 then
   begin
-    lDescriptor.PredefinedFormat := 'compiler-predefines-23-win64-v1';
+    lDescriptor.PredefinedFormat := 'compiler-predefines-23-' + LowerCase(aRequest.Platform) + '-v1';
     lDescriptor.PredefinedIdentity := 'explicit-closed-generated-predefined-states-v1';
     lDescriptor.PredefinedFalse := Copy(aPredefinedFalse);
   end;

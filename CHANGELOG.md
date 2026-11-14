@@ -55,6 +55,20 @@
 
 - Configuration-matrix caller-exclusion diagnostics suggest runnable corrections with declared, unique selector names (DS-797).
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
+- Explicit runtime-name risk planning uses certified include coverage and pinned SDK non-declaration proof. SDK selection accepts only default-language DCUs and the certified compiler host (DS-814).
+
+- Rename keeps ReadComponentResEx, InitComponentRes and unresolved TResourceStream descendant constructors as hard runtime-name consumers, including inherited and class-reference construction (DS-803).
+
+- Rename preserves hard consumer coverage through mapping failures and recognizes WinAPI and component resource-name lookups. Class-name observations retain unresolved SDK ancestry conservatively (DS-803).
+
+- Rename uses scope and uses-order evidence for constant operands and project homonyms, retains inherited SDK consumer candidates, and recognizes additional RTTI name-taking overloads. Runtime name-exposure warnings exclude statically unrelated classes; unmapped captured calls retain distinct identities (DS-803).
+
+- Rename retains hard known-consumer refusals across call shapes, SDK hash changes and incomplete scopes. Constant intrinsics are folded where supported; unsupported evaluation of true constants stays hard. Accepted observed and unproven effects have distinct categories and a deterministic warning-inventory digest (DS-803).
+
+- Rename plans support explicit acceptance of unproven runtime-name effects while preserving exact string matches, known consumer demands, collision checks and warning provenance (DS-803).
+
+- Rename refuses plans with incomplete runtime-name call effects or relevant class-name diagnostics. SDK effects are tied to installed source/compiler hashes; existing string barriers remain (DS-803).
+
 - Rename checks retained string constants, variable initializers and concatenations in code, including class constants and namespace-qualified imports. It refuses relevant unknown string operands while excluding proved numeric values and independently scanned structured values. Declaration sections follow token positions (DS-797).
 
 - Rename checks each literal operand as well as folded literal expressions, evaluates transitive retained string constants (including qualified and include-defined constants), and refuses unknown string-constant dependencies. Parsed declarations at any position on a line participate in collision checks; newly discovered declarations are containment evidence only and do not enable previously refused plans (DS-797).
