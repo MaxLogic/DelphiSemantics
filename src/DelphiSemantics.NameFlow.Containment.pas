@@ -3,7 +3,7 @@ unit DelphiSemantics.NameFlow.Containment;
 interface
 
 uses
-  DelphiSemantics.NameConsumers, DelphiSemantics.NameFlow.SdkEffects,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.NameConsumers, DelphiSemantics.NameFlow.SdkEffects,
   DelphiSemantics.Snapshot, DelphiSemantics.Usage;
 
 type
@@ -30,6 +30,10 @@ function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
 function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
   const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
   const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean): TNameFlowAnalysis; overload;
+function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
+  const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean;
+  const aConfigurations: TDelphiSemanticCompilerDefineMatrix): TNameFlowAnalysis; overload;
 
 function NameFlowDeclarationKind(const aSnapshot: TDelphiProjectSnapshot;
   const aFileName, aName: string; const aLine: Integer): string;
@@ -43,7 +47,8 @@ implementation
 uses
   System.Generics.Collections, System.Generics.Defaults, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   AutoFree,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.SourceConditionals;
+  DelphiSemantics.ImportFacts, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts,
+  DelphiSemantics.Preprocess, DelphiSemantics.Snapshot.PositionResolver, DelphiSemantics.SourceConditionals;
 
 const
   cNameConsumerPrefixes: array[0..14] of string = ('System', 'System.Classes.TReader',
@@ -77,7 +82,7 @@ begin
       else if (aSource[i] = '(') and (Copy(aSource, i, 2) = '(*') then
         lDirective := i + 2;
       if (lDirective > 0) and
-        not TDelphiSemanticSourceConditionals.InactiveAtOffset(aSource, aActivity, i) then
+        not TDelphiSemanticSourceConditionals.NeverAtOffset(aSource, aActivity, i) then
       begin
         while (lDirective <= Length(aSource)) and
           CharInSet(aSource[lDirective], [#9, #10, #13, ' ']) do
@@ -626,6 +631,71 @@ end;
 function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
   const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
   const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean): TNameFlowAnalysis;
+begin
+  Result := AnalyzeNameFlowSnapshot(aSnapshot, aTargetKind, aSdk, aNames,
+    aAcceptRuntimeNameRisk, Default(TDelphiSemanticCompilerDefineMatrix));
+end;
+
+function ConfigurationNeutralIncludeActivity(const aSource, aFileName, aSelected: string;
+  const aConfigurations: TDelphiSemanticCompilerDefineMatrix): string;
+var
+  lRequest: TDelphiSemanticCompilerDefineRequest;
+  lCertificate, lAdmitted: IDelphiSemanticCompilerDefineEvidence;
+  lOptions: TDelphiSemanticPreprocessOptions;
+  lPreprocess: TDelphiSemanticPreprocessResult;
+  lActivity, lPossible, lReason: string;
+  lFound: Boolean;
+  i, lPrefix: Integer;
+begin
+  // An unavailable declared selection cannot supply project-wide inactivity.
+  Result := '';
+  if Length(aConfigurations.Declared) = 0 then
+    Exit;
+  lPossible := '';
+  for lRequest in aConfigurations.Declared do
+  begin
+    lFound := False;
+    lAdmitted := nil;
+    for lCertificate in aConfigurations.Certificates do
+      if TDelphiSemanticCompilerDefines.TryAdmit(lCertificate, lRequest, lAdmitted, lReason) then
+      begin
+        lFound := True;
+        Break;
+      end;
+    if not lFound or not TDelphiSemanticCompilerDefines.AppliesToSource(lAdmitted, aFileName) then
+      Exit;
+    TDelphiSemanticCompilerDefines.RequireCurrent(lAdmitted);
+    lOptions := Default(TDelphiSemanticPreprocessOptions);
+    lOptions.SourceFileName := aFileName;
+    lOptions.SourceText := aSource;
+    lOptions.Defines := TDelphiSemanticCompilerDefines.EffectiveDefines(lAdmitted);
+    lOptions.DefineEvidenceComplete := True;
+    lOptions.CompilerDefineEvidence := lAdmitted;
+    lOptions.CompilerDefineEvidenceFingerprint := TDelphiSemanticCompilerDefines.Fingerprint(lAdmitted);
+    lOptions.PredefinedFalse := lAdmitted.Descriptor.PredefinedFalse;
+    lPreprocess := TDelphiSemanticPreprocessor.PreprocessFile(lOptions);
+    if not lPreprocess.ActivityEvidenceAvailable then
+      Exit;
+    lActivity := TDelphiSemanticSourceConditionals.EncodeActivity(aSource, aFileName, lPreprocess.ActivitySpans);
+    if lPossible = '' then
+      lPossible := lActivity
+    else begin
+      lPrefix := Length(lPossible) - Length(aSource);
+      if lPrefix <= 0 then
+        Exit;
+      for i := 1 to Length(aSource) do
+        if not TDelphiSemanticSourceConditionals.InactiveAtOffset(aSource, lActivity, i) then
+          lPossible[lPrefix + i] := '?';
+    end;
+    TDelphiSemanticCompilerDefines.RequireCurrent(lAdmitted);
+  end;
+  Result := TDelphiSemanticSourceConditionals.WithNeverActivity(aSource, aSelected, lPossible);
+end;
+
+function AnalyzeNameFlowSnapshot(const aSnapshot: TDelphiProjectSnapshot;
+  const aTargetKind: TNameEffectTargetKind; const aSdk: TNameSdkCatalog;
+  const aNames: TArray<string>; const aAcceptRuntimeNameRisk: Boolean;
+  const aConfigurations: TDelphiSemanticCompilerDefineMatrix): TNameFlowAnalysis;
 var
   g: TGarbos;
   i, j, lIndex: Integer;
@@ -1375,9 +1445,10 @@ begin
         // preprocessing require a separate hard consumer-coverage refusal.
         lIncludeActivity := '';
         if aAcceptRuntimeNameRisk then
-          lIncludeActivity := aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId);
-        // Only preprocessor-proved inactive includes are absent in this
-        // selected configuration. Unknown/unavailable activity keeps refusal.
+          lIncludeActivity := ConfigurationNeutralIncludeActivity(lSource, lFileName,
+            aSnapshot.ExactTextOf(lUnit.VerifiedActiveSourceTextId), aConfigurations);
+        // Only universal inactivity excludes a consumer from a project-wide edit.
+        // Selected activity and missing alternate certificates keep refusal.
         if (lFacts.CoverageReason <> 'name-flow-physical-span-unproved') or
           (lFacts.NodeCount = 0) or not SourceExcludesKnownConsumers(lSource, True, lIncludeActivity) then
           Report(lFileName, lFacts.CoverageReason, 'runtime-name-known-consumer-coverage-unproved', 0, 0);

@@ -4,7 +4,8 @@ interface
 
 uses
   System.Generics.Collections,
-  DelphiSemantics.Model, DelphiSemantics.NameConsumers;
+  DelphiSemantics.CompilerProfile, DelphiSemantics.Model, DelphiSemantics.NameConsumers,
+  DelphiSemantics.ProjectContext;
 
 type
   TNameSdkProgress = reference to procedure(const aStage, aSource: string;
@@ -18,6 +19,8 @@ type
     ExpectedCompilerHash: string;
     Platform: string;
     Configuration: string;
+    // Query-local compiler-profile selection, never persisted in SDK artifacts.
+    SelectionProject: TDelphiSemanticProjectInfo;
     UnitOptions: TArray<TDelphiSemanticModelOptions>;
     MaxSources: Integer;
     MaxSourceBytes: Int64;
@@ -90,7 +93,10 @@ type
     fCoverage: TArray<TNameSdkSourceCoverage>;
     // Query-local declaration models; never loaded from the effects artifact.
     fDeclarationModels: TDictionary<string, TDelphiSemanticUnitModel>;
+    fDeclarationDiscovery: TDelphiSemanticRtlSourceDiscovery;
     fDeclarationAbsence: TDictionary<string, Boolean>;
+    fDeclarationSelections: TDictionary<string, string>;
+    function DeclarationSelectionsAreCurrent: Boolean;
     function ComputeIdentity: string;
     function ActualInputIdentity: string;
     procedure CaptureInitialActualInputs;
@@ -109,7 +115,8 @@ type
       const aCandidatesComplete: Boolean): TNameSdkEffect;
     function Entries: TArray<TNameSdkEffectEntry>;
     function SourceCoverage: TArray<TNameSdkSourceCoverage>;
-    function ExcludesDeclaration(const aSourceFileName, aName: string): Boolean;
+    function ExcludesDeclaration(const aSourceFileName, aName: string): Boolean; overload;
+    function ExcludesDeclaration(const aSourceFileName, aName, aImportName: string): Boolean; overload;
     function RequestedSourceFileNames: TArray<string>;
     function ArtifactKey: string;
     function Save(const aFileName: string): Boolean;
@@ -134,7 +141,7 @@ uses
   System.Classes, System.Diagnostics, System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
   AutoFree, MaxLogic.StrUtils, SimpleParser.Lexer, SimpleParser.Lexer.Types,
   DelphiSemantics.Cache, DelphiSemantics.Model.Text, DelphiSemantics.NameFlow.Facts,
-  DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess;
+  DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess, DelphiSemantics.Resolve.UnitResolver;
 
 const
   cSdkGeneratorVersion = 'ds803-sdk-effects-v6/primitive-v3/full-body-v1';
@@ -365,6 +372,11 @@ begin
   inherited Create;
   fRequest := aRequest;
   fRequest.UnitOptions := Copy(aRequest.UnitOptions);
+  fRequest.SelectionProject.ReferenceDirectories := Copy(aRequest.SelectionProject.ReferenceDirectories);
+  fRequest.SelectionProject.SearchPaths := Copy(aRequest.SelectionProject.SearchPaths);
+  fRequest.SelectionProject.UnitAliases := Copy(aRequest.SelectionProject.UnitAliases);
+  fRequest.SelectionProject.UnitScopeNames := Copy(aRequest.SelectionProject.UnitScopeNames);
+  fDeclarationSelections := TDictionary<string, string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fIndex := TDictionary<string, Integer>.Create;
   fDeclarationModels := TDictionary<string, TDelphiSemanticUnitModel>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
   fDeclarationAbsence := TDictionary<string, Boolean>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
@@ -399,6 +411,8 @@ end;
 
 destructor TNameSdkCatalog.Destroy;
 begin
+  fDeclarationDiscovery.Free;
+  fDeclarationSelections.Free;
   fDeclarationAbsence.Free;
   fDeclarationModels.Free;
   fIndex.Free;
@@ -432,7 +446,7 @@ begin
   if not fInitialInputsCaptured or (fInitialActualInputs = '') then
     Exit;
   try
-    Result := SameText(fInitialActualInputs, ActualInputIdentity);
+    Result := SameText(fInitialActualInputs, ActualInputIdentity) and DeclarationSelectionsAreCurrent;
   except
     on e: Exception do
       // Current unreadable inputs cannot establish an unchanged query input.
@@ -751,8 +765,10 @@ begin
   fIdentity := '';
   fEntries := nil;
   fCoverage := nil;
+  FreeAndNil(fDeclarationDiscovery);
   fDeclarationModels.Clear;
   fDeclarationAbsence.Clear;
+  fDeclarationSelections.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try
@@ -856,7 +872,7 @@ begin
   if not fValidated then
     Exit(False);
   try
-    Result := (fIdentity <> '') and (ComputeIdentity = fIdentity);
+    Result := (fIdentity <> '') and (ComputeIdentity = fIdentity) and DeclarationSelectionsAreCurrent;
   except
     on E: ESdkExpectedPinMismatch do
     begin
@@ -951,13 +967,36 @@ begin
   end;
 end;
 
+function TNameSdkCatalog.DeclarationSelectionsAreCurrent: Boolean;
+var
+  lPair: TPair<string, string>;
+  lSelection: TDelphiSemanticUnitResolutionResult;
+begin
+  Result := False;
+  for lPair in fDeclarationSelections do
+  begin
+    lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, lPair.Key);
+    if not lSelection.Found or lSelection.Ambiguous or
+      not SameText(lPair.Value, lSelection.FileName + #10 +
+        THashSHA2.GetHashStringFromFile(lSelection.FileName)) then
+      Exit;
+  end;
+  Result := True;
+end;
+
 function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName: string): Boolean;
+begin
+  Result := ExcludesDeclaration(aSourceFileName, aName, TPath.GetFileNameWithoutExtension(aSourceFileName));
+end;
+
+function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName, aImportName: string): Boolean;
 var
   lOptions: TDelphiSemanticModelOptions;
   lModel: TDelphiSemanticUnitModel;
   lDeclaration: TDelphiSemanticDeclaration;
   lRoutine: TDelphiSemanticRoutine;
-  lFileName, lKey: string;
+  lFileName, lInputFileName, lKey, lSelected, lUnitName, lDeclaredUnitName, lLibraryRoot: string;
+  lSelection: TDelphiSemanticUnitResolutionResult;
 begin
   Result := False;
   // A query uses only the SDK/compiler pair admitted by the existing reviewed
@@ -970,14 +1009,60 @@ begin
     if not IsIdentifierChar(aName[i]) then
       Exit;
   try
-    lFileName := TPath.GetFullPath(aSourceFileName);
-    if not InsideRoot(lFileName, fRequest.SdkRoot) or
-      not SameText(TPath.GetExtension(lFileName), '.pas') or not TFile.Exists(lFileName) then
+    lInputFileName := TPath.GetFullPath(aSourceFileName);
+    if not TFile.Exists(lInputFileName) then
       Exit;
-    lKey := lFileName + '|' + aName;
+    lLibraryRoot := TPath.Combine(TPath.GetDirectoryName(fRequest.SdkRoot), 'lib');
+    lLibraryRoot := TPath.Combine(lLibraryRoot, LowerCase(fRequest.Platform));
+    if SameText(TPath.GetExtension(lInputFileName), '.pas') then
+    begin
+      if not InsideRoot(lInputFileName, fRequest.SdkRoot) then
+        Exit;
+    end else if not SameText(TPath.GetExtension(lInputFileName), '.dcu') or
+      not InsideRoot(lInputFileName, lLibraryRoot) then
+      Exit;
+    lKey := lInputFileName + '|' + aName + '|' + aImportName;
     if fDeclarationAbsence.TryGetValue(lKey, Result) then
       Exit;
     Result := False;
+    // Inventory discovery does not prove compiler selection. Resolve the
+    // original import through this target's certified ordered profile paths.
+    if not SameText(fRequest.SelectionProject.Platform, fRequest.Platform) or
+      not SameText(fRequest.SelectionProject.Configuration, fRequest.Configuration) then
+      Exit;
+    lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, aImportName);
+    if not lSelection.Found or lSelection.Ambiguous then
+      Exit;
+    lUnitName := lSelection.CanonicalUnitName;
+    if SameText(TPath.GetExtension(lInputFileName), '.dcu') then
+    begin
+      if not SameText(lSelection.FileName, lInputFileName) then
+        Exit;
+    end else if not SameText(TPath.GetFileNameWithoutExtension(lInputFileName), lUnitName) then
+      Exit;
+    if fDeclarationDiscovery = nil then
+      fDeclarationDiscovery := TDelphiSemanticRtlSourceDiscovery.Create(fRequest.SdkRoot);
+    // Refuse every duplicate language/platform source, even when one happens
+    // to sort first. The uniquely mapped source must declare the linked unit.
+    if not fDeclarationDiscovery.TryResolveUniqueSourceFile(lUnitName, lSelected) or
+      (TFile.GetSize(lSelected) > 8 * 1024 * 1024) or
+      not TDelphiSemanticUnitResolver.TryReadDeclaredUnitName(lSelected, lDeclaredUnitName) or
+      not SameText(lDeclaredUnitName, lUnitName) then
+      Exit;
+    lFileName := lSelected;
+    if SameText(TPath.GetExtension(lInputFileName), '.pas') and not SameText(lFileName, lInputFileName) then
+      Exit;
+    if SameText(TPath.GetExtension(lSelection.FileName), '.pas') then
+    begin
+      if not SameText(lSelection.FileName, lFileName) then
+        Exit;
+    end else if not SameText(TPath.GetExtension(lSelection.FileName), '.dcu') or
+      not InsideRoot(lSelection.FileName, lLibraryRoot) then
+      Exit;
+    // Retain the actual selected artifact, including DCU bytes, for publication
+    // revalidation. Duplicate language/platform sources already refused above.
+    fDeclarationSelections.AddOrSetValue(aImportName, lSelection.FileName + #10 +
+      THashSHA2.GetHashStringFromFile(lSelection.FileName));
     if not fDeclarationModels.TryGetValue(lFileName, lModel) then
     begin
       // Reuse the ordinary SDK declaration extractor, without project defines
@@ -1115,8 +1200,10 @@ begin
   fValidated := False;
   fEntries := nil;
   fCoverage := nil;
+  FreeAndNil(fDeclarationDiscovery);
   fDeclarationModels.Clear;
   fDeclarationAbsence.Clear;
+  fDeclarationSelections.Clear;
   fIndex.Clear;
   fStatistics := Default(TNameSdkStatistics);
   try

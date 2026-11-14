@@ -44,8 +44,16 @@ type
     [TestCase('SDK name in another branch', 'inactive')]
     [TestCase('SDK name in include', 'include')]
     [TestCase('SDK source outside pin', 'outside')]
+    [TestCase('SDK compiler selection unavailable', 'selection-missing')]
+    [TestCase('SDK compiler selection shadowed', 'selection-shadow')]
+    [TestCase('Selected SDK DCU source and artifact currentness', 'precompiled')]
     [Test] procedure SdkNonDeclarationControlsConstantBinding(const aCase: string);
     [Test] procedure SdkFallbackRetainsSourceProvenance;
+    [TestCase('Release consumer planned in Debug', 'RELEASE')]
+    [TestCase('Win64 consumer planned on Win32', 'WIN64')]
+    [TestCase('Include inactive in both declared define sets', 'FPC')]
+    [Test] procedure AlternateConfigurationIncludeStaysHard(const aGuard: string);
+    [Test] procedure LocalizedSdkSourceCannotProveAbsence;
     [Test] procedure MissingFactsRefuse;
     [Test] procedure ScopedLookupHonorsUsesOrder;
     [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
@@ -98,7 +106,8 @@ implementation
 
 uses
   System.Hash, System.IOUtils, System.StrUtils, System.SysUtils,
-  DelphiSemantics.ImportFacts, DelphiSemantics.Model, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Usage,
+  DelphiSemantics.CompilerDefineEvidence, DelphiSemantics.ImportFacts, DelphiSemantics.Model,
+  DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Usage,
   DelphiSemantics.NameConsumers, DelphiSemantics.NameFlow.Containment,
   DelphiSemantics.NameFlow.Extract, DelphiSemantics.NameFlow.Facts, DelphiSemantics.NameFlow.SdkEffects,
   DelphiSemantics.Preprocess, DelphiSemantics.Snapshot,
@@ -2389,6 +2398,7 @@ var
   lSnapshot: TDelphiProjectSnapshot;
   lMetrics: TDelphiSnapshotBuilderMetrics;
   lReport: TNameFlowAnalysis;
+  lConfigurations: TDelphiSemanticCompilerDefineMatrix;
 begin
   lRoot := CreateTestTempRoot('ds814-include-temp');
   lFile := TPath.Combine(lRoot, 'Probe.pas');
@@ -2416,7 +2426,12 @@ begin
     lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil, ['Count', 'Amount']);
     Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved') or
       HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'), 'Strict mode is unchanged.');
-    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil, ['Count', 'Amount'], True);
+    lConfigurations := Default(TDelphiSemanticCompilerDefineMatrix);
+    lConfigurations.Declared := [lOptions.CompilerDefineRequest];
+    if aCertified then
+      lConfigurations.Certificates := [lOptions.CompilerDefineEvidence];
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil,
+      ['Count', 'Amount'], True, lConfigurations);
     Assert.AreEqual(aActive or not aCertified,
       HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved') or
       HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'),
@@ -2428,7 +2443,7 @@ end;
 
 procedure TNameFlowContainmentTests.SdkNonDeclarationControlsConstantBinding(const aCase: string);
 var
-  lRoot, lSdkRoot, lSdkFile, lFile, lSource, lSdkSource: string;
+  lRoot, lSdkRoot, lSdkFile, lSdkTarget, lFile, lSource, lSdkSource: string;
   lOptions: TDelphiSemanticModelOptions;
   lModels: TArray<TDelphiSemanticUnitModel>;
   lImports: TArray<TDelphiSemanticImportFact>;
@@ -2470,6 +2485,25 @@ begin
   lRequest.ExpectedCompilerHash := THashSHA2.GetHashStringFromFile(ParamStr(0));
   lRequest.Platform := 'Win32';
   lRequest.Configuration := 'Debug';
+  lRequest.SelectionProject.Platform := 'Win32';
+  lRequest.SelectionProject.Configuration := 'Debug';
+  lSdkTarget := lSdkFile;
+  lRequest.SelectionProject.SearchPaths := [lSdkRoot];
+  if aCase = 'precompiled' then
+  begin
+    lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release\System.Later.dcu');
+    TDirectory.CreateDirectory(ExtractFileDir(lSdkTarget));
+    TFile.WriteAllText(lSdkTarget, 'closed generated SDK artifact', TEncoding.ASCII);
+    lRequest.SelectionProject.SearchPaths := [ExtractFileDir(lSdkTarget)];
+  end;
+  if aCase = 'selection-missing' then
+    lRequest.SelectionProject.SearchPaths := nil;
+  if aCase = 'selection-shadow' then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'System.Later.pas'),
+      'unit System.Later; interface const cLimit = 7; implementation end.', TEncoding.ASCII);
+    lRequest.SelectionProject.SearchPaths := [lRoot, lSdkRoot];
+  end;
   if aCase = 'unpinned' then
     lRequest.ExpectedSourceIdentity := '';
   lSdk := TNameSdkCatalog.Create(lRequest);
@@ -2517,7 +2551,7 @@ begin
       if i = 1 then
       begin
         lImports[i].Name := 'System.Later';
-        lImports[i].TargetFileName := lSdkFile;
+        lImports[i].TargetFileName := lSdkTarget;
         lImports[i].SdkBoundary := True;
       end;
     end;
@@ -2552,8 +2586,16 @@ begin
     for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Count', 'Amount']) do
       if lGap.Reason = 'string-constant-evaluator-unsupported' then
         lFound := True;
-    Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported']), lFound,
+    Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported', 'precompiled']), lFound,
       'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
+    if aCase = 'precompiled' then
+    begin
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);
+      TFile.AppendAllText(lSdkTarget, ' changed after query', TEncoding.ASCII);
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'The selected DCU bytes belong to the negative declaration proof.');
+      Assert.IsFalse(lSdk.ValidateCurrentIdentity);
+    end;
   finally
     lContext.ProjectSnapshot := nil;
     lSnapshot.Free;
@@ -2593,6 +2635,97 @@ begin
         'Fallback SDK discovery must retain its witnessed source for declaration proof.');
     end;
   Assert.IsTrue(lFound);
+end;
+
+procedure TNameFlowContainmentTests.AlternateConfigurationIncludeStaysHard(const aGuard: string);
+var
+  lRoot, lFile, lSource: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lConfigurations: TDelphiSemanticCompilerDefineMatrix;
+  lOther: TDelphiSemanticCompilerDefineRequest;
+begin
+  lRoot := CreateTestTempRoot('ds814-alternate-include-temp');
+  lFile := TPath.Combine(lRoot, 'Probe.pas');
+  TFile.WriteAllText(TPath.Combine(lRoot, 'consumer.inc'),
+    'if TObject.MethodAddress(ParamStr(2)) <> nil then Halt(3);', TEncoding.ASCII);
+  lSource := 'unit Probe;'#13#10'interface'#13#10'procedure Touch;'#13#10 +
+    'implementation'#13#10'procedure Touch;'#13#10'begin'#13#10 +
+    '{$IFDEF ' + aGuard + '}{$I consumer.inc}{$ENDIF}'#13#10 +
+    'WriteLn('''' {$IFDEF OTHER} + ''x'' {$ENDIF});'#13#10'end;'#13#10'end.';
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.ProjectContextApplied := True;
+  lOptions.CompilerDefineRequest.ProjectFileName := TPath.ChangeExtension(lFile, '.dproj');
+  lOptions.CompilerDefineRequest.MainSourceFileName := lFile;
+  lOptions.CompilerDefineRequest.Configuration := 'Debug';
+  lOptions.CompilerDefineRequest.Platform := 'Win32';
+  lOptions.CompilerDefineRequest.DelphiVersion := '23.0';
+  lOptions.CompilerDefineEvidence := ClosedTestCompilerDefines(lOptions.CompilerDefineRequest,
+    [lFile], ['DEBUG', 'WIN32', 'CPUX86'], ['WIN64']);
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lConfigurations := Default(TDelphiSemanticCompilerDefineMatrix);
+    lOther := lOptions.CompilerDefineRequest;
+    lOther.Configuration := 'Release';
+    lOther.Platform := 'Win64';
+    lConfigurations.Declared := [lOptions.CompilerDefineRequest, lOther];
+    lConfigurations.Certificates := [lOptions.CompilerDefineEvidence,
+      ClosedTestCompilerDefines(lOther, [lFile], ['RELEASE', 'WIN64', 'CPUX64'])];
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil,
+      ['Count', 'Amount'], True, lConfigurations);
+    Assert.AreEqual(aGuard <> 'FPC',
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved'),
+      'Only inactivity in every certified selection can exclude a consumer.');
+    lConfigurations.Certificates := [lOptions.CompilerDefineEvidence];
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member, nil,
+      ['Count', 'Amount'], True, lConfigurations);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-coverage-unproved'),
+      'An unavailable alternate define set keeps the consumer coverage barrier.');
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.LocalizedSdkSourceCannotProveAbsence;
+var
+  lRoot, lFile: string;
+  lRequest: TNameSdkGenerationRequest;
+  lSdk: TNameSdkCatalog;
+begin
+  lRoot := CreateTestTempRoot('ds814-localized-sdk-temp');
+  TDirectory.CreateDirectory(TPath.Combine(lRoot, 'de'));
+  TFile.WriteAllText(TPath.Combine(lRoot, 'EMSHosting.Consts.pas'),
+    'unit EMSHosting.Consts; interface resourcestring sEdgeContentError = ''Count''; implementation end.',
+    TEncoding.ASCII);
+  lFile := TPath.Combine(lRoot, 'de\EMSHosting.Consts.pas');
+  TFile.WriteAllText(lFile, 'unit EMSHosting.Consts; interface implementation end.', TEncoding.ASCII);
+  lRequest := Default(TNameSdkGenerationRequest);
+  lRequest.SdkRoot := lRoot;
+  lRequest.CompilerFileName := ParamStr(0);
+  lRequest.CompilerVersion := 'test-identity';
+  lRequest.ExpectedSourceIdentity := CaptureSdkSourceIdentity(lRoot);
+  lRequest.ExpectedCompilerHash := THashSHA2.GetHashStringFromFile(ParamStr(0));
+  lRequest.Platform := 'Win32';
+  lRequest.Configuration := 'Debug';
+  lRequest.SelectionProject.Platform := 'Win32';
+  lRequest.SelectionProject.Configuration := 'Debug';
+  lRequest.SelectionProject.SearchPaths := [TPath.Combine(lRoot, 'de')];
+  lSdk := TNameSdkCatalog.Create(lRequest);
+  try
+    lSdk.Generate;
+    Assert.IsFalse(lSdk.ExcludesDeclaration(lFile, 'sEdgeContentError'),
+      'A localized SDK copy cannot prove absence from the unit linked by the compiler.');
+  finally
+    lSdk.Free;
+  end;
 end;
 
 initialization

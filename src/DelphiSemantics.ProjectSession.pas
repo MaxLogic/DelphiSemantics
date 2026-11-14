@@ -229,7 +229,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81401-ds814-sdk-provenance';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81402-ds814-configuration-closure';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v103-ds799-switch-state';
 

@@ -1739,7 +1739,7 @@ var
           begin
             if (aSdk <> nil) and
               (lImport.GapReason = '') and not lImport.ResolutionVaries and
-              aSdk.ExcludesDeclaration(lImport.TargetFileName, aName) then
+              aSdk.ExcludesDeclaration(lImport.TargetFileName, aName, lImport.Name) then
               Continue;
             lExternalUnits := lExternalUnits + [lImport.Name];
           end;
