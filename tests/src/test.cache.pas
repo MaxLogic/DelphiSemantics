@@ -148,6 +148,8 @@ type
     [TestCase('Before multiline routine headers', '12')]
     [TestCase('tr1117 parser generation', '80305')]
     [TestCase('DS814 parser generation', '81402')]
+    [TestCase('Prior integration parser generation', '81403')]
+    [TestCase('DS814 parity parser generation', '81404')]
     [TestCase('Before assignment exclusion', '13')]
     [TestCase('Before class declaration scope exclusion', '14')]
     [TestCase('Before packed record fields', '15')]
@@ -531,9 +533,9 @@ begin
   try
     lIdentity := lCache.BuildIdentity(lModelOptions);
 
-    Assert.AreEqual('13', lIdentity.SchemaVersion,
+    Assert.AreEqual('14', lIdentity.SchemaVersion,
       'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.81403', lIdentity.ParserVersion,
+    Assert.AreEqual('DelphiSemantics.Model.Parser.81405', lIdentity.ParserVersion,
       'Import provenance, directory witnesses and every unit constant on a line require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,
