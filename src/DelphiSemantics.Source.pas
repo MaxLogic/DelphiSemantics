@@ -2,6 +2,9 @@ unit DelphiSemantics.Source;
 
 interface
 
+uses
+  System.Generics.Collections;
+
 type
   TDelphiSemanticSourceDiagnostic = record
     Code: string;
@@ -26,6 +29,29 @@ type
     function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
     property Count: Integer read GetCount;
     property Items[const aIndex: Integer]: TDelphiSemanticSourceText read GetItem;
+  end;
+
+  // One merge rule for incremental owners and pairwise TryMerge. A failed
+  // addition poisons the owner so caught exceptions cannot publish partial state.
+  TDelphiSemanticSourceAccumulator = class
+  private
+    fFirst, fFrozen: IDelphiSemanticSourceObservations;
+    fItems: TList<TDelphiSemanticSourceText>;
+    fKnown: TDictionary<string, TDelphiSemanticSourceText>;
+    fSeeded, fFailed, fRecheckNormalizedPaths: Boolean;
+    fError: string;
+    fMaterializationCount: Integer;
+    function AddItems(const aSources: IDelphiSemanticSourceObservations; out aError: string): Boolean;
+    procedure RequireUsable;
+  protected
+    function RequiresNormalizationRecheck: Boolean; virtual;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function TryAdd(const aSources: IDelphiSemanticSourceObservations; out aError: string): Boolean;
+    function Freeze: IDelphiSemanticSourceObservations;
+    function TryFind(const aFileName: string; out aSource: TDelphiSemanticSourceText): Boolean;
+    property MaterializationCount: Integer read fMaterializationCount;
   end;
 
   TDelphiSemanticSourceEvidence = record
@@ -60,7 +86,7 @@ function SourcePositionKnown(const aLine, aColumn: Integer): Boolean;
 implementation
 
 uses
-  System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash,
+  System.Classes, System.Generics.Defaults, System.Hash,
   System.IOUtils, System.Masks, System.SysUtils,
   AutoFree, MaxLogic.StrUtils;
 
@@ -202,47 +228,173 @@ begin
   Result := TSourceObservations.Create(lItems);
 end;
 
+function TDelphiSemanticSourceAccumulator.RequiresNormalizationRecheck: Boolean;
+begin
+{$IFDEF MSWINDOWS}
+  Result := (TOSVersion.Major < 10) or
+    ((TOSVersion.Major = 10) and (TOSVersion.Build < 14393));
+{$ELSE}
+  Result := True;
+{$ENDIF}
+end;
+
+constructor TDelphiSemanticSourceAccumulator.Create;
+begin
+  inherited Create;
+  // Match IOUtils.CheckPathLength; the protected policy seam lets comparison
+  // tests execute the legacy fold on supported modern hosts too.
+  fRecheckNormalizedPaths := RequiresNormalizationRecheck;
+end;
+
+destructor TDelphiSemanticSourceAccumulator.Destroy;
+begin
+  fKnown.Free;
+  fItems.Free;
+  inherited Destroy;
+end;
+
+procedure TDelphiSemanticSourceAccumulator.RequireUsable;
+begin
+  if fFailed then
+    raise EInvalidOpException.Create(fError);
+end;
+
+function TDelphiSemanticSourceAccumulator.AddItems(
+  const aSources: IDelphiSemanticSourceObservations; out aError: string): Boolean;
+var
+  i: Integer;
+  lItem, lPrevious: TDelphiSemanticSourceText;
+begin
+  aError := '';
+  for i := 0 to aSources.Count - 1 do
+  begin
+    lItem := aSources.Items[i];
+    lItem.FileName := TPath.GetFullPath(lItem.FileName);
+    if fKnown.TryGetValue(lItem.FileName, lPrevious) then
+    begin
+      if (lPrevious.ContentHash <> lItem.ContentHash) or (lPrevious.Text <> lItem.Text) then
+      begin
+        aError := 'source.conflicting-observations';
+        Exit(False);
+      end;
+    end else begin
+      fKnown.Add(lItem.FileName, lItem);
+      fItems.Add(lItem);
+    end;
+  end;
+  Result := True;
+end;
+
+function TDelphiSemanticSourceAccumulator.TryAdd(
+  const aSources: IDelphiSemanticSourceObservations; out aError: string): Boolean;
+var
+  lPrevious: IDelphiSemanticSourceObservations;
+begin
+  aError := '';
+  if fFailed then
+  begin
+    aError := fError;
+    Exit(False);
+  end;
+  Result := True;
+  if aSources = nil then
+    Exit;
+  try
+    if not fSeeded then
+    begin
+      if fFirst = nil then
+      begin
+        // Do not normalize/deduplicate the lazy first set, even at Freeze.
+        fFirst := aSources;
+        Exit;
+      end;
+      fItems := TList<TDelphiSemanticSourceText>.Create;
+      fKnown := TDictionary<string, TDelphiSemanticSourceText>.Create(
+        TFastCaseAwareComparer.OrdinalIgnoreCase);
+      Result := AddItems(fFirst, aError);
+      if Result then
+        Result := AddItems(aSources, aError);
+      fSeeded := True;
+      fFirst := nil;
+    end else begin
+      if fRecheckNormalizedPaths then
+      begin
+        // Preserve the reference's next-merge exception and ordinal traversal
+        // on hosts where GetFullPath is not idempotent on its own output.
+        lPrevious := Freeze;
+        fKnown.Clear;
+        fItems.Clear;
+        fFrozen := nil;
+        Result := AddItems(lPrevious, aError);
+      end;
+      if Result then
+        Result := AddItems(aSources, aError);
+    end;
+    fFrozen := nil;
+    if not Result then
+    begin
+      fFailed := True;
+      fError := aError;
+    end;
+  except
+    on E: Exception do
+    begin
+      fFailed := True;
+      fError := 'source.accumulation-failed';
+      raise;
+    end;
+  end;
+end;
+
+function TDelphiSemanticSourceAccumulator.Freeze: IDelphiSemanticSourceObservations;
+begin
+  RequireUsable;
+  if not fSeeded then
+    Exit(fFirst);
+  if fFrozen = nil then
+  begin
+    fFrozen := TDelphiSemanticSourceEvidence.FromItems(fItems.ToArray);
+    Inc(fMaterializationCount);
+  end;
+  Result := fFrozen;
+end;
+
+function TDelphiSemanticSourceAccumulator.TryFind(const aFileName: string;
+  out aSource: TDelphiSemanticSourceText): Boolean;
+begin
+  RequireUsable;
+  aSource := Default(TDelphiSemanticSourceText);
+  if not fSeeded then
+    // Keep nil short-circuiting and the first set's ordinal-first lookup.
+    Exit((fFirst <> nil) and fFirst.TryFind(aFileName, aSource));
+  Result := fKnown.TryGetValue(TPath.GetFullPath(aFileName), aSource);
+end;
+
 class function TDelphiSemanticSourceEvidence.TryMerge(
   const aLeft, aRight: IDelphiSemanticSourceObservations;
   out aCombined: IDelphiSemanticSourceObservations; out aError: string): Boolean;
 var
-  g: TGarbos;
-  i: Integer;
-  lItem, lPrevious: TDelphiSemanticSourceText;
-  lItems: TList<TDelphiSemanticSourceText>;
-  lKnown: TDictionary<string, TDelphiSemanticSourceText>;
-  lObservations: IDelphiSemanticSourceObservations;
+  lAccumulator: TDelphiSemanticSourceAccumulator;
+  lError: string;
 begin
   aCombined := nil;
   aError := 'source.missing-observations';
   Result := False;
   if (aLeft = nil) or (aRight = nil) then
     Exit;
-  g := Default(TGarbos);
-  GC(lItems, TList<TDelphiSemanticSourceText>.Create, g);
-  GC(lKnown, TDictionary<string, TDelphiSemanticSourceText>.Create(
-    TFastCaseAwareComparer.OrdinalIgnoreCase), g);
-  for lObservations in [aLeft, aRight] do
-    for i := 0 to lObservations.Count - 1 do
+  lAccumulator := TDelphiSemanticSourceAccumulator.Create;
+  try
+    if not lAccumulator.TryAdd(aLeft, lError) or not lAccumulator.TryAdd(aRight, lError) then
     begin
-      lItem := lObservations.Items[i];
-      lItem.FileName := TPath.GetFullPath(lItem.FileName);
-      if lKnown.TryGetValue(lItem.FileName, lPrevious) then
-      begin
-        if (lPrevious.ContentHash <> lItem.ContentHash) or
-          (lPrevious.Text <> lItem.Text) then
-        begin
-          aError := 'source.conflicting-observations';
-          Exit;
-        end;
-      end else begin
-        lKnown.Add(lItem.FileName, lItem);
-        lItems.Add(lItem);
-      end;
+      aError := lError;
+      Exit;
     end;
-  aCombined := TSourceObservations.Create(lItems.ToArray);
-  aError := '';
-  Result := True;
+    aCombined := lAccumulator.Freeze;
+    aError := '';
+    Result := True;
+  finally
+    lAccumulator.Free;
+  end;
 end;
 
 function HashBytes(const aBytes: TBytes): string;
