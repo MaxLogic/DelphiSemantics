@@ -5,7 +5,10 @@ interface
 // Generated from the native DS SDK extractor helper, Delphi 23.0 compiler
 // 29.0.55362.2017. New SDK contents require generation and review of a new pin.
 function ExpectedNameSdkSourceIdentity(const aDelphiVersion: string): string;
-function ExpectedNameSdkCompilerHash(const aDelphiVersion, aPlatform: string): string;
+function ExpectedNameSdkCompilerHash(const aDelphiVersion, aPlatform: string): string; overload;
+
+function ExpectedNameSdkCompilerHash(const aDelphiVersion, aPlatform,
+  aCompilerFileName: string): string; overload;
 
 implementation
 
@@ -30,6 +33,22 @@ begin
     Result := 'a4945a14f9c4de0ca2b38b4e772f45929235fa515f3621afb63387ac5f23ac03'
   else if SameText(aPlatform, 'Linux64') then
     Result := '7887660dbbb0c055b2ac6cb933020d6f966dd2a1e5913320c9d4c34980060b02';
+end;
+
+function ExpectedNameSdkCompilerHash(const aDelphiVersion, aPlatform,
+  aCompilerFileName: string): string;
+begin
+  Result := ExpectedNameSdkCompilerHash(aDelphiVersion, aPlatform);
+  if not SameText(aDelphiVersion, '23.0') or
+    not SameText(ExtractFileName(ExcludeTrailingPathDelimiter(
+      ExtractFilePath(aCompilerFileName))), 'bin64') then
+    Exit;
+  // The native certificate already admits these independently certified hosts.
+  // Select the reviewed pin, never the captured hash itself.
+  if SameText(aPlatform, 'Win32') then
+    Result := '7b746d2f234ac262014a3524cd6ca559860370c56d10ca43806e953a9cdea765'
+  else if SameText(aPlatform, 'Win64') then
+    Result := '69ae66304e62b37ea7c2db59a563be2e416f5d6adf77fb5d42edfe5fa02fb7f9';
 end;
 
 end.

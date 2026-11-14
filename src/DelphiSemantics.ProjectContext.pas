@@ -3259,7 +3259,8 @@ begin
     PopulateProjectSemanticContext(Result, lDocument, lProperties, aOptions, aDiagnostics,
       lObservations);
     Result.PossibleUnitSearchPaths := PossibleProjectSearchPaths(aProjectFileName,
-      lDocument, aOptions, Result, lProperties, lObservations, Result.PossibleUnitScopeNames, Result.PossibleResourceDirectories,
+      lDocument, aOptions, Result, lProperties, lObservations,
+      Result.PossibleUnitScopeNames, Result.PossibleResourceDirectories,
       Result.DeclaredSelections);
     AddAdditionalSourceFiles(Result, aOptions);
     AdmitProjectCompilerDefines(Result, aOptions, aDiagnostics);

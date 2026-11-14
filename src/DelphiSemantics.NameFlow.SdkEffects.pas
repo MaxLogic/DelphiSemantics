@@ -989,6 +989,16 @@ begin
   Result := ExcludesDeclaration(aSourceFileName, aName, TPath.GetFileNameWithoutExtension(aSourceFileName));
 end;
 
+function IsDefaultLanguageSdkDcu(const aFileName, aLibraryRoot: string): Boolean;
+var
+  lDirectory: string;
+begin
+  lDirectory := TPath.GetDirectoryName(TPath.GetFullPath(aFileName));
+  Result := SameText(TPath.GetExtension(aFileName), '.dcu') and
+    (SameText(lDirectory, TPath.Combine(aLibraryRoot, 'release')) or
+    SameText(lDirectory, TPath.Combine(aLibraryRoot, 'debug')));
+end;
+
 function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName, aImportName: string): Boolean;
 var
   lOptions: TDelphiSemanticModelOptions;
@@ -1018,8 +1028,7 @@ begin
     begin
       if not InsideRoot(lInputFileName, fRequest.SdkRoot) then
         Exit;
-    end else if not SameText(TPath.GetExtension(lInputFileName), '.dcu') or
-      not InsideRoot(lInputFileName, lLibraryRoot) then
+    end else if not IsDefaultLanguageSdkDcu(lInputFileName, lLibraryRoot) then
       Exit;
     lKey := lInputFileName + '|' + aName + '|' + aImportName;
     if fDeclarationAbsence.TryGetValue(lKey, Result) then
@@ -1056,8 +1065,7 @@ begin
     begin
       if not SameText(lSelection.FileName, lFileName) then
         Exit;
-    end else if not SameText(TPath.GetExtension(lSelection.FileName), '.dcu') or
-      not InsideRoot(lSelection.FileName, lLibraryRoot) then
+    end else if not IsDefaultLanguageSdkDcu(lSelection.FileName, lLibraryRoot) then
       Exit;
     // Retain the actual selected artifact, including DCU bytes, for publication
     // revalidation. Duplicate language/platform sources already refused above.

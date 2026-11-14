@@ -47,6 +47,9 @@ type
     [TestCase('SDK compiler selection unavailable', 'selection-missing')]
     [TestCase('SDK compiler selection shadowed', 'selection-shadow')]
     [TestCase('Selected SDK DCU source and artifact currentness', 'precompiled')]
+    [TestCase('German SDK DCU cannot bind English source', 'localized-de')]
+    [TestCase('French SDK DCU cannot bind English source', 'localized-fr')]
+    [TestCase('Japanese SDK DCU cannot bind English source', 'localized-ja')]
     [Test] procedure SdkNonDeclarationControlsConstantBinding(const aCase: string);
     [Test] procedure SdkFallbackRetainsSourceProvenance;
     [TestCase('Release consumer planned in Debug', 'RELEASE')]
@@ -2489,9 +2492,12 @@ begin
   lRequest.SelectionProject.Configuration := 'Debug';
   lSdkTarget := lSdkFile;
   lRequest.SelectionProject.SearchPaths := [lSdkRoot];
-  if aCase = 'precompiled' then
+  if (aCase = 'precompiled') or StartsText('localized-', aCase) then
   begin
-    lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release\System.Later.dcu');
+    lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release');
+    if StartsText('localized-', aCase) then
+      lSdkTarget := TPath.Combine(lSdkTarget, Copy(aCase, Length('localized-') + 1, MaxInt));
+    lSdkTarget := TPath.Combine(lSdkTarget, 'System.Later.dcu');
     TDirectory.CreateDirectory(ExtractFileDir(lSdkTarget));
     TFile.WriteAllText(lSdkTarget, 'closed generated SDK artifact', TEncoding.ASCII);
     lRequest.SelectionProject.SearchPaths := [ExtractFileDir(lSdkTarget)];
