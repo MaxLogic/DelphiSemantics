@@ -215,7 +215,7 @@ const
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
   // tr1118 combines integer ownership, physical provenance and name-flow facts.
-  cSnapshotCacheSchemaVersion = '81403';
+  cSnapshotCacheSchemaVersion = '81405';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;

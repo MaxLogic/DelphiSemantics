@@ -57,6 +57,8 @@
 
 - Configuration-matrix caller-exclusion diagnostics suggest runnable corrections with declared, unique selector names (DS-797).
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
+- Snapshot cache entries include the complete identifier analysis projection, preserving cached/fresh runtime-name witness parity across different rename queries (DS-814).
+
 - SDK declaration absence proof refuses earlier exact or alias unit names anywhere in the certified search paths (DS-814).
 
 - Explicit runtime-name risk planning uses certified include coverage and pinned SDK non-declaration proof. SDK selection accepts only default-language DCUs and the certified compiler host (DS-814).
