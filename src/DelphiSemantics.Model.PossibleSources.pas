@@ -332,7 +332,6 @@ begin
   fCandidateSources.Free;
   fSdkBinaries.Free;
   fSdkTargets.Free;
-  fSdkDiscovery.Free;
   fVisited.Free;
   fDiagnostics.Free;
   fReferences.Free;

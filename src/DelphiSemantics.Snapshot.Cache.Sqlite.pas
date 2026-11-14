@@ -1135,7 +1135,7 @@ begin
       'include_graph_hash text not null, schema_version text not null, ' +
       'stored_at_utc text not null, unit_id integer not null, file_name_id integer not null, ' +
       'unit_name_id integer not null, source_text_id integer not null, ' +
-      'verified_active_source_text_id integer not null, name_flow_facts_json_id integer not null, ' +
+      'verified_active_source_text_id integer not null, ' +
       'scope_model_status_id integer not null, scope_model_version_id integer not null, ' +
       'scope_diagnostic_id integer not null, rejected_declaration_count integer not null, ' +
       'string_count integer not null, ' +

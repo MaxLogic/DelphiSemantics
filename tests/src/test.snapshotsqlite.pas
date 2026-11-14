@@ -253,6 +253,8 @@ type
     [TestCase('DS813 identity before integration', '2003')]
     [TestCase('Superseded integration identity', '2004')]
     [TestCase('Current deferred DS803 identity', '80304')]
+    [TestCase('tr1117 identity', '80305')]
+    [TestCase('DS814 identity', '81402')]
     [TestCase('Schema13', '13')]
     [TestCase('Schema17', '17')]
     [TestCase('Schema24', '24')]
@@ -3671,7 +3673,8 @@ begin
   // Version-only migration must invalidate even an intact previous layout.
   if (aOldSchema <> '2000') and (aOldSchema <> '2001') and
     (aOldSchema <> '2002') and (aOldSchema <> '2003') and
-    (aOldSchema <> '2004') and (aOldSchema <> '80304') then
+    (aOldSchema <> '2004') and (aOldSchema <> '80304') and
+    (aOldSchema <> '80305') and (aOldSchema <> '81402') then
   begin
     ExecCacheSql(lCacheFileName,
       'create table old_remove_with_facts as select p.cache_key, context_fingerprint_id, ' +
