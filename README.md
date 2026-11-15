@@ -130,6 +130,13 @@ capacity, strings, keys and indexes. This is not a hard byte cap; long strings
 and the rest of the project require additional memory. DAK exposes the override
 as `--with-inventory-record-limit <positive N>`.
 
+Name-flow facts use per-unit exact string pooling and compressed binary storage.
+The raw encoding is bounded at 256 MiB; a larger payload refuses with
+`NAME_FLOW_FACTS_STORAGE_LIMIT` instead of returning partial facts. SQLite
+model or snapshot text entries above 256 Mi characters are not persisted. Their
+complete in-memory facts remain usable, and later commands recompute them.
+Older semantic caches rebuild after this storage change.
+
 Production inventories store class members once per provider rather than
 projecting `current-class-member` copies for every routine. The virtual lookup
 reconstructs the same ordered records on request, including the existing

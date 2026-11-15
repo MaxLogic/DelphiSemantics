@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Large projects store lossless name-flow facts in a compact, bounded per-unit format. Semantic caches rebuild. Oversized SQLite entries stay in memory and are recomputed later; facts beyond the 256 MiB raw encoding limit refuse with NAME_FLOW_FACTS_STORAGE_LIMIT instead of failing inside SQLite (DS-803).
+
 - Certified rename preparation accumulates source observations once, preserving cache identities and currentness refusals (DS-808).
 
 - Certified source-selection fingerprints use canonical proof version 2. Re-create plans made with the previous version before applying them; older native certificates are refused and semantic snapshot caches rebuild (DS-813).

@@ -9,6 +9,9 @@ type
   [TestFixture]
   TNameFlowFactsTests = class
   public
+    [Test] procedure RepeatedNodeMetadataHasBoundedPersistence;
+    [Test] procedure RejectsOversizedFactsEnvelopeBeforeInflation;
+    [Test] procedure OversizedSnapshotLeavesNoPartialCacheEntry;
     [Test] procedure PreservesOrderedOperandsAndImmutableChildren;
     [Test] procedure RejectsMissingAndCorruptPersistence;
     [Test] procedure ModelAndSnapshotRoundTripRetainFacts;
@@ -22,12 +25,149 @@ type
 implementation
 
 uses
-  System.IOUtils, System.SysUtils,
+  System.IOUtils, System.JSON, System.JSON.Serializers, System.SysUtils,
+  Winapi.Windows,
   DelphiAST.Classes, DelphiAST.Consts,
   DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.NameFlow.Extract,
   DelphiSemantics.NameFlow.Facts, DelphiSemantics.Preprocess, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.WithBinding,
   Test.Support;
+
+procedure TNameFlowFactsTests.RepeatedNodeMetadataHasBoundedPersistence;
+const
+  cNodeCount = 4096;
+var
+  i: Integer;
+  lNodes: TArray<TDelphiNameFlowNode>;
+  lFacts, lReloaded: IDelphiNameFlowFacts;
+  lJson: string;
+  lSerializer: TJsonSerializer;
+begin
+  SetLength(lNodes, cNodeCount);
+  for i := 0 to High(lNodes) do
+  begin
+    lNodes[i].Id := i + 1;
+    lNodes[i].ParentId := i;
+    if i < High(lNodes) then
+      lNodes[i].Children := [i + 2];
+    lNodes[i].Kind := TDelphiNameFlowNodeKind.IdentifierValue;
+    lNodes[i].SyntaxKind := 'identifier';
+    if Odd(i) then
+      lNodes[i].Name := 'Quoted"Name'#$00E9
+    else
+      lNodes[i].Name := 'QUOTED"NAME'#$00E9;
+    lNodes[i].Value := 'value'#0#9#13#10;
+    lNodes[i].TypeName := 'string';
+    lNodes[i].ScopeId := StringOfChar('s', 8192);
+    lNodes[i].OwnerType := 'TCaseSensitive';
+    lNodes[i].FileName := StringOfChar('p', 240) + '.pas';
+    lNodes[i].Line := i + 1;
+    lNodes[i].Column := 2;
+    lNodes[i].EndLine := i + 1;
+    lNodes[i].EndColumn := 12;
+    lNodes[i].OutputStartOffset := i * 16 + 1;
+    lNodes[i].OutputEndOffset := i * 16 + 11;
+    lNodes[i].ExpansionId := '1:exact';
+    lNodes[i].SpanKnown := True;
+    lNodes[i].ActivityKnown := Odd(i);
+    lNodes[i].BodyComplete := not Odd(i);
+    SetLength(lNodes[i].Attributes, 1);
+    lNodes[i].Attributes[0].Name := 'name';
+    lNodes[i].Attributes[0].Value := lNodes[i].Name;
+  end;
+  lFacts := CreateNameFlowFacts(lNodes, True, True, 'retained-reason');
+  lJson := NameFlowFactsToJson(lFacts);
+  // Repeated metadata must not multiply into a SQLite-sized row as node count grows.
+  Assert.IsTrue(Length(lJson) < 1024 * 1024,
+    '4096 nodes sharing metadata must fit in 1 Mi characters, not duplicate 32 Mi of scopes');
+  lReloaded := NameFlowFactsFromJson(lJson);
+  Assert.IsTrue(lReloaded.Complete, lReloaded.CoverageReason);
+  Assert.IsTrue(lReloaded.ConfigurationComplete);
+  Assert.AreEqual('retained-reason', lReloaded.CoverageReason);
+  Assert.AreEqual(cNodeCount, lReloaded.NodeCount);
+  lSerializer := TJsonSerializer.Create;
+  try
+    for i := 1 to cNodeCount do
+      Assert.AreEqual(lSerializer.Serialize<TDelphiNameFlowNode>(lFacts.NodeById(i)),
+        lSerializer.Serialize<TDelphiNameFlowNode>(lReloaded.NodeById(i)),
+        'Every scalar, ordered child and attribute must survive persistence');
+  finally
+    lSerializer.Free;
+  end;
+end;
+
+procedure TNameFlowFactsTests.RejectsOversizedFactsEnvelopeBeforeInflation;
+var
+  lNode: TDelphiNameFlowNode;
+  lFacts: IDelphiNameFlowFacts;
+  lJson: TJSONObject;
+  lPair: TJSONPair;
+begin
+  lNode := Default(TDelphiNameFlowNode);
+  lNode.Id := 1;
+  lNode.SyntaxKind := 'unit';
+  lFacts := CreateNameFlowFacts([lNode], True, True, '');
+  lJson := TJSONObject.ParseJSONValue(NameFlowFactsToJson(lFacts)) as TJSONObject;
+  try
+    lPair := lJson.RemovePair('PayloadBytes');
+    lPair.Free;
+    lJson.AddPair('PayloadBytes', TJSONNumber.Create(High(Integer)));
+    Assert.IsFalse(NameFlowFactsFromJson(lJson.ToJSON).Complete,
+      'Reject an oversized declared payload before allocating or inflating it');
+  finally
+    lJson.Free;
+  end;
+end;
+
+procedure TNameFlowFactsTests.OversizedSnapshotLeavesNoPartialCacheEntry;
+var
+  lPrevious, lFileName, lFactsJson: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot, lReloaded: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lIdentity: TDelphiSemanticSnapshotCacheIdentity;
+  lCache: TDelphiSemanticSnapshotSqliteCache;
+begin
+  lPrevious := GetEnvironmentVariable('DS_TEST_SNAPSHOT_TEXT_CHARACTER_LIMIT');
+  SetEnvironmentVariable('DS_TEST_SNAPSHOT_TEXT_CHARACTER_LIMIT', '128');
+  try
+    lFileName := TPath.Combine(CreateTestTempRoot('nameflow-large-temp'), 'LargeFacts.pas');
+    TFile.WriteAllText(lFileName, 'unit LargeFacts; interface implementation end.', TEncoding.ASCII);
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := lFileName;
+    lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+    lFactsJson := NameFlowFactsToJson(lModel.NameFlowFacts);
+    Assert.IsTrue(Length(lFactsJson) > 128, 'Synthetic facts exceed the reduced storage limit');
+    lSnapshot := BuildProjectSnapshotFromModels([lModel],
+      Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+    lIdentity := Default(TDelphiSemanticSnapshotCacheIdentity);
+    lIdentity.CacheKey := 'oversized-name-flow-facts';
+    lIdentity.IdentityKey := lIdentity.CacheKey;
+    lIdentity.SourceFileName := lFileName;
+    lIdentity.FileHash := 'file';
+    lIdentity.ContextHash := 'context';
+    lIdentity.IncludeGraphHash := 'includes';
+    lIdentity.SchemaVersion := 'oversized-fixture';
+    lCache := TDelphiSemanticSnapshotSqliteCache.Create(TPath.ChangeExtension(lFileName, '.sqlite3'));
+    lReloaded := nil;
+    try
+      lCache.StoreUnitFromSnapshot(lIdentity, lSnapshot, 0);
+      Assert.AreEqual('snapshot-cache-entry-too-large', lCache.LastInvalidationReason);
+      Assert.AreEqual(lFactsJson,
+        lSnapshot.ExactTextOf(lSnapshot.UnitByIndex(0).NameFlowFactsJsonId),
+        'Persistence fallback never removes or truncates runtime facts');
+      Assert.IsFalse(lCache.TryLoadUnit(lIdentity, lReloaded),
+        'An oversized snapshot is recomputed, never published as a partial cache hit');
+    finally
+      lReloaded.Free;
+      lCache.Free;
+      lSnapshot.Free;
+    end;
+  finally
+    SetEnvironmentVariable('DS_TEST_SNAPSHOT_TEXT_CHARACTER_LIMIT', PChar(lPrevious));
+  end;
+end;
 
 procedure TNameFlowFactsTests.PreservesOrderedOperandsAndImmutableChildren;
 var

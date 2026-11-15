@@ -53,7 +53,7 @@ type
 
 const
   cPersistentKeysPerIdentity = 4;
-  cSqliteSchemaVersion = '14';
+  cSqliteSchemaVersion = '81406';
   cUnitCacheSqliteBusyAttemptTimeoutMs = 250;
   cUnitCacheSqliteBusyRetryDelayMs = 50;
   cUnitCacheSqliteBusyTimeoutMs = 30000;
@@ -626,9 +626,25 @@ var
   lConnection: TFDConnection;
   lError: string;
   lQuery: TFDQuery;
+  lJson: string;
+  lCharacterLimit: Integer;
 begin
   if not fPersistenceAvailable then
     Exit;
+  lJson := UnitCacheModelToJson(aModel);
+  // Keep complete facts in memory. A later command recomputes an entry too large
+  // to persist; never bind a near-SQLITE_MAX_LENGTH UTF-16 value to FireDAC.
+  lCharacterLimit := 256 * 1024 * 1024;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  lCharacterLimit := StrToIntDef(GetEnvironmentVariable('DS_TEST_UNIT_MODEL_CHARACTER_LIMIT'), lCharacterLimit);
+{$ENDIF}
+  if Length(lJson) > lCharacterLimit then
+  begin
+    AddDiagnostic('SQLITE_CACHE_ENTRY_TOO_LARGE',
+      'Unit model exceeds the persistent cache size limit; retaining complete in-memory facts: ' + aModel.FileName,
+      fCacheFileName);
+    Exit;
+  end;
   if not SharedConnection(lConnectionObject, lError) then
     Exit;
   lConnection := lConnectionObject as TFDConnection;
@@ -654,7 +670,7 @@ begin
     SetWideParam(lQuery, 13, aCacheIdentity.DefinesHash);
     SetWideParam(lQuery, 14, aCacheIdentity.SearchPathHash);
     SetWideParam(lQuery, 15, aCacheIdentity.ExtractionOptionsHash);
-    SetWideParam(lQuery, 16, UnitCacheModelToJson(aModel), ftWideMemo);
+    SetWideParam(lQuery, 16, lJson, ftWideMemo);
     SetWideParam(lQuery, 17, UnitCacheUtcTimestamp);
     ExecuteUnitCacheStoreTransaction(lConnection, lQuery, aIdentity);
   finally
