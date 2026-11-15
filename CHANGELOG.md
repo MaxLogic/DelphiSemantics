@@ -59,6 +59,12 @@
 
 - Configuration-matrix caller-exclusion diagnostics suggest runnable corrections with declared, unique selector names (DS-797).
 - Source evidence checks reuse compiled PAS/DCU masks and indexed observations. Snapshot identity preparation shares source hashes, directory inventories and import lookups within one computation, then validates fresh observations before using its keys (DAK-489).
+- SDK declaration absence refuses project-listed sources outside compiler search paths (DS-814).
+
+- SDK declaration absence hash-pins SDK source and compiler; Debug/Release DCUs are trusted by location inside the certified installation, without a reviewed DCU hash manifest (DS-814).
+
+- SDK declaration absence requires the selected default-language DCU and its paired source to be the only possible unit artifacts across all compiler selection paths (DS-814).
+
 - Snapshot cache entries include the complete identifier analysis projection, preserving cached/fresh runtime-name witness parity across different rename queries (DS-814).
 
 - SDK declaration absence proof refuses earlier exact or alias unit names anywhere in the certified search paths (DS-814).

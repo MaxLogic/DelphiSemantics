@@ -46,6 +46,22 @@ type
     [TestCase('SDK source outside pin', 'outside')]
     [TestCase('SDK compiler selection unavailable', 'selection-missing')]
     [TestCase('SDK compiler selection shadowed', 'selection-shadow')]
+    [TestCase('Certified debug and release share one SDK source', 'sdk-debug-release')]
+    [TestCase('SDK-named DCU outside installation refuses', 'sdk-outside-dcu')]
+    [TestCase('SDK source copy anywhere refuses', 'sdk-copy-pas')]
+    [TestCase('SDK pair publication source copy refuses', 'sdk-pair-publication')]
+    [TestCase('Project-listed source outside paths refuses', 'project-source')]
+    [TestCase('Project-listed consumer outside paths refuses', 'project-consumer')]
+    [TestCase('Second SDK candidate name refuses', 'sdk-other-name')]
+    [TestCase('Second SDK localized DCU refuses', 'sdk-other-language')]
+    [TestCase('Second SDK platform DCU refuses', 'sdk-other-platform')]
+    [TestCase('Selected name source at later path refuses', 'samepas-3')]
+    [TestCase('Later scope source refuses', 'laterscope-3')]
+    [TestCase('Later scope DCU refuses', 'laterdcu-3')]
+    [TestCase('Alias later scope source refuses', 'aliaslater-3')]
+    [TestCase('Later scope source added before publication refuses', 'publication-3')]
+    [TestCase('Paired SDK source is the only source hit', 'sdk-source-pair')]
+    [TestCase('Source alone cannot prove a unique selected SDK DCU', 'source-only')]
     [TestCase('Exact name at path 10 refuses', 'path-10')]
     [TestCase('Exact name at path 11 refuses', 'path-11')]
     [TestCase('Alias at path 11 refuses', 'alias-11')]
@@ -2502,6 +2518,82 @@ begin
   lSdkTarget := lSdkFile;
   lImportName := 'System.Later';
   lRequest.SelectionProject.SearchPaths := [lSdkRoot];
+  if aCase <> 'source-only' then
+  begin
+    lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release\System.Later.dcu');
+    TDirectory.CreateDirectory(ExtractFileDir(lSdkTarget));
+    TFile.WriteAllText(lSdkTarget, 'closed generated SDK artifact', TEncoding.ASCII);
+    lRequest.SelectionProject.SearchPaths := [ExtractFileDir(lSdkTarget)];
+  end;
+  if MatchText(aCase, ['sdk-debug-release', 'sdk-outside-dcu', 'sdk-copy-pas', 'sdk-pair-publication']) then
+  begin
+    lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\debug');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    TFile.Copy(lSdkTarget, TPath.Combine(lShadowDirectory, 'System.Later.dcu'));
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    lShadowDirectory := TPath.Combine(lRoot, 'external');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    if aCase = 'sdk-outside-dcu' then
+      TFile.Copy(lSdkTarget, TPath.Combine(lShadowDirectory, 'System.Later.dcu'))
+    else if aCase = 'sdk-copy-pas' then
+      TFile.Copy(lSdkFile, TPath.Combine(lShadowDirectory, 'System.Later.pas'));
+  end;
+  if MatchText(aCase, ['project-source', 'project-consumer']) then
+  begin
+    lShadowDirectory := TPath.Combine(lRoot, 'project-only');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SourceFileNames := [TPath.Combine(lShadowDirectory, 'System.Later.pas')];
+    TFile.WriteAllText(lRequest.SelectionProject.SourceFileNames[0],
+      'unit System.Later; interface const cLimit = ''Count''; implementation end.', TEncoding.ASCII);
+  end;
+  if MatchText(aCase, ['sdk-other-name', 'sdk-other-language', 'sdk-other-platform']) then
+  begin
+    lImportName := 'Later';
+    lRequest.SelectionProject.UnitScopeNames := ['System', 'Winapi'];
+    lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\debug');
+    if aCase = 'sdk-other-language' then
+      lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\release\de')
+    else if aCase = 'sdk-other-platform' then
+      lShadowDirectory := TPath.Combine(lRoot, 'lib\win64\release');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    lShadowDirectory := TPath.Combine(lShadowDirectory, 'System.Later.dcu');
+    if aCase = 'sdk-other-name' then
+      lShadowDirectory := TPath.Combine(ExtractFileDir(lShadowDirectory), 'Winapi.Later.dcu');
+    TFile.Copy(lSdkTarget, lShadowDirectory);
+  end;
+  if MatchText(aCase, ['samepas-3', 'laterscope-3', 'laterdcu-3', 'aliaslater-3',
+    'publication-3', 'sdk-source-pair']) then
+  begin
+    lSdkTarget := TPath.Combine(lRoot, 'lib\win32\release\System.Later.dcu');
+    TDirectory.CreateDirectory(ExtractFileDir(lSdkTarget));
+    TFile.WriteAllText(lSdkTarget, 'closed generated SDK artifact', TEncoding.ASCII);
+    lImportName := 'Later';
+    if aCase = 'aliaslater-3' then
+    begin
+      lImportName := 'Legacy';
+      lRequest.SelectionProject.UnitAliases := ['Legacy=Later'];
+    end;
+    lRequest.SelectionProject.UnitScopeNames := ['System', 'Winapi'];
+    lRequest.SelectionProject.SearchPaths := [ExtractFileDir(lSdkTarget)];
+    for i := 1 to 3 do
+    begin
+      lShadowDirectory := TPath.Combine(lRoot, 'late' + IntToStr(i));
+      TDirectory.CreateDirectory(lShadowDirectory);
+      lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    end;
+    if aCase = 'samepas-3' then
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'System.Later.pas'),
+        'unit System.Later; interface const cLimit = 9; implementation end.', TEncoding.ASCII)
+    else if aCase = 'laterdcu-3' then
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Winapi.Later.dcu'), 'other DCU', TEncoding.ASCII)
+    else if MatchText(aCase, ['laterscope-3', 'aliaslater-3']) then
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Winapi.Later.pas'),
+        'unit Winapi.Later; interface const cLimit = 9; implementation end.', TEncoding.ASCII);
+    if aCase = 'sdk-source-pair' then
+      lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lSdkRoot];
+  end;
   if MatchText(aCase, ['path-10', 'path-11', 'alias-11', 'consumer-11', 'dcu-11',
     'directory-snapshot', 'cached-refusal']) then
   begin
@@ -2575,7 +2667,7 @@ begin
           'type TC = class Count: Integer; end;'#13#10'const Bound = cLimit;'#13#10 +
           'implementation'#13#10'end.';
       end;
-      if aCase = 'consumer-11' then
+      if MatchText(aCase, ['consumer-11', 'project-consumer']) then
       begin
         if i = 0 then
           lSource := lSource.Replace('cLimit = 7', 'cLimit = ''Other''')
@@ -2637,8 +2729,26 @@ begin
       if lGap.Reason = 'string-constant-evaluator-unsupported' then
         lFound := True;
     Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported', 'precompiled',
-      'directory-snapshot', 'selection-baseline']), lFound,
+      'directory-snapshot', 'selection-baseline', 'publication-3', 'sdk-source-pair',
+      'sdk-debug-release', 'sdk-pair-publication']), lFound,
       'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
+    if aCase = 'sdk-debug-release' then
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis,
+        'Both SDK DCUs trusted by location retain their hash-pinned source at publication.');
+    if aCase = 'sdk-pair-publication' then
+    begin
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);
+      TFile.Copy(lSdkFile, TPath.Combine(lShadowDirectory, 'System.Later.pas'));
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'A source copy added anywhere invalidates the paired SDK proof at publication.');
+    end;
+    if aCase = 'publication-3' then
+    begin
+      TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Winapi.Later.pas'),
+        'unit Winapi.Later; interface const cLimit = 9; implementation end.', TEncoding.ASCII);
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'Publication refuses every additional candidate, including a later scope source.');
+    end;
     if aCase = 'directory-snapshot' then
     begin
       TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Later.pas'),

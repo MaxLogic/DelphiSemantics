@@ -69,6 +69,16 @@ discovered `with` statement as planned or skipped, with stable reason fields. Pr
 fixtures provide integration evidence; they do not define production modes or
 fixed-count contracts.
 
+## SDK declaration absence
+
+SDK declaration absence hash-pins the SDK source tree and compiler executable.
+SDK DCUs are trusted by location inside the certified installation, restricted
+to the selected platform's default-language `lib/<platform>/{debug,release}`
+folders and a unique paired source. DCU bytes are not checked against a reviewed
+hash manifest. The first selected DCU hash detects changes during the command;
+it does not authenticate pre-existing DCU bytes or the non-selected sibling.
+Project-listed candidates and additional source copies deny the absence proof.
+
 ## Layout
 
 - `lib/DelphiAST` - parser submodule.
