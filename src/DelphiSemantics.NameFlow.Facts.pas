@@ -41,6 +41,11 @@ type
 
 function CreateNameFlowFacts(const aNodes: TArray<TDelphiNameFlowNode>;
   const aComplete, aConfigurationComplete: Boolean; const aReason: string): IDelphiNameFlowFacts;
+// Logical UTF-16 characters in the expanded v202 facts representation, including
+// repeated metadata and the fixed digest. Storage interning/compression never
+// changes this budget. A stop limit may return any size above that limit.
+function NameFlowFactsLogicalCharacters(const aFacts: IDelphiNameFlowFacts;
+  const aStopAfter: Int64 = High(Int64)): Int64;
 function NameFlowFactsToJson(const aFacts: IDelphiNameFlowFacts): string;
 function NameFlowFactsFromJson(const aJson: string): IDelphiNameFlowFacts;
 
@@ -374,6 +379,91 @@ begin
   end;
   if aStream.Position <> aStream.Size then
     raise EConvertError.Create('Name-flow binary payload has trailing data');
+end;
+
+function FactIntegerCharacters(const aValue: Integer): Integer;
+var
+  lMagnitude: Int64;
+begin
+  lMagnitude := aValue;
+  Result := 1;
+  if lMagnitude < 0 then
+  begin
+    Inc(Result);
+    lMagnitude := -lMagnitude;
+  end;
+  while lMagnitude >= 10 do
+  begin
+    Inc(Result);
+    lMagnitude := lMagnitude div 10;
+  end;
+end;
+
+function FactStringCharacters(const aValue: string;
+  const aSizes: TDictionary<string, Int64>): Int64;
+var
+  lChar: Char;
+begin
+  if aSizes.TryGetValue(aValue, Result) then
+    Exit;
+  Result := Length(aValue);
+  for lChar in aValue do
+    case lChar of
+      #8, #9, #10, #12, #13, '"', '\': Inc(Result);
+      #0..#7, #11, #14..#31, #$0085, #$2028, #$2029: Inc(Result, 5);
+    end;
+  aSizes.Add(aValue, Result);
+end;
+
+function NameFlowFactsLogicalCharacters(const aFacts: IDelphiNameFlowFacts;
+  const aStopAfter: Int64): Int64;
+const
+  cEnvelope = '{"Version":202,"Complete":false,"ConfigurationComplete":false,' +
+    '"CoverageReason":"","Digest":"0000000000000000000000000000000000000000000000000000000000000000","Nodes":[]}';
+  cNode = '{"Id":0,"ParentId":0,"Children":[],"Attributes":[],"Kind":0,' +
+    '"SyntaxKind":"","Name":"","Value":"","TypeName":"","ScopeId":"","OwnerType":"","FileName":"",' +
+    '"Line":0,"Column":0,"EndLine":0,"EndColumn":0,"OutputStartOffset":0,"OutputEndOffset":0,' +
+    '"ExpansionId":"","SpanKnown":false,"ActivityKnown":false,"BodyComplete":false}';
+  cAttribute = '{"Name":"","Value":""}';
+var
+  i, j: Integer;
+  lNode: TDelphiNameFlowNode;
+  lSizes: TDictionary<string, Int64>;
+begin
+  Result := Length(cEnvelope);
+  if aFacts = nil then
+    Exit(Result + Length('name-flow-facts-missing'));
+  lSizes := TDictionary<string, Int64>.Create(TStringComparer.Ordinal);
+  try
+    Inc(Result, FactStringCharacters(aFacts.CoverageReason, lSizes) -
+      Ord(aFacts.Complete) - Ord(aFacts.ConfigurationComplete));
+    for i := 1 to aFacts.NodeCount do
+    begin
+      lNode := aFacts.NodeById(i);
+      Inc(Result, Length(cNode) - 9 + Ord(i > 1));
+      Inc(Result, FactIntegerCharacters(lNode.Id) + FactIntegerCharacters(lNode.ParentId) +
+        FactIntegerCharacters(Ord(lNode.Kind)) + FactIntegerCharacters(lNode.Line) +
+        FactIntegerCharacters(lNode.Column) + FactIntegerCharacters(lNode.EndLine) +
+        FactIntegerCharacters(lNode.EndColumn) + FactIntegerCharacters(lNode.OutputStartOffset) +
+        FactIntegerCharacters(lNode.OutputEndOffset));
+      Inc(Result, FactStringCharacters(lNode.SyntaxKind, lSizes) +
+        FactStringCharacters(lNode.Name, lSizes) + FactStringCharacters(lNode.Value, lSizes) +
+        FactStringCharacters(lNode.TypeName, lSizes) + FactStringCharacters(lNode.ScopeId, lSizes) +
+        FactStringCharacters(lNode.OwnerType, lSizes) + FactStringCharacters(lNode.FileName, lSizes) +
+        FactStringCharacters(lNode.ExpansionId, lSizes) - Ord(lNode.SpanKnown) -
+        Ord(lNode.ActivityKnown) - Ord(lNode.BodyComplete));
+      for j := 0 to High(lNode.Children) do
+        Inc(Result, FactIntegerCharacters(lNode.Children[j]) + Ord(j > 0));
+      for j := 0 to High(lNode.Attributes) do
+        Inc(Result, Length(cAttribute) + Ord(j > 0) +
+          FactStringCharacters(lNode.Attributes[j].Name, lSizes) +
+          FactStringCharacters(lNode.Attributes[j].Value, lSizes));
+      if Result > aStopAfter then
+        Exit;
+    end;
+  finally
+    lSizes.Free;
+  end;
 end;
 
 function NameFlowFactsToJson(const aFacts: IDelphiNameFlowFacts): string;

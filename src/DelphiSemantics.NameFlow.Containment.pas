@@ -1417,14 +1417,15 @@ begin
       lSource := aSnapshot.ExactTextOf(lUnit.SourceTextId);
       // Every omitted/incomplete scope carries a hard consumer-coverage refusal.
       // Continue across units so no budget boundary hides the later consumers.
-      if Length(lJson) > 128 * 1024 * 1024 then
+      lFacts := NameFlowFactsFromJson(lJson);
+      // The analysis budget counts expanded logical facts, never their storage codec.
+      if NameFlowFactsLogicalCharacters(lFacts, 128 * 1024 * 1024) > 128 * 1024 * 1024 then
       begin
         Report(lFileName, '', 'runtime-name-flow-budget-exceeded', 0, 0);
         Report(lFileName, '', 'runtime-name-known-consumer-coverage-unproved', 0, 0);
         Inc(Result.Statistics.CoverageGaps);
         Continue;
       end;
-      lFacts := NameFlowFactsFromJson(lJson);
       lConstructorNames.Clear;
       lConstructorNames.Add('create', True);
       for j := 1 to lFacts.NodeCount do
