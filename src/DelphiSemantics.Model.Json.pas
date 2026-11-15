@@ -1085,7 +1085,12 @@ begin
     lObject.AddPair('Success', TJSONBool.Create(aModel.Success));
     lObject.AddPair('FileName', aModel.FileName);
     lObject.AddPair('UnitName', aModel.UnitName);
-    lObject.AddPair('NameFlowFacts', NameFlowFactsToJson(aModel.NameFlowFacts));
+    if aModel.NameFlowFacts <> nil then
+    begin
+      lObject.AddPair('NameFlowCapability', 'runtime-name');
+      lObject.AddPair('NameFlowFacts', NameFlowFactsToJson(aModel.NameFlowFacts));
+    end else
+      lObject.AddPair('NameFlowCapability', 'core');
     lObject.AddPair('EncodingName', aModel.EncodingName);
     lObject.AddPair('LineEndingName', aModel.LineEndingName);
     lObject.AddPair('LineBreak', aModel.LineBreak);
@@ -1154,7 +1159,13 @@ begin
   Result.Success := JsonBool(aObject, 'Success');
   Result.FileName := JsonString(aObject, 'FileName');
   Result.UnitName := JsonString(aObject, 'UnitName');
-  Result.NameFlowFacts := NameFlowFactsFromJson(JsonString(aObject, 'NameFlowFacts'));
+  if JsonString(aObject, 'NameFlowCapability') = 'core' then
+  begin
+    if aObject.GetValue('NameFlowFacts') <> nil then
+      raise EInvalidOpException.Create('NAME_FLOW_CAPABILITY_INVALID: core model contains runtime-name facts.');
+    Result.NameFlowFacts := nil;
+  end else
+    Result.NameFlowFacts := NameFlowFactsFromJson(JsonString(aObject, 'NameFlowFacts'));
   Result.EncodingName := JsonString(aObject, 'EncodingName');
   Result.LineEndingName := JsonString(aObject, 'LineEndingName');
   Result.LineBreak := JsonString(aObject, 'LineBreak');

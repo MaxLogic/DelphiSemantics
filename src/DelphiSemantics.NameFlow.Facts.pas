@@ -44,12 +44,43 @@ function CreateNameFlowFacts(const aNodes: TArray<TDelphiNameFlowNode>;
 function NameFlowFactsToJson(const aFacts: IDelphiNameFlowFacts): string;
 function NameFlowFactsFromJson(const aJson: string): IDelphiNameFlowFacts;
 
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+type
+  TDelphiNameFlowWorkKind = (Extract, Map, Serialize);
+procedure ResetNameFlowWorkForTest;
+procedure RecordNameFlowWorkForTest(const aKind: TDelphiNameFlowWorkKind);
+function NameFlowWorkCountForTest(const aKind: TDelphiNameFlowWorkKind): Int64;
+{$ENDIF}
+
 implementation
 
 uses
   System.Classes, System.Generics.Collections, System.Generics.Defaults, System.Hash, System.JSON.Serializers,
-  System.NetEncoding, System.SysUtils, System.ZLib,
+  System.NetEncoding, System.SyncObjs, System.SysUtils, System.ZLib,
   AutoFree;
+
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+var
+  gNameFlowWorkForTest: array[TDelphiNameFlowWorkKind] of Int64;
+
+procedure ResetNameFlowWorkForTest;
+var
+  lKind: TDelphiNameFlowWorkKind;
+begin
+  for lKind := Low(TDelphiNameFlowWorkKind) to High(TDelphiNameFlowWorkKind) do
+    TInterlocked.Exchange(gNameFlowWorkForTest[lKind], 0);
+end;
+
+procedure RecordNameFlowWorkForTest(const aKind: TDelphiNameFlowWorkKind);
+begin
+  TInterlocked.Increment(gNameFlowWorkForTest[aKind]);
+end;
+
+function NameFlowWorkCountForTest(const aKind: TDelphiNameFlowWorkKind): Int64;
+begin
+  Result := TInterlocked.Read(gNameFlowWorkForTest[aKind]);
+end;
+{$ENDIF}
 
 type
   TNameFlowEnvelope = record
@@ -358,6 +389,9 @@ var
   lSerializer: TJsonSerializer;
   g: TGarbos;
 begin
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  RecordNameFlowWorkForTest(TDelphiNameFlowWorkKind.Serialize);
+{$ENDIF}
   lStored := Default(TStoredNameFlowFacts);
   GC(lIds, TDictionary<string, Integer>.Create(TStringComparer.Ordinal), g);
   GC(lStrings, TList<string>.Create, g);

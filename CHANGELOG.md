@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Remove-with skips runtime-name fact construction and serialization. Core-only and runtime-name unit models use separate cache identities; semantic unit caches rebuild. Rename still requires runtime-name facts (DS-803).
+
 - Large projects store lossless name-flow facts in a compact, bounded per-unit format. Semantic caches rebuild. Oversized SQLite entries stay in memory and are recomputed later; facts beyond the 256 MiB raw encoding limit refuse with NAME_FLOW_FACTS_STORAGE_LIMIT instead of failing inside SQLite (DS-803).
 
 - Certified rename preparation accumulates source observations once, preserving cache identities and currentness refusals (DS-808).

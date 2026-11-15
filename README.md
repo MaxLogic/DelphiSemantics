@@ -4,6 +4,12 @@ DelphiSemantics uses `DelphiAST` to index Delphi symbols and resolve names
 across a project. Refactoring tools use its scope and lookup data for
 remove-with, definition search, and reference search.
 
+Remove-with builds core semantic models without runtime-name facts. Rename and
+runtime-name analysis request a separate, facts-bearing cache capability; a
+core-only row never satisfies that request. Missing facts are rebuilt or produce
+`NAME_FLOW_FACTS_REQUIRED`, never an empty consumer result. Unit cache epoch
+81407 invalidates the previous rows; parser/proof identities are unchanged.
+
 ## Goals
 
 - Parse Delphi units with `DelphiAST`.

@@ -53,7 +53,7 @@ type
 
 const
   cPersistentKeysPerIdentity = 4;
-  cSqliteSchemaVersion = '81406';
+  cSqliteSchemaVersion = '81407';
   cUnitCacheSqliteBusyAttemptTimeoutMs = 250;
   cUnitCacheSqliteBusyRetryDelayMs = 50;
   cUnitCacheSqliteBusyTimeoutMs = 30000;
@@ -726,8 +726,10 @@ begin
       Exit(False);
     end;
   end;
-  Result := (aModel.UnitName <> '') and (aModel.NameFlowFacts <> nil) and
-    not aModel.NameFlowFacts.CoverageReason.StartsWith('name-flow-facts-json-unverified');
+  // Core-only rows explicitly decode to nil. The caller also checks the requested
+  // capability against its key before serving either memory or persistent hits.
+  Result := (aModel.UnitName <> '') and ((aModel.NameFlowFacts = nil) or
+    not aModel.NameFlowFacts.CoverageReason.StartsWith('name-flow-facts-json-unverified'));
   if not Result then
     DiscardUnreadablePersistentEntry(lConnectionObject, aKey,
       'SQLite cache entry was unreadable and will be rebuilt.');

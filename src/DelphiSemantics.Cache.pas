@@ -211,7 +211,7 @@ uses
   DelphiSemantics.Model.PossibleSources, DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '81406';
+  cCacheSchemaVersion = '81407';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
   cDefaultIdentityParserVersion = 'symbol-map-parser-v4';
@@ -346,6 +346,7 @@ begin
     '|skippedIncludePolicy=all-candidates-v1' +
     '|includeNamePolicy=default-pas-v1' +
     '|projectContextApplied=' + BoolToStr(aOptions.ProjectContextApplied, True) +
+    sLineBreak + 'nameFlowCapability=' + BoolToStr(not aOptions.SkipNameFlowFacts, True) +
     sLineBreak + 'nameFlowFactLimit=' + IntToStr(aOptions.NameFlowFactLimit) +
     sLineBreak + 'skipBodyAnalysis=' + BoolToStr(aOptions.SkipBodyAnalysis, True) +
     sLineBreak + 'skipReferenceExtraction=' + BoolToStr(aOptions.SkipReferenceExtraction, True) +
@@ -936,6 +937,17 @@ begin
     end);
 end;
 
+function ModelHasRequestedCapabilities(const aModel: TDelphiSemanticUnitModel;
+  const aOptions: TDelphiSemanticModelOptions): Boolean;
+begin
+  // Capability is independent of completeness: an incomplete rich fact set
+  // preserves its existing barrier; an absent or undecodable set is rebuilt.
+  if aOptions.SkipNameFlowFacts then
+    Exit(aModel.NameFlowFacts = nil);
+  Result := (aModel.NameFlowFacts <> nil) and
+    not aModel.NameFlowFacts.CoverageReason.StartsWith('name-flow-facts-json-unverified');
+end;
+
 function TDelphiSemanticUnitCache.GetOrBuildUnitModelWithStatus(
   const aOptions: TDelphiSemanticModelOptions;
   const aBuilder: TDelphiSemanticUnitModelBuilder): TDelphiSemanticUnitCacheAccessResult;
@@ -959,7 +971,7 @@ begin
       lDictionary := fEntries;
       if lDictionary.TryGetValue(lIdentity, lEntry) then
       begin
-        if (lEntry.Key = lKey) and
+        if (lEntry.Key = lKey) and ModelHasRequestedCapabilities(lEntry.Model, lOptions) and
           SourceObservationsMatch(lObservations, lEntry.Model.SourceObservations) then
         begin
           Inc(fMetrics.CacheHits);
@@ -973,6 +985,7 @@ begin
       end;
 
       if TryLoadPersistentEntry(lIdentity, lKey, Result.Model) and
+        ModelHasRequestedCapabilities(Result.Model, lOptions) and
         SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
       begin
         Inc(fMetrics.CacheHits);
@@ -997,6 +1010,9 @@ begin
 
       Inc(fMetrics.CacheMisses);
       Result.Model := aBuilder(lOptions);
+      if Result.Model.Success and not ModelHasRequestedCapabilities(Result.Model, lOptions) then
+        raise EInvalidOpException.Create(
+          'NAME_FLOW_FACTS_REQUIRED: model builder did not produce the requested capability; rebuild the semantic cache.');
       if (Result.Model.SourceObservations <> nil) and
         not SourceObservationsMatch(lObservations, Result.Model.SourceObservations) then
       begin

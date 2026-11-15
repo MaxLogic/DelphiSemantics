@@ -24,6 +24,8 @@ type
     CompilerDefineEvidenceReason: string;
     // Zero selects the default syntax-fact budget; a positive value lowers the bound.
     NameFlowFactLimit: Integer;
+    // Core-only command projections cannot satisfy runtime-name consumers.
+    SkipNameFlowFacts: Boolean;
     SkipBodyAnalysis: Boolean;
     SkipReferenceExtraction: Boolean;
     WithStatementsOnly: Boolean;

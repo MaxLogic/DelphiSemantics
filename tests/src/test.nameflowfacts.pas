@@ -9,6 +9,21 @@ type
   [TestFixture]
   TNameFlowFactsTests = class
   public
+    [Test]
+    [TestCase('Facts', 'facts')]
+    [TestCase('Plan', 'plan')]
+    [TestCase('Combined', 'combined')]
+    procedure RemoveWithBuildsNoNameFlowFacts(const aRoute: string);
+    [Test]
+    [TestCase('Core then rich', 'False')]
+    [TestCase('Rich then core', 'True')]
+    procedure CacheSeparatesNameFlowCapabilities(const aRichFirst: Boolean);
+    [Test]
+    [TestCase('Remove then rename', 'False')]
+    [TestCase('Rename then remove', 'True')]
+    procedure RenameAndRemoveWithShareCacheSafely(const aRenameFirst: Boolean);
+    [Test] procedure RichRequestRejectsCoreRow;
+    [Test] procedure MissingRichBuilderFactsRefuseByName;
     [Test] procedure RepeatedNodeMetadataHasBoundedPersistence;
     [Test] procedure RejectsOversizedFactsEnvelopeBeforeInflation;
     [Test] procedure OversizedSnapshotLeavesNoPartialCacheEntry;
@@ -28,10 +43,257 @@ uses
   System.IOUtils, System.JSON, System.JSON.Serializers, System.SysUtils,
   Winapi.Windows,
   DelphiAST.Classes, DelphiAST.Consts,
-  DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.NameFlow.Extract,
-  DelphiSemantics.NameFlow.Facts, DelphiSemantics.Preprocess, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.NameFlow.Extract,
+  DelphiSemantics.NameFlow.Facts, DelphiSemantics.Preprocess, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.WithBinding,
   Test.Support;
+
+type
+  TNameFlowSeedCache = class(TDelphiSemanticSqliteUnitCache)
+  public
+    procedure SeedCoreUnderRichKey(const aOptions: TDelphiSemanticModelOptions;
+      const aModel: TDelphiSemanticUnitModel);
+  end;
+
+procedure TNameFlowSeedCache.SeedCoreUnderRichKey(
+  const aOptions: TDelphiSemanticModelOptions; const aModel: TDelphiSemanticUnitModel);
+var
+  lIdentity: TDelphiSemanticUnitCacheIdentity;
+begin
+  lIdentity := BuildIdentity(aOptions);
+  StorePersistentEntry(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.SourceFileName),
+    lIdentity.UnitCacheKey, lIdentity, aModel);
+end;
+
+function CreateNameFlowCapabilityProject(const aRoot: string): string;
+begin
+  TFile.WriteAllText(TPath.Combine(aRoot, 'Capability.dpr'),
+    'program Capability; uses CapabilityUnit; begin Work; end.', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(aRoot, 'CapabilityUnit.pas'),
+    'unit CapabilityUnit;'#13#10'interface'#13#10 +
+    'type TItem = record Value: Integer; end;'#13#10 +
+    'var CounterValue: Integer;'#13#10'procedure Work;'#13#10 +
+    'implementation'#13#10'procedure Work; var Item: TItem;'#13#10 +
+    'begin CounterValue := 1; with Item do Value := 1; end;'#13#10'end.', TEncoding.ASCII);
+  Result := TPath.Combine(aRoot, 'Capability.dproj');
+  TFile.WriteAllText(Result,
+    '<Project><PropertyGroup><MainSource>Capability.dpr</MainSource></PropertyGroup>' +
+    '<ItemGroup><DCCReference Include="CapabilityUnit.pas"/></ItemGroup></Project>',
+    TEncoding.ASCII);
+end;
+
+procedure TNameFlowFactsTests.RemoveWithBuildsNoNameFlowFacts(const aRoute: string);
+var
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('nameflow-command-capability-temp');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateNameFlowCapabilityProject(lRoot);
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'semantic.sqlite3');
+  lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+  try
+    Assert.IsTrue(lOpened.Success);
+    ResetNameFlowWorkForTest;
+    if aRoute = 'facts' then
+      lFacts := lOpened.Session.BuildWithBindingFacts
+    else if aRoute = 'plan' then
+      lOpened.Session.PlanRemoveWithResult
+    else
+      lFacts := lOpened.Session.BuildRemoveWithFactsAndPlanResult.Facts;
+    Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Extract),
+      'A fresh remove-with cache must build no runtime-name facts.');
+    Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Map));
+    Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Serialize));
+    if aRoute <> 'plan' then
+    begin
+      Assert.IsTrue(Length(lFacts.UnitModels) > 0);
+      for lModel in lFacts.UnitModels do
+        Assert.IsNull(lModel.NameFlowFacts, 'Not requested must remain distinct from complete-empty.');
+    end;
+  finally
+    lOpened.Session.Free;
+  end;
+end;
+
+procedure TNameFlowFactsTests.CacheSeparatesNameFlowCapabilities(const aRichFirst: Boolean);
+var
+  i: Integer;
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lKeys: array[0..1] of string;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('nameflow-capability-cache-temp');
+  CreateNameFlowCapabilityProject(lRoot);
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'models.sqlite3');
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'CapabilityUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  for i := 0 to 3 do
+  begin
+    lOptions.SkipNameFlowFacts := Odd(i) = aRichFirst;
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+      if i < 2 then
+        lKeys[i mod 2] := lAccess.Identity.UnitCacheKey;
+      if i = 1 then
+        Assert.AreNotEqual(lKeys[0], lKeys[1], 'Capability must be an explicit identity input.');
+      Assert.AreEqual(i >= 2, lAccess.CacheHit, 'Each capability persists independently.');
+      if lOptions.SkipNameFlowFacts then
+        Assert.IsNull(lAccess.Model.NameFlowFacts)
+      else begin
+        Assert.IsNotNull(lAccess.Model.NameFlowFacts);
+        Assert.IsTrue(lAccess.Model.NameFlowFacts.Complete, lAccess.Model.NameFlowFacts.CoverageReason);
+        Assert.IsTrue(lAccess.Model.NameFlowFacts.NodeCount > 0);
+      end;
+    finally
+      lCache.Free;
+    end;
+  end;
+end;
+
+procedure TNameFlowFactsTests.RenameAndRemoveWithShareCacheSafely(const aRenameFirst: Boolean);
+var
+  i, j: Integer;
+  lCacheMetrics: TDelphiSemanticCacheMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lExtractionMilliseconds: Int64;
+  lFacts: TDelphiSemanticProjectWithBindingFacts;
+  lFlow: IDelphiNameFlowFacts;
+  lModel: TDelphiSemanticUnitModel;
+  lOpened: TDelphiSemanticProjectSessionResult;
+  lOptions: TDelphiSemanticOptions;
+  lPlan: TDelphiSemanticRenamePlan;
+  lRoot: string;
+  lSnapshot: TDelphiProjectSnapshot;
+  lRename: Boolean;
+begin
+  lRoot := CreateTestTempRoot('nameflow-command-order-temp');
+  lOptions := Default(TDelphiSemanticOptions);
+  lOptions.ProjectPath := CreateNameFlowCapabilityProject(lRoot);
+  lOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'shared.sqlite3');
+  for i := 0 to 3 do
+  begin
+    lRename := Odd(i) <> aRenameFirst;
+    lOpened := TDelphiSemanticProjectSession.Open(lOptions);
+    try
+      Assert.IsTrue(lOpened.Success);
+      ResetNameFlowWorkForTest;
+      if lRename then
+      begin
+        lContext := lOpened.Session.BuildSnapshotSymbolQueryContext(lCacheMetrics,
+          lExtractionMilliseconds);
+        lSnapshot := lContext.ProjectSnapshot.Snapshot;
+        Assert.IsTrue(lSnapshot.UnitCount > 0);
+        for j := 0 to lSnapshot.UnitCount - 1 do
+        begin
+          lFlow := NameFlowFactsFromJson(lSnapshot.ExactTextOf(lSnapshot.UnitByIndex(j).NameFlowFactsJsonId));
+          Assert.IsTrue(lFlow.Complete, lFlow.CoverageReason);
+          Assert.IsTrue(lFlow.NodeCount > 0);
+        end;
+        if i < 2 then
+          Assert.IsTrue(NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Extract) > 0,
+            'A first rich request cannot use a core-only model.');
+        lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, 'CounterValue', 'RenamedCounterValue');
+        Assert.AreEqual('planned', lPlan.Status, lPlan.Diagnostic);
+        Assert.IsTrue(Length(lPlan.Edits) > 0);
+      end else begin
+        lFacts := lOpened.Session.BuildRemoveWithFactsAndPlanResult.Facts;
+        Assert.IsTrue(Length(lFacts.UnitModels) > 0);
+        for lModel in lFacts.UnitModels do
+          Assert.IsNull(lModel.NameFlowFacts);
+        Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Extract));
+        Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Serialize));
+      end;
+    finally
+      lContext := Default(TDelphiSemanticSymbolQueryContext);
+      lOpened.Session.Free;
+    end;
+  end;
+end;
+
+procedure TNameFlowFactsTests.RichRequestRejectsCoreRow;
+var
+  lAccess: TDelphiSemanticUnitCacheAccessResult;
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lCore: TDelphiSemanticUnitModel;
+  lOptions: TDelphiSemanticModelOptions;
+  lRoot: string;
+  lSeed: TNameFlowSeedCache;
+begin
+  lRoot := CreateTestTempRoot('nameflow-wrong-capability-temp');
+  CreateNameFlowCapabilityProject(lRoot);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'CapabilityUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lOptions.SkipNameFlowFacts := True;
+  lCore := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lCore.Success);
+  Assert.IsNull(lCore.NameFlowFacts);
+  lOptions.SkipNameFlowFacts := False;
+  lCacheOptions := Default(TDelphiSemanticCacheOptions);
+  lCacheOptions.SqliteCacheFileName := TPath.Combine(lRoot, 'wrong.sqlite3');
+  lSeed := TNameFlowSeedCache.Create(lCacheOptions);
+  try
+    lSeed.SeedCoreUnderRichKey(lOptions, lCore);
+  finally
+    lSeed.Free;
+  end;
+  lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+  try
+    lAccess := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+    Assert.IsFalse(lAccess.CacheHit, 'A core payload under a rich key must be rebuilt.');
+    Assert.IsNotNull(lAccess.Model.NameFlowFacts);
+    Assert.IsTrue(lAccess.Model.NameFlowFacts.Complete, lAccess.Model.NameFlowFacts.CoverageReason);
+    Assert.IsTrue(lAccess.Model.NameFlowFacts.NodeCount > 0);
+  finally
+    lCache.Free;
+  end;
+end;
+
+procedure TNameFlowFactsTests.MissingRichBuilderFactsRefuseByName;
+var
+  lCache: TDelphiSemanticUnitCache;
+  lOptions: TDelphiSemanticModelOptions;
+  lRefused: Boolean;
+  lRoot: string;
+begin
+  lRoot := CreateTestTempRoot('nameflow-missing-builder-temp');
+  CreateNameFlowCapabilityProject(lRoot);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := TPath.Combine(lRoot, 'CapabilityUnit.pas');
+  lOptions.ProjectContextApplied := True;
+  lCache := TDelphiSemanticUnitCache.Create(Default(TDelphiSemanticCacheOptions));
+  try
+    lRefused := False;
+    try
+      lCache.GetOrBuildUnitModelWithStatus(lOptions,
+        function(const aBuildOptions: TDelphiSemanticModelOptions): TDelphiSemanticUnitModel
+        begin
+          Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(aBuildOptions);
+          Result.NameFlowFacts := nil;
+        end);
+    except
+      on E: EInvalidOpException do
+      begin
+        Assert.IsTrue(E.Message.StartsWith('NAME_FLOW_FACTS_REQUIRED:'), E.Message);
+        lRefused := True;
+      end;
+    end;
+    Assert.IsTrue(lRefused, 'Missing runtime-name facts cannot mean no consumers.');
+  finally
+    lCache.Free;
+  end;
+end;
 
 procedure TNameFlowFactsTests.RepeatedNodeMetadataHasBoundedPersistence;
 const
