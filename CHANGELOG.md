@@ -2,7 +2,6 @@
 
 ## [Unreleased]
 
-- Runtime-name numeric proof accepts verified physical local types from include-aware snapshots, avoiding arithmetic-only string witnesses (DS-803 integration fix).
 - Certified rename preparation accumulates source observations once, preserving cache identities and currentness refusals (DS-808).
 
 - Certified source-selection fingerprints use canonical proof version 2. Re-create plans made with the previous version before applying them; older native certificates are refused and semantic snapshot caches rebuild (DS-813).

@@ -106,7 +106,6 @@ uses
   DelphiSemantics.WithBinding.Inventory in '..\src\DelphiSemantics.WithBinding.Inventory.pas',
   DelphiSemantics.WithScan in '..\src\DelphiSemantics.WithScan.pas',
   Test.NameFlow.Containment in 'src\Test.NameFlow.Containment.pas',
-  Test.NameFlow.NumericProof in 'src\Test.NameFlow.NumericProof.pas',
   Test.NameFlowFacts in 'src\test.nameflowfacts.pas',
   DelphiSemantics.NameFlow.SdkArtifact in '..\src\DelphiSemantics.NameFlow.SdkArtifact.pas',
   Test.NameFlow.SdkEffects in 'src\Test.NameFlow.SdkEffects.pas',
