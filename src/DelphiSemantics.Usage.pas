@@ -1648,6 +1648,7 @@ var
   var
     lConstants: TArray<TNameFlowConstant>;
     lUnitFacts: TArray<IDelphiNameFlowFacts>;
+    lAnonymousMethodPresence: TArray<Byte>;
     lUnitContexts: TArray<TSnapshotRuntimeContextIndex>;
     lLineStarts: TArray<TArray<Integer>>;
     lUnitDefinitions: TArray<TDictionary<string, TArray<TDelphiNameFlowNode>>>;
@@ -2177,11 +2178,13 @@ var
       end;
       if not IntrinsicIsVisible(aSnapshot, lConstants, lUnitFacts, lUnitDefinitions, aContext, lType) then
         Exit;
+      // Pointer arithmetic can feed PChar-compatible casts; no pointer type
+      // proves a non-string value, including on the reference-backed path.
       Result := MatchText(lType, ['integer', 'byte', 'shortint', 'smallint', 'word',
         'longint', 'longword', 'cardinal', 'int8', 'int16', 'int32', 'int64',
         'uint8', 'uint16', 'uint32', 'uint64', 'nativeint', 'nativeuint',
         'boolean', 'bytebool', 'wordbool', 'longbool', 'single', 'double', 'extended',
-        'real', 'currency', 'comp', 'pointer']) or StartsText('^', lType) or
+        'real', 'currency', 'comp']) or
         StartsText('set ', lType);
     end;
 
@@ -2255,6 +2258,100 @@ var
       end;
     end;
 
+    function NumericOperandScopeAvailable(const aUnitIndex: Integer;
+      const aFacts: IDelphiNameFlowFacts;
+      const aFileName: string; const aLine: Integer): Boolean;
+    var
+      lNode: TDelphiNameFlowNode;
+      i: Integer;
+    begin
+      Result := False;
+      if aFacts = nil then
+        Exit;
+      if not aFacts.Complete then
+        Exit;
+      // Most units have no anonymous methods. Cache that immutable fact once
+      // per unit; scanning every node for each numeric operand is quadratic.
+      if lAnonymousMethodPresence[aUnitIndex] = 0 then
+      begin
+        lAnonymousMethodPresence[aUnitIndex] := 1;
+        for i := 1 to aFacts.NodeCount do
+          if aFacts.NodeById(i).SyntaxKind = 'anonymousmethod' then
+          begin
+            lAnonymousMethodPresence[aUnitIndex] := 2;
+            Break;
+          end;
+      end;
+      if lAnonymousMethodPresence[aUnitIndex] = 1 then
+        Exit(True);
+      // The retained target resolver does not model anonymous-method locals.
+      // A physical match cannot repair that scope gap. Unknown spans refuse
+      // the unit; known spans refuse only operands in the anonymous method.
+      for i := 1 to aFacts.NodeCount do
+      begin
+        lNode := aFacts.NodeById(i);
+        if (lNode.SyntaxKind = 'anonymousmethod') and
+          ((lNode.FileName = '') or SameText(lNode.FileName, aFileName)) then
+          if not lNode.SpanKnown or (lNode.Line <= 0) or (lNode.EndLine <= 0) or
+            ((aLine >= lNode.Line) and (aLine <= lNode.EndLine)) then
+            Exit;
+      end;
+      Result := True;
+    end;
+
+    function ScopeCorrectPhysicalReference(const aUnit: TUnitSnapshot;
+      const aFileName, aToken: string; const aLine, aColumn: Integer;
+      out aResolution: TDelphiSemanticSnapshotPositionResolution): Boolean;
+    var
+      lOccurrence: TSemanticPhysicalReferenceOccurrence;
+      lReference: TSemanticReferenceFact;
+      lTargetUnit: TUnitSnapshot;
+      lTarget: TSemanticSymbolFact;
+      lCount, i: Integer;
+    begin
+      Result := False;
+      aResolution := Default(TDelphiSemanticSnapshotPositionResolution);
+      if not aUnit.PhysicalReferenceOccurrencesAvailable then
+        Exit;
+      lCount := 0;
+      for i := 0 to aUnit.PhysicalReferenceOccurrenceCount - 1 do
+      begin
+        lOccurrence := aUnit.PhysicalReferenceOccurrenceByIndex(i);
+        if (lOccurrence.Line <> aLine) or (lOccurrence.Column <> aColumn) or
+          not SameText(SnapshotText(aSnapshot, lOccurrence.FileId), aFileName) or
+          not SameText(SnapshotText(aSnapshot, lOccurrence.NameId), aToken) then
+          Continue;
+        Inc(lCount);
+        // DS-692's name/scope local join is not semantic binding evidence.
+        // Only the producer's verified physical-to-reference association can
+        // reach a scope-aware target (WITH, receiver and nested routine lookup).
+        if (lCount <> 1) or not lOccurrence.Verified or
+          (lOccurrence.SnapshotReferenceId = 0) or
+          (lOccurrence.SnapshotReferenceId > Cardinal(aUnit.ReferenceCount)) then
+          Exit;
+        lReference := aUnit.ReferenceById(lOccurrence.SnapshotReferenceId);
+        if not SameText(SnapshotText(aSnapshot, lReference.NameId), aToken) or
+          (lReference.TargetUnitId = 0) or (lReference.TargetSymbolId = 0) or
+          not aSnapshot.TryFindUnitById(lReference.TargetUnitId, lTargetUnit) then
+          Exit;
+        lTarget := lTargetUnit.SymbolById(lReference.TargetSymbolId);
+        if not SameText(SnapshotText(aSnapshot, lTarget.NameId), aToken) then
+          Exit;
+        aResolution.Status := 'snapshot-physical-reference-target';
+        aResolution.ReferenceFound := True;
+        aResolution.SymbolFound := True;
+        aResolution.ReferenceRef.UnitId := aUnit.UnitId;
+        aResolution.ReferenceRef.ReferenceId := lOccurrence.SnapshotReferenceId;
+        aResolution.Reference := lReference;
+        aResolution.SourceUnit := aUnit;
+        aResolution.SymbolRef.UnitId := lReference.TargetUnitId;
+        aResolution.SymbolRef.SymbolId := lReference.TargetSymbolId;
+        aResolution.Symbol := lTarget;
+        aResolution.SymbolUnit := lTargetUnit;
+      end;
+      Result := lCount = 1;
+    end;
+
     function OperandHasNonStringType(const aIndex, aRelativeOffset: Integer;
       const aIdentifier: string): Boolean;
     var
@@ -2310,9 +2407,20 @@ var
           Exit;
         SnapshotRuntimeCoordinatesAtOffset(lLineStarts[lConstants[aIndex].UnitIndex],
           lOffset, lLine, lColumn);
+        if not NumericOperandScopeAvailable(lConstants[aIndex].UnitIndex,
+          lUnitFacts[lConstants[aIndex].UnitIndex], lConstants[aIndex].FileName, lLine) then
+          Exit;
         if TryResolveSnapshotPosition(aSnapshot, lConstants[aIndex].FileName,
           lLine, lColumn, lToken, lResolution) then
+        begin
+          if not lResolution.ReferenceFound then
+            if not lResolution.SymbolFound or
+              (lResolution.Status <> 'snapshot-physical-position-match') or
+              not ScopeCorrectPhysicalReference(lUnit, lConstants[aIndex].FileName,
+                lToken, lLine, lColumn, lResolution) then
+              Exit;
           lResolutions := [lResolution];
+        end;
       end;
       if Length(lResolutions) = 0 then
         Exit;
@@ -2646,6 +2754,7 @@ var
           end;
       end;
       SetLength(lUnitFacts, aSnapshot.UnitCount);
+      SetLength(lAnonymousMethodPresence, aSnapshot.UnitCount);
       SetLength(lUnitContexts, aSnapshot.UnitCount);
       SetLength(lLineStarts, aSnapshot.UnitCount);
       SetLength(lUnitDefinitions, aSnapshot.UnitCount);

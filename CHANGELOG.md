@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Strict runtime-name analysis requires a verified physical-to-reference binding before using numeric operand types, retains anonymous-method scope gaps, and refuses pointer-based string arithmetic (DS-803/DS-692).
+
 - Certified rename preparation accumulates source observations once, preserving cache identities and currentness refusals (DS-808).
 
 - Certified source-selection fingerprints use canonical proof version 2. Re-create plans made with the previous version before applying them; older native certificates are refused and semantic snapshot caches rebuild (DS-813).
