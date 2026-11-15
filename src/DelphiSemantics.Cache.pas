@@ -211,13 +211,13 @@ uses
   DelphiSemantics.Model.PossibleSources, DelphiSemantics.Preprocess, DelphiSemantics.Version;
 
 const
-  cCacheSchemaVersion = '81407';
+  cCacheSchemaVersion = '81408';
   cDefaultCompilerProfileName = 'default';
   cDefaultIdentityIncludeGraphHash = 'no-includes-v1';
-  cDefaultIdentityParserVersion = 'symbol-map-parser-v4';
-  cDefaultIdentitySchemaVersion = '3';
+  cDefaultIdentityParserVersion = 'symbol-map-parser-v5';
+  cDefaultIdentitySchemaVersion = '4';
   // Integrated tr1117 extraction and DS-814 configuration/SDK name-flow evidence.
-  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.81406';
+  cDefaultParserVersion = 'DelphiSemantics.Model.Parser.81408';
   cUnitCacheSingleThreadMessage = 'TDelphiSemanticUnitCache instances are single-threaded; use one cache instance per operation or add external synchronization.';
 
 function StableHash(const aText: string): string;

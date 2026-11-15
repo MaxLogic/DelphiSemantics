@@ -214,6 +214,7 @@ type
     [TestCase('Previous integration payload schema', 'obsolete-payload-v3')]
     [TestCase('tr1117 payload schema', 'obsolete-payload-v4')]
     [TestCase('Prior tr1118 payload schema', 'obsolete-payload-v5')]
+    [TestCase('Pre-final tr1118 payload schema', 'obsolete-payload-v6')]
     [TestCase('Uncertified inputs', 'uncertified')]
     [TestCase('Corrupt SQLite file', 'corrupt-file')]
     [TestCase('Partial SQLite file', 'partial-file')]
@@ -3277,16 +3278,18 @@ begin
           lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = substr(payload, 1, length(payload) / 2)')
         else begin
           lPayload := lConnection.ExecSQLScalar('SELECT payload FROM combined_remove_with_facts');
-          if aScenario = 'obsolete-payload-v5' then
-            lPayload := lPayload.Replace('combined-remove-with-facts-v6', 'combined-remove-with-facts-v5')
+          if aScenario = 'obsolete-payload-v6' then
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v6')
+          else if aScenario = 'obsolete-payload-v5' then
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v5')
           else if aScenario = 'obsolete-payload-v4' then
-            lPayload := lPayload.Replace('combined-remove-with-facts-v6', 'combined-remove-with-facts-v4')
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v4')
           else if aScenario = 'obsolete-payload-v3' then
-            lPayload := lPayload.Replace('combined-remove-with-facts-v6', 'combined-remove-with-facts-v3')
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v3')
           else if aScenario = 'obsolete-payload-v2' then
-            lPayload := lPayload.Replace('combined-remove-with-facts-v6', 'combined-remove-with-facts-v2')
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v2')
           else
-            lPayload := lPayload.Replace('combined-remove-with-facts-v6', 'combined-remove-with-facts-v1');
+            lPayload := lPayload.Replace('combined-remove-with-facts-v7', 'combined-remove-with-facts-v1');
           lConnection.ExecSQL('UPDATE combined_remove_with_facts SET payload = ?, payload_hash = ?',
             [lPayload, THashSHA2.GetHashString(lPayload)]);
         end;

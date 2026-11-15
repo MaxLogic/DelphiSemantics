@@ -167,7 +167,7 @@ begin
 end;
 
 const
-  cNameFlowStorageVersion = 81406;
+  cNameFlowStorageVersion = 81408;
   cStoredNodeHeaderLength = 20;
   cMaximumFactsPayloadBytes = 256 * 1024 * 1024;
   cMaximumEncodedFactsCharacters = ((cMaximumFactsPayloadBytes +

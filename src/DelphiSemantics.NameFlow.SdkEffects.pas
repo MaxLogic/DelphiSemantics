@@ -148,7 +148,7 @@ uses
   DelphiSemantics.NameFlow.SdkArtifact, DelphiSemantics.Preprocess;
 
 const
-  cSdkGeneratorVersion = 'ds803-sdk-effects-v8/primitive-v3/full-body-v1';
+  cSdkGeneratorVersion = 'ds803-sdk-effects-v9/primitive-v3/full-body-v1';
 
 type
   ESdkGenerationBudget = class(Exception);

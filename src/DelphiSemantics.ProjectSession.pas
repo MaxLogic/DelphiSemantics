@@ -248,9 +248,9 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81406-tr1118-projection';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81408-tr1118-final';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
-    'project-session-remove-with-facts-v2006-tr1118-projection';
+    'project-session-remove-with-facts-v2007-tr1118-final';
 
 type
   TOwnedProjectSnapshotRef = class(TInterfacedObject, IDelphiProjectSnapshotRef)
@@ -1102,7 +1102,7 @@ begin
     Exit;
   lIdentity := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions,
     aSourceFileNames, aScopedSourceFileNames, aUnitCacheIdentities, aWitness.IdentityText);
-  lText := 'combined-remove-with-facts-v6|' + lIdentity.CacheKey + '|' +
+  lText := 'combined-remove-with-facts-v7|' + lIdentity.CacheKey + '|' +
     aProject.ContextObservations.EvidenceFingerprint + '|' +
     aProject.ContextObservations.ConfigurationIdentity + '|' +
     BoolToStr(aOptions.ForceFullIdentifierAnalysis, True) + '|' +
@@ -1177,7 +1177,7 @@ begin
       RequireWithInventoryBudget(Length(lPayload.Symbols), aOptions.WithInventoryRecordLimit,
         'cached combined inventory');
       // Reject incomplete, unknown or noncanonical fields, not just malformed JSON.
-      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v6') or
+      aInvalid := (lPayload.Schema <> 'combined-remove-with-facts-v7') or
         (lPayload.ContextFingerprint <> aContextFingerprint) or
         (lSerializer.Serialize<TCombinedPlanningFactsPayload>(lPayload) <> lPayloadText);
     except
@@ -1255,7 +1255,7 @@ var
   lSerializer: TJsonSerializer;
 begin
   lPayload := Default(TCombinedPlanningFactsPayload);
-  lPayload.Schema := 'combined-remove-with-facts-v6';
+  lPayload.Schema := 'combined-remove-with-facts-v7';
   lPayload.ContextFingerprint := aFacts.ContextFingerprint;
   lPayload.Symbols := aFacts.Symbols;
   lPayload.Bindings := aFacts.Bindings;
