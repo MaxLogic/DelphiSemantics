@@ -1026,35 +1026,51 @@ begin
   end;
 end;
 
-function SdkSelectionFollowsCompilerNameOrder(const aProject: TDelphiSemanticProjectInfo;
-  const aImportName, aSelectedName: string;
+function SdkSelectionIsUnique(const aProject: TDelphiSemanticProjectInfo;
+  const aImportName, aSelectedDcu, aPairedSource: string;
   const aDirectories: TObjectDictionary<string, THashSet<string>>): Boolean;
 var
   lName: TUnitCandidateName;
-  lPath: string;
+  lPath, lFileName, lSelectedDcu, lPairedSource: string;
   lNames: THashSet<string>;
+  lSelectedFound: Boolean;
 begin
-  // dcc searches every directory for the exact/alias name before trying any
-  // namespace. One complete listing per exact path serves the whole command.
+  // DS-814 deliberately requires uniqueness until DS-818 supplies compiler
+  // resolution. A source under any candidate name/path can beat an SDK DCU.
+  // The only admitted files are the selected DCU and its pinned paired source.
+  // One complete listing per exact path serves every query in this command.
+  if not SameText(TPath.GetExtension(aSelectedDcu), '.dcu') then
+    Exit(False);
+  lSelectedDcu := TPath.GetFullPath(aSelectedDcu);
+  lPairedSource := TPath.GetFullPath(aPairedSource);
+  lSelectedFound := False;
   for lName in TDelphiSemanticUnitResolver.CandidateNames(aProject, aImportName) do
-  begin
-    if SameText(lName.TargetName, aSelectedName) then
-      Exit(True);
     for lPath in aProject.SourceLookupPaths do
     begin
       if not TrySdkSelectionDirectory(lPath, aDirectories, lNames) then
         Exit(False);
-      if lNames.Contains(lName.TargetName + '.pas') or lNames.Contains(lName.TargetName + '.dcu') then
-        Exit(False);
+      if lNames.Contains(lName.TargetName + '.pas') then
+      begin
+        lFileName := TPath.GetFullPath(TPath.Combine(lPath, lName.TargetName + '.pas'));
+        if not SameText(lFileName, lPairedSource) then
+          Exit(False);
+      end;
+      if lNames.Contains(lName.TargetName + '.dcu') then
+      begin
+        lFileName := TPath.GetFullPath(TPath.Combine(lPath, lName.TargetName + '.dcu'));
+        if not SameText(lFileName, lSelectedDcu) then
+          Exit(False);
+        lSelectedFound := True;
+      end;
     end;
-  end;
-  Result := False;
+  Result := lSelectedFound;
 end;
 
 function TNameSdkCatalog.DeclarationSelectionsAreCurrent: Boolean;
 var
   g: TGarbos;
   lPair: TPair<string, string>;
+  lPairedSource: string;
   lSelection: TDelphiSemanticUnitResolutionResult;
   lDirectories: TObjectDictionary<string, THashSet<string>>;
 begin
@@ -1062,12 +1078,15 @@ begin
   GC(lDirectories, TObjectDictionary<string, THashSet<string>>.Create(
     [doOwnsValues], TFastCaseAwareComparer.Ordinal), g);
   Result := False;
+  if (fDeclarationSelections.Count > 0) and (fDeclarationDiscovery = nil) then
+    Exit;
   for lPair in fDeclarationSelections do
   begin
     lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, lPair.Key);
     if not lSelection.Found or lSelection.Ambiguous or
-      not SdkSelectionFollowsCompilerNameOrder(fRequest.SelectionProject, lPair.Key,
-        lSelection.CanonicalUnitName, lDirectories) or
+      not fDeclarationDiscovery.TryResolveUniqueSourceFile(lSelection.CanonicalUnitName, lPairedSource) or
+      not SdkSelectionIsUnique(fRequest.SelectionProject, lPair.Key,
+        lSelection.FileName, lPairedSource, lDirectories) or
       not SameText(lPair.Value, lSelection.FileName + #10 +
         THashSHA2.GetHashStringFromFile(lSelection.FileName)) then
       Exit;
@@ -1136,10 +1155,6 @@ begin
     if not fDeclarationResolutions.TryGetValue(aImportName, lSelection) then
     begin
       lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, aImportName);
-      if lSelection.Found and not lSelection.Ambiguous then
-        if not SdkSelectionFollowsCompilerNameOrder(fRequest.SelectionProject, aImportName,
-          lSelection.CanonicalUnitName, fSelectionDirectories) then
-          lSelection.Found := False;
       fDeclarationResolutions.Add(aImportName, lSelection);
     end;
     if not lSelection.Found or lSelection.Ambiguous then
@@ -1163,11 +1178,9 @@ begin
     lFileName := lSelected;
     if SameText(TPath.GetExtension(lInputFileName), '.pas') and not SameText(lFileName, lInputFileName) then
       Exit;
-    if SameText(TPath.GetExtension(lSelection.FileName), '.pas') then
-    begin
-      if not SameText(lSelection.FileName, lFileName) then
-        Exit;
-    end else if not IsDefaultLanguageSdkDcu(lSelection.FileName, lLibraryRoot) then
+    if not IsDefaultLanguageSdkDcu(lSelection.FileName, lLibraryRoot) or
+      not SdkSelectionIsUnique(fRequest.SelectionProject, aImportName,
+        lSelection.FileName, lFileName, fSelectionDirectories) then
       Exit;
     // Retain the actual selected artifact, including DCU bytes, for publication
     // revalidation. Duplicate language/platform sources already refused above.

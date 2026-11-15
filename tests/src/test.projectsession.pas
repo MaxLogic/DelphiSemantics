@@ -4886,6 +4886,7 @@ var
   lActual, lExpected: string;
   lIdentifier: string;
   lPass: Integer;
+  lRiskMode: Boolean;
 begin
   lRoot := ProjectSessionTempPath('cross-symbol-' + BoolToStr(aRiskFirst, True));
   TDirectory.CreateDirectory(lRoot);
@@ -4914,20 +4915,22 @@ begin
   lOptions := Default(TDelphiSemanticOptions);
   lOptions.ProjectPath := lProject;
   lExpected := '';
-  // The two symbol orders use one cache; pass zero is the uncached second query.
+  // Keep the symbol/projection order Soundex then ArrayVarRecPtr and reverse
+  // the actual consent modes. Both orders fail on round 3 because consent acts
+  // after snapshot construction: the first projection rebinds Ident's p as a
+  // string in the second query, whether that query is strict or accepted risk.
+  // Pass zero supplies the uncached second query in its matching consent mode.
   for lPass := 0 to 2 do
   begin
     lIdentifier := 'ArrayVarRecPtr';
-    if not aRiskFirst then
-      lIdentifier := 'Soundex';
     lOptions.SqliteCacheFileName := lCache;
     if lPass = 0 then
       lOptions.SqliteCacheFileName := ''
     else if lPass = 1 then
-      if aRiskFirst then
-        lIdentifier := 'Soundex'
-      else
-        lIdentifier := 'ArrayVarRecPtr';
+      lIdentifier := 'Soundex';
+    lRiskMode := not aRiskFirst;
+    if lPass = 1 then
+      lRiskMode := aRiskFirst;
     lSession := TDelphiSemanticProjectSession.Open(lOptions);
     try
       Assert.IsTrue(lSession.Success);
@@ -4936,8 +4939,10 @@ begin
       Assert.IsFalse(lScope.FailOpen, lScope.FailOpenReason);
       Assert.IsTrue(lScope.LeanModelCount > 0);
       lPlan := TDelphiSemanticRenamePlanner.PlanRename(lContext, lIdentifier, 'RenamedTarget');
+      ApplyRenameRuntimeNameRiskPolicy(lContext, lRiskMode, lPlan);
+      Assert.AreEqual(lRiskMode, lPlan.AcceptRuntimeNameRisk);
       lActual := '';
-      for var lUsage in lPlan.UnresolvedReferences do
+      for var lUsage in lPlan.UnresolvedReferences + lPlan.RuntimeNameWarnings do
         if SameText(lUsage.FileName, lLibrary) and
           (lUsage.Reason = 'string-constant-value-unproved') then
           lActual := lActual + lUsage.Name + ';';
