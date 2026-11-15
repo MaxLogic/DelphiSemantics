@@ -2318,7 +2318,12 @@ var
         Exit;
       for lResolution in lResolutions do
       begin
-        if not lResolution.ReferenceFound then
+        // DS-692 can prove a physical local's symbol/type without retaining
+        // a reference fact. Its verified, uniquely linked physical result is
+        // valid type evidence; other symbol-only fallbacks remain unknown.
+        if not lResolution.ReferenceFound and
+          not (lResolution.SymbolFound and
+            (lResolution.Status = 'snapshot-physical-position-match')) then
           Exit;
         if SameText(SnapshotText(aSnapshot, lResolution.Symbol.KindId), 'const') and
           (lResolution.Reference.WithId = 0) then
