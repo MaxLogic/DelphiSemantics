@@ -28,6 +28,7 @@ type
     procedure AnonymousRecordAbsenceBuildsNoNameFlowFacts(const aRich: Boolean);
     [Test] procedure RichRequestRejectsCoreRow;
     [Test] procedure MissingRichBuilderFactsRefuseByName;
+    [Test] procedure LogicalSizeMatchesExpandedFacts;
     [Test] procedure RepeatedNodeMetadataHasBoundedPersistence;
     [Test] procedure RejectsOversizedFactsEnvelopeBeforeInflation;
     [Test] procedure OversizedSnapshotLeavesNoPartialCacheEntry;
@@ -53,6 +54,13 @@ uses
   Test.Support;
 
 type
+  TLogicalNameFlowEnvelope = record
+    Version: Integer;
+    Complete, ConfigurationComplete: Boolean;
+    CoverageReason, Digest: string;
+    Nodes: TArray<TDelphiNameFlowNode>;
+  end;
+
   TNameFlowSeedCache = class(TDelphiSemanticSqliteUnitCache)
   public
     procedure SeedCoreUnderRichKey(const aOptions: TDelphiSemanticModelOptions;
@@ -328,6 +336,76 @@ begin
     Assert.IsTrue(lRefused, 'Missing runtime-name facts cannot mean no consumers.');
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TNameFlowFactsTests.LogicalSizeMatchesExpandedFacts;
+var
+  lEnvelope: TLogicalNameFlowEnvelope;
+  lNode: TDelphiNameFlowNode;
+  lFacts, lReloaded: IDelphiNameFlowFacts;
+  lSerializer: TJsonSerializer;
+  lExpected: Int64;
+  lEncoded: string;
+  i: Integer;
+begin
+  lSerializer := TJsonSerializer.Create;
+  try
+    lEnvelope := Default(TLogicalNameFlowEnvelope);
+    lEnvelope.Version := 202;
+    lEnvelope.Digest := StringOfChar('0', 64);
+    lEnvelope.CoverageReason := 'name-flow-facts-missing';
+    Assert.AreEqual(Int64(Length(lSerializer.Serialize<TLogicalNameFlowEnvelope>(lEnvelope))),
+      NameFlowFactsLogicalCharacters(nil));
+    for i := 0 to 4 do
+    begin
+      lNode := Default(TDelphiNameFlowNode);
+      lNode.Id := 1;
+      lNode.SyntaxKind := 'unit';
+      lNode.Kind := TDelphiNameFlowNodeKind.Unknown;
+      lNode.Name := 'Quoted"Name\'#$00E9;
+      lNode.Value := #0#1#8#9#10#11#12#13#31#$0085#$2028#$2029;
+      lNode.ScopeId := StringOfChar('s', i * 100);
+      lNode.FileName := 'C:\source\Unit1.pas';
+      lNode.Line := i * 1000;
+      lNode.Column := -1;
+      lNode.EndColumn := Low(Integer);
+      lNode.EndLine := High(Integer);
+      lNode.OutputStartOffset := 100;
+      lNode.OutputEndOffset := 999;
+      lNode.SpanKnown := Odd(i);
+      lNode.ActivityKnown := not Odd(i);
+      lNode.BodyComplete := True;
+      SetLength(lNode.Attributes, i);
+      for var j := 0 to High(lNode.Attributes) do
+      begin
+        lNode.Attributes[j].Name := 'name';
+        lNode.Attributes[j].Value := lNode.Value;
+      end;
+      SetLength(lEnvelope.Nodes, i + 1);
+      for var j := 0 to High(lEnvelope.Nodes) do
+      begin
+        lEnvelope.Nodes[j] := lNode;
+        lEnvelope.Nodes[j].Id := j + 1;
+        lEnvelope.Nodes[j].ParentId := j;
+        if j < High(lEnvelope.Nodes) then
+          lEnvelope.Nodes[j].Children := [j + 2];
+      end;
+      lFacts := CreateNameFlowFacts(lEnvelope.Nodes, Odd(i), not Odd(i), 'retained\reason');
+      lEnvelope.Complete := lFacts.Complete;
+      lEnvelope.ConfigurationComplete := lFacts.ConfigurationComplete;
+      lEnvelope.CoverageReason := lFacts.CoverageReason;
+      lExpected := Length(lSerializer.Serialize<TLogicalNameFlowEnvelope>(lEnvelope));
+      Assert.AreEqual(lExpected, NameFlowFactsLogicalCharacters(lFacts),
+        'The logical size must equal the expanded reference representation.');
+      lEncoded := NameFlowFactsToJson(lFacts);
+      lReloaded := NameFlowFactsFromJson(lEncoded);
+      Assert.AreEqual(lExpected, NameFlowFactsLogicalCharacters(lReloaded));
+      Assert.AreEqual(lExpected, NameFlowFactsLogicalCharacters(lReloaded, lExpected));
+      Assert.IsTrue(NameFlowFactsLogicalCharacters(lReloaded, lExpected - 1) > lExpected - 1);
+    end;
+  finally
+    lSerializer.Free;
   end;
 end;
 

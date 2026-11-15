@@ -81,6 +81,9 @@ type
     [TestCase('Include inactive in both declared define sets', 'FPC')]
     [Test] procedure AlternateConfigurationIncludeStaysHard(const aGuard: string);
     [Test] procedure LocalizedSdkSourceCannotProveAbsence;
+    [TestCase('Strict', 'False')]
+    [TestCase('Risk', 'True')]
+    [Test] procedure LogicalFactsBudgetIgnoresCompactEncoding(const aAcceptRisk: Boolean);
     [Test] procedure MissingFactsRefuse;
     [Test] procedure ScopedLookupHonorsUsesOrder;
     [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
@@ -422,6 +425,79 @@ begin
         lSnapshot.Free;
       end;
     end;
+end;
+
+procedure TNameFlowContainmentTests.LogicalFactsBudgetIgnoresCompactEncoding(const aAcceptRisk: Boolean);
+const
+  cNodeCount = 4096;
+var
+  lNodes: TArray<TDelphiNameFlowNode>;
+  lFacts: IDelphiNameFlowFacts;
+  lBuilder: TDelphiProjectSnapshotBuilder;
+  lUnit: TUnitSnapshot;
+  lSnapshot: TDelphiProjectSnapshot;
+  lReport: TNameFlowAnalysis;
+  lGap: TDelphiSemanticUsage;
+  lScope, lJson, lFile: string;
+  i, j, lBudgetMask, lCoverageMask: Integer;
+begin
+  lScope := StringOfChar('s', 32769);
+  Assert.IsTrue(Int64(cNodeCount) * Length(lScope) > 128 * 1024 * 1024,
+    'The expanded scope text alone must exceed the logical budget.');
+  SetLength(lNodes, cNodeCount);
+  for i := 0 to High(lNodes) do
+  begin
+    lNodes[i].Id := i + 1;
+    lNodes[i].ParentId := i;
+    if i < High(lNodes) then
+      lNodes[i].Children := [i + 2];
+    lNodes[i].Kind := TDelphiNameFlowNodeKind.IdentifierValue;
+    lNodes[i].SyntaxKind := 'identifier';
+    lNodes[i].ScopeId := lScope;
+    lNodes[i].Name := 'Value';
+    lNodes[i].SpanKnown := True;
+    lNodes[i].ActivityKnown := True;
+    lNodes[i].BodyComplete := True;
+  end;
+  lFacts := CreateNameFlowFacts(lNodes, True, True, '');
+  lJson := NameFlowFactsToJson(lFacts);
+  Assert.IsTrue(Length(lJson) < 1024 * 1024,
+    'The compact envelope must be far below the analysis budget.');
+  Assert.AreEqual(cNodeCount, NameFlowFactsFromJson(lJson).NodeCount);
+  lBuilder := TDelphiProjectSnapshotBuilder.Create;
+  try
+    for j := 1 to 2 do
+    begin
+      lFile := 'UBig' + j.ToString + '.pas';
+      lUnit := TUnitSnapshot.Create(j, lBuilder.Strings.Intern(lFile),
+        lBuilder.Strings.Intern('UBig' + j.ToString),
+        lBuilder.ExactStrings.Intern('unit Plain; interface implementation end.'));
+      lUnit.SetNameFlowFactsJsonId(lBuilder.ExactStrings.Intern(lJson));
+      lBuilder.AddUnit(lUnit);
+    end;
+    lSnapshot := lBuilder.Build;
+  finally
+    lBuilder.Free;
+  end;
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Member,
+      nil, ['Value', 'RenamedValue'], aAcceptRisk);
+    lBudgetMask := 0;
+    lCoverageMask := 0;
+    for lGap in lReport.Gaps do
+      for j := 1 to 2 do
+        if SameText(TPath.GetFileName(lGap.FileName), 'UBig' + j.ToString + '.pas') then
+        begin
+          if lGap.Reason = 'runtime-name-flow-budget-exceeded' then
+            lBudgetMask := lBudgetMask or j;
+          if lGap.Reason = 'runtime-name-known-consumer-coverage-unproved' then
+            lCoverageMask := lCoverageMask or j;
+        end;
+    Assert.AreEqual(3, lBudgetMask, 'Both logically oversized units must exhaust the analysis budget.');
+    Assert.AreEqual(3, lCoverageMask, 'A compact encoding cannot discharge consumer coverage.');
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TNameFlowContainmentTests.MissingFactsRefuse;
