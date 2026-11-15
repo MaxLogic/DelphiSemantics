@@ -177,6 +177,9 @@ var
   lTypeNode: TSyntaxNode;
   g: TGarbos;
 begin
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  RecordNameFlowWorkForTest(TDelphiNameFlowWorkKind.Extract);
+{$ENDIF}
   if aRoot = nil then
     Exit(CreateNameFlowFacts(nil, False, False, 'name-flow-ast-missing'));
   if aMaximumNodes < 0 then
@@ -424,6 +427,9 @@ var
   lComplete: Boolean;
   lReason: string;
 begin
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  RecordNameFlowWorkForTest(TDelphiNameFlowWorkKind.Map);
+{$ENDIF}
   if aFacts = nil then
     Exit(CreateNameFlowFacts(nil, False, False, 'name-flow-facts-missing'));
   SetLength(lBlocks, Length(aPreprocess.CopiedSourceSpans));

@@ -248,7 +248,7 @@ uses
   MaxLogic.StrUtils;
 
 const
-  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81405-tr1118-projection';
+  cProjectSnapshotCacheIdentitySchemaVersion = 'project-session-snapshot-v81406-tr1118-projection';
   cProjectRemoveWithFactsCacheIdentitySchemaVersion =
     'project-session-remove-with-facts-v2006-tr1118-projection';
 
@@ -363,7 +363,8 @@ function ExtractProjectUnitModel(const aProject: TDelphiSemanticProjectInfo;
   const aFileName: string; const aCache: TDelphiSemanticUnitCache;
   const aSkipBodyAnalysis: Boolean;
   out aIdentity: TDelphiSemanticUnitCacheIdentity;
-  const aSelectedConfigurationOnly: Boolean = False):
+  const aSelectedConfigurationOnly: Boolean = False;
+  const aSkipNameFlowFacts: Boolean = False):
   TDelphiSemanticUnitModel; overload;
 var
   lAccessResult: TDelphiSemanticUnitCacheAccessResult;
@@ -375,6 +376,7 @@ begin
   lOptions.SkipBodyAnalysis := aSkipBodyAnalysis;
   lOptions.SkipReferenceExtraction := aSkipBodyAnalysis;
   lOptions.SelectedConfigurationOnly := aSelectedConfigurationOnly;
+  lOptions.SkipNameFlowFacts := aSkipNameFlowFacts;
   if aCache = nil then
   begin
     Result := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
@@ -916,7 +918,8 @@ function ExtractProjectModels(const aProject: TDelphiSemanticProjectInfo;
   aScopedSourceFileNames: TArray<string>; const aUseScopedSourceFileNames: Boolean;
   var aSemanticCachePersistenceAvailable: Boolean;
   const aDeferCompilerCurrentness: Boolean = False;
-  const aSelectedConfigurationOnly: Boolean = False):
+  const aSelectedConfigurationOnly: Boolean = False;
+  const aSkipNameFlowFacts: Boolean = False):
   TProjectModelExtractionResult; overload;
 var
   lBodyAnalysisSourceFiles, lEditSourceFiles: TDictionary<string, Byte>;
@@ -981,7 +984,7 @@ begin
       if aSelectedConfigurationOnly and not lEditSourceFiles.ContainsKey(lFiles[i]) then
         lSkipBodyAnalysis := True;
       lModel := ExtractProjectUnitModel(aProject, lFiles[i], lCache,
-        lSkipBodyAnalysis, lIdentity, aSelectedConfigurationOnly);
+        lSkipBodyAnalysis, lIdentity, aSelectedConfigurationOnly, aSkipNameFlowFacts);
       SetLength(Result.CacheIdentities, i + 1);
       Result.CacheIdentities[i] := lIdentity;
       lModel.AnalysisOnly := not lEditSourceFiles.ContainsKey(lFiles[i]);
@@ -1044,7 +1047,7 @@ var
 begin
   Result := ExtractProjectModels(aProject, aOptions, aSourceFileNames,
     aScopedSourceFileNames, aUseScopedSourceFileNames,
-    lSemanticCachePersistenceAvailable, False, True);
+    lSemanticCachePersistenceAvailable, False, True, True);
   Result.SemanticCachePersistenceAvailable := lSemanticCachePersistenceAvailable;
 end;
 
@@ -1074,7 +1077,7 @@ begin
     TDelphiSemanticCompilerProfileBuilder.ResolveRtlSourceRoot(aOptions.DelphiVersion,
       aOptions.RsVarsPath));
   Result := ProjectRemoveWithFactsCacheIdentity(aProject, aOptions, lFiles, [],
-    BuildProjectUnitCacheIdentities(aProject, aOptions, lFiles, [], True), lWitness.IdentityText);
+    lExtraction.CacheIdentities, lWitness.IdentityText);
 end;
 {$ENDIF}
 
@@ -1329,7 +1332,7 @@ begin
   lFiles := ProjectModelFileNames(aProject);
   lExtraction := ExtractProjectModels(aProject, aOptions,
     lFiles, aScopedSourceFileNames,
-    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True, True);
+    Length(aScopedSourceFileNames) > 0, aSemanticCachePersistenceAvailable, True, True, True);
   Result.SemanticCachePersistenceAvailable :=
     aSemanticCachePersistenceAvailable;
   lFiles := ModelSourceFileNames(lExtraction.Models);
@@ -1656,7 +1659,6 @@ begin
         lBuilder.Strings.Intern(lModel.UnitName),
         lBuilder.ExactStrings.Intern(lModel.SourceText));
       try
-        lUnit.SetNameFlowFactsJsonId(lBuilder.ExactStrings.Intern(NameFlowFactsToJson(lModel.NameFlowFacts)));
         lUnit.SetVerifiedActiveSourceTextId(
           lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
         lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),

@@ -66,6 +66,8 @@ type
     [Category('Fast')]
     [Test]
     procedure NonEmptySqliteFileNameCreatesPersistentCacheFile;
+    [Test]
+    procedure OversizedUnitModelRemainsUsableAndRecomputes;
     [Category('Fast')]
     [Test]
     procedure DeepSqliteFileNamePersistsAndReusesAcrossInstances;
@@ -1328,6 +1330,47 @@ begin
       'One SQLite cache instance should reuse its persistent connection.');
   finally
     lCache.Free;
+  end;
+end;
+
+procedure TCacheSqliteTests.OversizedUnitModelRemainsUsableAndRecomputes;
+var
+  lCache: TDelphiSemanticSqliteUnitCache;
+  lCacheOptions: TDelphiSemanticCacheOptions;
+  lOptions: TDelphiSemanticModelOptions;
+  lFirst, lAgain: TDelphiSemanticUnitCacheAccessResult;
+  lPrevious: string;
+begin
+  lPrevious := GetEnvironmentVariable('DS_TEST_UNIT_MODEL_CHARACTER_LIMIT');
+  SetEnvironmentVariable('DS_TEST_UNIT_MODEL_CHARACTER_LIMIT', '4096');
+  try
+    lCacheOptions := Default(TDelphiSemanticCacheOptions);
+    lCacheOptions.SqliteCacheFileName := TempPath('oversized-unit.sqlite3');
+    lOptions := Default(TDelphiSemanticModelOptions);
+    lOptions.SourceFileName := WriteUnitFile('OversizedUnit', 'Integer');
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lFirst := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+      Assert.IsTrue(lFirst.Model.Success);
+      Assert.IsTrue(Length(UnitCacheModelToJson(lFirst.Model)) > 4096, 'Fixture exceeds the reduced limit');
+      Assert.IsTrue(HasCacheDiagnostic(lCache, 'SQLITE_CACHE_ENTRY_TOO_LARGE'),
+        'Oversized derived data must bypass persistence with a named diagnostic');
+      lAgain := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+      Assert.IsTrue(lAgain.CacheHit, 'Complete command-owned model remains reusable');
+      Assert.AreEqual(UnitCacheModelToJson(lFirst.Model), UnitCacheModelToJson(lAgain.Model));
+    finally
+      lCache.Free;
+    end;
+    lCache := TDelphiSemanticSqliteUnitCache.Create(lCacheOptions);
+    try
+      lAgain := lCache.GetOrExtractUnitModelWithStatus(lOptions);
+      Assert.IsFalse(lAgain.CacheHit, 'A later command recomputes the complete model');
+      Assert.AreEqual(UnitCacheModelToJson(lFirst.Model), UnitCacheModelToJson(lAgain.Model));
+    finally
+      lCache.Free;
+    end;
+  finally
+    SetEnvironmentVariable('DS_TEST_UNIT_MODEL_CHARACTER_LIMIT', PChar(lPrevious));
   end;
 end;
 

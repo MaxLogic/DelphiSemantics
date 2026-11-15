@@ -215,7 +215,7 @@ const
   // 34: integrate DS-650/662/656 extraction with all previous schema identities.
   // 35: DS-791 path-only imports; 38: count-checked ordered conditional provenance.
   // tr1118 combines integer ownership, physical provenance and name-flow facts.
-  cSnapshotCacheSchemaVersion = '81405';
+  cSnapshotCacheSchemaVersion = '81406';
   cSnapshotSchemaMetaKey = 'snapshot_schema_version';
   cSnapshotSqliteBusyTimeoutMs = 30000;
   cSnapshotSqliteBusyRetryDelayMs = 50;
@@ -223,6 +223,7 @@ const
   cSnapshotSqliteLockingMode = 'Normal';
 
 type
+  ESnapshotCacheEntryTooLarge = class(Exception);
   TSnapshotIntegerField = class(TIntegerField);
   TSnapshotLargeintField = class(TLargeintField);
   TSnapshotIntegerReader = record
@@ -3015,7 +3016,7 @@ procedure TDelphiSemanticSnapshotSqliteCache.StoreExactStringPool(
   const aOwnerKey: Int64; const aConnection: TObject;
   const aExactStrings: TSemanticStringPool; const aUnit: TUnitSnapshot; const aProject: Boolean);
 var
-  i: Integer;
+  i, lCharacterLimit: Integer;
   lSourceIds: TArray<Boolean>;
   lSource: TSemanticCapturedSourceFact;
   lHash, lText, lTable, lOwner: string;
@@ -3023,6 +3024,10 @@ var
 begin
   if aExactStrings = nil then
     Exit;
+  lCharacterLimit := 256 * 1024 * 1024;
+{$IFDEF DS_PROJECT_SESSION_TEST_SUPPORT}
+  lCharacterLimit := StrToIntDef(GetEnvironmentVariable('DS_TEST_SNAPSHOT_TEXT_CHARACTER_LIMIT'), lCharacterLimit);
+{$ENDIF}
   SetLength(lSourceIds, NativeInt(aExactStrings.Count) + 1);
   if aUnit <> nil then
   begin
@@ -3063,6 +3068,8 @@ begin
     for i := 1 to Integer(aExactStrings.Count) do
     begin
       lText := aExactStrings.TextOf(TSemanticStringId(i));
+      if Length(lText) > lCharacterLimit then
+        raise ESnapshotCacheEntryTooLarge.Create('Snapshot text exceeds the persistent cache size limit');
       lQuery.Params[1].AsLargeInt := i;
       if lSourceIds[i] then
       begin
@@ -3787,6 +3794,13 @@ begin
         begin
           if lConnection.InTransaction then
             lConnection.Rollback;
+          if E is ESnapshotCacheEntryTooLarge then
+          begin
+            // The complete caller-owned snapshot remains usable. No partial rows
+            // are published; future commands recompute this derived cache entry.
+            fLastInvalidationReason := 'snapshot-cache-entry-too-large';
+            Exit;
+          end;
           if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
             raise;
         end;
@@ -4065,6 +4079,13 @@ begin
         begin
           if lConnection.InTransaction then
             lConnection.Rollback;
+          if E is ESnapshotCacheEntryTooLarge then
+          begin
+            // The complete caller-owned snapshot remains usable. No partial rows
+            // are published; future commands recompute this derived cache entry.
+            fLastInvalidationReason := 'snapshot-cache-entry-too-large';
+            Exit;
+          end;
           if not RetrySnapshotSqliteBusy(E.Message, lRetryStopwatch) then
             raise;
         end;

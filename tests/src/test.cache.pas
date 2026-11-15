@@ -533,9 +533,9 @@ begin
   try
     lIdentity := lCache.BuildIdentity(lModelOptions);
 
-    Assert.AreEqual('14', lIdentity.SchemaVersion,
-      'Co-produced source observations changed the persisted unit-model shape.');
-    Assert.AreEqual('DelphiSemantics.Model.Parser.81405', lIdentity.ParserVersion,
+    Assert.AreEqual('81407', lIdentity.SchemaVersion,
+      'Capability-separated models changed the persisted unit-model shape.');
+    Assert.AreEqual('DelphiSemantics.Model.Parser.81406', lIdentity.ParserVersion,
       'Import provenance, directory witnesses and every unit constant on a line require fresh extraction.');
     Assert.AreEqual(lIdentity.ParserVersion,
       TDelphiSemanticCacheIdentityBuilder.ModelParserVersion,

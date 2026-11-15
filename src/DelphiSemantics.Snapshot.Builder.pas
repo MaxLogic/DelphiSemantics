@@ -3094,7 +3094,8 @@ begin
     aStrings.Intern(aModel.UnitName), aExactStrings.Intern(aModel.SourceText));
   try
     Result.SetModelEvidenceJson(TDelphiSemanticContextEvidenceExtension.SerializeModel(aModel));
-    Result.SetNameFlowFactsJsonId(aExactStrings.Intern(NameFlowFactsToJson(aModel.NameFlowFacts)));
+    if aModel.NameFlowFacts <> nil then
+      Result.SetNameFlowFactsJsonId(aExactStrings.Intern(NameFlowFactsToJson(aModel.NameFlowFacts)));
     Result.SetVerifiedActiveSourceTextId(aExactStrings.Intern(aModel.VerifiedActiveSourceText));
     lScopeDiagnostic := '';
     for lDiagnostic in aModel.Diagnostics do
@@ -4035,7 +4036,6 @@ begin
         lBuilder.Strings.Intern(SnapshotFullPath(lModel.FileName)),
         lBuilder.Strings.Intern(lModel.UnitName), lBuilder.ExactStrings.Intern(lModel.SourceText));
       try
-        lUnit.SetNameFlowFactsJsonId(lBuilder.ExactStrings.Intern(NameFlowFactsToJson(lModel.NameFlowFacts)));
         lUnit.SetVerifiedActiveSourceTextId(lBuilder.ExactStrings.Intern(lModel.VerifiedActiveSourceText));
         lUnit.SetScopeModelMetadata(lBuilder.Strings.Intern(lModel.ScopeModelStatus),
           lBuilder.Strings.Intern(lModel.ScopeModelVersion),

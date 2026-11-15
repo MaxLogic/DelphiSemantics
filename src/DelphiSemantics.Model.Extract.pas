@@ -3157,37 +3157,40 @@ begin
       if lComplete then
         aModel.DependencyFacts := AstDependencyFacts(lSyntaxTree);
       CollectFacts(lSyntaxTree, nil, -1, '');
-      lFlowReason := '';
-      if not lComplete then
-        lFlowReason := 'name-flow-parser-recovered';
-      // Identifier-scoped symbol extraction still owns the full parser tree.
-      // Keep runtime effects independent of omitted reference/body models;
-      // a recovered projected tree retains its explicit coverage gap.
-      aModel.NameFlowFacts := ExtractNameFlowFacts(lSyntaxTree, aModel.FileName, aText,
-        lComplete, aModel.DefineEvidenceComplete, lFlowReason, aOptions.NameFlowFactLimit);
-      lFlowScopes := TDictionary<Int64, string>.Create;
-      try
-        for lFlowScopeIndex := 0 to lScopes.Count - 1 do
-          lFlowScopes.AddOrSetValue((Int64(lScopes[lFlowScopeIndex].StartLine) shl 32) or
-            Cardinal(lScopes[lFlowScopeIndex].StartColumn), lScopes[lFlowScopeIndex].ScopeId);
-        SetLength(lFlowNodes, aModel.NameFlowFacts.NodeCount);
-        for lFlowIndex := 1 to aModel.NameFlowFacts.NodeCount do
-        begin
-          lFlowNode := aModel.NameFlowFacts.NodeById(lFlowIndex);
-          if lFlowNode.ParentId > 0 then
-            lFlowNode.ScopeId := lFlowNodes[lFlowNode.ParentId - 1].ScopeId;
-          if lFlowNode.Kind = TDelphiNameFlowNodeKind.Routine then
+      if not aOptions.SkipNameFlowFacts then
+      begin
+        lFlowReason := '';
+        if not lComplete then
+          lFlowReason := 'name-flow-parser-recovered';
+        // Identifier-scoped symbol extraction still owns the full parser tree.
+        // Keep runtime effects independent of omitted reference/body models;
+        // a recovered projected tree retains its explicit coverage gap.
+        aModel.NameFlowFacts := ExtractNameFlowFacts(lSyntaxTree, aModel.FileName, aText,
+          lComplete, aModel.DefineEvidenceComplete, lFlowReason, aOptions.NameFlowFactLimit);
+        lFlowScopes := TDictionary<Int64, string>.Create;
+        try
+          for lFlowScopeIndex := 0 to lScopes.Count - 1 do
+            lFlowScopes.AddOrSetValue((Int64(lScopes[lFlowScopeIndex].StartLine) shl 32) or
+              Cardinal(lScopes[lFlowScopeIndex].StartColumn), lScopes[lFlowScopeIndex].ScopeId);
+          SetLength(lFlowNodes, aModel.NameFlowFacts.NodeCount);
+          for lFlowIndex := 1 to aModel.NameFlowFacts.NodeCount do
           begin
-            lFlowNode.ScopeId := aModel.NameFlowFacts.NodeById(lFlowIndex).ScopeId;
-            if lFlowScopes.ContainsKey((Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)) then
-              lFlowNode.ScopeId := lFlowScopes[(Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)];
+            lFlowNode := aModel.NameFlowFacts.NodeById(lFlowIndex);
+            if lFlowNode.ParentId > 0 then
+              lFlowNode.ScopeId := lFlowNodes[lFlowNode.ParentId - 1].ScopeId;
+            if lFlowNode.Kind = TDelphiNameFlowNodeKind.Routine then
+            begin
+              lFlowNode.ScopeId := aModel.NameFlowFacts.NodeById(lFlowIndex).ScopeId;
+              if lFlowScopes.ContainsKey((Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)) then
+                lFlowNode.ScopeId := lFlowScopes[(Int64(lFlowNode.Line) shl 32) or Cardinal(lFlowNode.Column)];
+            end;
+            lFlowNodes[lFlowIndex - 1] := lFlowNode;
           end;
-          lFlowNodes[lFlowIndex - 1] := lFlowNode;
+          aModel.NameFlowFacts := CreateNameFlowFacts(lFlowNodes, aModel.NameFlowFacts.Complete,
+            aModel.NameFlowFacts.ConfigurationComplete, aModel.NameFlowFacts.CoverageReason);
+        finally
+          lFlowScopes.Free;
         end;
-        aModel.NameFlowFacts := CreateNameFlowFacts(lFlowNodes, aModel.NameFlowFacts.Complete,
-          aModel.NameFlowFacts.ConfigurationComplete, aModel.NameFlowFacts.CoverageReason);
-      finally
-        lFlowScopes.Free;
       end;
       lDeclarationCandidates.Compact;
       ExtractMembers(aText, aModel.FileName, lSyntaxTree, aDiagnostics, aDeclarations, aMembers,
@@ -3222,7 +3225,8 @@ begin
     except
       on e: Exception do
       begin
-        aModel.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-ast-failed');
+        if not aOptions.SkipNameFlowFacts then
+          aModel.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-ast-failed');
         // Drop partial syntax-backed facts; the bounded line scan below replaces them.
         aDeclarations.Count := lDeclarationCount;
         aDiagnostics.Count := lDiagnosticCount;
@@ -7158,6 +7162,8 @@ begin
   lText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
     aModel.VerifiedActiveSourceText);
   lOptions := Default(TDelphiSemanticModelOptions);
+  // This absence projection consumes declarations and retains existing runtime facts.
+  lOptions.SkipNameFlowFacts := True;
   lOptions.SkipReferenceExtraction := True;
   lContext := TDelphiSemanticExtractionContext.Create;
   lPreviousContext := GExtractionContext;
@@ -7253,7 +7259,8 @@ var
   lWritableSwitches: TArray<TWritableConstantSwitch>;
 begin
   Result := Default(TDelphiSemanticUnitModel);
-  Result.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-extraction-incomplete');
+  if not aOptions.SkipNameFlowFacts then
+    Result.NameFlowFacts := CreateNameFlowFacts(nil, False, False, 'name-flow-extraction-incomplete');
   lExtractionContext := nil;
   lDiagnostics := nil;
   lUnindexedHelpers := nil;
@@ -7531,8 +7538,9 @@ begin
     AssignModelArrays(Result, lDiagnostics, lInterfaceUses, lImplementationUses, lDeclarations,
       lMembers, lRoutines, lLocals, lReferences, lWithStatements);
     Result.TypeValueMembers := lExtractionContext.TypeValueMembers.ToArray;
-    Result.NameFlowFacts := MapNameFlowFacts(Result.NameFlowFacts, lText,
-      lPreprocessResult, lOutputOffsetShift);
+    if not aOptions.SkipNameFlowFacts then
+      Result.NameFlowFacts := MapNameFlowFacts(Result.NameFlowFacts, lText,
+        lPreprocessResult, lOutputOffsetShift);
     // AST success does not prove that its ordered imports include discarded
     // compiler-option/constant-expression branches from the original source.
     if (Result.DirectiveFacts.ImportCause <> '') then
