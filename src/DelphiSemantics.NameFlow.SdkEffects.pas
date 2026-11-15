@@ -98,6 +98,7 @@ type
     fDeclarationSelections: TDictionary<string, string>;
     fDeclarationResolutions: TDictionary<string, TDelphiSemanticUnitResolutionResult>;
     fSelectionDirectories: TObjectDictionary<string, THashSet<string>>;
+    fSelectionProjectNames: THashSet<string>;
     function DeclarationSelectionsAreCurrent: Boolean;
     function ComputeIdentity: string;
     function ActualInputIdentity: string;
@@ -375,6 +376,11 @@ begin
   inherited Create;
   fRequest := aRequest;
   fRequest.UnitOptions := Copy(aRequest.UnitOptions);
+  fRequest.SelectionProject.SourceFileNames := Copy(aRequest.SelectionProject.SourceFileNames);
+  fSelectionProjectNames := THashSet<string>.Create(TFastCaseAwareComparer.OrdinalIgnoreCase);
+  for var lFileName in fRequest.SelectionProject.SourceFileNames do
+    if SameText(TPath.GetExtension(lFileName), '.pas') then
+      fSelectionProjectNames.Add(TPath.GetFileNameWithoutExtension(lFileName));
   fRequest.SelectionProject.ReferenceDirectories := Copy(aRequest.SelectionProject.ReferenceDirectories);
   fRequest.SelectionProject.SearchPaths := Copy(aRequest.SelectionProject.SearchPaths);
   fRequest.SelectionProject.UnitAliases := Copy(aRequest.SelectionProject.UnitAliases);
@@ -420,6 +426,7 @@ destructor TNameSdkCatalog.Destroy;
 begin
   fDeclarationDiscovery.Free;
   fSelectionDirectories.Free;
+  fSelectionProjectNames.Free;
   fDeclarationResolutions.Free;
   fDeclarationSelections.Free;
   fDeclarationAbsence.Free;
@@ -1038,6 +1045,7 @@ end;
 
 function SdkSelectionSharesPinnedSource(const aProject: TDelphiSemanticProjectInfo;
   const aImportName, aSelectedDcu, aPairedSource, aLibraryRoot: string;
+  const aProjectNames: THashSet<string>;
   const aDirectories: TObjectDictionary<string, THashSet<string>>): Boolean;
 var
   lName: TUnitCandidateName;
@@ -1046,9 +1054,10 @@ var
   lSelectedFound: Boolean;
 begin
   // DS-814 permits only one pinned source until DS-818 supplies compiler
-  // resolution. Debug/release DCUs of the same unit in this certified SDK
-  // share its uniquely mapped source. Other names, SDKs and source copies
-  // refuse, regardless of ordering. The source hash is retained for publication.
+  // resolution. SDK source and compiler are hash-pinned. Debug/release DCUs
+  // are trusted by location in that certified installation, not by reviewed
+  // DCU hashes. The selected DCU hash only detects changes during this command.
+  // Other names, SDKs and source copies refuse, regardless of ordering.
   // One complete listing per exact path serves every query in this command.
   if not IsDefaultLanguageSdkDcu(aSelectedDcu, aLibraryRoot) or
     not SameText(TPath.GetFileNameWithoutExtension(aSelectedDcu),
@@ -1058,6 +1067,12 @@ begin
   lPairedSource := TPath.GetFullPath(aPairedSource);
   lSelectedFound := False;
   for lName in TDelphiSemanticUnitResolver.CandidateNames(aProject, aImportName) do
+  begin
+    // Retained project sources include DPR in clauses and DCCReference files,
+    // which can bind outside every -U directory. Membership denies this proof.
+    // The request freezes membership; its owner revalidates project inputs.
+    if aProjectNames.Contains(lName.TargetName) then
+      Exit(False);
     for lPath in aProject.SourceLookupPaths do
     begin
       if not TrySdkSelectionDirectory(lPath, aDirectories, lNames) then
@@ -1081,6 +1096,7 @@ begin
           lSelectedFound := True;
       end;
     end;
+  end;
   Result := lSelectedFound;
 end;
 
@@ -1106,7 +1122,7 @@ begin
     if not lSelection.Found or lSelection.Ambiguous or
       not fDeclarationDiscovery.TryResolveUniqueSourceFile(lSelection.CanonicalUnitName, lPairedSource) or
       not SdkSelectionSharesPinnedSource(fRequest.SelectionProject, lPair.Key,
-        lSelection.FileName, lPairedSource, lLibraryRoot, lDirectories) or
+        lSelection.FileName, lPairedSource, lLibraryRoot, fSelectionProjectNames, lDirectories) or
       not SameText(lPair.Value, lSelection.FileName + #10 +
         THashSHA2.GetHashStringFromFile(lSelection.FileName) + #10 + lPairedSource + #10 +
         THashSHA2.GetHashStringFromFile(lPairedSource)) then
@@ -1191,7 +1207,7 @@ begin
       Exit;
     if not IsDefaultLanguageSdkDcu(lSelection.FileName, lLibraryRoot) or
       not SdkSelectionSharesPinnedSource(fRequest.SelectionProject, aImportName,
-        lSelection.FileName, lFileName, lLibraryRoot, fSelectionDirectories) then
+        lSelection.FileName, lFileName, lLibraryRoot, fSelectionProjectNames, fSelectionDirectories) then
       Exit;
     // Retain the actual selected artifact, including DCU bytes, for publication
     // revalidation. Duplicate language/platform sources already refused above.

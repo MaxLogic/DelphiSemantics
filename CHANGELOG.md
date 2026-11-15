@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-- SDK declaration absence permits certified Debug/Release DCUs only when all candidates share the same pinned SDK source (DS-814).
+- SDK declaration absence refuses project-listed sources outside compiler search paths (DS-814).
+
+- SDK declaration absence hash-pins SDK source and compiler; Debug/Release DCUs are trusted by location inside the certified installation, without a reviewed DCU hash manifest (DS-814).
 
 - SDK declaration absence requires the selected default-language DCU and its paired source to be the only possible unit artifacts across all compiler selection paths (DS-814).
 

@@ -50,6 +50,11 @@ type
     [TestCase('SDK-named DCU outside installation refuses', 'sdk-outside-dcu')]
     [TestCase('SDK source copy anywhere refuses', 'sdk-copy-pas')]
     [TestCase('SDK pair publication source copy refuses', 'sdk-pair-publication')]
+    [TestCase('Project-listed source outside paths refuses', 'project-source')]
+    [TestCase('Project-listed consumer outside paths refuses', 'project-consumer')]
+    [TestCase('Second SDK candidate name refuses', 'sdk-other-name')]
+    [TestCase('Second SDK localized DCU refuses', 'sdk-other-language')]
+    [TestCase('Second SDK platform DCU refuses', 'sdk-other-platform')]
     [TestCase('Selected name source at later path refuses', 'samepas-3')]
     [TestCase('Later scope source refuses', 'laterscope-3')]
     [TestCase('Later scope DCU refuses', 'laterdcu-3')]
@@ -2534,6 +2539,30 @@ begin
     else if aCase = 'sdk-copy-pas' then
       TFile.Copy(lSdkFile, TPath.Combine(lShadowDirectory, 'System.Later.pas'));
   end;
+  if MatchText(aCase, ['project-source', 'project-consumer']) then
+  begin
+    lShadowDirectory := TPath.Combine(lRoot, 'project-only');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SourceFileNames := [TPath.Combine(lShadowDirectory, 'System.Later.pas')];
+    TFile.WriteAllText(lRequest.SelectionProject.SourceFileNames[0],
+      'unit System.Later; interface const cLimit = ''Count''; implementation end.', TEncoding.ASCII);
+  end;
+  if MatchText(aCase, ['sdk-other-name', 'sdk-other-language', 'sdk-other-platform']) then
+  begin
+    lImportName := 'Later';
+    lRequest.SelectionProject.UnitScopeNames := ['System', 'Winapi'];
+    lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\debug');
+    if aCase = 'sdk-other-language' then
+      lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\release\de')
+    else if aCase = 'sdk-other-platform' then
+      lShadowDirectory := TPath.Combine(lRoot, 'lib\win64\release');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    lShadowDirectory := TPath.Combine(lShadowDirectory, 'System.Later.dcu');
+    if aCase = 'sdk-other-name' then
+      lShadowDirectory := TPath.Combine(ExtractFileDir(lShadowDirectory), 'Winapi.Later.dcu');
+    TFile.Copy(lSdkTarget, lShadowDirectory);
+  end;
   if MatchText(aCase, ['samepas-3', 'laterscope-3', 'laterdcu-3', 'aliaslater-3',
     'publication-3', 'sdk-source-pair']) then
   begin
@@ -2638,7 +2667,7 @@ begin
           'type TC = class Count: Integer; end;'#13#10'const Bound = cLimit;'#13#10 +
           'implementation'#13#10'end.';
       end;
-      if aCase = 'consumer-11' then
+      if MatchText(aCase, ['consumer-11', 'project-consumer']) then
       begin
         if i = 0 then
           lSource := lSource.Replace('cLimit = 7', 'cLimit = ''Other''')
@@ -2705,7 +2734,7 @@ begin
       'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
     if aCase = 'sdk-debug-release' then
       Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis,
-        'Both certified SDK DCUs retain their common pinned source at publication.');
+        'Both SDK DCUs trusted by location retain their hash-pinned source at publication.');
     if aCase = 'sdk-pair-publication' then
     begin
       Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);
