@@ -22,6 +22,10 @@ type
     [TestCase('Remove then rename', 'False')]
     [TestCase('Rename then remove', 'True')]
     procedure RenameAndRemoveWithShareCacheSafely(const aRenameFirst: Boolean);
+    [Test]
+    [TestCase('Core model', 'False')]
+    [TestCase('Rich model', 'True')]
+    procedure AnonymousRecordAbsenceBuildsNoNameFlowFacts(const aRich: Boolean);
     [Test] procedure RichRequestRejectsCoreRow;
     [Test] procedure MissingRichBuilderFactsRefuseByName;
     [Test] procedure RepeatedNodeMetadataHasBoundedPersistence;
@@ -43,7 +47,7 @@ uses
   System.IOUtils, System.JSON, System.JSON.Serializers, System.SysUtils,
   Winapi.Windows,
   DelphiAST.Classes, DelphiAST.Consts,
-  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model, DelphiSemantics.Model.Json, DelphiSemantics.NameFlow.Extract,
+  DelphiSemantics.Cache, DelphiSemantics.Cache.Sqlite, DelphiSemantics.Model, DelphiSemantics.Model.Extract, DelphiSemantics.Model.Json, DelphiSemantics.NameFlow.Extract,
   DelphiSemantics.NameFlow.Facts, DelphiSemantics.Preprocess, DelphiSemantics.ProjectContext, DelphiSemantics.ProjectSession, DelphiSemantics.Query, DelphiSemantics.Refactor, DelphiSemantics.Snapshot, DelphiSemantics.Snapshot.Builder,
   DelphiSemantics.Snapshot.Cache.Sqlite, DelphiSemantics.WithBinding,
   Test.Support;
@@ -63,6 +67,38 @@ begin
   lIdentity := BuildIdentity(aOptions);
   StorePersistentEntry(TDelphiSemanticCacheIdentityBuilder.CanonicalPath(aOptions.SourceFileName),
     lIdentity.UnitCacheKey, lIdentity, aModel);
+end;
+
+procedure TNameFlowFactsTests.AnonymousRecordAbsenceBuildsNoNameFlowFacts(const aRich: Boolean);
+var
+  lDeclaration: TDelphiSemanticDeclaration;
+  lModel, lParsed: TDelphiSemanticUnitModel;
+  lVerified: Integer;
+begin
+  lModel := Default(TDelphiSemanticUnitModel);
+  lModel.Success := True;
+  lModel.FileName := TPath.Combine(CreateTestTempRoot('nameflow-anonymous-record-temp'), 'Unit1.pas');
+  lModel.UnitName := 'Unit1';
+  lModel.ScopeModelStatus := 'ast';
+  lModel.SourceText := 'unit Unit1; interface'#13#10 +
+    'var Item: record'#13#10'  Value: Integer;'#13#10 +
+    'end;'#13#10'implementation end.';
+  lModel.VerifiedActiveSourceText := lModel.SourceText;
+  if aRich then
+    lModel.NameFlowFacts := CreateNameFlowFacts(nil, True, True, '');
+  ResetNameFlowWorkForTest;
+  lParsed := TDelphiSemanticUnitModelExtractorImpl.AnonymousRecordAbsenceModel(lModel);
+  Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Extract),
+    'Anonymous-record absence consumes declarations, not runtime-name facts.');
+  Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Map));
+  Assert.AreEqual(Int64(0), NameFlowWorkCountForTest(TDelphiNameFlowWorkKind.Serialize));
+  Assert.IsTrue(lParsed.NameFlowFacts = lModel.NameFlowFacts,
+    'The absence projection must retain the input capability without rebuilding facts.');
+  lVerified := 0;
+  for lDeclaration in lParsed.Declarations do
+    if SameText(lDeclaration.TypeName, 'record') and (lDeclaration.TypeBodyEndLine > 0) then
+      Inc(lVerified);
+  Assert.AreEqual(1, lVerified, 'The projection must still certify the anonymous record.');
 end;
 
 function CreateNameFlowCapabilityProject(const aRoot: string): string;

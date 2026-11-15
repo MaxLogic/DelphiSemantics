@@ -7162,6 +7162,8 @@ begin
   lText := TDelphiSemanticSourceConditionals.SourceForScan(aModel.SourceText,
     aModel.VerifiedActiveSourceText);
   lOptions := Default(TDelphiSemanticModelOptions);
+  // This absence projection consumes declarations and retains existing runtime facts.
+  lOptions.SkipNameFlowFacts := True;
   lOptions.SkipReferenceExtraction := True;
   lContext := TDelphiSemanticExtractionContext.Create;
   lPreviousContext := GExtractionContext;
