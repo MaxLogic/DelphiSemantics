@@ -37,6 +37,12 @@ type
     [TestCase('pointer-byte reference', 'pointer-byte,False,2')]
     [Test] procedure ScopeCorrectOperandTypeProof(const aCase: string; const aInclude: Boolean;
       const aExpected: Integer);
+    [TestCase('r02 flags', 'r02,True,1')]
+    [TestCase('r02 plain', 'r02,False,1')]
+    [TestCase('r04 flags', 'r04,True,1')]
+    [TestCase('r04 plain', 'r04,False,1')]
+    [Test] procedure IncludeScopeProof(const aCase: string; const aFlags: Boolean;
+      const aExpected: Integer);
   end;
 
 implementation
@@ -452,6 +458,129 @@ begin
       if lGap.Reason = 'string-constant-value-unproved' then
         Inc(lCount);
     Assert.AreEqual(aExpected, lCount, 'Only scope-correct, verified numeric evidence may remove a witness.');
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowNumericProofTests.IncludeScopeProof(const aCase: string;
+  const aFlags: Boolean; const aExpected: Integer);
+var
+  lRoot, lFile, lSource, lStatement: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lBuildOptions: TDelphiSnapshotBuildOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSymbol: TDelphiSemanticIndexedSymbol;
+  lGap: TDelphiSemanticUsage;
+  lCount: Integer;
+begin
+  lRoot := CreateTestTempRoot('numeric-include-scope-temp');
+  lFile := TPath.Combine(lRoot, 'NumericProbe.pas');
+  if aCase = 'r02' then
+    lSource := 'unit NumericProbe;'#13#10 +
+      ''#13#10 +
+      'interface'#13#10 +
+      ''#13#10 +
+      '{$I flags.inc}'#13#10 +
+      'procedure Soundex;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      '  gText: string;'#13#10 +
+      '  gNum: Int64;'#13#10 +
+      ''#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'type'#13#10 +
+      '  TRec = record'#13#10 +
+      '    lName: string;'#13#10 +
+      '  end;'#13#10 +
+      'var'#13#10 +
+      '  gRec: TRec;'#13#10 +
+      ''#13#10 +
+      'procedure Soundex;'#13#10 +
+      'var'#13#10 +
+      '  lName: Integer;'#13#10 +
+      'begin'#13#10 +
+      '  lName := 3;'#13#10 +
+      '  gRec.lName := ''Sound'';'#13#10 +
+      '  {$I stmt.inc}'#13#10 +
+      '  gNum := lName;'#13#10 +
+      'end;'#13#10 +
+      ''#13#10 +
+      'end.'#13#10
+  else if aCase = 'r04' then
+    lSource := 'unit NumericProbe;'#13#10 +
+      ''#13#10 +
+      'interface'#13#10 +
+      ''#13#10 +
+      '{$I flags.inc}'#13#10 +
+      'procedure Soundex;'#13#10 +
+      ''#13#10 +
+      'var'#13#10 +
+      '  gText: string;'#13#10 +
+      '  gNum: Int64;'#13#10 +
+      ''#13#10 +
+      'implementation'#13#10 +
+      ''#13#10 +
+      'uses'#13#10 +
+      '  System.SysUtils;'#13#10 +
+      ''#13#10 +
+      'procedure Soundex;'#13#10 +
+      'var'#13#10 +
+      '  lName: Integer;'#13#10 +
+      '  lProc: TProc;'#13#10 +
+      'begin'#13#10 +
+      '  lName := 3;'#13#10 +
+      '  lProc := procedure'#13#10 +
+      '    var'#13#10 +
+      '      lName: string;'#13#10 +
+      '    begin'#13#10 +
+      '      lName := ''Sound'';'#13#10 +
+      '      {$I stmt.inc}'#13#10 +
+      '    end;'#13#10 +
+      '  lProc();'#13#10 +
+      '  gNum := lName;'#13#10 +
+      'end;'#13#10 +
+      ''#13#10 +
+      'end.'#13#10
+  else
+    raise EArgumentException.Create('Unknown include proof fixture.');
+  if not aFlags then
+    lSource := StringReplace(lSource, '{$I flags.inc}', '', []);
+  if aCase = 'r02' then
+    lStatement := 'gText := gRec.lName + ''ex'';'
+  else
+    lStatement := 'gText := lName + ''ex'';';
+  TFile.WriteAllText(TPath.Combine(lRoot, 'flags.inc'), '{$DEFINE HAS_FLAG}', TEncoding.ASCII);
+  TFile.WriteAllText(TPath.Combine(lRoot, 'stmt.inc'), lStatement, TEncoding.ASCII);
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.SearchPaths := [lRoot];
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success, 'The include fixture must parse successfully.');
+  lBuildOptions := Default(TDelphiSnapshotBuildOptions);
+  lBuildOptions.ResolveReferenceTargets := True;
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), lBuildOptions, lMetrics);
+  lContext := Default(TDelphiSemanticSymbolQueryContext);
+  try
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lSymbol := Default(TDelphiSemanticIndexedSymbol);
+    lSymbol.Name := 'Soundex';
+    lSymbol.Kind := 'routine';
+    lSymbol.UnitName := 'NumericProbe';
+    lSymbol.FileName := lFile;
+    lCount := 0;
+    for lGap in TDelphiSemanticUsageFinder.PossibleImportGaps(lContext, lSymbol, ['Soundex', 'RenamedSoundex']) do
+      if lGap.Reason = 'string-constant-value-unproved' then
+        Inc(lCount);
+    Assert.AreEqual(aExpected, lCount, 'Include member/anonymous scopes must retain the string witness.');
   finally
     lContext.ProjectSnapshot := nil;
     lSnapshot.Free;

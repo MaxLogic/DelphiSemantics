@@ -2284,6 +2284,9 @@ var
       end;
       if lAnonymousMethodPresence[aUnitIndex] = 1 then
         Exit(True);
+      // Include positions cannot be compared to a main-unit anonymous span.
+      if (aFileName = '') or (aLine <= 0) then
+        Exit;
       // The retained target resolver does not model anonymous-method locals.
       // A physical match cannot repair that scope gap. Unknown spans refuse
       // the unit; known spans refuse only operands in the anonymous method.
@@ -2373,6 +2376,13 @@ var
       lToken := Copy(aIdentifier, lDot + 1, MaxInt);
       if not SameText(lConstants[aIndex].FileName, SnapshotText(aSnapshot, lUnit.FileNameId)) then
       begin
+        // A physical include position has no main-unit scope coordinate.
+        // Refuse qualified operands and any unit containing WITH or anonymous
+        // methods; bare-name lookup cannot certify those scopes (numeric R4).
+        if (lDot <> 0) or (lUnit.WithStatementCount <> 0) or
+          not NumericOperandScopeAvailable(lConstants[aIndex].UnitIndex,
+            lUnitFacts[lConstants[aIndex].UnitIndex], '', 0) then
+          Exit;
         // Include witnesses have no raw-unit offset. Join every retained
         // occurrence of the operand in that physical include; one unknown or
         // nonnumeric binding withholds type proof. No value is folded here.

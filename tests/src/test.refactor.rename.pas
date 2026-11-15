@@ -3693,14 +3693,16 @@ begin
   Assert.AreEqual(SortedKeysText(['uinc.pas:4:3', 'uinc.pas:17:11', 'uinc.pas:25:20']),
     SortedKeysText(PlanEditKeys(lPlan)), 'Only the unit''s own GA occurrences are edits.');
   // DS-772: an absent uncertified symbol leaves line 13 possible; includes still refuse.
-  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'inner.inc:1:3', 'inner.inc:1:9', 'uinc.pas:13:3']),
+  // Numeric R4: incomplete include scope cannot certify aValue + GB as numeric.
+  // Keep its string-value refusal at the unknown physical include position.
+  Assert.AreEqual(SortedKeysText(['body.inc:1:3', 'decl.inc:0:0', 'inner.inc:1:3', 'inner.inc:1:9', 'uinc.pas:13:3']),
     SortedKeysText(PlanUnresolvedKeys(lPlan)));
 
   lPlan := PlanCompletenessRename(lRoot, 'UInc.pas', 4, 7, 'GBeta');
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual(SortedKeysText(['uinc.pas:4:7', 'uinc.pas:21:3']),
     SortedKeysText(PlanEditKeys(lPlan)));
-  Assert.AreEqual(SortedKeysText(['body.inc:1:9', 'decl.inc:3:22', 'inner.inc:1:14']),
+  Assert.AreEqual(SortedKeysText(['body.inc:1:9', 'decl.inc:0:0', 'decl.inc:3:22', 'inner.inc:1:14']),
     SortedKeysText(PlanUnresolvedKeys(lPlan)));
 end;
 
@@ -3744,7 +3746,8 @@ begin
   Assert.AreEqual('incomplete', lPlan.Status, lPlan.Diagnostic);
   Assert.AreEqual('uinc.pas:25:13', SortedKeysText(PlanEditKeys(lPlan)),
     'The include directive on line 9 must never be edited.');
-  Assert.AreEqual('decl.inc:1:10', SortedKeysText(PlanUnresolvedKeys(lPlan)));
+  // Numeric R4 retains the include expression when its scope facts are incomplete.
+  Assert.AreEqual('decl.inc:0:0 decl.inc:1:10', SortedKeysText(PlanUnresolvedKeys(lPlan)));
 end;
 
 procedure TRenameCompletenessTests.RefusesEditAtPositionThatDoesNotHoldTheName;
