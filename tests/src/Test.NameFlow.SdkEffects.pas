@@ -12,6 +12,7 @@ type
   private
     function ArtifactRequest(out aArtifact: string): TNameSdkGenerationRequest;
   public
+    [Test] procedure SdkConsumerBuildsRequiredFactsFromCoreRequest;
     [Test] procedure CompletePassiveCandidateJoin;
     [Test] procedure ConsumerSurvivesCandidateJoin;
     [Test] procedure IncompleteAndEmptyCandidatesStayOpaque;
@@ -57,6 +58,31 @@ begin
   Result.Configuration := 'Debug';
   SetLength(Result.UnitOptions, 1);
   Result.UnitOptions[0].SourceFileName := lSource;
+end;
+
+procedure TSdkEffectsTests.SdkConsumerBuildsRequiredFactsFromCoreRequest;
+var
+  g: TGarbos;
+  lRequest: TNameSdkGenerationRequest;
+  lCore, lRich: TNameSdkCatalog;
+  lArtifact: string;
+begin
+  lRequest := ArtifactRequest(lArtifact);
+  lRequest.UnitOptions[0].SkipNameFlowFacts := True;
+  GC(lCore, TNameSdkCatalog.Create(lRequest), g);
+  lCore.Generate;
+  Assert.IsTrue(lCore.Validated, lCore.Reason);
+  Assert.IsTrue(lCore.Statistics.FactNodes > 0,
+    'SDK effects consume name-flow facts and must build them even from core-only options.');
+  Assert.AreEqual(1, lCore.Statistics.CoveredSourceCount);
+  Assert.IsTrue(lCore.Save(lArtifact), lCore.CacheReason);
+  lRequest.UnitOptions[0].SkipNameFlowFacts := False;
+  GC(lRich, TNameSdkCatalog.Create(lRequest), g);
+  Assert.AreEqual(lCore.ArtifactKey, lRich.ArtifactKey,
+    'SDK effects always use the rich capability, independently of the caller model projection.');
+  Assert.IsTrue(lRich.TryLoad(lArtifact), lRich.CacheReason);
+  Assert.AreEqual(lCore.Statistics.FactNodes, lRich.Statistics.FactNodes);
+  Assert.AreEqual(lCore.Identity, lRich.Identity);
 end;
 
 procedure RewriteArtifactCountWithValidDigest(const aFileName: string);

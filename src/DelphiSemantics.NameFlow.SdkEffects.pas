@@ -821,6 +821,8 @@ begin
         Progress('unit-skipped', lOptions.SourceFileName, 0);
         Continue;
       end;
+      // SDK effects consume runtime-name facts even if the caller requested a core model.
+      lOptions.SkipNameFlowFacts := False;
       lOptions.SkipBodyAnalysis := False;
       lOptions.SkipReferenceExtraction := False;
       lOptions.WithStatementsOnly := False;
