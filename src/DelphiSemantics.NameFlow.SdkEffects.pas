@@ -1026,8 +1026,18 @@ begin
   end;
 end;
 
-function SdkSelectionIsUnique(const aProject: TDelphiSemanticProjectInfo;
-  const aImportName, aSelectedDcu, aPairedSource: string;
+function IsDefaultLanguageSdkDcu(const aFileName, aLibraryRoot: string): Boolean;
+var
+  lDirectory: string;
+begin
+  lDirectory := TPath.GetDirectoryName(TPath.GetFullPath(aFileName));
+  Result := SameText(TPath.GetExtension(aFileName), '.dcu') and
+    (SameText(lDirectory, TPath.Combine(aLibraryRoot, 'release')) or
+    SameText(lDirectory, TPath.Combine(aLibraryRoot, 'debug')));
+end;
+
+function SdkSelectionSharesPinnedSource(const aProject: TDelphiSemanticProjectInfo;
+  const aImportName, aSelectedDcu, aPairedSource, aLibraryRoot: string;
   const aDirectories: TObjectDictionary<string, THashSet<string>>): Boolean;
 var
   lName: TUnitCandidateName;
@@ -1035,11 +1045,14 @@ var
   lNames: THashSet<string>;
   lSelectedFound: Boolean;
 begin
-  // DS-814 deliberately requires uniqueness until DS-818 supplies compiler
-  // resolution. A source under any candidate name/path can beat an SDK DCU.
-  // The only admitted files are the selected DCU and its pinned paired source.
+  // DS-814 permits only one pinned source until DS-818 supplies compiler
+  // resolution. Debug/release DCUs of the same unit in this certified SDK
+  // share its uniquely mapped source. Other names, SDKs and source copies
+  // refuse, regardless of ordering. The source hash is retained for publication.
   // One complete listing per exact path serves every query in this command.
-  if not SameText(TPath.GetExtension(aSelectedDcu), '.dcu') then
+  if not IsDefaultLanguageSdkDcu(aSelectedDcu, aLibraryRoot) or
+    not SameText(TPath.GetFileNameWithoutExtension(aSelectedDcu),
+      TPath.GetFileNameWithoutExtension(aPairedSource)) then
     Exit(False);
   lSelectedDcu := TPath.GetFullPath(aSelectedDcu);
   lPairedSource := TPath.GetFullPath(aPairedSource);
@@ -1058,9 +1071,14 @@ begin
       if lNames.Contains(lName.TargetName + '.dcu') then
       begin
         lFileName := TPath.GetFullPath(TPath.Combine(lPath, lName.TargetName + '.dcu'));
-        if not SameText(lFileName, lSelectedDcu) then
+        // The directory identifies this SDK/platform/default-language build;
+        // the identical canonical unit name identifies the same unique source.
+        if not IsDefaultLanguageSdkDcu(lFileName, aLibraryRoot) or
+          not SameText(TPath.GetFileNameWithoutExtension(lFileName),
+            TPath.GetFileNameWithoutExtension(lSelectedDcu)) then
           Exit(False);
-        lSelectedFound := True;
+        if SameText(lFileName, lSelectedDcu) then
+          lSelectedFound := True;
       end;
     end;
   Result := lSelectedFound;
@@ -1070,7 +1088,7 @@ function TNameSdkCatalog.DeclarationSelectionsAreCurrent: Boolean;
 var
   g: TGarbos;
   lPair: TPair<string, string>;
-  lPairedSource: string;
+  lPairedSource, lLibraryRoot: string;
   lSelection: TDelphiSemanticUnitResolutionResult;
   lDirectories: TObjectDictionary<string, THashSet<string>>;
 begin
@@ -1080,15 +1098,18 @@ begin
   Result := False;
   if (fDeclarationSelections.Count > 0) and (fDeclarationDiscovery = nil) then
     Exit;
+  lLibraryRoot := TPath.Combine(TPath.Combine(TPath.GetDirectoryName(fRequest.SdkRoot), 'lib'),
+    LowerCase(fRequest.Platform));
   for lPair in fDeclarationSelections do
   begin
     lSelection := TDelphiSemanticUnitResolver.Resolve(fRequest.SelectionProject, lPair.Key);
     if not lSelection.Found or lSelection.Ambiguous or
       not fDeclarationDiscovery.TryResolveUniqueSourceFile(lSelection.CanonicalUnitName, lPairedSource) or
-      not SdkSelectionIsUnique(fRequest.SelectionProject, lPair.Key,
-        lSelection.FileName, lPairedSource, lDirectories) or
+      not SdkSelectionSharesPinnedSource(fRequest.SelectionProject, lPair.Key,
+        lSelection.FileName, lPairedSource, lLibraryRoot, lDirectories) or
       not SameText(lPair.Value, lSelection.FileName + #10 +
-        THashSHA2.GetHashStringFromFile(lSelection.FileName)) then
+        THashSHA2.GetHashStringFromFile(lSelection.FileName) + #10 + lPairedSource + #10 +
+        THashSHA2.GetHashStringFromFile(lPairedSource)) then
       Exit;
   end;
   Result := True;
@@ -1097,16 +1118,6 @@ end;
 function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName: string): Boolean;
 begin
   Result := ExcludesDeclaration(aSourceFileName, aName, TPath.GetFileNameWithoutExtension(aSourceFileName));
-end;
-
-function IsDefaultLanguageSdkDcu(const aFileName, aLibraryRoot: string): Boolean;
-var
-  lDirectory: string;
-begin
-  lDirectory := TPath.GetDirectoryName(TPath.GetFullPath(aFileName));
-  Result := SameText(TPath.GetExtension(aFileName), '.dcu') and
-    (SameText(lDirectory, TPath.Combine(aLibraryRoot, 'release')) or
-    SameText(lDirectory, TPath.Combine(aLibraryRoot, 'debug')));
 end;
 
 function TNameSdkCatalog.ExcludesDeclaration(const aSourceFileName, aName, aImportName: string): Boolean;
@@ -1179,8 +1190,8 @@ begin
     if SameText(TPath.GetExtension(lInputFileName), '.pas') and not SameText(lFileName, lInputFileName) then
       Exit;
     if not IsDefaultLanguageSdkDcu(lSelection.FileName, lLibraryRoot) or
-      not SdkSelectionIsUnique(fRequest.SelectionProject, aImportName,
-        lSelection.FileName, lFileName, fSelectionDirectories) then
+      not SdkSelectionSharesPinnedSource(fRequest.SelectionProject, aImportName,
+        lSelection.FileName, lFileName, lLibraryRoot, fSelectionDirectories) then
       Exit;
     // Retain the actual selected artifact, including DCU bytes, for publication
     // revalidation. Duplicate language/platform sources already refused above.
@@ -1188,7 +1199,8 @@ begin
     // replace it, even if the file changes before a different name is queried.
     if not fDeclarationSelections.ContainsKey(aImportName) then
       fDeclarationSelections.Add(aImportName, lSelection.FileName + #10 +
-        THashSHA2.GetHashStringFromFile(lSelection.FileName));
+        THashSHA2.GetHashStringFromFile(lSelection.FileName) + #10 + lFileName + #10 +
+        THashSHA2.GetHashStringFromFile(lFileName));
     if not fDeclarationModels.TryGetValue(lFileName, lModel) then
     begin
       // Reuse the ordinary SDK declaration extractor, without project defines

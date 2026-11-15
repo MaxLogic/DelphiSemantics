@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- SDK declaration absence permits certified Debug/Release DCUs only when all candidates share the same pinned SDK source (DS-814).
+
 - SDK declaration absence requires the selected default-language DCU and its paired source to be the only possible unit artifacts across all compiler selection paths (DS-814).
 
 - Snapshot cache entries include the complete identifier analysis projection, preserving cached/fresh runtime-name witness parity across different rename queries (DS-814).

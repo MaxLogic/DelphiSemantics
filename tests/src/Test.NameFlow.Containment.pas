@@ -46,6 +46,10 @@ type
     [TestCase('SDK source outside pin', 'outside')]
     [TestCase('SDK compiler selection unavailable', 'selection-missing')]
     [TestCase('SDK compiler selection shadowed', 'selection-shadow')]
+    [TestCase('Certified debug and release share one SDK source', 'sdk-debug-release')]
+    [TestCase('SDK-named DCU outside installation refuses', 'sdk-outside-dcu')]
+    [TestCase('SDK source copy anywhere refuses', 'sdk-copy-pas')]
+    [TestCase('SDK pair publication source copy refuses', 'sdk-pair-publication')]
     [TestCase('Selected name source at later path refuses', 'samepas-3')]
     [TestCase('Later scope source refuses', 'laterscope-3')]
     [TestCase('Later scope DCU refuses', 'laterdcu-3')]
@@ -2516,6 +2520,20 @@ begin
     TFile.WriteAllText(lSdkTarget, 'closed generated SDK artifact', TEncoding.ASCII);
     lRequest.SelectionProject.SearchPaths := [ExtractFileDir(lSdkTarget)];
   end;
+  if MatchText(aCase, ['sdk-debug-release', 'sdk-outside-dcu', 'sdk-copy-pas', 'sdk-pair-publication']) then
+  begin
+    lShadowDirectory := TPath.Combine(lRoot, 'lib\win32\debug');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    TFile.Copy(lSdkTarget, TPath.Combine(lShadowDirectory, 'System.Later.dcu'));
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    lShadowDirectory := TPath.Combine(lRoot, 'external');
+    TDirectory.CreateDirectory(lShadowDirectory);
+    lRequest.SelectionProject.SearchPaths := lRequest.SelectionProject.SearchPaths + [lShadowDirectory];
+    if aCase = 'sdk-outside-dcu' then
+      TFile.Copy(lSdkTarget, TPath.Combine(lShadowDirectory, 'System.Later.dcu'))
+    else if aCase = 'sdk-copy-pas' then
+      TFile.Copy(lSdkFile, TPath.Combine(lShadowDirectory, 'System.Later.pas'));
+  end;
   if MatchText(aCase, ['samepas-3', 'laterscope-3', 'laterdcu-3', 'aliaslater-3',
     'publication-3', 'sdk-source-pair']) then
   begin
@@ -2682,8 +2700,19 @@ begin
       if lGap.Reason = 'string-constant-evaluator-unsupported' then
         lFound := True;
     Assert.AreEqual(not MatchText(aCase, ['absent', 'unsupported', 'precompiled',
-      'directory-snapshot', 'selection-baseline', 'publication-3', 'sdk-source-pair']), lFound,
+      'directory-snapshot', 'selection-baseline', 'publication-3', 'sdk-source-pair',
+      'sdk-debug-release', 'sdk-pair-publication']), lFound,
       'Only pinned source proving the later SDK export absent permits the earlier constant binding.');
+    if aCase = 'sdk-debug-release' then
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis,
+        'Both certified SDK DCUs retain their common pinned source at publication.');
+    if aCase = 'sdk-pair-publication' then
+    begin
+      Assert.IsTrue(lSdk.InputsUnchangedSinceAnalysis);
+      TFile.Copy(lSdkFile, TPath.Combine(lShadowDirectory, 'System.Later.pas'));
+      Assert.IsFalse(lSdk.InputsUnchangedSinceAnalysis,
+        'A source copy added anywhere invalidates the paired SDK proof at publication.');
+    end;
     if aCase = 'publication-3' then
     begin
       TFile.WriteAllText(TPath.Combine(lShadowDirectory, 'Winapi.Later.pas'),
