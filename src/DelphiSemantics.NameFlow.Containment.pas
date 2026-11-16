@@ -294,6 +294,8 @@ var
   lFacts: IDelphiNameFlowFacts;
   lNode, lType: TDelphiNameFlowNode;
   lKind: string;
+  lAttribute: TDelphiNameFlowAttribute;
+  lHasTypeKind: Boolean;
   i, j, lChild, lMatches: Integer;
 begin
   Result := '';
@@ -319,6 +321,7 @@ begin
       // Public queries may omit coordinates. In that case only a unique
       // physical declaration can refine the kind. Includes belong to their
       // declaring file even when their facts are stored in the parent unit.
+      // When nested-type selection is added, also match the owning type.
       if (lNode.SyntaxKind <> 'typedecl') or not SameText(lNode.Name, aName) or
         not SameText(lNode.FileName, aFileName) or
         ((aLine > 0) and (lNode.Line <> aLine)) then
@@ -335,6 +338,15 @@ begin
           lKind := lType.TypeName;
           if lKind = '' then
             lKind := lType.Name;
+          // Name-only type nodes reference aliases or simple non-class forms.
+          // Keep that evidence distinct from an unrecognized structured kind.
+          lHasTypeKind := False;
+          for lAttribute in lType.Attributes do
+            if SameText(lAttribute.Name, 'type') and (lAttribute.Value <> '') then
+              lHasTypeKind := True;
+          if not lHasTypeKind and (lType.Name <> '') and
+            not MatchText(lKind, ['enum', 'subrange', 'procedure', 'function']) then
+            lKind := 'alias';
           Break;
         end;
       end;
@@ -1223,11 +1235,12 @@ var
       Exit;
     lReceiver := lFacts.NodeById(lSelector.Children[0]);
     lOwner := ReceiverType(lReceiver, 0);
-    if (aTargetKind = TNameEffectTargetKind.ClassType) and
-      MatchText(lName, ['ClassName', 'QualifiedClassName', 'UnitName', 'UnitScope', 'ToString']) then
-      Exit(TypeCanExposeRenamedClass(aSnapshot, lUnit, lClassLineages, lClassLineageComplete,
-        aNames, StaticExpressionType(aSnapshot, lUnit, lFacts, lReceiver, 0)));
-    if (aTargetKind = TNameEffectTargetKind.Member) and
+    if (aTargetKind in [TNameEffectTargetKind.ClassType, TNameEffectTargetKind.Unknown]) and
+      MatchText(lName, ['ClassName', 'QualifiedClassName', 'UnitName', 'UnitScope', 'ToString']) and
+      TypeCanExposeRenamedClass(aSnapshot, lUnit, lClassLineages, lClassLineageComplete,
+        aNames, StaticExpressionType(aSnapshot, lUnit, lFacts, lReceiver, 0)) then
+      Exit(True);
+    if (aTargetKind in [TNameEffectTargetKind.Member, TNameEffectTargetKind.Unknown]) and
       MatchText(lName, ['ObjectToJsonString', 'ObjectToJsonObject']) and
       SameText(DottedName(lReceiver, 0), 'TJson') and ImportedSdk('REST.Json') and
       NoProjectShadow('TJson') then
@@ -1235,7 +1248,8 @@ var
     // TValue.From<T>(...).ToString exposes an enum value's name. Its nested
     // generic call is retained in the complete runtime AST even in lean models.
     if not SameText(lName, 'ToString') or
-      not (aTargetKind in [TNameEffectTargetKind.EnumType, TNameEffectTargetKind.EnumElement]) or
+      not (aTargetKind in [TNameEffectTargetKind.EnumType, TNameEffectTargetKind.EnumElement,
+        TNameEffectTargetKind.Unknown]) or
       not ImportedSdk('System.Rtti') or not NoProjectShadow('TValue') then
       Exit;
     lPending := [lReceiver.Id];
@@ -1508,7 +1522,7 @@ begin
         begin
           // Handler closure is a later slice. A possible class observation
           // includes re-raise and diagnostics for handlers and checked casts.
-          if aTargetKind = TNameEffectTargetKind.ClassType then
+          if aTargetKind in [TNameEffectTargetKind.ClassType, TNameEffectTargetKind.Unknown] then
           begin
             Inc(Result.Statistics.LanguageRoots);
             if lNode.SyntaxKind = 'raise' then
