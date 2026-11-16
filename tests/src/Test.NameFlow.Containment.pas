@@ -84,6 +84,101 @@ type
     [TestCase('Strict', 'False')]
     [TestCase('Risk', 'True')]
     [Test] procedure LogicalFactsBudgetIgnoresCompactEncoding(const aAcceptRisk: Boolean);
+    [TestCase('full', 'False,False')]
+    [TestCase('lean', 'True,False')]
+    [TestCase('full include', 'False,True')]
+    [TestCase('lean include', 'True,True')]
+    [Test] procedure PersistentClassDeclarationKeepsKnownConsumers(const aLean, aInclude: Boolean);
+    [TestCase('class GetClass', '0,0,True')]
+    [TestCase('class FindType', '0,1,True')]
+    [TestCase('class MethodAddress', '0,2,False')]
+    [TestCase('class GetPropInfo', '0,3,False')]
+    [TestCase('class FindResource', '0,4,True')]
+    [TestCase('record GetClass', '5,0,False')]
+    [TestCase('record FindType', '5,1,True')]
+    [TestCase('record MethodAddress', '5,2,False')]
+    [TestCase('record GetPropInfo', '5,3,False')]
+    [TestCase('record FindResource', '5,4,True')]
+    [TestCase('enum GetClass', '2,0,False')]
+    [TestCase('enum FindType', '2,1,True')]
+    [TestCase('enum MethodAddress', '2,2,False')]
+    [TestCase('enum GetPropInfo', '2,3,False')]
+    [TestCase('enum FindResource', '2,4,True')]
+    [TestCase('interface GetClass', '5,0,False')]
+    [TestCase('interface FindType', '5,1,True')]
+    [TestCase('interface MethodAddress', '5,2,False')]
+    [TestCase('interface GetPropInfo', '5,3,False')]
+    [TestCase('interface FindResource', '5,4,True')]
+    [TestCase('method GetClass', '4,0,False')]
+    [TestCase('method FindType', '4,1,False')]
+    [TestCase('method MethodAddress', '4,2,True')]
+    [TestCase('method GetPropInfo', '4,3,True')]
+    [TestCase('method FindResource', '4,4,True')]
+    [TestCase('property GetClass', '4,0,False')]
+    [TestCase('property FindType', '4,1,False')]
+    [TestCase('property MethodAddress', '4,2,True')]
+    [TestCase('property GetPropInfo', '4,3,True')]
+    [TestCase('property FindResource', '4,4,True')]
+    [TestCase('field GetClass', '4,0,False')]
+    [TestCase('field FindType', '4,1,False')]
+    [TestCase('field MethodAddress', '4,2,True')]
+    [TestCase('field GetPropInfo', '4,3,True')]
+    [TestCase('field FindResource', '4,4,True')]
+    [TestCase('unit GetClass', '1,0,False')]
+    [TestCase('unit FindType', '1,1,True')]
+    [TestCase('unit MethodAddress', '1,2,False')]
+    [TestCase('unit GetPropInfo', '1,3,False')]
+    [TestCase('unit FindResource', '1,4,True')]
+    [TestCase('const GetClass', '5,0,False')]
+    [TestCase('const FindType', '5,1,True')]
+    [TestCase('const MethodAddress', '5,2,False')]
+    [TestCase('const GetPropInfo', '5,3,False')]
+    [TestCase('const FindResource', '5,4,True')]
+    [TestCase('var GetClass', '5,0,False')]
+    [TestCase('var FindType', '5,1,True')]
+    [TestCase('var MethodAddress', '5,2,False')]
+    [TestCase('var GetPropInfo', '5,3,False')]
+    [TestCase('var FindResource', '5,4,True')]
+    [TestCase('OtherType GetClass', '5,0,False')]
+    [TestCase('OtherType FindType', '5,1,True')]
+    [TestCase('OtherType MethodAddress', '5,2,False')]
+    [TestCase('OtherType GetPropInfo', '5,3,False')]
+    [TestCase('OtherType FindResource', '5,4,True')]
+    [TestCase('unknown GetClass', '7,0,True')]
+    [TestCase('unknown FindType', '7,1,True')]
+    [TestCase('unknown MethodAddress', '7,2,True')]
+    [TestCase('unknown GetPropInfo', '7,3,True')]
+    [TestCase('unknown FindResource', '7,4,True')]
+    [TestCase('unknown SetEnumProp value', '7,5,True')]
+    [TestCase('EnumElement domain 0', '3,0,False')]
+    [TestCase('EnumElement domain 1', '3,1,False')]
+    [TestCase('EnumElement domain 2', '3,2,False')]
+    [TestCase('EnumElement domain 3', '3,3,False')]
+    [TestCase('EnumElement domain 4', '3,4,True')]
+    [TestCase('Routine domain 0', '6,0,False')]
+    [TestCase('Routine domain 1', '6,1,False')]
+    [TestCase('Routine domain 2', '6,2,False')]
+    [TestCase('Routine domain 3', '6,3,False')]
+    [TestCase('Routine domain 4', '6,4,True')]
+    [TestCase('EnumElement GetEnumValue', '3,7,True')]
+    [TestCase('EnumElement SetEnumProp value', '3,5,True')]
+    [TestCase('Routine GetProcAddress', '6,6,True')]
+    [TestCase('unknown GetProcAddress', '7,6,True')]
+    [Test] procedure TargetConsumerDomains(const aKind, aConsumer: Integer; const aExpected: Boolean);
+    [TestCase('ClassName', '0,0')]
+    [TestCase('QualifiedClassName', '1,0')]
+    [TestCase('UnitName', '2,0')]
+    [TestCase('UnitScope', '3,0')]
+    [TestCase('Object ToString', '4,0')]
+    [TestCase('TJson string', '5,4')]
+    [TestCase('TJson object', '6,4')]
+    [TestCase('TValue ToString', '7,2')]
+    [TestCase('raise', '8,0')]
+    [TestCase('TValue after unrelated class control', '9,2')]
+    [Test] procedure UnknownRetainsConcreteObservations(const aProducer, aConcreteKind: Integer);
+    [TestCase('builtin alias', 'Integer')]
+    [TestCase('class alias', 'TCount')]
+    [Test] procedure AliasDeclarationHasKnownNonClassKind(const aAlias: string);
     [Test] procedure MissingFactsRefuse;
     [Test] procedure ScopedLookupHonorsUsesOrder;
     [Test] procedure ImportedRoutineVariableCannotUseLaterRoutineExemption;
@@ -1618,6 +1713,204 @@ begin
         lSnapshot.Free;
       end;
     end;
+end;
+
+procedure TNameFlowContainmentTests.UnknownRetainsConcreteObservations(
+  const aProducer, aConcreteKind: Integer);
+const
+  cStatements: array[0..9] of string = ('WriteLn(aValue.ClassName);',
+    'WriteLn(aValue.QualifiedClassName);', 'WriteLn(aValue.UnitName);',
+    'WriteLn(aValue.UnitScope);', 'WriteLn(aValue.ToString);',
+    'TJson.ObjectToJsonString(aValue);', 'TJson.ObjectToJsonObject(aValue);',
+    'WriteLn(TValue.From<TChoice>(First).ToString);', 'raise aValue;',
+    'WriteLn(TOther.Create(TValue.From<TChoice>(First)).ToString);');
+var
+  lFile: string;
+  lNames: TArray<string>;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lImport: TDelphiSemanticImportFact;
+  lReport: TNameFlowAnalysis;
+begin
+  lNames := nil;
+  if aProducer = 9 then
+    lNames := ['TCount', 'RenamedCount'];
+  lFile := TPath.Combine(CreateTestTempRoot('ds827-unknown-observation-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10 +
+    'uses REST.Json, System.Rtti;'#13#10 +
+    'type TCount = class end;'#13#10'TChoice = (First, Second);'#13#10 +
+    'TOther = class constructor Create(aInput: TValue); end;'#13#10 +
+    'procedure Touch(aValue: TCount);'#13#10'implementation'#13#10 +
+    'constructor TOther.Create(aInput: TValue); begin inherited Create; end;'#13#10 +
+    'procedure Touch(aValue: TCount); begin ' + cStatements[aProducer] + ' end;'#13#10'end.',
+    TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lImport := Default(TDelphiSemanticImportFact);
+  lImport.SectionKind := 'interface';
+  lImport.SdkBoundary := True;
+  lImport.Name := 'REST.Json';
+  lModel.ImportFacts := [lImport];
+  lImport.Name := 'System.Rtti';
+  lModel.ImportFacts := lModel.ImportFacts + [lImport];
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    if aProducer = 9 then
+    begin
+      lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType, nil, lNames);
+      Assert.IsFalse(HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+        'The unrelated class control must fall through to the enum producer domain.');
+    end;
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind(aConcreteKind), nil, lNames);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+      'The concrete control must expose names: ' + cStatements[aProducer]);
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.Unknown, nil, lNames);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-observed'),
+      'Unknown must retain the concrete observation: ' + cStatements[aProducer]);
+    if aProducer = 8 then
+      Assert.AreEqual(1, lReport.Statistics.LanguageRoots);
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.AliasDeclarationHasKnownNonClassKind(const aAlias: string);
+var
+  lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('ds827-alias-kind-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe; interface type TCount = class end; TAlias = ' +
+    aAlias + '; implementation end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    Assert.AreEqual('alias', NameFlowDeclarationKind(lSnapshot, lFile, 'TAlias', 0));
+  finally
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.PersistentClassDeclarationKeepsKnownConsumers(
+  const aLean, aInclude: Boolean);
+var
+  lRoot, lFile, lSource, lDeclaration: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lSymbol: TDelphiSemanticSymbolQueryResult;
+begin
+  lRoot := CreateTestTempRoot('ds827-class-temp');
+  lFile := TPath.Combine(lRoot, 'NumericProbe.pas');
+  lDeclaration := 'type Soundex = class(TPersistent) end;';
+  if aInclude then
+  begin
+    TFile.WriteAllText(TPath.Combine(lRoot, 'declaration.inc'), lDeclaration, TEncoding.ASCII);
+    lDeclaration := '{$I declaration.inc}';
+  end;
+  lSource := 'unit NumericProbe;'#13#10'interface'#13#10'uses System.Classes;'#13#10 +
+    lDeclaration + #13#10'procedure Visit;'#13#10'implementation'#13#10 +
+    'type TRec = record lName: string; end; PRec = ^TRec;'#13#10 +
+    'var gArr: array[0..0] of TRec; gPtr: PRec;'#13#10 +
+    'function GetRec: TRec; begin Result.lName := ''Sound''; end;'#13#10 +
+    'procedure Visit; begin RegisterClass(Soundex);'#13#10 +
+    'GetClass(gArr[0].lName + ''ex'');'#13#10 +
+    'GetClass(gPtr^.lName + ''ex'');'#13#10 +
+    'GetClass(GetRec().lName + ''ex''); end;'#13#10'end.';
+  TFile.WriteAllText(lFile, lSource, TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.SearchPaths := [lRoot];
+  lOptions.DefineEvidenceComplete := True;
+  lOptions.SkipBodyAnalysis := aLean;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lContext := Default(TDelphiSemanticSymbolQueryContext);
+    lContext.ProjectSnapshot := BorrowProjectSnapshot(lSnapshot);
+    lSymbol := TDelphiSemanticSymbolQuery.FindDefinitionByName(lContext, 'Soundex');
+    Assert.IsTrue(lSymbol.Found);
+    lDeclaration := NameFlowDeclarationKind(lSnapshot, lSymbol.FileName, lSymbol.Name, 0);
+    lContext.ProjectSnapshot := nil;
+    Assert.AreEqual('class', lDeclaration,
+      'A TPersistent descendant must be classified from its declaration, including lean/include facts.');
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind.ClassType,
+      nil, ['Soundex', 'RenamedSoundex'], True);
+    Assert.IsTrue(HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown'));
+  finally
+    lContext.ProjectSnapshot := nil;
+    lSnapshot.Free;
+  end;
+end;
+
+procedure TNameFlowContainmentTests.TargetConsumerDomains(const aKind, aConsumer: Integer;
+  const aExpected: Boolean);
+const
+  cCalls: array[0..7] of string = ('GetClass(ParamStr(1))',
+    'lContext.FindType(ParamStr(1))', 'lObject.MethodAddress(ParamStr(1))',
+    'GetPropInfo(nil, ParamStr(1))', 'FindResource(0, ParamStr(1), nil)',
+    'SetEnumProp(nil, ''Unrelated'', ParamStr(1))', 'GetProcAddress(0, ParamStr(1))',
+    'GetEnumValue(nil, ParamStr(1))');
+var
+  lFile: string;
+  lOptions: TDelphiSemanticModelOptions;
+  lModel: TDelphiSemanticUnitModel;
+  lSnapshot: TDelphiProjectSnapshot;
+  lMetrics: TDelphiSnapshotBuilderMetrics;
+  lReport: TNameFlowAnalysis;
+  lContext: TDelphiSemanticSymbolQueryContext;
+  lPlan: TDelphiSemanticRenamePlan;
+  lAccept, lKnown: Boolean;
+begin
+  lFile := TPath.Combine(CreateTestTempRoot('ds827-domains-temp'), 'Probe.pas');
+  TFile.WriteAllText(lFile, 'unit Probe;'#13#10'interface'#13#10 +
+    'uses System.Classes, System.Rtti, System.TypInfo, Winapi.Windows;'#13#10 +
+    'procedure Touch;'#13#10'implementation'#13#10'procedure Touch; begin ' +
+    cCalls[aConsumer] + '; end;'#13#10'end.', TEncoding.ASCII);
+  lOptions := Default(TDelphiSemanticModelOptions);
+  lOptions.SourceFileName := lFile;
+  lOptions.DefineEvidenceComplete := True;
+  lModel := TDelphiSemanticUnitModelExtractor.ExtractFromFile(lOptions);
+  Assert.IsTrue(lModel.Success);
+  lSnapshot := BuildProjectSnapshotFromModels([lModel],
+    Default(TDelphiSemanticProjectWithBindingFacts), Default(TDelphiSnapshotBuildOptions), lMetrics);
+  try
+    lReport := AnalyzeNameFlowSnapshot(lSnapshot, TNameEffectTargetKind(aKind),
+      nil, ['Soundex', 'RenamedSoundex'], True);
+    lKnown := HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-unknown') or
+      HasKnownConsumerReason(lReport, 'runtime-name-known-consumer-match');
+    Assert.AreEqual(aExpected, lKnown, cCalls[aConsumer]);
+    if aExpected then
+      for lAccept in [False, True] do
+      begin
+        lContext := Default(TDelphiSemanticSymbolQueryContext);
+        lPlan := RuntimePolicyPlan;
+        lPlan.UnresolvedReferences := lReport.Gaps;
+        ApplyRenameRuntimeNameRiskPolicy(lContext, lAccept, lPlan);
+        Assert.AreEqual('incomplete', lPlan.Status);
+        Assert.IsEmpty(lPlan.ContextFingerprint);
+      end;
+  finally
+    lSnapshot.Free;
+  end;
 end;
 
 procedure TNameFlowContainmentTests.CatalogConsumerShapeValueMatrixAlwaysRefuses;

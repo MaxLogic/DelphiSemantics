@@ -5,7 +5,7 @@ unit DelphiSemantics.NameConsumers;
 interface
 
 type
-  TNameEffectTargetKind = (ClassType, UnitName, EnumType, EnumElement, Member, OtherType, Routine);
+  TNameEffectTargetKind = (ClassType, UnitName, EnumType, EnumElement, Member, OtherType, Routine, Unknown);
   TNameEffectTargetKinds = set of TNameEffectTargetKind;
   TNameEffectChannel = (NameFormal, ReceiverMetadata, ArgumentMetadata, GlobalMetadata,
     ProducedName, Store, Callback, Opaque);
@@ -92,7 +92,9 @@ end;
 
 function TNameSdkEffect.Observes(const aTarget: TNameEffectTargetKind): Boolean;
 begin
-  Result := (Channels <> []) and (aTarget in Targets);
+  // Unknown declaration kinds cannot establish that a name effect is unrelated.
+  Result := (Channels <> []) and ((aTarget in Targets) or
+    ((aTarget = TNameEffectTargetKind.Unknown) and (Targets <> [])));
 end;
 
 end.
