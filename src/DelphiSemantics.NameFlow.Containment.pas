@@ -290,37 +290,55 @@ end;
 function NameFlowDeclarationKind(const aSnapshot: TDelphiProjectSnapshot;
   const aFileName, aName: string; const aLine: Integer): string;
 var
-  lUnit: TUnitSnapshot;
+  lUnit, lRootUnit: TUnitSnapshot;
   lFacts: IDelphiNameFlowFacts;
   lNode, lType: TDelphiNameFlowNode;
-  i, j, lChild: Integer;
+  lKind: string;
+  i, j, lChild, lMatches: Integer;
 begin
   Result := '';
   if aSnapshot = nil then
     Exit;
+  lRootUnit := nil;
+  for i := 0 to aSnapshot.UnitCount - 1 do
+    if SameText(aSnapshot.TextOf(aSnapshot.UnitByIndex(i).FileNameId), aFileName) then
+    begin
+      lRootUnit := aSnapshot.UnitByIndex(i);
+      Break;
+    end;
+  lMatches := 0;
   for i := 0 to aSnapshot.UnitCount - 1 do
   begin
     lUnit := aSnapshot.UnitByIndex(i);
-    if not SameText(aSnapshot.TextOf(lUnit.FileNameId), aFileName) then
+    if (lRootUnit <> nil) and (lUnit <> lRootUnit) then
       Continue;
     lFacts := NameFlowFactsFromJson(aSnapshot.ExactTextOf(lUnit.NameFlowFactsJsonId));
     for j := 1 to lFacts.NodeCount do
     begin
       lNode := lFacts.NodeById(j);
+      // Public queries may omit coordinates. In that case only a unique
+      // physical declaration can refine the kind. Includes belong to their
+      // declaring file even when their facts are stored in the parent unit.
       if (lNode.SyntaxKind <> 'typedecl') or not SameText(lNode.Name, aName) or
-        (lNode.Line <> aLine) then
+        not SameText(lNode.FileName, aFileName) or
+        ((aLine > 0) and (lNode.Line <> aLine)) then
         Continue;
+      Inc(lMatches);
+      if lMatches > 1 then
+        Exit('');
+      lKind := '';
       for lChild in lNode.Children do
       begin
         lType := lFacts.NodeById(lChild);
         if lType.SyntaxKind = 'type' then
         begin
-          Result := lType.TypeName;
-          if Result = '' then
-            Result := lType.Name;
-          Exit;
+          lKind := lType.TypeName;
+          if lKind = '' then
+            lKind := lType.Name;
+          Break;
         end;
       end;
+      Result := lKind;
     end;
   end;
 end;
@@ -1100,6 +1118,12 @@ var
     begin
       aDescription.Precision.FormalOrdinal := 3;
       aDescription.Targets := [TNameEffectTargetKind.EnumType, TNameEffectTargetKind.EnumElement];
+    end else if Result and (aTargetKind = TNameEffectTargetKind.Unknown) and
+      MatchText(aQualifiedName, ['System.TypInfo.SetEnumProp', 'System.TypInfo.SetSetProp']) then
+    begin
+      // An unavailable kind may denote either the property or its enum/set
+      // value type. Both name formals remain possible until classification.
+      aDescription.Precision.FormalOrdinal := -1;
     end;
   end;
 
@@ -1130,7 +1154,8 @@ var
         lQualified := lQualified + '.' + lOwner;
       lQualified := lQualified + '.' + lCallee.Name;
       if DescribeKnownConsumer(lQualified, aDescription) then
-        Exit(aTargetKind in aDescription.Targets);
+        Exit((aTargetKind = TNameEffectTargetKind.Unknown) or
+          (aTargetKind in aDescription.Targets));
     end;
     lSelector := lCallee;
     while (lSelector.ParentId > 0) and
@@ -1139,7 +1164,7 @@ var
     // SDK constructors are absent from lean project bindings. Until their
     // overload set is bound, every constructor on this descendant lineage is
     // a hard candidate, including inherited and class-reference construction.
-    if (aTargetKind = TNameEffectTargetKind.ClassType) and
+    if (aTargetKind in [TNameEffectTargetKind.ClassType, TNameEffectTargetKind.Unknown]) and
       not EndsText('TResourceStream.Create', DottedName(lSelector, 0)) and
       lConstructorNames.ContainsKey(LowerCase(lCallee.Name)) and
       ResourceStreamConstructorCandidate(aSnapshot, lUnit, lFacts,
@@ -1155,7 +1180,8 @@ var
         not EndsText('TResourceStream.Create', DottedName(lSelector, 0)) then
         Continue;
       if DescribeKnownConsumer(lPrefix + '.' + lCallee.Name, lCandidate) and
-        (aTargetKind in lCandidate.Targets) then
+        ((aTargetKind = TNameEffectTargetKind.Unknown) or
+        (aTargetKind in lCandidate.Targets)) then
       begin
         if SameText(lPrefix, 'System.TypInfo') and
           (aTargetKind = TNameEffectTargetKind.Member) and

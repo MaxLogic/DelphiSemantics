@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Rename correctly classifies class declarations when query coordinates are omitted, including declarations in include files. Unavailable target kinds retain known runtime-name consumer refusals in strict and risk modes (DS-827).
+
 - Strict runtime-name analysis requires a verified physical-to-reference binding before using numeric operand types, retains anonymous-method scope gaps, and refuses pointer-based string arithmetic (DS-803/DS-692).
 - Runtime-name analysis applies its facts budget to the expanded logical facts. Compact cache encoding no longer changes which units receive hard budget refusals (DS-803).
 
