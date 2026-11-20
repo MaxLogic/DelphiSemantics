@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Delphi parsing accepts closing multiline-string quotes at the start of a line, keeps line numbers after multiline strings with LF line endings, and parses calling conventions on anonymous methods and `reference to` types, `[unsafe]` attributes, `end align(...)`, parenthesized and decimal `{$IF}` operands. Previously refused Delphi 12 RTL units such as `Winapi.Windows`, `System.Rtti` and `Vcl.Edge` now parse (DS-832).
+
 - Runtime-name analysis retains producer and raise observations for unknown targets and distinguishes name-only aliases from structured declaration kinds (DS-827 follow-up).
 
 - Rename correctly classifies class declarations when query coordinates are omitted, including declarations in include files. Unavailable target kinds retain known runtime-name consumer refusals in strict and risk modes (DS-827).

@@ -2,10 +2,17 @@
 
 ## DelphiAST
 
-Pinned commit: `d07a36411262e6230516b66178c9474ecfc7a467` (DS-812).
-The upstream base and lexer delta are documented in `lib/DelphiAST/VENDOR-NOTES.md`.
+Pinned commit: `791950b5f493217813977d70b7dd4b602bb1bb7f` (DS-832; candidate branch
+`eval/ds832`, to be published on the fork's `maxlogic` branch).
+The upstream base, the adopted upstream pull requests (#337, #346, #350) and the
+pull requests not adopted are documented in `lib/DelphiAST/VENDOR-NOTES.md`.
 
-The terminal-NUL guard also changes the malformed-input case of a NUL embedded
-inside a multiline string: the scan now ends with "Unterminated string" instead
-of skipping past the NUL. The next iteration's `#0` branch exits the loop.
-This supplement records that behavior while preserving the pinned vendor commit.
+Upstream #337 replaces the earlier local DS-812 terminal-NUL guard. A NUL
+embedded inside a multiline string still ends the scan with "Unterminated
+string": the scanner no longer skips any character, so the `#0` branch exits
+the loop.
+
+DelphiSemantics model extraction parses its own preprocessor output, so the
+lexer's `$IF` evaluator (changed by #346 and #350) does not select branches
+there. It does in the dependency-graph `TProjectIndexer` used by project
+sessions.
