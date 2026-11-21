@@ -56,3 +56,7 @@ dunitx-results.xml
 .codex/
 __pycache__/
 .claude/skills/
+
+# Test build output folder (exe, dcu and test temp folders), ignored as a folder
+# so worktree cleanup can declare it; tests/bin/.gitignore and .gitkeep stay tracked
+/tests/bin/
